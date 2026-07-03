@@ -34,5 +34,9 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
+    'iprog_sms' => [
+        'api_token' => env('IPROG_SMS_API_TOKEN'),
+        'base_url'  => env('IPROG_SMS_BASE_URL', 'https://sms.iprogtech.com/api/v1'),
+    ],
 
 ];

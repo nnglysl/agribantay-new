@@ -4,7 +4,7 @@ import api from '../api/axios'
 import { setAuth } from '../utils/auth'
 
 export default function Login() {
-  const [email, setEmail] = useState('')
+  const [login, setLogin] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
@@ -17,10 +17,15 @@ export default function Login() {
     setLoading(true)
 
     try {
-      const res = await api.post('/login', { email, password })
+      const res = await api.post('/login', { login, password })
       const { token, user } = res.data
 
       setAuth(token, user)
+
+      if (user.must_change_password) {
+        navigate('/change-password')
+        return
+      }
 
       if (user.role === 'admin') navigate('/admin/dashboard')
       else if (user.role === 'farm_owner') navigate('/farmowner/dashboard')
@@ -67,12 +72,12 @@ export default function Login() {
             )}
 
             <div style={styles.fieldGroup}>
-              <label style={styles.label}>Email Address</label>
+              <label style={styles.label}>Email or Mobile Number</label>
               <input
-                type="email"
-                placeholder="Enter your email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
+                type="text"
+                placeholder="Enter your email or mobile number"
+                value={login}
+                onChange={e => setLogin(e.target.value)}
                 style={styles.input}
                 required
               />

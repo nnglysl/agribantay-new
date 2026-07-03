@@ -18,7 +18,7 @@ class PoultryHouse extends Model
         return $this->belongsTo(Farm::class);
     }
 
-    public function sensorReading()
+    public function sensorReadings()
     {
         return $this->hasMany(SensorReading::class);
     }

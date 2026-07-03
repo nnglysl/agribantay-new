@@ -18,6 +18,7 @@ class Farm extends Model
         'num_birds',
         'farm_size',
         'status',
+        'current_status',
     ];
 
     public function user()
@@ -30,7 +31,7 @@ class Farm extends Model
         return $this->hasMany(PoultryHouse::class);
     }
 
-    public function sensorReading()
+    public function sensorReadings()
     {
         return $this->hasMany(SensorReading::class);
     }
@@ -38,10 +39,5 @@ class Farm extends Model
     public function serviceRequests()
     {
         return $this->hasMany(ServiceRequest::class);
-    }
-
-    public function inspections()
-    {
-        return $this->hasMany(Inspection::class);
     }
 }

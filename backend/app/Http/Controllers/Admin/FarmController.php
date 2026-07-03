@@ -6,8 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Models\Farm;
 use App\Models\User;
 use App\Models\ActivityLog;
+use App\Services\SmsService;
+use App\Services\FarmStatusService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Auth;
+
 class FarmController extends Controller
 {
     public function index(Request $request)
@@ -31,7 +35,13 @@ class FarmController extends Controller
             });
         }
 
-        $farms = $query->latest()->get()->map(function ($farm) {
+        $farms = $query->latest()->get();
+
+        foreach ($farms as $farm) {
+            app(FarmStatusService::class)->syncStatus($farm);
+        }
+
+        $farms = $farms->map(function ($farm) {
             $latestReading = $farm->sensorReadings->first();
             return [
                 'id'          => $farm->id,
@@ -43,6 +53,7 @@ class FarmController extends Controller
                 'num_birds'   => $farm->num_birds,
                 'farm_size'   => $farm->farm_size,
                 'status'      => $farm->status,
+                'current_status' => $farm->current_status,
                 'ammonia'     => $latestReading?->ammonia,
                 'ammonia_status' => $latestReading?->ammonia_status,
                 'sensor_status'  => $latestReading?->ammonia_status ?? 'Offline',
@@ -57,21 +68,22 @@ class FarmController extends Controller
         $request->validate([
             'first_name'    => 'required|string',
             'last_name'     => 'required|string',
-            'mobile_number' => 'required|string',
+            'mobile_number' => 'required|string|unique:users,mobile_number',
             'farm_name'     => 'required|string',
             'barangay'      => 'required|string',
             'farm_size'     => 'required|in:Small,Semi-Commercial,Commercial',
         ]);
 
-        $tempPassword = 'password';
+        $tempPassword = Str::random(10);
+
         $user = User::create([
-            'first_name'    => $request->first_name,
-            'last_name'     => $request->last_name,
-            'email'         => strtolower($request->first_name . '.' . $request->last_name) . '@agribantay.gov.ph',
-            'mobile_number' => $request->mobile_number,
-            'password'      => bcrypt($tempPassword),
-            'role'          => 'farm_owner',
-            'status'        => 'active',
+            'first_name'           => $request->first_name,
+            'last_name'            => $request->last_name,
+            'mobile_number'        => $request->mobile_number,
+            'password'             => bcrypt($tempPassword),
+            'role'                 => 'farm_owner',
+            'status'               => 'active',
+            'must_change_password' => true,
         ]);
 
         $farm = Farm::create([
@@ -84,6 +96,15 @@ class FarmController extends Controller
             'status'        => 'Active',
         ]);
 
+        $smsMessage = "Welcome to AgriBantay, {$request->first_name}! Your account is ready. Temporary password: {$tempPassword}. You will be asked to set a new password on your first visit to the AgriBantay portal.";
+
+        $smsSent = app(SmsService::class)->send(
+            $request->mobile_number,
+            $smsMessage,
+            'Account Creation',
+            $user->id
+        );
+
         ActivityLog::create([
             'user_id' => Auth::id(),
             'role'    => 'admin',
@@ -93,9 +114,40 @@ class FarmController extends Controller
         ]);
 
         return response()->json([
-            'success' => true,
-            'message' => 'Farm owner and farm created successfully.',
-            'data'    => ['user' => $user, 'farm' => $farm],
+            'success'  => true,
+            'message'  => 'Farm owner and farm created successfully.',
+            'sms_sent' => $smsSent,
+            'data'     => ['user' => $user, 'farm' => $farm],
+        ]);
+    }
+
+    public function resendSms(int $userId)
+    {
+        $user = User::where('id', $userId)->where('role', 'farm_owner')->firstOrFail();
+
+        $newPassword = Str::random(10);
+        $user->update(['password' => bcrypt($newPassword), 'must_change_password' => true]);
+
+        $smsMessage = "Your new AgriBantay temporary password: {$newPassword}. You will be asked to set a new password on your next visit to the AgriBantay portal.";
+
+        $smsSent = app(SmsService::class)->send(
+            $user->mobile_number,
+            $smsMessage,
+            'Account Creation',
+            $user->id
+        );
+
+        ActivityLog::create([
+            'user_id' => Auth::id(),
+            'role'    => 'admin',
+            'action'  => 'Resent temporary password',
+            'details' => "Resent SMS to {$user->first_name} {$user->last_name}",
+            'type'    => 'Account',
+        ]);
+
+        return response()->json([
+            'success'  => $smsSent,
+            'message'  => $smsSent ? 'SMS resent successfully.' : 'SMS failed to send. Please try again.',
         ]);
     }
 
