@@ -1,41 +1,32 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import api from '../../api/axios'
 import VetLayout from '../../components/VetLayout'
+import { useCachedFetch } from '../../hooks/useCachedFetch'
 
 export default function VaccinationRequests() {
-  const [data, setData] = useState({ scheduled: [], completed: [] })
   const [tab, setTab] = useState('scheduled')
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
   const [acceptTarget, setAcceptTarget] = useState(null)
   const [noteTarget, setNoteTarget] = useState(null)
   const [viewTarget, setViewTarget] = useState(null)
   const [confirmDecline, setConfirmDecline] = useState(null)
   const [confirmComplete, setConfirmComplete] = useState(null)
 
-  const loadData = () => {
-    setLoading(true)
-    api.get('/vet/vaccination-requests')
-      .then(res => setData(res.data.data))
-      .catch(err => setError(err.response?.data?.message || 'Failed to load requests.'))
-      .finally(() => setLoading(false))
-  }
-
-  useEffect(() => { loadData() }, [])
+  const { data, loading, error, refetch } = useCachedFetch('/vet/vaccination-requests')
+  const requestData = data || { scheduled: [], completed: [] }
 
   const handleDeclineAction = async () => {
     await api.patch(`/vet/vaccination-requests/${confirmDecline.id}/decline`)
     setConfirmDecline(null)
-    loadData()
+    refetch()
   }
 
   const handleCompleteAction = async () => {
     await api.patch(`/vet/vaccination-requests/${confirmComplete.id}/complete`)
     setConfirmComplete(null)
-    loadData()
+    refetch()
   }
 
-  const list = tab === 'scheduled' ? data.scheduled : data.completed
+  const list = tab === 'scheduled' ? requestData.scheduled : requestData.completed
 
   return (
     <VetLayout>
@@ -64,60 +55,62 @@ export default function VaccinationRequests() {
         <div style={styles.empty}>No requests here yet.</div>
       )}
 
-      <div style={styles.list}>
-        {list.map(r => (
-          <div key={r.id} style={styles.card}>
-            <div style={{ ...styles.cardBar, backgroundColor: r.status === 'Pending' ? '#f59e0b' : '#3b82f6' }} />
-            <div style={{ flex: 1 }}>
-              <div style={styles.cardTitle}>{r.farm_name}</div>
-              <div style={styles.cardMeta}>
-                👤 {r.owner_name} · 📍 {r.barangay} · 🐔 {r.num_birds} birds
-                {r.scheduled_at && <> · 📅 {new Date(r.scheduled_at).toLocaleDateString()}</>}
+      {!loading && !error && (
+        <div style={styles.list}>
+          {list.map(r => (
+            <div key={r.id} style={styles.card}>
+              <div style={{ ...styles.cardBar, backgroundColor: r.status === 'Pending' ? '#f59e0b' : '#3b82f6' }} />
+              <div style={{ flex: 1 }}>
+                <div style={styles.cardTitle}>{r.farm_name}</div>
+                <div style={styles.cardMeta}>
+                  👤 {r.owner_name} · 📍 {r.barangay} · 🐔 {r.num_birds} birds
+                  {r.scheduled_at && <> · 📅 {new Date(r.scheduled_at).toLocaleDateString()}</>}
+                </div>
+                {r.notes && <div style={styles.cardNotes}>{r.notes}</div>}
               </div>
-              {r.notes && <div style={styles.cardNotes}>{r.notes}</div>}
+              <span style={{
+                ...styles.badge,
+                backgroundColor: r.status === 'Pending' ? '#f59e0b' : r.status === 'Completed' ? '#2E7D32' : '#3b82f6',
+              }}>
+                {r.status}
+              </span>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {r.status === 'Completed' && (
+                  <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => setViewTarget(r)}>
+                    View
+                  </span>
+                )}
+                {r.status === 'Pending' && (
+                  <>
+                    <span style={{ ...styles.actionBtn, ...styles.acceptBtn }} onClick={() => setAcceptTarget(r)}>
+                      Accept
+                    </span>
+                    <span style={{ ...styles.actionBtn, ...styles.declineBtn }} onClick={() => setConfirmDecline(r)}>
+                      Decline
+                    </span>
+                  </>
+                )}
+                {r.status === 'Scheduled' && (
+                  <>
+                    <span style={{ ...styles.actionBtn, ...styles.noteBtn }} onClick={() => setNoteTarget(r)}>
+                      Add Note
+                    </span>
+                    <span style={{ ...styles.actionBtn, ...styles.completeBtn }} onClick={() => setConfirmComplete(r)}>
+                      Complete
+                    </span>
+                  </>
+                )}
+              </div>
             </div>
-            <span style={{
-              ...styles.badge,
-              backgroundColor: r.status === 'Pending' ? '#f59e0b' : r.status === 'Completed' ? '#2E7D32' : '#3b82f6',
-            }}>
-              {r.status}
-            </span>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              {r.status === 'Completed' && (
-                <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => setViewTarget(r)}>
-                  View
-                </span>
-              )}
-              {r.status === 'Pending' && (
-                <>
-                  <span style={{ ...styles.actionBtn, ...styles.acceptBtn }} onClick={() => setAcceptTarget(r)}>
-                    Accept
-                  </span>
-                  <span style={{ ...styles.actionBtn, ...styles.declineBtn }} onClick={() => setConfirmDecline(r)}>
-                    Decline
-                  </span>
-                </>
-              )}
-              {r.status === 'Scheduled' && (
-                <>
-                  <span style={{ ...styles.actionBtn, ...styles.noteBtn }} onClick={() => setNoteTarget(r)}>
-                    Add Note
-                  </span>
-                  <span style={{ ...styles.actionBtn, ...styles.completeBtn }} onClick={() => setConfirmComplete(r)}>
-                    Complete
-                  </span>
-                </>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {acceptTarget && (
         <AcceptModal
           request={acceptTarget}
           onClose={() => setAcceptTarget(null)}
-          onSuccess={() => { setAcceptTarget(null); loadData() }}
+          onSuccess={() => { setAcceptTarget(null); refetch() }}
         />
       )}
 
@@ -125,7 +118,7 @@ export default function VaccinationRequests() {
         <NoteModal
           request={noteTarget}
           onClose={() => setNoteTarget(null)}
-          onSuccess={() => { setNoteTarget(null); loadData() }}
+          onSuccess={() => { setNoteTarget(null); refetch() }}
         />
       )}
 

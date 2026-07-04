@@ -1,34 +1,25 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
+import { useCachedFetch } from '../../hooks/useCachedFetch'
 
 export default function Farms() {
-  const [farms, setFarms] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [search, setSearch] = useState('')
   const [showRegisterModal, setShowRegisterModal] = useState(false)
   const [editFarm, setEditFarm] = useState(null)
   const [confirmAction, setConfirmAction] = useState(null)
 
-  const loadFarms = () => {
-    setLoading(true)
-    const params = {}
-    if (statusFilter) params.status = statusFilter
-    if (search) params.search = search
+  const params = {}
+  if (statusFilter) params.status = statusFilter
+  if (search) params.search = search
 
-    api.get('/admin/farms', { params })
-      .then(res => setFarms(res.data.data))
-      .catch(err => setError(err.response?.data?.message || 'Failed to load farms.'))
-      .finally(() => setLoading(false))
-  }
-
-  useEffect(() => { loadFarms() }, [statusFilter])
+  const { data: farms, loading, error, refetch } = useCachedFetch('/admin/farms', params)
+  const allFarms = farms || []
 
   const handleSearch = (e) => {
     e.preventDefault()
-    loadFarms()
+    refetch()
   }
 
   const handleDeactivate = (farm) => {
@@ -40,7 +31,7 @@ export default function Farms() {
       onConfirm: async () => {
         await api.patch(`/admin/farms/${farm.id}/deactivate`)
         setConfirmAction(null)
-        loadFarms()
+        refetch()
       },
     })
   }
@@ -54,7 +45,7 @@ export default function Farms() {
       onConfirm: async () => {
         await api.patch(`/admin/farms/${farm.id}/activate`)
         setConfirmAction(null)
-        loadFarms()
+        refetch()
       },
     })
   }
@@ -107,7 +98,7 @@ export default function Farms() {
               </tr>
             </thead>
             <tbody>
-              {farms.map(f => (
+              {allFarms.map(f => (
                 <tr key={f.id}>
                   <td style={styles.td}>
                     <div style={{ fontWeight: 600 }}>{f.farm_name}</div>
@@ -144,14 +135,14 @@ export default function Farms() {
               ))}
             </tbody>
           </table>
-          {farms.length === 0 && <div style={styles.empty}>No farms found.</div>}
+          {allFarms.length === 0 && <div style={styles.empty}>No farms found.</div>}
         </div>
       )}
 
       {showRegisterModal && (
         <RegisterModal
           onClose={() => setShowRegisterModal(false)}
-          onSuccess={() => { setShowRegisterModal(false); loadFarms() }}
+          onSuccess={() => { setShowRegisterModal(false); refetch() }}
         />
       )}
 
@@ -159,7 +150,7 @@ export default function Farms() {
         <EditModal
           farm={editFarm}
           onClose={() => setEditFarm(null)}
-          onSuccess={() => { setEditFarm(null); loadFarms() }}
+          onSuccess={() => { setEditFarm(null); refetch() }}
         />
       )}
 

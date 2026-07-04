@@ -1,18 +1,8 @@
-import { useEffect, useState } from 'react'
-import api from '../../api/axios'
 import FarmerLayout from '../../components/FarmerLayout'
+import { useCachedFetch } from '../../hooks/useCachedFetch'
 
 export default function Recommendations() {
-  const [data, setData] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    api.get('/farmer/recommendations')
-      .then(res => setData(res.data.data))
-      .catch(err => setError(err.response?.data?.message || 'Failed to load recommendations.'))
-      .finally(() => setLoading(false))
-  }, [])
+  const { data, loading, error } = useCachedFetch('/farmer/recommendations')
 
   const badgeColor = {
     Priority: '#dc2626',
@@ -32,7 +22,7 @@ export default function Recommendations() {
     <FarmerLayout>
       <h1 style={styles.title}>Recommendations</h1>
       <p style={styles.subtitle}>Automated insights based on your farm's sensor readings</p>
-      
+
       {loading && <p>Loading...</p>}
       {error && <p style={{ color: '#dc2626' }}>{error}</p>}
 
@@ -42,36 +32,38 @@ export default function Recommendations() {
         </div>
       )}
 
-      <div style={styles.grid}>
-        {data.map((rec, i) => (
-          <div key={i} style={styles.card}>
-            <div style={styles.cardHeader}>
-              <div style={styles.cardTitleRow}>
-                <span style={styles.icon}>{icons[rec.title] || '📋'}</span>
-                <span style={styles.cardTitle}>{rec.title}</span>
+      {!loading && !error && (
+        <div style={styles.grid}>
+          {data.map((rec, i) => (
+            <div key={i} style={styles.card}>
+              <div style={styles.cardHeader}>
+                <div style={styles.cardTitleRow}>
+                  <span style={styles.icon}>{icons[rec.title] || '📋'}</span>
+                  <span style={styles.cardTitle}>{rec.title}</span>
+                </div>
+                <span style={{ ...styles.badge, backgroundColor: badgeColor[rec.badge] || '#6b7280' }}>
+                  {rec.badge}
+                </span>
               </div>
-              <span style={{ ...styles.badge, backgroundColor: badgeColor[rec.badge] || '#6b7280' }}>
-                {rec.badge}
-              </span>
-            </div>
 
-            <div style={styles.section}>
-              <div style={styles.sectionLabel}>Root Cause</div>
-              <div style={styles.sectionText}>{rec.root_cause}</div>
-            </div>
+              <div style={styles.section}>
+                <div style={styles.sectionLabel}>Root Cause</div>
+                <div style={styles.sectionText}>{rec.root_cause}</div>
+              </div>
 
-            <div style={styles.section}>
-              <div style={styles.sectionLabel}>Preventive Action</div>
-              <div style={styles.sectionText}>{rec.preventive_action}</div>
-            </div>
+              <div style={styles.section}>
+                <div style={styles.sectionLabel}>Preventive Action</div>
+                <div style={styles.sectionText}>{rec.preventive_action}</div>
+              </div>
 
-            <div style={styles.section}>
-              <div style={styles.sectionLabel}>Suggested Next Step</div>
-              <div style={styles.sectionText}>{rec.next_step}</div>
+              <div style={styles.section}>
+                <div style={styles.sectionLabel}>Suggested Next Step</div>
+                <div style={styles.sectionText}>{rec.next_step}</div>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </FarmerLayout>
   )
 }

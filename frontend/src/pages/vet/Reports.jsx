@@ -1,18 +1,8 @@
-import { useEffect, useState } from 'react'
-import api from '../../api/axios'
 import VetLayout from '../../components/VetLayout'
+import { useCachedFetch } from '../../hooks/useCachedFetch'
 
 export default function VetReports() {
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    api.get('/vet/reports')
-      .then(res => setData(res.data.data))
-      .catch(err => setError(err.response?.data?.message || 'Failed to load reports.'))
-      .finally(() => setLoading(false))
-  }, [])
+  const { data, loading, error } = useCachedFetch('/vet/reports')
 
   const handlePrint = () => window.print()
 
@@ -41,19 +31,17 @@ export default function VetReports() {
           <p style={styles.subtitle}>Vaccination history & records</p>
         </div>
         <div style={{ display: 'flex', gap: '10px' }} className="no-print">
-          <button style={styles.printBtn} onClick={handlePrint}>🖨 Print</button>
-          <button style={styles.exportBtn}>📄 Export PDF</button>
+          <button style={styles.printBtn} onClick={handlePrint}>Print</button>
+          <button style={styles.exportBtn}>Export PDF</button>
         </div>
       </div>
 
       <div style={styles.statsGrid}>
         <div style={styles.statCard} className="print-panel">
-          <div style={styles.statIcon}>💉</div>
           <div style={styles.statValue}>{data.total_vaccinations}</div>
           <div style={styles.statLabel}>Total Vaccinations</div>
         </div>
         <div style={styles.statCard} className="print-panel">
-          <div style={styles.statIcon}>🚜</div>
           <div style={styles.statValue}>{data.farms_covered}</div>
           <div style={styles.statLabel}>Farms Covered</div>
         </div>
@@ -116,11 +104,6 @@ const styles = {
   statCard: {
     backgroundColor: 'white', borderRadius: '12px', padding: '20px',
     boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-  },
-  statIcon: {
-    width: '36px', height: '36px', borderRadius: '8px', backgroundColor: '#f0fdf4',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontSize: '16px', marginBottom: '12px',
   },
   statValue: { fontSize: '28px', fontWeight: '700', color: '#111827' },
   statLabel: { fontSize: '13px', color: '#6b7280', marginTop: '2px' },

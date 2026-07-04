@@ -1,18 +1,8 @@
-import { useEffect, useState } from 'react'
-import api from '../../api/axios'
 import VetLayout from '../../components/VetLayout'
+import { useCachedFetch } from '../../hooks/useCachedFetch'
 
 export default function VetDashboard() {
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    api.get('/vet/dashboard')
-      .then(res => setData(res.data.data))
-      .catch(err => setError(err.response?.data?.message || 'Failed to load dashboard.'))
-      .finally(() => setLoading(false))
-  }, [])
+  const { data, loading, error } = useCachedFetch('/vet/dashboard')
 
   if (loading) return <VetLayout><p>Loading...</p></VetLayout>
   if (error) return <VetLayout><p style={{ color: '#dc2626' }}>{error}</p></VetLayout>
@@ -25,10 +15,10 @@ export default function VetDashboard() {
       <p style={styles.subtitle}>Municipal Veterinarian — San Jose</p>
 
       <div style={styles.statsGrid}>
-        <StatCard icon="💉" value={data.assigned_requests} label="Assigned Requests" />
-        <StatCard icon="📅" value={data.todays_schedule} label="Today's Schedule" />
-        <StatCard icon="⏳" value={data.pending} label="Pending" />
-        <StatCard icon="✅" value={data.completed} label="Completed" />
+        <StatCard value={data.assigned_requests} label="Assigned Requests" />
+        <StatCard value={data.todays_schedule} label="Today's Schedule" />
+        <StatCard value={data.pending} label="Pending" />
+        <StatCard value={data.completed} label="Completed" />
       </div>
 
       <div style={styles.twoCol}>
@@ -45,7 +35,7 @@ export default function VetDashboard() {
               <div style={{ flex: 1 }}>
                 <div style={styles.rowTitle}>{v.farm_name}</div>
                 <div style={styles.rowMeta}>
-                  👤 {v.owner_name} · 📅 {new Date(v.scheduled_at).toLocaleDateString()}
+                  {v.owner_name} · {new Date(v.scheduled_at).toLocaleDateString()}
                 </div>
               </div>
               <span style={styles.badge}>{v.status}</span>
@@ -83,10 +73,9 @@ export default function VetDashboard() {
   )
 }
 
-function StatCard({ icon, value, label }) {
+function StatCard({ value, label }) {
   return (
     <div style={styles.statCard}>
-      <div style={styles.statIcon}>{icon}</div>
       <div style={styles.statValue}>{value}</div>
       <div style={styles.statLabel}>{label}</div>
     </div>
@@ -104,16 +93,11 @@ function StatRow({ label, value }) {
 
 const styles = {
   title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
-  subtitle: { fontSize: '13px', color: '#6b7280', marginTop: '4px', marginBottom: '24px' },
+  subtitle: { fontSize: '13px', color: '#6B6B5F', marginTop: '4px', marginBottom: '24px' },
   statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '20px' },
   statCard: {
     backgroundColor: 'white', borderRadius: '12px', padding: '20px',
     boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-  },
-  statIcon: {
-    width: '36px', height: '36px', borderRadius: '8px', backgroundColor: '#f0fdf4',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontSize: '16px', marginBottom: '12px',
   },
   statValue: { fontSize: '28px', fontWeight: '700', color: '#111827' },
   statLabel: { fontSize: '13px', color: '#6b7280', marginTop: '2px' },

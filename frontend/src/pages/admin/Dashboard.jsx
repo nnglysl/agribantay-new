@@ -1,18 +1,8 @@
-import { useEffect, useState } from 'react'
-import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
+import { useCachedFetch } from '../../hooks/useCachedFetch'
 
 export default function AdminDashboard() {
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    api.get('/admin/dashboard')
-      .then(res => setData(res.data.data))
-      .catch(err => setError(err.response?.data?.message || 'Failed to load dashboard.'))
-      .finally(() => setLoading(false))
-  }, [])
+  const { data, loading, error } = useCachedFetch('/admin/dashboard')
 
   if (loading) return <AdminLayout><p>Loading...</p></AdminLayout>
   if (error) return <AdminLayout><p style={{ color: '#dc2626' }}>{error}</p></AdminLayout>
@@ -23,10 +13,9 @@ export default function AdminDashboard() {
       <p style={styles.subtitle}>Welcome back, Administrator</p>
 
       <div style={styles.statsGrid}>
-        <StatCard icon="🚜" value={data.total_farms} label="Total Farms" />
-        <StatCard icon="📋" value={data.active_requests} label="Active Requests" />
-        <StatCard icon="✅" value={data.resolved_requests} label="Resolved Requests" />
-        <StatCard icon="⚠️" value={data.critical_alerts} label="Critical Alerts" alert />
+        <StatCard value={data.total_farms} label="Total Farms" />
+        <StatCard value={data.active_requests} label="Active Requests" />
+        <StatCard value={data.resolved_requests} label="Resolved Requests" />
       </div>
 
       <div style={styles.twoCol}>
@@ -74,10 +63,9 @@ export default function AdminDashboard() {
   )
 }
 
-function StatCard({ icon, value, label, alert }) {
+function StatCard({ value, label }) {
   return (
     <div style={styles.statCard}>
-      <div style={{ ...styles.statIcon, backgroundColor: alert ? '#fef2f2' : '#f0fdf4' }}>{icon}</div>
       <div style={styles.statValue}>{value}</div>
       <div style={styles.statLabel}>{label}</div>
     </div>
@@ -86,16 +74,11 @@ function StatCard({ icon, value, label, alert }) {
 
 const styles = {
   title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
-  subtitle: { fontSize: '13px', color: '#6b7280', marginTop: '4px', marginBottom: '24px' },
-  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' },
+  subtitle: { fontSize: '13px', color: '#6B6B5F', marginTop: '4px', marginBottom: '24px' },
+  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' },
   statCard: {
     backgroundColor: 'white', borderRadius: '12px', padding: '20px',
     boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-  },
-  statIcon: {
-    width: '36px', height: '36px', borderRadius: '8px',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontSize: '16px', marginBottom: '12px',
   },
   statValue: { fontSize: '28px', fontWeight: '700', color: '#111827' },
   statLabel: { fontSize: '13px', color: '#6b7280', marginTop: '2px' },

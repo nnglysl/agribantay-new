@@ -1,18 +1,8 @@
-import { useEffect, useState } from 'react'
-import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
+import { useCachedFetch } from '../../hooks/useCachedFetch'
 
 export default function Reports() {
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    api.get('/admin/reports')
-      .then(res => setData(res.data.data))
-      .catch(err => setError(err.response?.data?.message || 'Failed to load reports.'))
-      .finally(() => setLoading(false))
-  }, [])
+  const { data, loading, error } = useCachedFetch('/admin/reports')
 
   const handlePrint = () => window.print()
 

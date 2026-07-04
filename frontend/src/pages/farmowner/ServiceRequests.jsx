@@ -1,25 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import api from '../../api/axios'
 import FarmerLayout from '../../components/FarmerLayout'
+import { useCachedFetch } from '../../hooks/useCachedFetch'
 
 export default function ServiceRequests() {
-  const [data, setData] = useState({ active: [], past: [] })
   const [tab, setTab] = useState('active')
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
   const [showModal, setShowModal] = useState(false)
 
-  const loadData = () => {
-    setLoading(true)
-    api.get('/farmer/service-requests')
-      .then(res => setData(res.data.data))
-      .catch(err => setError(err.response?.data?.message || 'Failed to load requests.'))
-      .finally(() => setLoading(false))
-  }
+  const { data, loading, error, refetch } = useCachedFetch('/farmer/service-requests')
+  const requestData = data || { active: [], past: [] }
 
-  useEffect(() => { loadData() }, [])
-
-  const list = tab === 'active' ? data.active : data.past
+  const list = tab === 'active' ? requestData.active : requestData.past
 
   const statusColor = {
     Pending: '#f59e0b',
@@ -62,30 +53,32 @@ export default function ServiceRequests() {
         <div style={styles.empty}>No {tab === 'active' ? 'active requests' : 'past records'} yet.</div>
       )}
 
-      <div style={styles.list}>
-        {list.map(r => (
-          <div key={r.id} style={styles.card}>
-            <div>
-              <div style={styles.cardTitle}>{r.service_type}</div>
-              <div style={styles.cardMeta}>
-                {r.assigned_to && <>👤 {r.assigned_to} · </>}
-                {r.scheduled_at
-                  ? `📅 ${new Date(r.scheduled_at).toLocaleDateString()}`
-                  : 'Awaiting review'}
+      {!loading && !error && (
+        <div style={styles.list}>
+          {list.map(r => (
+            <div key={r.id} style={styles.card}>
+              <div>
+                <div style={styles.cardTitle}>{r.service_type}</div>
+                <div style={styles.cardMeta}>
+                  {r.assigned_to && <>👤 {r.assigned_to} · </>}
+                  {r.scheduled_at
+                    ? `📅 ${new Date(r.scheduled_at).toLocaleDateString()}`
+                    : 'Awaiting review'}
+                </div>
+                {r.notes && <div style={styles.cardNotes}>{r.notes}</div>}
               </div>
-              {r.notes && <div style={styles.cardNotes}>{r.notes}</div>}
+              <div style={{ ...styles.badge, backgroundColor: statusColor[r.status] || '#6b7280' }}>
+                {r.status}
+              </div>
             </div>
-            <div style={{ ...styles.badge, backgroundColor: statusColor[r.status] || '#6b7280' }}>
-              {r.status}
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {showModal && (
         <RequestModal
           onClose={() => setShowModal(false)}
-          onSuccess={() => { setShowModal(false); loadData() }}
+          onSuccess={() => { setShowModal(false); refetch() }}
         />
       )}
     </FarmerLayout>

@@ -1,27 +1,20 @@
-import { useEffect, useState } from 'react'
-import api from '../../api/axios'
+import { useState, useEffect } from 'react'
 import AdminLayout from '../../components/AdminLayout'
+import { useCachedFetch } from '../../hooks/useCachedFetch'
 
 export default function ActivityLogs() {
-  const [logs, setLogs] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
   const [roleFilter, setRoleFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const rowsPerPage = 10
 
-  const loadLogs = () => {
-    setLoading(true)
-    const params = {}
-    if (roleFilter) params.role = roleFilter
-    if (typeFilter) params.type = typeFilter
+  const params = {}
+  if (roleFilter) params.role = roleFilter
+  if (typeFilter) params.type = typeFilter
 
-    api.get('/admin/activity-logs', { params })
-      .then(res => setLogs(res.data.data))
-      .catch(err => setError(err.response?.data?.message || 'Failed to load activity logs.'))
-      .finally(() => setLoading(false))
-  }
+  const { data: logs, loading, error } = useCachedFetch('/admin/activity-logs', params)
 
-  useEffect(() => { loadLogs() }, [roleFilter, typeFilter])
+  useEffect(() => { setCurrentPage(1) }, [roleFilter, typeFilter])
 
   const roleColor = {
     admin: '#3b82f6',
@@ -45,6 +38,10 @@ export default function ActivityLogs() {
     vet: 'Vet',
     System: 'System',
   }
+
+  const allLogs = logs || []
+  const totalPages = Math.ceil(allLogs.length / rowsPerPage)
+  const paginatedLogs = allLogs.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage)
 
   return (
     <AdminLayout>
@@ -77,41 +74,61 @@ export default function ActivityLogs() {
       {error && <p style={{ color: '#dc2626' }}>{error}</p>}
 
       {!loading && !error && (
-        <div style={styles.tableCard}>
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Time</th>
-                <th style={styles.th}>Actor</th>
-                <th style={styles.th}>Role</th>
-                <th style={styles.th}>Action</th>
-                <th style={styles.th}>Details</th>
-                <th style={styles.th}>Type</th>
-              </tr>
-            </thead>
-            <tbody>
-              {logs.map(log => (
-                <tr key={log.id}>
-                  <td style={styles.td}>{log.created_at}</td>
-                  <td style={styles.td}>{log.user}</td>
-                  <td style={styles.td}>
-                    <span style={{ ...styles.badge, backgroundColor: roleColor[log.role] || '#6b7280' }}>
-                      {roleLabel[log.role] || log.role}
-                    </span>
-                  </td>
-                  <td style={styles.td}>{log.action}</td>
-                  <td style={styles.td}>{log.details}</td>
-                  <td style={styles.td}>
-                    <span style={{ ...styles.badge, backgroundColor: typeColor[log.type] || '#6b7280' }}>
-                      {log.type}
-                    </span>
-                  </td>
+        <>
+          <div style={styles.tableCard}>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>Time</th>
+                  <th style={styles.th}>Actor</th>
+                  <th style={styles.th}>Role</th>
+                  <th style={styles.th}>Action</th>
+                  <th style={styles.th}>Details</th>
+                  <th style={styles.th}>Type</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-          {logs.length === 0 && <div style={styles.empty}>No activity recorded yet.</div>}
-        </div>
+              </thead>
+              <tbody>
+                {paginatedLogs.map(log => (
+                  <tr key={log.id}>
+                    <td style={styles.td}>{log.created_at}</td>
+                    <td style={styles.td}>{log.user}</td>
+                    <td style={styles.td}>
+                      <span style={{ ...styles.badge, backgroundColor: roleColor[log.role] || '#6b7280' }}>
+                        {roleLabel[log.role] || log.role}
+                      </span>
+                    </td>
+                    <td style={styles.td}>{log.action}</td>
+                    <td style={styles.td}>{log.details}</td>
+                    <td style={styles.td}>
+                      <span style={{ ...styles.badge, backgroundColor: typeColor[log.type] || '#6b7280' }}>
+                        {log.type}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {allLogs.length === 0 && <div style={styles.empty}>No activity recorded yet.</div>}
+          </div>
+
+          {totalPages > 1 && (
+            <div style={styles.pagination}>
+              <span
+                style={{ ...styles.pageBtn, ...(currentPage === 1 ? styles.pageBtnDisabled : {}) }}
+                onClick={() => currentPage > 1 && setCurrentPage(currentPage - 1)}
+              >
+                ‹ Prev
+              </span>
+              <span style={styles.pageInfo}>Page {currentPage} of {totalPages}</span>
+              <span
+                style={{ ...styles.pageBtn, ...(currentPage === totalPages ? styles.pageBtnDisabled : {}) }}
+                onClick={() => currentPage < totalPages && setCurrentPage(currentPage + 1)}
+              >
+                Next ›
+              </span>
+            </div>
+          )}
+        </>
       )}
     </AdminLayout>
   )
@@ -153,4 +170,16 @@ const styles = {
   td: { padding: '14px 16px', fontSize: '13px', color: '#374151', borderBottom: '1px solid #f3f4f6' },
   badge: { padding: '3px 10px', borderRadius: '999px', color: 'white', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap' },
   empty: { padding: '32px', textAlign: 'center', color: '#9ca3af', fontSize: '14px' },
+  pagination: {
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    gap: '16px', marginTop: '16px',
+  },
+  pageBtn: {
+    padding: '8px 16px', borderRadius: '8px', border: '1px solid #d1d5db',
+    backgroundColor: 'white', fontSize: '13px', fontWeight: '600', color: '#374151', cursor: 'pointer',
+  },
+  pageBtnDisabled: {
+    opacity: 0.4, cursor: 'not-allowed',
+  },
+  pageInfo: { fontSize: '13px', color: '#6b7280' },
 }

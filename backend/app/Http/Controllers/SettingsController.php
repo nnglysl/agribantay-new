@@ -49,7 +49,17 @@ class SettingsController extends Controller
 
         $request->validate([
             'current_password' => 'required',
-            'new_password'     => 'required|min:6|confirmed',
+            'new_password' => [
+                'required',
+                'confirmed',
+                'min:8',
+                'regex:/[A-Z]/',
+                'regex:/[a-z]/',
+                'regex:/[0-9]/',
+                'regex:/[!@#$%^&*]/',
+            ],
+        ], [
+            'new_password.regex' => 'Password must include an uppercase letter, lowercase letter, number, and special character.',
         ]);
 
         if (!Hash::check($request->current_password, $user->password)) {

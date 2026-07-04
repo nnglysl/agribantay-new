@@ -1,37 +1,31 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
+import { useCachedFetch } from '../../hooks/useCachedFetch'
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 
 export default function Inspections() {
   const [tab, setTab] = useState('schedule')
-  const [inspections, setInspections] = useState([])
-  const [farms, setFarms] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
   const [viewDate, setViewDate] = useState(new Date())
   const [modalDate, setModalDate] = useState(null)
   const [confirmCancel, setConfirmCancel] = useState(null)
   const [completeInspection, setCompleteInspection] = useState(null)
   const [viewInspection, setViewInspection] = useState(null)
 
-  const loadData = () => {
-    setLoading(true)
-    Promise.all([
-      api.get('/admin/inspections'),
-      api.get('/admin/farms'),
-    ])
-      .then(([insRes, farmRes]) => {
-        setInspections(insRes.data.data)
-        setFarms(farmRes.data.data)
-      })
-      .catch(err => setError(err.response?.data?.message || 'Failed to load data.'))
-      .finally(() => setLoading(false))
-  }
+  const { data: inspectionsData, loading: loadingInspections, error: errorInspections, refetch: refetchInspections } = useCachedFetch('/admin/inspections')
+  const { data: farmsData, loading: loadingFarms, error: errorFarms, refetch: refetchFarms } = useCachedFetch('/admin/farms')
 
-  useEffect(() => { loadData() }, [])
+  const inspections = inspectionsData || []
+  const farms = farmsData || []
+  const loading = loadingInspections || loadingFarms
+  const error = errorInspections || errorFarms
+
+  const refetchAll = () => {
+    refetchInspections()
+    refetchFarms()
+  }
 
   const handleCancel = (inspection) => {
     setConfirmCancel(inspection)
@@ -40,7 +34,7 @@ export default function Inspections() {
   const confirmCancelAction = async () => {
     await api.patch(`/admin/inspections/${confirmCancel.id}/cancel`)
     setConfirmCancel(null)
-    loadData()
+    refetchInspections()
   }
 
   const scheduled = inspections.filter(i => i.status === 'Scheduled')
@@ -98,7 +92,7 @@ export default function Inspections() {
           date={modalDate}
           farms={farms}
           onClose={() => setModalDate(null)}
-          onSuccess={() => { setModalDate(null); loadData() }}
+          onSuccess={() => { setModalDate(null); refetchInspections() }}
         />
       )}
 
@@ -106,7 +100,7 @@ export default function Inspections() {
         <CompleteModal
           inspection={completeInspection}
           onClose={() => setCompleteInspection(null)}
-          onSuccess={() => { setCompleteInspection(null); loadData() }}
+          onSuccess={() => { setCompleteInspection(null); refetchInspections() }}
         />
       )}
 
