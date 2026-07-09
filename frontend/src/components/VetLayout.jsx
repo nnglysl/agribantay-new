@@ -68,6 +68,17 @@ export default function VetLayout({ children }) {
 
   return (
     <div style={styles.wrapper}>
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          body, .print-reset {
+            background: #fff !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+        }
+      `}</style>
+
       <aside style={styles.sidebar} className="no-print">
         <div style={styles.logo}>
           <div style={styles.logoCircle}>A</div>
@@ -100,7 +111,7 @@ export default function VetLayout({ children }) {
         </div>
       </aside>
 
-      <main style={styles.main}>
+      <main style={styles.main} className="print-reset">
         <div style={styles.topbar} className="no-print">
           <div>
             <div style={styles.userName}>{user.first_name} {user.last_name}</div>

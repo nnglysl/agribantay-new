@@ -29,7 +29,7 @@ class ReportController extends Controller
                 'farm_name'    => $r->farm->farm_name,
                 'owner_name'   => $r->farm->owner_name,
                 'barangay'     => $r->farm->barangay,
-                'num_birds'    => $r->farm->num_birds,
+                'farm_size'    => $r->farm->farm_size,
                 'completed_at' => $r->completed_at?->format('M d, Y'),
                 'notes'        => $r->notes,
                 'status'       => $r->status,

@@ -15,8 +15,11 @@ use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\Vet\DashboardController as VetDashboardController;
 use App\Http\Controllers\Vet\VaccinationRequestController;
 use App\Http\Controllers\Vet\ReportController as VetReportController;
+use App\Http\Controllers\SensorIngestController;
 
 Route::post('/login', [AuthController::class, 'login']);
+Route::post('/sensor-readings', [SensorIngestController::class, 'store']);
+Route::post('/forgot-password', [App\Http\Controllers\AuthController::class, 'forgotPassword']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
@@ -63,6 +66,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'index']);
 
         Route::get('/farms', [FarmController::class, 'index']);
+        Route::get('/farms-map', [FarmController::class, 'mapData']);
         Route::post('/farms', [FarmController::class, 'store']);
         Route::get('/farms/{id}', [FarmController::class, 'show']);
         Route::put('/farms/{id}', [FarmController::class, 'update']);

@@ -19,6 +19,9 @@ class Farm extends Model
         'farm_size',
         'status',
         'current_status',
+        'device_key',
+        'latitude',
+        'longitude',
     ];
 
     public function user()

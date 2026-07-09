@@ -29,7 +29,7 @@ class VaccinationRequestController extends Controller
                 'farm_name'      => $r->farm->farm_name,
                 'owner_name'     => $r->farm->owner_name,
                 'barangay'       => $r->farm->barangay,
-                'num_birds'      => $r->farm->num_birds,
+                'farm_size'      => $r->farm->farm_size,
                 'notes'          => $r->notes,
                 'status'         => $r->status,
                 'scheduled_at'   => $r->scheduled_at,

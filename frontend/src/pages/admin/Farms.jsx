@@ -3,6 +3,16 @@ import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 
+const BARANGAYS = [
+  'Aguila', 'Anus', 'Aya', 'Bagong Pook', 'Balagtasin I', 'Balagtasin II',
+  'Banay-banay I', 'Banay-banay II', 'Bigain I', 'Bigain II', 'Bigain South',
+  'Calansayan', 'Dagatan', 'Don Luis', 'Galamay-Amo', 'Lalayat',
+  'Lapolapo I', 'Lapolapo II', 'Lepote', 'Lumil', 'Mojon-Tampoy',
+  'Natunuan', 'Palanca', 'Pinagtung-Ulan', 'Poblacion Barangay I',
+  'Poblacion Barangay II', 'Poblacion Barangay III', 'Poblacion Barangay IV',
+  'Sabang', 'Salaban', 'Santo Cristo', 'Taysan', 'Tugtug',
+]
+
 export default function Farms() {
   const [statusFilter, setStatusFilter] = useState('')
   const [search, setSearch] = useState('')
@@ -91,7 +101,7 @@ export default function Farms() {
                 <th style={styles.th}>Farm / Owner</th>
                 <th style={styles.th}>Mobile</th>
                 <th style={styles.th}>Barangay</th>
-                <th style={styles.th}>Birds</th>
+                <th style={styles.th}>Farm Size</th>
                 <th style={styles.th}>Ammonia</th>
                 <th style={styles.th}>Status</th>
                 <th style={styles.th}>Actions</th>
@@ -106,7 +116,7 @@ export default function Farms() {
                   </td>
                   <td style={styles.td}>{f.mobile_number}</td>
                   <td style={styles.td}>{f.barangay}</td>
-                  <td style={styles.td}>{f.num_birds}</td>
+                  <td style={styles.td}>{f.farm_size}</td>
                   <td style={styles.td}>
                     {f.ammonia !== null ? `${f.ammonia} ppm` : '—'}
                   </td>
@@ -183,7 +193,8 @@ export default function Farms() {
 function RegisterModal({ onClose, onSuccess }) {
   const [form, setForm] = useState({
     first_name: '', last_name: '', mobile_number: '',
-    farm_name: '', barangay: '', farm_size: '',
+    farm_name: '', lot_number: '', street: '', barangay: '', landmark: '',
+    farm_size: '',
   })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -232,13 +243,26 @@ function RegisterModal({ onClose, onSuccess }) {
 
           <div style={modalStyles.sectionLabel}>FARM PROFILE</div>
           <input placeholder="Farm Name" value={form.farm_name} onChange={update('farm_name')} style={modalStyles.inputFull} required />
+
           <div style={modalStyles.row}>
-            <input placeholder="Barangay" value={form.barangay} onChange={update('barangay')} style={modalStyles.input} required />
+            <input placeholder="Lot No. (optional)" value={form.lot_number} onChange={update('lot_number')} style={modalStyles.input} />
+            <input placeholder="Street (optional)" value={form.street} onChange={update('street')} style={modalStyles.input} />
+          </div>
+
+          <select value={form.barangay} onChange={update('barangay')} style={modalStyles.inputFull} required>
+            <option value="">-- Select Barangay --</option>
+            {BARANGAYS.map(b => (
+              <option key={b} value={b}>Brgy. {b}</option>
+            ))}
+          </select>
+
+          <div style={modalStyles.row}>
+            <input placeholder="Landmark (optional)" value={form.landmark} onChange={update('landmark')} style={modalStyles.input} />
             <select value={form.farm_size} onChange={update('farm_size')} style={modalStyles.input} required>
               <option value="">Farm Size</option>
-              <option value="Small">Small</option>
-              <option value="Semi-Commercial">Semi-Commercial</option>
-              <option value="Commercial">Commercial</option>
+              <option value="Small">Small (below 10,000 layers)</option>
+              <option value="Medium">Medium (10,000–50,000 layers)</option>
+              <option value="Large">Large (above 50,000 layers)</option>
             </select>
           </div>
 
@@ -261,8 +285,12 @@ function RegisterModal({ onClose, onSuccess }) {
 function EditModal({ farm, onClose, onSuccess }) {
   const [form, setForm] = useState({
     farm_name: farm.farm_name,
+    lot_number: '',
+    street: '',
     barangay: farm.barangay,
+    landmark: '',
     mobile_number: farm.mobile_number,
+    farm_size: farm.farm_size,
   })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -295,7 +323,26 @@ function EditModal({ farm, onClose, onSuccess }) {
           {error && <div style={modalStyles.errorBox}>{error}</div>}
 
           <input placeholder="Farm Name" value={form.farm_name} onChange={update('farm_name')} style={modalStyles.inputFull} />
-          <input placeholder="Barangay" value={form.barangay} onChange={update('barangay')} style={modalStyles.inputFull} />
+
+          <div style={modalStyles.row}>
+            <input placeholder="Lot No. (optional)" value={form.lot_number} onChange={update('lot_number')} style={modalStyles.input} />
+            <input placeholder="Street (optional)" value={form.street} onChange={update('street')} style={modalStyles.input} />
+          </div>
+
+          <select value={form.barangay} onChange={update('barangay')} style={modalStyles.inputFull}>
+            {BARANGAYS.map(b => (
+              <option key={b} value={b}>Brgy. {b}</option>
+            ))}
+          </select>
+
+          <input placeholder="Landmark (optional)" value={form.landmark} onChange={update('landmark')} style={modalStyles.inputFull} />
+
+          <select value={form.farm_size} onChange={update('farm_size')} style={modalStyles.inputFull}>
+            <option value="Small">Small (below 10,000 layers)</option>
+            <option value="Medium">Medium (10,000–50,000 layers)</option>
+            <option value="Large">Large (above 50,000 layers)</option>
+          </select>
+
           <input placeholder="Mobile Number" value={form.mobile_number} onChange={update('mobile_number')} style={modalStyles.inputFull} />
 
           <div style={modalStyles.actions}>
@@ -324,29 +371,12 @@ const styles = {
   td: { padding: '14px 16px', fontSize: '13px', color: '#374151', borderBottom: '1px solid #f3f4f6' },
   badge: { padding: '3px 10px', borderRadius: '999px', color: 'white', fontSize: '11px', fontWeight: '600' },
   actionBtn: {
-    padding: '5px 12px',
-    borderRadius: '6px',
-    fontSize: '12px',
-    fontWeight: '600',
-    cursor: 'pointer',
-    border: '1px solid transparent',
-    whiteSpace: 'nowrap',
+    padding: '5px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600',
+    cursor: 'pointer', border: '1px solid transparent', whiteSpace: 'nowrap',
   },
-  editBtn: {
-    color: '#2E7D32',
-    backgroundColor: '#f0fdf4',
-    border: '1px solid #bbf7d0',
-  },
-  deactivateBtn: {
-    color: '#dc2626',
-    backgroundColor: '#fef2f2',
-    border: '1px solid #fecaca',
-  },
-  activateBtn: {
-    color: '#2E7D32',
-    backgroundColor: '#f0fdf4',
-    border: '1px solid #bbf7d0',
-  },
+  editBtn: { color: '#2E7D32', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' },
+  deactivateBtn: { color: '#dc2626', backgroundColor: '#fef2f2', border: '1px solid #fecaca' },
+  activateBtn: { color: '#2E7D32', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' },
   empty: { padding: '32px', textAlign: 'center', color: '#9ca3af', fontSize: '14px' },
 }
 

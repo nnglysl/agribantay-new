@@ -9,6 +9,7 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [showForgotModal, setShowForgotModal] = useState(false)
   const navigate = useNavigate()
 
   const handleLogin = async (e) => {
@@ -105,7 +106,13 @@ export default function Login() {
             </div>
 
             <div style={styles.forgotWrapper}>
-              <a href="#" style={styles.forgotLink}>Forgot password?</a>
+              <button
+                type="button"
+                onClick={() => setShowForgotModal(true)}
+                style={styles.forgotLinkBtn}
+              >
+                Forgot password?
+              </button>
             </div>
 
             <button
@@ -127,6 +134,98 @@ export default function Login() {
           </form>
         </div>
 
+      </div>
+
+      {showForgotModal && (
+        <ForgotPasswordModal onClose={() => setShowForgotModal(false)} />
+      )}
+    </div>
+  )
+}
+
+function ForgotPasswordModal({ onClose }) {
+  const [mobileNumber, setMobileNumber] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    setSubmitting(true)
+
+    try {
+      await api.post('/forgot-password', { mobile_number: mobileNumber })
+      setSubmitted(true)
+    } catch (err) {
+      setError(err.response?.data?.message || 'Something went wrong. Please try again.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div style={modalStyles.overlay} onClick={onClose}>
+      <div style={modalStyles.modal} onClick={e => e.stopPropagation()}>
+        {submitted ? (
+          <>
+            <h3 style={modalStyles.title}>Check your phone</h3>
+            <p style={modalStyles.message}>
+              If an account exists for that mobile number, a temporary password
+              has been sent via SMS. Use it to log in, and you'll be asked to
+              set a new password.
+            </p>
+            <div style={modalStyles.actions}>
+              <button onClick={onClose} style={modalStyles.confirmBtn}>
+                Back to login
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <h3 style={modalStyles.title}>Forgot password</h3>
+            <p style={modalStyles.message}>
+              Enter the mobile number linked to your account. We'll send a
+              temporary password by SMS.
+            </p>
+
+            <form onSubmit={handleSubmit}>
+              {error && <div style={modalStyles.errorBox}>{error}</div>}
+
+              <input
+                type="text"
+                placeholder="Mobile number"
+                value={mobileNumber}
+                onChange={e => setMobileNumber(e.target.value)}
+                style={modalStyles.input}
+                required
+                autoFocus
+              />
+
+              <div style={modalStyles.actions}>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  style={modalStyles.cancelBtn}
+                  disabled={submitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  style={{
+                    ...modalStyles.confirmBtn,
+                    opacity: submitting ? 0.7 : 1,
+                    cursor: submitting ? 'not-allowed' : 'pointer',
+                  }}
+                  disabled={submitting}
+                >
+                  {submitting ? 'Sending...' : 'Send temporary password'}
+                </button>
+              </div>
+            </form>
+          </>
+        )}
       </div>
     </div>
   )
@@ -293,9 +392,13 @@ const styles = {
     textAlign: 'right',
     marginTop: '-8px',
   },
-  forgotLink: {
+  forgotLinkBtn: {
     fontSize: '13px',
     color: '#2E7D32',
+    background: 'none',
+    border: 'none',
+    padding: 0,
+    cursor: 'pointer',
     textDecoration: 'none',
   },
   loginBtn: {
@@ -318,6 +421,81 @@ const styles = {
   contactLink: {
     color: '#2E7D32',
     fontWeight: '500',
+    cursor: 'pointer',
+  },
+}
+
+const modalStyles = {
+  overlay: {
+    position: 'fixed',
+    inset: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 50,
+  },
+  modal: {
+    backgroundColor: 'white',
+    borderRadius: '16px',
+    padding: '28px',
+    width: '380px',
+    maxWidth: '90%',
+  },
+  title: {
+    fontSize: '17px',
+    fontWeight: '700',
+    color: '#111827',
+    marginTop: 0,
+    marginBottom: '10px',
+  },
+  message: {
+    fontSize: '14px',
+    color: '#6b7280',
+    lineHeight: '1.5',
+    marginBottom: '20px',
+  },
+  input: {
+    padding: '10px 14px',
+    borderRadius: '8px',
+    border: '1px solid #d1d5db',
+    fontSize: '14px',
+    color: '#111827',
+    outline: 'none',
+    width: '100%',
+    boxSizing: 'border-box',
+    marginBottom: '16px',
+  },
+  errorBox: {
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fca5a5',
+    color: '#dc2626',
+    padding: '10px 14px',
+    borderRadius: '8px',
+    fontSize: '13px',
+    marginBottom: '16px',
+  },
+  actions: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '10px',
+  },
+  cancelBtn: {
+    padding: '10px 18px',
+    borderRadius: '8px',
+    border: '1px solid #d1d5db',
+    backgroundColor: 'white',
+    fontSize: '14px',
+    cursor: 'pointer',
+  },
+  confirmBtn: {
+    padding: '10px 18px',
+    borderRadius: '8px',
+    border: 'none',
+    backgroundColor: '#2E7D32',
+    color: 'white',
+    fontSize: '14px',
+    fontWeight: '600',
     cursor: 'pointer',
   },
 }

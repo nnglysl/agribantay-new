@@ -1,8 +1,10 @@
 import AdminLayout from '../../components/AdminLayout'
+import FarmMap from '../../components/FarmMap'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 
 export default function AdminDashboard() {
   const { data, loading, error } = useCachedFetch('/admin/dashboard')
+  const { data: mapFarms } = useCachedFetch('/admin/farms-map')
 
   if (loading) return <AdminLayout><p>Loading...</p></AdminLayout>
   if (error) return <AdminLayout><p style={{ color: '#dc2626' }}>{error}</p></AdminLayout>
@@ -58,6 +60,11 @@ export default function AdminDashboard() {
             </div>
           ))}
         </div>
+      </div>
+
+      <div style={{ marginTop: '20px' }}>
+        <h3 style={styles.panelTitle}>Farm monitoring map</h3>
+        <FarmMap farms={mapFarms || []} />
       </div>
     </AdminLayout>
   )

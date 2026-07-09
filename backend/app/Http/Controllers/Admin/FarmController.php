@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\ActivityLog;
 use App\Services\SmsService;
 use App\Services\FarmStatusService;
+use App\Services\GeocodingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Auth;
@@ -63,6 +64,62 @@ class FarmController extends Controller
         return response()->json(['success' => true, 'data' => $farms]);
     }
 
+    public function mapData()
+    {
+        $farms = Farm::whereNotNull('latitude')
+            ->whereNotNull('longitude')
+            ->with(['sensorReadings' => function ($q) {
+                $q->latest()->limit(1);
+            }])
+            ->get();
+
+        foreach ($farms as $farm) {
+            app(FarmStatusService::class)->syncStatus($farm);
+        }
+
+        $farms = $farms->map(fn($f) => [
+                'id'             => $f->id,
+                'farm_name'      => $f->farm_name,
+                'owner_name'     => $f->owner_name,
+                'latitude'       => $f->latitude,
+                'longitude'      => $f->longitude,
+                'current_status' => $f->current_status,
+            ]);
+
+        return response()->json(['success' => true, 'data' => $farms]);
+    }
+
+    /**
+     * Geocode an address, falling back to barangay-only if the full
+     * address fails to resolve (common for sparse rural addresses).
+     */
+    private function geocodeWithFallback(?string $lotNumber, ?string $street, string $barangay): ?array
+    {
+        $fullAddress = implode(', ', array_filter([
+            $lotNumber,
+            $street,
+            $barangay,
+            'San Jose',
+            'Batangas',
+            'Philippines',
+        ]));
+
+        $coordinates = app(GeocodingService::class)->geocode($fullAddress);
+
+        if (!$coordinates) {
+            $barangayOnly = implode(', ', array_filter([
+                $barangay,
+                'San Jose',
+                'Batangas',
+                'Philippines',
+            ]));
+
+            $coordinates = app(GeocodingService::class)->geocode($barangayOnly);
+        }
+
+        return $coordinates;
+    }
+
     public function store(Request $request)
     {
         $request->validate([
@@ -71,7 +128,10 @@ class FarmController extends Controller
             'mobile_number' => 'required|string|unique:users,mobile_number',
             'farm_name'     => 'required|string',
             'barangay'      => 'required|string',
-            'farm_size'     => 'required|in:Small,Semi-Commercial,Commercial',
+            'lot_number'    => 'nullable|string',
+            'street'        => 'nullable|string',
+            'landmark'      => 'nullable|string',
+            'farm_size' => 'required|in:Small,Medium,Large',
         ]);
 
         $tempPassword = Str::random(10);
@@ -86,14 +146,33 @@ class FarmController extends Controller
             'must_change_password' => true,
         ]);
 
+        $addressParts = array_filter([
+            $request->lot_number,
+            $request->street,
+            $request->barangay,
+            'San Jose',
+            'Batangas',
+            'Philippines',
+        ]);
+        $fullAddress = implode(', ', $addressParts);
+
+        $coordinates = $this->geocodeWithFallback(
+            $request->lot_number,
+            $request->street,
+            $request->barangay
+        );
+
         $farm = Farm::create([
             'user_id'       => $user->id,
             'farm_name'     => $request->farm_name,
             'owner_name'    => $user->first_name . ' ' . $user->last_name,
             'mobile_number' => $request->mobile_number,
             'barangay'      => $request->barangay,
+            'address'       => $fullAddress . ($request->landmark ? " (near {$request->landmark})" : ''),
             'farm_size'     => $request->farm_size,
             'status'        => 'Active',
+            'latitude'      => $coordinates['latitude'] ?? null,
+            'longitude'     => $coordinates['longitude'] ?? null,
         ]);
 
         $smsMessage = "Welcome to AgriBantay, {$request->first_name}! Your account is ready. Temporary password: {$tempPassword}. You will be asked to set a new password on your first visit to the AgriBantay portal.";
@@ -170,12 +249,39 @@ class FarmController extends Controller
             'mobile_number' => 'sometimes|string',
             'farm_name'     => 'sometimes|string',
             'barangay'      => 'sometimes|string',
-            'farm_size'     => 'sometimes|in:Small,Semi-Commercial,Commercial',
+            'lot_number'    => 'nullable|string',
+            'street'        => 'nullable|string',
+            'landmark'      => 'nullable|string',
+            'farm_size' => 'sometimes|in:Small,Medium,Large',
         ]);
 
         $farm->update($request->only([
             'farm_name', 'barangay', 'farm_size', 'mobile_number',
         ]));
+
+        if ($request->barangay || $request->lot_number || $request->street) {
+            $addressParts = array_filter([
+                $request->lot_number,
+                $request->street,
+                $request->barangay ?? $farm->barangay,
+                'San Jose',
+                'Batangas',
+                'Philippines',
+            ]);
+            $fullAddress = implode(', ', $addressParts);
+
+            $coordinates = $this->geocodeWithFallback(
+                $request->lot_number,
+                $request->street,
+                $request->barangay ?? $farm->barangay
+            );
+
+            $farm->update([
+                'address'   => $fullAddress . ($request->landmark ? " (near {$request->landmark})" : ''),
+                'latitude'  => $coordinates['latitude'] ?? $farm->latitude,
+                'longitude' => $coordinates['longitude'] ?? $farm->longitude,
+            ]);
+        }
 
         if ($request->first_name || $request->last_name) {
             $farm->user->update([

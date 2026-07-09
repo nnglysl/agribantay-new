@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
@@ -7,9 +8,11 @@ const MONTH_NAMES = ['January','February','March','April','May','June','July','A
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 
 export default function Inspections() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [tab, setTab] = useState('schedule')
   const [viewDate, setViewDate] = useState(new Date())
   const [modalDate, setModalDate] = useState(null)
+  const [prefillFarm, setPrefillFarm] = useState(null)
   const [confirmCancel, setConfirmCancel] = useState(null)
   const [completeInspection, setCompleteInspection] = useState(null)
   const [viewInspection, setViewInspection] = useState(null)
@@ -21,6 +24,20 @@ export default function Inspections() {
   const farms = farmsData || []
   const loading = loadingInspections || loadingFarms
   const error = errorInspections || errorFarms
+
+  useEffect(() => {
+    const farmId = searchParams.get('farmId')
+    if (farmId && farms.length > 0) {
+      const farm = farms.find(f => String(f.id) === farmId)
+      if (farm) {
+        setPrefillFarm(farm)
+        setModalDate(new Date())
+        setTab('schedule')
+      }
+      setSearchParams({}, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [farms.length])
 
   const refetchAll = () => {
     refetchInspections()
@@ -35,6 +52,11 @@ export default function Inspections() {
     await api.patch(`/admin/inspections/${confirmCancel.id}/cancel`)
     setConfirmCancel(null)
     refetchInspections()
+  }
+
+  const closeScheduleModal = () => {
+    setModalDate(null)
+    setPrefillFarm(null)
   }
 
   const scheduled = inspections.filter(i => i.status === 'Scheduled')
@@ -91,8 +113,9 @@ export default function Inspections() {
         <ScheduleModal
           date={modalDate}
           farms={farms}
-          onClose={() => setModalDate(null)}
-          onSuccess={() => { setModalDate(null); refetchInspections() }}
+          prefillFarm={prefillFarm}
+          onClose={closeScheduleModal}
+          onSuccess={() => { closeScheduleModal(); refetchInspections() }}
         />
       )}
 
@@ -299,22 +322,25 @@ function CalendarView({ inspections, viewDate, setViewDate, onSelectDate }) {
   )
 }
 
-function ScheduleModal({ date, farms, onClose, onSuccess }) {
-  const [farmId, setFarmId] = useState('')
-  const [farmSearch, setFarmSearch] = useState('')
+function ScheduleModal({ date, farms, prefillFarm, onClose, onSuccess }) {
+  const [farmId, setFarmId] = useState(prefillFarm?.id || '')
+  const [farmSearch, setFarmSearch] = useState(prefillFarm ? `${prefillFarm.farm_name} — ${prefillFarm.owner_name}` : '')
   const [showFarmList, setShowFarmList] = useState(false)
   const [time, setTime] = useState('09:00')
-  const [inspectionType, setInspectionType] = useState('General Inspection')
+  const [inspectionType, setInspectionType] = useState(prefillFarm ? 'Follow-up' : 'General Inspection')
   const [notes, setNotes] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
   const dateLabel = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
 
-  const filteredFarms = farms.filter(f =>
-    f.farm_name.toLowerCase().includes(farmSearch.toLowerCase()) ||
-    f.owner_name.toLowerCase().includes(farmSearch.toLowerCase())
-  )
+  const filteredFarms = farms.filter(f => {
+    const combined = `${f.farm_name} — ${f.owner_name}`.toLowerCase()
+    const search = farmSearch.toLowerCase()
+    return combined.includes(search) ||
+      f.farm_name.toLowerCase().includes(search) ||
+      f.owner_name.toLowerCase().includes(search)
+  })
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -356,6 +382,11 @@ function ScheduleModal({ date, farms, onClose, onSuccess }) {
           <span style={modalStyles.close} onClick={onClose}>×</span>
         </div>
         <p style={modalStyles.dateLabel}>Date selected: {dateLabel}</p>
+        {prefillFarm && (
+          <div style={modalStyles.prefillBanner}>
+            Pre-selected from Critical Alert: {prefillFarm.farm_name}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit}>
           {error && <div style={modalStyles.errorBox}>{error}</div>}
@@ -371,7 +402,7 @@ function ScheduleModal({ date, farms, onClose, onSuccess }) {
                 setFarmId('')
                 setShowFarmList(true)
               }}
-              onFocus={() => setShowFarmList(true)}
+              onFocus={() => { if (!farmId) setShowFarmList(true) }}
               style={modalStyles.input}
             />
             {showFarmList && (
@@ -563,6 +594,10 @@ const modalStyles = {
   title: { fontSize: '17px', fontWeight: '700', color: '#111827', margin: 0 },
   close: { fontSize: '22px', cursor: 'pointer', color: '#6b7280' },
   dateLabel: { fontSize: '13px', color: '#6b7280', marginBottom: '16px' },
+  prefillBanner: {
+    backgroundColor: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626',
+    padding: '8px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '600', marginBottom: '14px',
+  },
   label: { display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px', marginTop: '12px' },
   input: { width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', boxSizing: 'border-box', fontFamily: 'inherit' },
   row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' },

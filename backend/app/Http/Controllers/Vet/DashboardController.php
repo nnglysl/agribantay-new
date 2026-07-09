@@ -43,6 +43,32 @@ class DashboardController extends Controller
                 'status'         => $r->status,
             ]);
 
+        $recentRequests = $baseQuery()
+            ->with('farm')
+            ->where('status', 'Completed')
+            ->orderByDesc('completed_at')
+            ->take(5)
+            ->get()
+            ->map(fn($r) => [
+                'id'           => $r->id,
+                'farm_name'    => $r->farm->farm_name,
+                'completed_at' => $r->completed_at,
+                'status'       => $r->status,
+            ]);
+
+        $assignedFarms = $baseQuery()
+            ->with('farm')
+            ->get()
+            ->pluck('farm')
+            ->filter()
+            ->unique('id')
+            ->values()
+            ->map(fn($farm) => [
+                'id'        => $farm->id,
+                'farm_name' => $farm->farm_name,
+                'barangay'  => $farm->barangay,
+            ]);
+
         // Monthly vaccination progress — last 6 months, count of completed per month
         $monthlyProgress = [];
         for ($i = 5; $i >= 0; $i--) {
@@ -59,16 +85,6 @@ class DashboardController extends Controller
             ];
         }
 
-        $farmsCovered = $baseQuery()->distinct('farm_id')->count('farm_id');
-
-        $vaccinationsThisMonth = $baseQuery()
-            ->where('status', 'Completed')
-            ->whereYear('completed_at', now()->year)
-            ->whereMonth('completed_at', now()->month)
-            ->count();
-
-        $pendingRequests = $baseQuery()->where('status', 'Pending')->count();
-
         return response()->json([
             'success' => true,
             'data' => [
@@ -77,12 +93,9 @@ class DashboardController extends Controller
                 'pending'                => $pending,
                 'completed'              => $completed,
                 'scheduled_vaccinations' => $scheduledVaccinations,
+                'recent_requests'        => $recentRequests,
+                'assigned_farms'         => $assignedFarms,
                 'monthly_progress'       => $monthlyProgress,
-                'farms_covered' => [
-                    'total_farms_served'     => $farmsCovered,
-                    'vaccinations_this_month'=> $vaccinationsThisMonth,
-                    'pending_requests'       => $pendingRequests,
-                ],
             ],
         ]);
     }

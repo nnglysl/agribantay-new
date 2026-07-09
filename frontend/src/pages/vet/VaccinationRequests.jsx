@@ -3,6 +3,12 @@ import api from '../../api/axios'
 import VetLayout from '../../components/VetLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 
+const BIRD_ESTIMATES = {
+  'Small': 'Below 10,000 layers',
+  'Medium': '10,000–50,000 layers',
+  'Large': 'Above 50,000 layers',
+}
+
 export default function VaccinationRequests() {
   const [tab, setTab] = useState('scheduled')
   const [acceptTarget, setAcceptTarget] = useState(null)
@@ -63,8 +69,8 @@ export default function VaccinationRequests() {
               <div style={{ flex: 1 }}>
                 <div style={styles.cardTitle}>{r.farm_name}</div>
                 <div style={styles.cardMeta}>
-                  👤 {r.owner_name} · 📍 {r.barangay} · 🐔 {r.num_birds} birds
-                  {r.scheduled_at && <> · 📅 {new Date(r.scheduled_at).toLocaleDateString()}</>}
+                  {r.owner_name} · {r.barangay} · {BIRD_ESTIMATES[r.farm_size] || 'Size unknown'}
+                  {r.scheduled_at && <> · {new Date(r.scheduled_at).toLocaleDateString()}</>}
                 </div>
                 {r.notes && <div style={styles.cardNotes}>{r.notes}</div>}
               </div>
@@ -139,8 +145,8 @@ export default function VaccinationRequests() {
               <span style={detailStyles.value}>{viewTarget.barangay}</span>
             </div>
             <div style={detailStyles.row}>
-              <span style={detailStyles.label}>Birds</span>
-              <span style={detailStyles.value}>{viewTarget.num_birds}</span>
+              <span style={detailStyles.label}>Est. Birds</span>
+              <span style={detailStyles.value}>{BIRD_ESTIMATES[viewTarget.farm_size] || '—'}</span>
             </div>
             <div style={detailStyles.row}>
               <span style={detailStyles.label}>Status</span>
