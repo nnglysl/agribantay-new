@@ -1,8 +1,10 @@
 import FarmerLayout from '../../components/FarmerLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { useIsMobile } from '../../hooks/useIsMobile'
 
 export default function Recommendations() {
   const { data, loading, error } = useCachedFetch('/farmer/recommendations')
+  const isMobile = useIsMobile()
 
   const badgeColor = {
     Priority: '#dc2626',
@@ -20,7 +22,7 @@ export default function Recommendations() {
 
   return (
     <FarmerLayout>
-      <h1 style={styles.title}>Recommendations</h1>
+      <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Recommendations</h1>
       <p style={styles.subtitle}>Automated insights based on your farm's sensor readings</p>
 
       {loading && <p>Loading...</p>}
@@ -33,9 +35,9 @@ export default function Recommendations() {
       )}
 
       {!loading && !error && (
-        <div style={styles.grid}>
+        <div style={{ ...styles.grid, ...(isMobile ? styles.gridMobile : {}) }}>
           {data.map((rec, i) => (
-            <div key={i} style={styles.card}>
+            <div key={i} style={{ ...styles.card, ...(isMobile ? styles.cardMobile : {}) }}>
               <div style={styles.cardHeader}>
                 <div style={styles.cardTitleRow}>
                   <span style={styles.icon}>{icons[rec.title] || '📋'}</span>
@@ -70,15 +72,18 @@ export default function Recommendations() {
 
 const styles = {
   title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
+  titleMobile: { fontSize: '18px' },
   subtitle: { fontSize: '13px', color: '#6b7280', marginTop: '4px', marginBottom: '24px' },
   empty: { color: '#9ca3af', fontSize: '14px', padding: '24px 0' },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' },
+  gridMobile: { gridTemplateColumns: '1fr', gap: '12px' },
   card: {
     backgroundColor: 'white',
     borderRadius: '12px',
     padding: '20px',
     boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
   },
+  cardMobile: { padding: '16px' },
   cardHeader: {
     display: 'flex',
     justifyContent: 'space-between',

@@ -3,9 +3,11 @@ import { useSearchParams } from 'react-router-dom'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { useIsMobile } from '../../hooks/useIsMobile'
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+const DAY_NAMES_SHORT = ['S','M','T','W','T','F','S']
 
 export default function Inspections() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -16,6 +18,7 @@ export default function Inspections() {
   const [confirmCancel, setConfirmCancel] = useState(null)
   const [completeInspection, setCompleteInspection] = useState(null)
   const [viewInspection, setViewInspection] = useState(null)
+  const isMobile = useIsMobile()
 
   const { data: inspectionsData, loading: loadingInspections, error: errorInspections, refetch: refetchInspections } = useCachedFetch('/admin/inspections')
   const { data: farmsData, loading: loadingFarms, error: errorFarms, refetch: refetchFarms } = useCachedFetch('/admin/farms')
@@ -66,7 +69,7 @@ export default function Inspections() {
 
   return (
     <AdminLayout>
-      <h1 style={styles.title}>Inspections</h1>
+      <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Inspections</h1>
       <p style={styles.subtitle}>Farm inspection scheduling & records</p>
 
       <div style={styles.tabs}>
@@ -90,15 +93,16 @@ export default function Inspections() {
           viewDate={viewDate}
           setViewDate={setViewDate}
           onSelectDate={(date) => setModalDate(date)}
+          isMobile={isMobile}
         />
       )}
 
       {!loading && !error && tab === 'scheduled' && (
-        <InspectionList list={scheduled} statusColor={statusColor} onCancel={handleCancel} onComplete={setCompleteInspection} />
+        <InspectionList list={scheduled} statusColor={statusColor} onCancel={handleCancel} onComplete={setCompleteInspection} isMobile={isMobile} />
       )}
 
       {!loading && !error && tab === 'completed' && (
-        <InspectionList list={completed} statusColor={statusColor} onView={setViewInspection} />
+        <InspectionList list={completed} statusColor={statusColor} onView={setViewInspection} isMobile={isMobile} />
       )}
 
       {!loading && !error && tab === 'history' && (
@@ -106,6 +110,7 @@ export default function Inspections() {
           list={inspections.filter(i => i.status === 'Completed' || i.status === 'Cancelled')}
           statusColor={statusColor}
           onView={setViewInspection}
+          isMobile={isMobile}
         />
       )}
 
@@ -116,6 +121,7 @@ export default function Inspections() {
           prefillFarm={prefillFarm}
           onClose={closeScheduleModal}
           onSuccess={() => { closeScheduleModal(); refetchInspections() }}
+          isMobile={isMobile}
         />
       )}
 
@@ -124,12 +130,13 @@ export default function Inspections() {
           inspection={completeInspection}
           onClose={() => setCompleteInspection(null)}
           onSuccess={() => { setCompleteInspection(null); refetchInspections() }}
+          isMobile={isMobile}
         />
       )}
 
       {viewInspection && (
         <div style={modalStyles.overlay} onClick={() => setViewInspection(null)}>
-          <div style={modalStyles.modal} onClick={e => e.stopPropagation()}>
+          <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
             <div style={modalStyles.header}>
               <h3 style={modalStyles.title}>{viewInspection.inspection_number}</h3>
               <span style={modalStyles.close} onClick={() => setViewInspection(null)}>×</span>
@@ -183,14 +190,22 @@ export default function Inspections() {
 
       {confirmCancel && (
         <div style={modalStyles.overlay} onClick={() => setConfirmCancel(null)}>
-          <div style={confirmStyles.modal} onClick={e => e.stopPropagation()}>
+          <div style={{ ...confirmStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
             <h3 style={confirmStyles.title}>Cancel Inspection</h3>
             <p style={confirmStyles.message}>
               Cancel {confirmCancel.inspection_number} for {confirmCancel.farm_name}?
             </p>
-            <div style={modalStyles.actions}>
-              <button onClick={() => setConfirmCancel(null)} style={modalStyles.cancelBtn}>Keep it</button>
-              <button onClick={confirmCancelAction} style={{ ...modalStyles.submitBtn, backgroundColor: '#dc2626' }}>
+            <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
+              <button
+                onClick={() => setConfirmCancel(null)}
+                style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
+              >
+                Keep it
+              </button>
+              <button
+                onClick={confirmCancelAction}
+                style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}), backgroundColor: '#dc2626' }}
+              >
                 Cancel Inspection
               </button>
             </div>
@@ -201,50 +216,77 @@ export default function Inspections() {
   )
 }
 
-function InspectionList({ list, statusColor, onCancel, onComplete, onView, showAll }) {
+function InspectionList({ list, statusColor, onCancel, onComplete, onView, isMobile }) {
   if (list.length === 0) return <div style={styles.empty}>No inspections here yet.</div>
 
   return (
     <div style={styles.list}>
-      {list.map(i => (
-        <div key={i.id} style={styles.card}>
-          <div style={styles.cardBar} />
-          <div style={{ flex: 1 }}>
-            <div style={styles.cardTitle}>{i.inspection_number} — {i.farm_name}</div>
-            <div style={styles.cardMeta}>
-              📅 {new Date(i.scheduled_at).toLocaleDateString()} ·{' '}
-              🕐 {new Date(i.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ·{' '}
-              {i.inspection_type}
-            </div>
-            {i.findings && <div style={styles.cardFindings}>{i.findings}</div>}
-          </div>
+      {list.map(i => {
+        const badge = (
           <span style={{ ...styles.badge, backgroundColor: statusColor[i.status] || '#6b7280' }}>
             {i.status}
           </span>
-          <div style={{ display: 'flex', gap: '8px' }}>
+        )
+        const actions = (
+          <div style={{ display: 'flex', gap: '8px', ...(isMobile ? { width: '100%' } : {}) }}>
             {onView && (
-              <span style={{ ...styles.actionBtn, ...styles.viewLink }} onClick={() => onView(i)}>
+              <span
+                style={{ ...styles.actionBtn, ...styles.viewLink, ...(isMobile ? styles.actionBtnMobile : {}) }}
+                onClick={() => onView(i)}
+              >
                 View
               </span>
             )}
             {i.status === 'Scheduled' && onComplete && (
-              <span style={{ ...styles.actionBtn, ...styles.completeLink }} onClick={() => onComplete(i)}>
+              <span
+                style={{ ...styles.actionBtn, ...styles.completeLink, ...(isMobile ? styles.actionBtnMobile : {}) }}
+                onClick={() => onComplete(i)}
+              >
                 Complete
               </span>
             )}
             {i.status === 'Scheduled' && onCancel && (
-              <span style={{ ...styles.actionBtn, ...styles.cancelLink }} onClick={() => onCancel(i)}>
+              <span
+                style={{ ...styles.actionBtn, ...styles.cancelLink, ...(isMobile ? styles.actionBtnMobile : {}) }}
+                onClick={() => onCancel(i)}
+              >
                 Cancel
               </span>
             )}
           </div>
-        </div>
-      ))}
+        )
+
+        return (
+          <div key={i.id} style={{ ...styles.card, ...(isMobile ? styles.cardMobile : {}) }}>
+            <div style={isMobile ? styles.cardTopRow : { display: 'contents' }}>
+              <div style={styles.cardBar} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={styles.cardTitle}>{i.inspection_number} — {i.farm_name}</div>
+                <div style={styles.cardMeta}>
+                  📅 {new Date(i.scheduled_at).toLocaleDateString()} ·{' '}
+                  🕐 {new Date(i.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ·{' '}
+                  {i.inspection_type}
+                </div>
+                {i.findings && <div style={styles.cardFindings}>{i.findings}</div>}
+              </div>
+              {!isMobile && badge}
+              {!isMobile && actions}
+            </div>
+
+            {isMobile && (
+              <div style={styles.cardBottomRow}>
+                {badge}
+                {actions}
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
 
-function CalendarView({ inspections, viewDate, setViewDate, onSelectDate }) {
+function CalendarView({ inspections, viewDate, setViewDate, onSelectDate, isMobile }) {
   const year = viewDate.getFullYear()
   const month = viewDate.getMonth()
   const today = new Date()
@@ -272,9 +314,11 @@ function CalendarView({ inspections, viewDate, setViewDate, onSelectDate }) {
   const goNext = () => setViewDate(new Date(year, month + 1, 1))
 
   return (
-    <div style={styles.calendarCard}>
+    <div style={{ ...styles.calendarCard, ...(isMobile ? styles.calendarCardMobile : {}) }}>
       <div style={styles.calendarHeader}>
-        <h3 style={styles.calendarMonth}>{MONTH_NAMES[month]} {year}</h3>
+        <h3 style={{ ...styles.calendarMonth, ...(isMobile ? styles.calendarMonthMobile : {}) }}>
+          {isMobile ? `${MONTH_NAMES[month].slice(0, 3)} ${year}` : `${MONTH_NAMES[month]} ${year}`}
+        </h3>
         <div style={styles.calendarNav}>
           <span style={styles.navBtn} onClick={goPrev}>‹</span>
           <span style={styles.navBtn} onClick={goNext}>›</span>
@@ -282,7 +326,9 @@ function CalendarView({ inspections, viewDate, setViewDate, onSelectDate }) {
       </div>
 
       <div style={styles.calendarGrid}>
-        {DAY_NAMES.map(d => <div key={d} style={styles.calendarDayName}>{d}</div>)}
+        {(isMobile ? DAY_NAMES_SHORT : DAY_NAMES).map((d, i) => (
+          <div key={i} style={styles.calendarDayName}>{d}</div>
+        ))}
 
         {cells.map((day, idx) => {
           const dayInspections = getInspectionsForDay(day)
@@ -291,6 +337,7 @@ function CalendarView({ inspections, viewDate, setViewDate, onSelectDate }) {
               key={idx}
               style={{
                 ...styles.calendarCell,
+                ...(isMobile ? styles.calendarCellMobile : {}),
                 ...(day ? {} : styles.calendarCellEmpty),
                 ...(isToday(day) ? styles.calendarCellToday : {}),
               }}
@@ -298,15 +345,31 @@ function CalendarView({ inspections, viewDate, setViewDate, onSelectDate }) {
             >
               {day && (
                 <>
-                  <div style={styles.calendarDayNum}>{day}</div>
-                  {dayInspections.slice(0, 2).map((insp, i) => (
-                    <div key={i} style={{
-                      ...styles.calendarDot,
-                      backgroundColor: insp.inspection_type === 'Follow-up' ? '#f59e0b' : '#3b82f6',
-                    }}>
-                      {insp.inspection_type === 'Follow-up' ? 'Follow-up' : 'General'}
-                    </div>
-                  ))}
+                  <div style={{ ...styles.calendarDayNum, ...(isMobile ? styles.calendarDayNumMobile : {}) }}>{day}</div>
+                  {isMobile ? (
+                    dayInspections.length > 0 && (
+                      <div style={styles.calendarDotsMobile}>
+                        {dayInspections.slice(0, 3).map((insp, i) => (
+                          <span
+                            key={i}
+                            style={{
+                              ...styles.calendarDotSmall,
+                              backgroundColor: insp.inspection_type === 'Follow-up' ? '#f59e0b' : '#3b82f6',
+                            }}
+                          />
+                        ))}
+                      </div>
+                    )
+                  ) : (
+                    dayInspections.slice(0, 2).map((insp, i) => (
+                      <div key={i} style={{
+                        ...styles.calendarDot,
+                        backgroundColor: insp.inspection_type === 'Follow-up' ? '#f59e0b' : '#3b82f6',
+                      }}>
+                        {insp.inspection_type === 'Follow-up' ? 'Follow-up' : 'General'}
+                      </div>
+                    ))
+                  )}
                 </>
               )}
             </div>
@@ -314,7 +377,7 @@ function CalendarView({ inspections, viewDate, setViewDate, onSelectDate }) {
         })}
       </div>
 
-      <div style={styles.legend}>
+      <div style={{ ...styles.legend, ...(isMobile ? styles.legendMobile : {}) }}>
         <span style={styles.legendItem}><span style={{ ...styles.legendDot, backgroundColor: '#3b82f6' }} /> General Inspection</span>
         <span style={styles.legendItem}><span style={{ ...styles.legendDot, backgroundColor: '#f59e0b' }} /> Follow-up</span>
       </div>
@@ -322,7 +385,7 @@ function CalendarView({ inspections, viewDate, setViewDate, onSelectDate }) {
   )
 }
 
-function ScheduleModal({ date, farms, prefillFarm, onClose, onSuccess }) {
+function ScheduleModal({ date, farms, prefillFarm, onClose, onSuccess, isMobile }) {
   const [farmId, setFarmId] = useState(prefillFarm?.id || '')
   const [farmSearch, setFarmSearch] = useState(prefillFarm ? `${prefillFarm.farm_name} — ${prefillFarm.owner_name}` : '')
   const [showFarmList, setShowFarmList] = useState(false)
@@ -376,7 +439,7 @@ function ScheduleModal({ date, farms, prefillFarm, onClose, onSuccess }) {
 
   return (
     <div style={modalStyles.overlay} onClick={onClose}>
-      <div style={modalStyles.modal} onClick={e => e.stopPropagation()}>
+      <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
         <div style={modalStyles.header}>
           <h3 style={modalStyles.title}>Schedule Inspection</h3>
           <span style={modalStyles.close} onClick={onClose}>×</span>
@@ -427,7 +490,7 @@ function ScheduleModal({ date, farms, prefillFarm, onClose, onSuccess }) {
             )}
           </div>
 
-          <div style={modalStyles.row}>
+          <div style={{ ...modalStyles.row, ...(isMobile ? modalStyles.rowMobile : {}) }}>
             <div>
               <label style={modalStyles.label}>Time *</label>
               <input type="time" value={time} onChange={e => setTime(e.target.value)} style={modalStyles.input} />
@@ -449,9 +512,19 @@ function ScheduleModal({ date, farms, prefillFarm, onClose, onSuccess }) {
             placeholder="Add context or specific concerns"
           />
 
-          <div style={modalStyles.actions}>
-            <button type="button" onClick={onClose} style={modalStyles.cancelBtn}>Cancel</button>
-            <button type="submit" disabled={loading} style={modalStyles.submitBtn}>
+          <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
+            >
               {loading ? 'Scheduling...' : 'Schedule Inspection'}
             </button>
           </div>
@@ -461,7 +534,7 @@ function ScheduleModal({ date, farms, prefillFarm, onClose, onSuccess }) {
   )
 }
 
-function CompleteModal({ inspection, onClose, onSuccess }) {
+function CompleteModal({ inspection, onClose, onSuccess, isMobile }) {
   const [findings, setFindings] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -488,7 +561,7 @@ function CompleteModal({ inspection, onClose, onSuccess }) {
 
   return (
     <div style={modalStyles.overlay} onClick={onClose}>
-      <div style={modalStyles.modal} onClick={e => e.stopPropagation()}>
+      <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
         <div style={modalStyles.header}>
           <h3 style={modalStyles.title}>Complete Inspection</h3>
           <span style={modalStyles.close} onClick={onClose}>×</span>
@@ -506,9 +579,19 @@ function CompleteModal({ inspection, onClose, onSuccess }) {
             placeholder="e.g. All systems normal. No violations observed."
           />
 
-          <div style={modalStyles.actions}>
-            <button type="button" onClick={onClose} style={modalStyles.cancelBtn}>Cancel</button>
-            <button type="submit" disabled={loading} style={modalStyles.submitBtn}>
+          <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
+            >
               {loading ? 'Saving...' : 'Mark as Completed'}
             </button>
           </div>
@@ -520,9 +603,10 @@ function CompleteModal({ inspection, onClose, onSuccess }) {
 
 const styles = {
   title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
+  titleMobile: { fontSize: '18px' },
   subtitle: { fontSize: '13px', color: '#6b7280', marginTop: '4px', marginBottom: '20px' },
-  tabs: { display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid #e5e7eb' },
-  tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7280', cursor: 'pointer', borderBottom: '2px solid transparent' },
+  tabs: { display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid #e5e7eb', overflowX: 'auto' },
+  tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7280', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap' },
   tabActive: { color: '#2E7D32', fontWeight: '600', borderBottom: '2px solid #2E7D32' },
   empty: { color: '#9ca3af', fontSize: '14px', padding: '24px 0' },
   list: { display: 'flex', flexDirection: 'column', gap: '12px' },
@@ -531,11 +615,17 @@ const styles = {
     display: 'flex', alignItems: 'center', gap: '14px',
     boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
   },
+  cardMobile: { flexDirection: 'column', alignItems: 'stretch', padding: '14px 16px', gap: '12px' },
+  cardTopRow: { display: 'flex', alignItems: 'flex-start', gap: '12px' },
+  cardBottomRow: {
+    display: 'flex', flexDirection: 'column', gap: '10px',
+    borderTop: '1px solid #f3f4f6', paddingTop: '10px',
+  },
   cardBar: { width: '4px', height: '36px', backgroundColor: '#3b82f6', borderRadius: '2px', flexShrink: 0 },
   cardTitle: { fontSize: '14px', fontWeight: '600', color: '#111827' },
   cardMeta: { fontSize: '12px', color: '#6b7280', marginTop: '4px' },
   cardFindings: { fontSize: '13px', color: '#374151', marginTop: '6px' },
-  badge: { padding: '4px 12px', borderRadius: '999px', color: 'white', fontSize: '12px', fontWeight: '600', whiteSpace: 'nowrap' },
+  badge: { padding: '4px 12px', borderRadius: '999px', color: 'white', fontSize: '12px', fontWeight: '600', whiteSpace: 'nowrap', alignSelf: 'flex-start' },
   actionBtn: {
     padding: '5px 12px',
     borderRadius: '6px',
@@ -545,6 +635,7 @@ const styles = {
     border: '1px solid transparent',
     whiteSpace: 'nowrap',
   },
+  actionBtnMobile: { flex: 1, textAlign: 'center', padding: '8px 12px' },
   completeLink: {
     color: '#2E7D32',
     backgroundColor: '#f0fdf4',
@@ -562,8 +653,10 @@ const styles = {
   },
 
   calendarCard: { backgroundColor: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' },
+  calendarCardMobile: { padding: '14px' },
   calendarHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
   calendarMonth: { fontSize: '16px', fontWeight: '700', color: '#111827', margin: 0 },
+  calendarMonthMobile: { fontSize: '14px' },
   calendarNav: { display: 'flex', gap: '8px' },
   navBtn: {
     width: '30px', height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -575,14 +668,19 @@ const styles = {
     minHeight: '80px', border: '1px solid #f3f4f6', borderRadius: '6px', padding: '6px',
     cursor: 'pointer', fontSize: '12px',
   },
+  calendarCellMobile: { minHeight: '46px', padding: '3px', borderRadius: '4px' },
   calendarCellEmpty: { cursor: 'default', backgroundColor: 'transparent', border: 'none' },
   calendarCellToday: { backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' },
   calendarDayNum: { fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '4px' },
+  calendarDayNumMobile: { fontSize: '11px', marginBottom: '2px', textAlign: 'center' },
   calendarDot: {
     fontSize: '10px', color: 'white', borderRadius: '4px', padding: '2px 6px',
     marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
   },
+  calendarDotsMobile: { display: 'flex', justifyContent: 'center', gap: '2px' },
+  calendarDotSmall: { width: '5px', height: '5px', borderRadius: '50%' },
   legend: { display: 'flex', gap: '20px', marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #f3f4f6' },
+  legendMobile: { gap: '12px', flexWrap: 'wrap' },
   legendItem: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#6b7280' },
   legendDot: { width: '8px', height: '8px', borderRadius: '50%' },
 }
@@ -590,6 +688,11 @@ const styles = {
 const modalStyles = {
   overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 },
   modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '440px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto' },
+  modalMobile: {
+    width: '100%', maxWidth: '100%', borderRadius: '16px 16px 0 0',
+    padding: '20px', margin: '0', position: 'fixed', bottom: 0, left: 0,
+    maxHeight: '85vh',
+  },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' },
   title: { fontSize: '17px', fontWeight: '700', color: '#111827', margin: 0 },
   close: { fontSize: '22px', cursor: 'pointer', color: '#6b7280' },
@@ -601,8 +704,11 @@ const modalStyles = {
   label: { display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px', marginTop: '12px' },
   input: { width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', boxSizing: 'border-box', fontFamily: 'inherit' },
   row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' },
+  rowMobile: { gridTemplateColumns: '1fr' },
   errorBox: { backgroundColor: '#fef2f2', border: '1px solid #fca5a5', color: '#dc2626', padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '14px' },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' },
+  actionsMobile: { flexDirection: 'column-reverse' },
+  btnFull: { width: '100%', boxSizing: 'border-box' },
   cancelBtn: { padding: '10px 18px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: 'white', fontSize: '14px', cursor: 'pointer' },
   submitBtn: { padding: '10px 18px', borderRadius: '8px', border: 'none', backgroundColor: '#2E7D32', color: 'white', fontSize: '14px', fontWeight: '600', cursor: 'pointer' },
   dropdownList: {

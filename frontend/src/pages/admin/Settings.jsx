@@ -4,6 +4,7 @@ import AdminLayout from '../../components/AdminLayout'
 import { getUser, setAuth, getToken } from '../../utils/auth'
 import { validatePassword } from '../../utils/passwordValidation'
 import PasswordStrengthIndicator from '../../components/PasswordStrengthIndicator'
+import { useIsMobile } from '../../hooks/useIsMobile'
 
 export default function Settings() {
   const [profile, setProfile] = useState(null)
@@ -14,6 +15,7 @@ export default function Settings() {
   const [profileError, setProfileError] = useState('')
   const [profileSuccess, setProfileSuccess] = useState('')
   const [profileLoading, setProfileLoading] = useState(false)
+  const isMobile = useIsMobile()
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -113,9 +115,9 @@ export default function Settings() {
 
   return (
     <AdminLayout>
-      <h1 style={styles.title}>Settings</h1>
+      <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Settings</h1>
 
-      <div style={styles.profileCard}>
+      <div style={{ ...styles.profileCard, ...(isMobile ? styles.profileCardMobile : {}) }}>
         <div style={styles.avatar}>{initials}</div>
         <div>
           <div style={styles.profileName}>{profile.first_name} {profile.last_name}</div>
@@ -123,7 +125,7 @@ export default function Settings() {
         </div>
       </div>
 
-      <div style={styles.card}>
+      <div style={{ ...styles.card, ...(isMobile ? styles.cardMobile : {}) }}>
         <div style={styles.sectionHeader}>
           <h3 style={styles.sectionTitle}>Personal Information</h3>
           {!isEditing && (
@@ -137,7 +139,7 @@ export default function Settings() {
           {profileError && <div style={styles.errorBox}>{profileError}</div>}
           {profileSuccess && <div style={styles.successBox}>{profileSuccess}</div>}
 
-          <div style={styles.row}>
+          <div style={{ ...styles.row, ...(isMobile ? styles.rowMobile : {}) }}>
             <div style={styles.fieldGroup}>
               <label style={styles.label}>First Name</label>
               <input
@@ -169,11 +171,19 @@ export default function Settings() {
           </div>
 
           {isEditing && (
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button type="submit" disabled={profileLoading} style={styles.saveBtn}>
+            <div style={{ display: 'flex', gap: '10px', ...(isMobile ? { flexDirection: 'column' } : {}) }}>
+              <button
+                type="submit"
+                disabled={profileLoading}
+                style={{ ...styles.saveBtn, ...(isMobile ? styles.btnFull : {}) }}
+              >
                 {profileLoading ? 'Saving...' : 'Save Changes'}
               </button>
-              <button type="button" onClick={handleCancelEdit} style={styles.cancelBtn}>
+              <button
+                type="button"
+                onClick={handleCancelEdit}
+                style={{ ...styles.cancelBtn, ...(isMobile ? styles.btnFull : {}) }}
+              >
                 Cancel
               </button>
             </div>
@@ -181,7 +191,7 @@ export default function Settings() {
         </form>
       </div>
 
-      <div style={styles.card}>
+      <div style={{ ...styles.card, ...(isMobile ? styles.cardMobile : {}) }}>
         <h3 style={styles.sectionTitle}>Change Password</h3>
         <form onSubmit={handlePasswordSave}>
           {passwordError && <div style={styles.errorBox}>{passwordError}</div>}
@@ -202,7 +212,7 @@ export default function Settings() {
             </div>
           </div>
 
-          <div style={styles.row}>
+          <div style={{ ...styles.row, ...(isMobile ? styles.rowMobile : {}) }}>
             <div style={styles.fieldGroup}>
               <label style={styles.label}>New Password</label>
               <div style={styles.passwordWrapper}>
@@ -242,6 +252,7 @@ export default function Settings() {
             disabled={passwordLoading || !canSubmitPassword}
             style={{
               ...styles.saveBtn,
+              ...(isMobile ? styles.btnFull : {}),
               opacity: (passwordLoading || !canSubmitPassword) ? 0.5 : 1,
               cursor: (passwordLoading || !canSubmitPassword) ? 'not-allowed' : 'pointer',
             }}
@@ -272,15 +283,17 @@ function EyeOffIcon() {
 
 const styles = {
   title: { fontSize: '22px', fontWeight: '700', color: '#111827', marginBottom: '24px' },
+  titleMobile: { fontSize: '18px', marginBottom: '16px' },
   profileCard: {
     display: 'flex', alignItems: 'center', gap: '16px',
     backgroundColor: 'white', borderRadius: '12px', padding: '24px',
     marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
   },
+  profileCardMobile: { padding: '16px', gap: '12px' },
   avatar: {
     width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#2E7D32',
     color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontSize: '20px', fontWeight: '700',
+    fontSize: '20px', fontWeight: '700', flexShrink: 0,
   },
   profileName: { fontSize: '16px', fontWeight: '700', color: '#111827' },
   profileSub: { fontSize: '13px', color: '#6b7280' },
@@ -288,6 +301,7 @@ const styles = {
     backgroundColor: 'white', borderRadius: '12px', padding: '24px',
     marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
   },
+  cardMobile: { padding: '16px' },
   sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
   sectionTitle: { fontSize: '15px', fontWeight: '700', color: '#111827', margin: 0 },
   editBtn: {
@@ -295,6 +309,7 @@ const styles = {
     borderRadius: '8px', padding: '6px 14px', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
   },
   row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' },
+  rowMobile: { gridTemplateColumns: '1fr', gap: '0px' },
   fieldGroup: { display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '14px' },
   label: { fontSize: '13px', fontWeight: '500', color: '#374151' },
   input: {
@@ -316,6 +331,7 @@ const styles = {
     backgroundColor: 'white', color: '#374151', border: '1px solid #d1d5db',
     borderRadius: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', marginTop: '4px',
   },
+  btnFull: { width: '100%', boxSizing: 'border-box' },
   errorBox: {
     backgroundColor: '#fef2f2', border: '1px solid #fca5a5', color: '#dc2626',
     padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '14px',

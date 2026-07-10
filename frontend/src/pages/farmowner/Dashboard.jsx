@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import FarmerLayout from '../../components/FarmerLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { useIsMobile } from '../../hooks/useIsMobile'
 
 function timeAgo(dateString) {
   const seconds = Math.floor((new Date() - new Date(dateString)) / 1000)
@@ -17,6 +18,7 @@ function timeAgo(dateString) {
 export default function FarmerDashboard() {
   const { data, loading, error, refetch } = useCachedFetch('/farmer/dashboard')
   const { data: recommendations, loading: loadingRecs, refetch: refetchRecs } = useCachedFetch('/farmer/recommendations')
+  const isMobile = useIsMobile()
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -47,19 +49,21 @@ export default function FarmerDashboard() {
 
   return (
     <FarmerLayout>
-      <h1 style={styles.title}>Welcome back, {data.farm_name ? data.farm_name.split(' ')[0] : ''}</h1>
+      <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>
+        Welcome back, {data.farm_name ? data.farm_name.split(' ')[0] : ''}
+      </h1>
       <p style={styles.subtitle}>{data.farm_name} · {data.barangay}</p>
 
-      <div style={{ ...styles.healthCard, backgroundColor: statusColor }}>
+      <div style={{ ...styles.healthCard, ...(isMobile ? styles.healthCardMobile : {}), backgroundColor: statusColor }}>
         <div>
           <div style={styles.healthLabel}>Farm Health Score</div>
-          <div style={styles.healthScore}>{data.health_score}</div>
+          <div style={{ ...styles.healthScore, ...(isMobile ? styles.healthScoreMobile : {}) }}>{data.health_score}</div>
           <div style={styles.healthStatus}>{data.health_status}</div>
           <div style={styles.healthTimestamp}>
             {data.last_reading_at ? `Last updated ${timeAgo(data.last_reading_at)}` : 'No readings yet'}
           </div>
         </div>
-        <div style={styles.sensorMini}>
+        <div style={{ ...styles.sensorMini, ...(isMobile ? styles.sensorMiniMobile : {}) }}>
           <div>Ammonia<br /><strong>{data.ammonia ?? '—'} ppm</strong></div>
           <div>Temperature<br /><strong>{data.temperature ?? '—'}°C</strong></div>
           <div>Humidity<br /><strong>{data.humidity ?? '—'}%</strong></div>
@@ -67,7 +71,7 @@ export default function FarmerDashboard() {
         </div>
       </div>
 
-      <div style={styles.grid}>
+      <div style={{ ...styles.grid, ...(isMobile ? styles.gridMobile : {}) }}>
         <SensorGauge label="Ammonia" value={data.ammonia} status={data.ammonia_status} unit="ppm" />
         <SensorGauge label="Temperature" value={data.temperature} status={data.temperature_status} unit="°C" />
         <SensorGauge label="Humidity" value={data.humidity} status={data.humidity_status} unit="%" />
@@ -85,7 +89,7 @@ export default function FarmerDashboard() {
       )}
 
       {!loadingRecs && recs.length > 0 && (
-        <div style={styles.recsGrid}>
+        <div style={{ ...styles.recsGrid, ...(isMobile ? styles.recsGridMobile : {}) }}>
           {recs.map((rec, i) => (
             <div key={i} style={styles.recCard}>
               <div style={styles.recHeader}>
@@ -118,6 +122,7 @@ function SensorGauge({ label, value, status, unit }) {
 
 const styles = {
   title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
+  titleMobile: { fontSize: '18px' },
   subtitle: { fontSize: '13px', color: '#6B6B5F', marginTop: '4px', marginBottom: '24px' },
   healthCard: {
     borderRadius: '16px',
@@ -128,12 +133,20 @@ const styles = {
     alignItems: 'center',
     marginBottom: '24px',
   },
+  healthCardMobile: {
+    flexDirection: 'column', alignItems: 'flex-start', padding: '20px', gap: '16px',
+  },
   healthLabel: { fontSize: '13px', opacity: 0.9 },
   healthScore: { fontSize: '40px', fontWeight: '700', lineHeight: 1.1 },
+  healthScoreMobile: { fontSize: '32px' },
   healthStatus: { fontSize: '13px', opacity: 0.9, marginTop: '4px' },
   healthTimestamp: { fontSize: '11px', opacity: 0.7, marginTop: '8px' },
   sensorMini: { display: 'flex', gap: '24px', fontSize: '12px', textAlign: 'right' },
+  sensorMiniMobile: {
+    width: '100%', justifyContent: 'space-between', textAlign: 'left', gap: '12px', flexWrap: 'wrap',
+  },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '28px' },
+  gridMobile: { gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', marginBottom: '20px' },
   card: {
     backgroundColor: 'white',
     borderRadius: '12px',
@@ -150,6 +163,7 @@ const styles = {
     color: '#9ca3af', fontSize: '14px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
   },
   recsGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' },
+  recsGridMobile: { gridTemplateColumns: '1fr', gap: '12px' },
   recCard: {
     backgroundColor: 'white', borderRadius: '12px', padding: '18px',
     boxShadow: '0 1px 3px rgba(0,0,0,0.08)',

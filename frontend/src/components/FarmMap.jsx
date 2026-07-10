@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { useIsMobile } from '../hooks/useIsMobile'
 
 delete L.Icon.Default.prototype._getIconUrl
 L.Icon.Default.mergeOptions({
@@ -213,11 +214,12 @@ export default function FarmMap({ farms }) {
   const containerRef = useRef(null)
   const markersRef = useRef([])
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
 
-    const map = L.map(containerRef.current).setView(SAN_JOSE_CENTER, 13)
+    const map = L.map(containerRef.current).setView(SAN_JOSE_CENTER, isMobile ? 12 : 13)
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors',
@@ -237,7 +239,20 @@ export default function FarmMap({ farms }) {
       map.remove()
       mapRef.current = null
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Leaflet caches its container size on init — if the container's size
+  // changes after mount (e.g. rotating a phone, or the drawer sidebar
+  // toggling and reflowing layout), tell Leaflet to recalculate so tiles
+  // don't render blank/cut off.
+  useEffect(() => {
+    if (!mapRef.current) return
+    const timeout = setTimeout(() => {
+      mapRef.current.invalidateSize()
+    }, 200)
+    return () => clearTimeout(timeout)
+  }, [isMobile])
 
   useEffect(() => {
     if (!mapRef.current) return
@@ -280,6 +295,14 @@ export default function FarmMap({ farms }) {
   }, [farms, navigate])
 
   return (
-    <div ref={containerRef} style={{ height: '400px', width: '100%', borderRadius: '12px', overflow: 'hidden' }} />
+    <div
+      ref={containerRef}
+      style={{
+        height: isMobile ? '260px' : '400px',
+        width: '100%',
+        borderRadius: '12px',
+        overflow: 'hidden',
+      }}
+    />
   )
 }

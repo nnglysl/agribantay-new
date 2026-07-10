@@ -2,6 +2,7 @@ import { useState } from 'react'
 import api from '../../api/axios'
 import VetLayout from '../../components/VetLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { useIsMobile } from '../../hooks/useIsMobile'
 
 const BIRD_ESTIMATES = {
   'Small': 'Below 10,000 layers',
@@ -16,6 +17,7 @@ export default function VaccinationRequests() {
   const [viewTarget, setViewTarget] = useState(null)
   const [confirmDecline, setConfirmDecline] = useState(null)
   const [confirmComplete, setConfirmComplete] = useState(null)
+  const isMobile = useIsMobile()
 
   const { data, loading, error, refetch } = useCachedFetch('/vet/vaccination-requests')
   const requestData = data || { scheduled: [], completed: [] }
@@ -36,7 +38,7 @@ export default function VaccinationRequests() {
 
   return (
     <VetLayout>
-      <h1 style={styles.title}>Vaccination Requests</h1>
+      <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Vaccination Requests</h1>
       <p style={styles.subtitle}>Bird vaccination scheduling & records</p>
 
       <div style={styles.tabs}>
@@ -63,58 +65,93 @@ export default function VaccinationRequests() {
 
       {!loading && !error && (
         <div style={styles.list}>
-          {list.map(r => (
-            <div key={r.id} style={styles.card}>
-              <div style={{ ...styles.cardBar, backgroundColor: r.status === 'Pending' ? '#f59e0b' : '#3b82f6' }} />
-              <div style={{ flex: 1 }}>
-                <div style={styles.cardTitle}>{r.farm_name}</div>
-                <div style={styles.cardMeta}>
-                  {r.owner_name} · {r.barangay} · {BIRD_ESTIMATES[r.farm_size] || 'Size unknown'}
-                  {r.scheduled_at && <> · {new Date(r.scheduled_at).toLocaleDateString()}</>}
-                </div>
-                {r.notes && <div style={styles.cardNotes}>{r.notes}</div>}
-              </div>
+          {list.map(r => {
+            const badge = (
               <span style={{
                 ...styles.badge,
                 backgroundColor: r.status === 'Pending' ? '#f59e0b' : r.status === 'Completed' ? '#2E7D32' : '#3b82f6',
               }}>
                 {r.status}
               </span>
-              <div style={{ display: 'flex', gap: '8px' }}>
+            )
+
+            const actions = (
+              <div style={{ display: 'flex', gap: '8px', ...(isMobile ? { width: '100%' } : {}) }}>
                 {r.status === 'Completed' && (
-                  <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => setViewTarget(r)}>
+                  <span
+                    style={{ ...styles.actionBtn, ...styles.viewBtn, ...(isMobile ? styles.actionBtnMobile : {}) }}
+                    onClick={() => setViewTarget(r)}
+                  >
                     View
                   </span>
                 )}
                 {r.status === 'Pending' && (
                   <>
-                    <span style={{ ...styles.actionBtn, ...styles.acceptBtn }} onClick={() => setAcceptTarget(r)}>
+                    <span
+                      style={{ ...styles.actionBtn, ...styles.acceptBtn, ...(isMobile ? styles.actionBtnMobile : {}) }}
+                      onClick={() => setAcceptTarget(r)}
+                    >
                       Accept
                     </span>
-                    <span style={{ ...styles.actionBtn, ...styles.declineBtn }} onClick={() => setConfirmDecline(r)}>
+                    <span
+                      style={{ ...styles.actionBtn, ...styles.declineBtn, ...(isMobile ? styles.actionBtnMobile : {}) }}
+                      onClick={() => setConfirmDecline(r)}
+                    >
                       Decline
                     </span>
                   </>
                 )}
                 {r.status === 'Scheduled' && (
                   <>
-                    <span style={{ ...styles.actionBtn, ...styles.noteBtn }} onClick={() => setNoteTarget(r)}>
+                    <span
+                      style={{ ...styles.actionBtn, ...styles.noteBtn, ...(isMobile ? styles.actionBtnMobile : {}) }}
+                      onClick={() => setNoteTarget(r)}
+                    >
                       Add Note
                     </span>
-                    <span style={{ ...styles.actionBtn, ...styles.completeBtn }} onClick={() => setConfirmComplete(r)}>
+                    <span
+                      style={{ ...styles.actionBtn, ...styles.completeBtn, ...(isMobile ? styles.actionBtnMobile : {}) }}
+                      onClick={() => setConfirmComplete(r)}
+                    >
                       Complete
                     </span>
                   </>
                 )}
               </div>
-            </div>
-          ))}
+            )
+
+            return (
+              <div key={r.id} style={{ ...styles.card, ...(isMobile ? styles.cardMobile : {}) }}>
+                <div style={isMobile ? styles.cardTopRow : { display: 'contents' }}>
+                  <div style={{ ...styles.cardBar, backgroundColor: r.status === 'Pending' ? '#f59e0b' : '#3b82f6' }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={styles.cardTitle}>{r.farm_name}</div>
+                    <div style={styles.cardMeta}>
+                      {r.owner_name} · {r.barangay} · {BIRD_ESTIMATES[r.farm_size] || 'Size unknown'}
+                      {r.scheduled_at && <> · {new Date(r.scheduled_at).toLocaleDateString()}</>}
+                    </div>
+                    {r.notes && <div style={styles.cardNotes}>{r.notes}</div>}
+                  </div>
+                  {!isMobile && badge}
+                  {!isMobile && actions}
+                </div>
+
+                {isMobile && (
+                  <div style={styles.cardBottomRow}>
+                    {badge}
+                    {actions}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
 
       {acceptTarget && (
         <AcceptModal
           request={acceptTarget}
+          isMobile={isMobile}
           onClose={() => setAcceptTarget(null)}
           onSuccess={() => { setAcceptTarget(null); refetch() }}
         />
@@ -123,6 +160,7 @@ export default function VaccinationRequests() {
       {noteTarget && (
         <NoteModal
           request={noteTarget}
+          isMobile={isMobile}
           onClose={() => setNoteTarget(null)}
           onSuccess={() => { setNoteTarget(null); refetch() }}
         />
@@ -130,7 +168,7 @@ export default function VaccinationRequests() {
 
       {viewTarget && (
         <div style={modalStyles.overlay} onClick={() => setViewTarget(null)}>
-          <div style={modalStyles.modal} onClick={e => e.stopPropagation()}>
+          <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
             <div style={modalStyles.header}>
               <h3 style={modalStyles.title}>{viewTarget.farm_name}</h3>
               <span style={modalStyles.close} onClick={() => setViewTarget(null)}>×</span>
@@ -180,7 +218,7 @@ export default function VaccinationRequests() {
 
       {confirmDecline && (
         <div style={modalStyles.overlay} onClick={() => setConfirmDecline(null)}>
-          <div style={confirmStyles.modal} onClick={e => e.stopPropagation()}>
+          <div style={{ ...confirmStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
             <h3 style={confirmStyles.title}>Decline Request</h3>
             <p style={confirmStyles.message}>Decline the vaccination request from {confirmDecline.farm_name}?</p>
             <div style={modalStyles.actions}>
@@ -195,7 +233,7 @@ export default function VaccinationRequests() {
 
       {confirmComplete && (
         <div style={modalStyles.overlay} onClick={() => setConfirmComplete(null)}>
-          <div style={confirmStyles.modal} onClick={e => e.stopPropagation()}>
+          <div style={{ ...confirmStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
             <h3 style={confirmStyles.title}>Complete Vaccination</h3>
             <p style={confirmStyles.message}>Mark the vaccination at {confirmComplete.farm_name} as completed?</p>
             <div style={modalStyles.actions}>
@@ -211,7 +249,7 @@ export default function VaccinationRequests() {
   )
 }
 
-function AcceptModal({ request, onClose, onSuccess }) {
+function AcceptModal({ request, onClose, onSuccess, isMobile }) {
   const [date, setDate] = useState('')
   const [time, setTime] = useState('09:00')
   const [notes, setNotes] = useState('')
@@ -243,7 +281,7 @@ function AcceptModal({ request, onClose, onSuccess }) {
 
   return (
     <div style={modalStyles.overlay} onClick={onClose}>
-      <div style={modalStyles.modal} onClick={e => e.stopPropagation()}>
+      <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
         <div style={modalStyles.header}>
           <h3 style={modalStyles.title}>Accept & Schedule Vaccination</h3>
           <span style={modalStyles.close} onClick={onClose}>×</span>
@@ -253,7 +291,7 @@ function AcceptModal({ request, onClose, onSuccess }) {
         <form onSubmit={handleSubmit}>
           {error && <div style={modalStyles.errorBox}>{error}</div>}
 
-          <div style={modalStyles.row}>
+          <div style={{ ...modalStyles.row, ...(isMobile ? modalStyles.rowMobile : {}) }}>
             <div>
               <label style={modalStyles.label}>Date *</label>
               <input type="date" value={date} onChange={e => setDate(e.target.value)} style={modalStyles.input} />
@@ -272,9 +310,9 @@ function AcceptModal({ request, onClose, onSuccess }) {
             placeholder="Vaccine type, dosage, or special instructions"
           />
 
-          <div style={modalStyles.actions}>
-            <button type="button" onClick={onClose} style={modalStyles.cancelBtn}>Cancel</button>
-            <button type="submit" disabled={loading} style={modalStyles.submitBtn}>
+          <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
+            <button type="button" onClick={onClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>Cancel</button>
+            <button type="submit" disabled={loading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
               {loading ? 'Scheduling...' : 'Confirm Schedule'}
             </button>
           </div>
@@ -284,7 +322,7 @@ function AcceptModal({ request, onClose, onSuccess }) {
   )
 }
 
-function NoteModal({ request, onClose, onSuccess }) {
+function NoteModal({ request, onClose, onSuccess, isMobile }) {
   const [notes, setNotes] = useState(request.notes || '')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -311,7 +349,7 @@ function NoteModal({ request, onClose, onSuccess }) {
 
   return (
     <div style={modalStyles.overlay} onClick={onClose}>
-      <div style={modalStyles.modal} onClick={e => e.stopPropagation()}>
+      <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
         <div style={modalStyles.header}>
           <h3 style={modalStyles.title}>Add Note</h3>
           <span style={modalStyles.close} onClick={onClose}>×</span>
@@ -328,9 +366,9 @@ function NoteModal({ request, onClose, onSuccess }) {
             placeholder="e.g. Newcastle disease vaccine administered. All birds healthy. No adverse reactions observed."
           />
 
-          <div style={modalStyles.actions}>
-            <button type="button" onClick={onClose} style={modalStyles.cancelBtn}>Cancel</button>
-            <button type="submit" disabled={loading} style={modalStyles.submitBtn}>
+          <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
+            <button type="button" onClick={onClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>Cancel</button>
+            <button type="submit" disabled={loading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
               {loading ? 'Saving...' : 'Save Note'}
             </button>
           </div>
@@ -342,6 +380,7 @@ function NoteModal({ request, onClose, onSuccess }) {
 
 const styles = {
   title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
+  titleMobile: { fontSize: '18px' },
   subtitle: { fontSize: '13px', color: '#6b7280', marginTop: '4px', marginBottom: '20px' },
   tabs: { display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid #e5e7eb' },
   tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7280', cursor: 'pointer', borderBottom: '2px solid transparent' },
@@ -353,15 +392,24 @@ const styles = {
     display: 'flex', alignItems: 'center', gap: '14px',
     boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
   },
+  cardMobile: {
+    flexDirection: 'column', alignItems: 'stretch', padding: '14px 16px', gap: '12px',
+  },
+  cardTopRow: { display: 'flex', alignItems: 'flex-start', gap: '12px' },
+  cardBottomRow: {
+    display: 'flex', flexDirection: 'column', gap: '10px',
+    borderTop: '1px solid #f3f4f6', paddingTop: '10px',
+  },
   cardBar: { width: '4px', height: '36px', borderRadius: '2px', flexShrink: 0 },
   cardTitle: { fontSize: '14px', fontWeight: '600', color: '#111827' },
   cardMeta: { fontSize: '12px', color: '#6b7280', marginTop: '4px' },
   cardNotes: { fontSize: '13px', color: '#374151', marginTop: '6px' },
-  badge: { padding: '4px 12px', borderRadius: '999px', color: 'white', fontSize: '12px', fontWeight: '600', whiteSpace: 'nowrap' },
+  badge: { padding: '4px 12px', borderRadius: '999px', color: 'white', fontSize: '12px', fontWeight: '600', whiteSpace: 'nowrap', alignSelf: 'flex-start' },
   actionBtn: {
     padding: '5px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600',
     cursor: 'pointer', border: '1px solid transparent', whiteSpace: 'nowrap',
   },
+  actionBtnMobile: { flex: 1, textAlign: 'center', padding: '8px 12px' },
   acceptBtn: { color: '#2E7D32', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' },
   declineBtn: { color: '#dc2626', backgroundColor: '#fef2f2', border: '1px solid #fecaca' },
   noteBtn: { color: '#3b82f6', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe' },
@@ -372,6 +420,7 @@ const styles = {
 const modalStyles = {
   overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 },
   modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '440px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto' },
+  modalMobile: { width: '100%', maxWidth: '100%', borderRadius: '16px 16px 0 0', padding: '20px', margin: '0', position: 'fixed', bottom: 0, left: 0, maxHeight: '85vh' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' },
   title: { fontSize: '17px', fontWeight: '700', color: '#111827', margin: 0 },
   close: { fontSize: '22px', cursor: 'pointer', color: '#6b7280' },
@@ -379,8 +428,11 @@ const modalStyles = {
   label: { display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px', marginTop: '12px' },
   input: { width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', boxSizing: 'border-box', fontFamily: 'inherit' },
   row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' },
+  rowMobile: { gridTemplateColumns: '1fr' },
   errorBox: { backgroundColor: '#fef2f2', border: '1px solid #fca5a5', color: '#dc2626', padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '14px' },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' },
+  actionsMobile: { flexDirection: 'column-reverse' },
+  btnFull: { width: '100%', boxSizing: 'border-box' },
   cancelBtn: { padding: '10px 18px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: 'white', fontSize: '14px', cursor: 'pointer' },
   submitBtn: { padding: '10px 18px', borderRadius: '8px', border: 'none', backgroundColor: '#2E7D32', color: 'white', fontSize: '14px', fontWeight: '600', cursor: 'pointer' },
 }

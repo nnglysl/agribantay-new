@@ -9,11 +9,13 @@ import {
 } from 'chart.js'
 import VetLayout from '../../components/VetLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { useIsMobile } from '../../hooks/useIsMobile'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip)
 
 export default function VetDashboard() {
   const { data, loading, error } = useCachedFetch('/vet/dashboard')
+  const isMobile = useIsMobile()
 
   if (loading) return <VetLayout><p>Loading...</p></VetLayout>
   if (error) return <VetLayout><p style={{ color: '#dc2626' }}>{error}</p></VetLayout>
@@ -21,63 +23,28 @@ export default function VetDashboard() {
 
   const monthlyProgress = data.monthly_progress ?? []
   const scheduledVaccinations = data.scheduled_vaccinations ?? []
-  const recentRequests = data.recent_requests ?? []
-  const assignedFarms = data.assigned_farms ?? []
 
   return (
     <VetLayout>
-      <h1 style={styles.title}>Welcome back, {data.vet_name || 'Doctor'}</h1>
+      <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>
+        Welcome back, {data.vet_name || 'Doctor'}
+      </h1>
       <p style={styles.subtitle}>Municipal Veterinarian — San Jose</p>
 
-      <div style={styles.statsGrid}>
-        <StatCard value={data.assigned_requests ?? 0} label="Assigned Requests" />
-        <StatCard value={data.todays_schedule ?? 0} label="Today's Schedule" />
-        <StatCard value={data.pending ?? 0} label="Pending" />
-        <StatCard value={data.completed ?? 0} label="Completed" />
+      <div style={{ ...styles.statsGrid, ...(isMobile ? styles.statsGridMobile : {}) }}>
+        <StatCard value={data.assigned_requests ?? 0} label="Assigned Requests" isMobile={isMobile} />
+        <StatCard value={data.pending ?? 0} label="Pending" isMobile={isMobile} />
+        <StatCard value={data.completed ?? 0} label="Completed" isMobile={isMobile} />
       </div>
 
-      <div style={styles.actionsGrid}>
+      <div style={styles.singleAction}>
         <Link to="/vet/vaccination-requests" style={styles.actionCard}>
           <div style={styles.actionTitle}>Vaccination requests</div>
           <div style={styles.actionMeta}>Review and schedule</div>
         </Link>
-        <Link to="/vet/reports" style={styles.actionCard}>
-          <div style={styles.actionTitle}>Reports</div>
-          <div style={styles.actionMeta}>Sensor data and advisories</div>
-        </Link>
       </div>
 
-      <div style={styles.twoCol}>
-        <div style={styles.panel}>
-          <h3 style={styles.panelTitle}>Recent Vaccination Requests</h3>
-          {recentRequests.length === 0 && (
-            <p style={styles.emptyText}>No completed requests yet.</p>
-          )}
-          {recentRequests.map(r => (
-            <div key={r.id} style={styles.listRow}>
-              <span style={styles.rowTitle}>{r.farm_name}</span>
-              <span style={styles.rowMeta}>
-                {r.completed_at ? new Date(r.completed_at).toLocaleDateString() : '—'} — {r.status}
-              </span>
-            </div>
-          ))}
-        </div>
-
-        <div style={styles.panel}>
-          <h3 style={styles.panelTitle}>Farms You Serve</h3>
-          {assignedFarms.length === 0 && (
-            <p style={styles.emptyText}>No farms assigned yet.</p>
-          )}
-          {assignedFarms.map(f => (
-            <div key={f.id} style={styles.listRow}>
-              <span style={styles.rowTitle}>{f.farm_name}</span>
-              <span style={styles.rowMeta}>{f.barangay}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div style={styles.twoCol}>
+      <div style={{ ...styles.twoCol, ...(isMobile ? styles.twoColMobile : {}) }}>
         <div style={styles.panel}>
           <div style={styles.panelHeader}>
             <h3 style={styles.panelTitle}>Today's Schedule</h3>
@@ -88,7 +55,7 @@ export default function VetDashboard() {
           {scheduledVaccinations.map(v => (
             <div key={v.id} style={styles.row}>
               <div style={styles.rowBar} />
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={styles.rowTitle}>{v.farm_name}</div>
                 <div style={styles.rowMeta}>
                   {v.owner_name} · {v.scheduled_at ? new Date(v.scheduled_at).toLocaleDateString() : '—'}
@@ -104,7 +71,7 @@ export default function VetDashboard() {
           {monthlyProgress.length === 0 ? (
             <p style={styles.emptyText}>No vaccination history yet.</p>
           ) : (
-            <div style={{ height: '160px' }}>
+            <div style={{ height: isMobile ? '180px' : '160px' }}>
               <Bar
                 data={{
                   labels: monthlyProgress.map(m => m.month),
@@ -133,10 +100,10 @@ export default function VetDashboard() {
   )
 }
 
-function StatCard({ value, label }) {
+function StatCard({ value, label, isMobile }) {
   return (
-    <div style={styles.statCard}>
-      <div style={styles.statValue}>{value}</div>
+    <div style={{ ...styles.statCard, ...(isMobile ? styles.statCardMobile : {}) }}>
+      <div style={{ ...styles.statValue, ...(isMobile ? styles.statValueMobile : {}) }}>{value}</div>
       <div style={styles.statLabel}>{label}</div>
     </div>
   )
@@ -144,15 +111,21 @@ function StatCard({ value, label }) {
 
 const styles = {
   title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
+  titleMobile: { fontSize: '18px' },
   subtitle: { fontSize: '13px', color: '#6B6B5F', marginTop: '4px', marginBottom: '24px' },
-  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '20px' },
+  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '20px' },
+  statsGridMobile: { gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', marginBottom: '16px' },
+  singleAction: { marginBottom: '20px' },
   statCard: {
     backgroundColor: 'white', borderRadius: '12px', padding: '20px',
     boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
   },
+  statCardMobile: { padding: '14px' },
   statValue: { fontSize: '28px', fontWeight: '700', color: '#111827' },
+  statValueMobile: { fontSize: '22px' },
   statLabel: { fontSize: '13px', color: '#6b7280', marginTop: '2px' },
   actionsGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginBottom: '20px' },
+  actionsGridMobile: { gridTemplateColumns: '1fr', gap: '10px', marginBottom: '16px' },
   actionCard: {
     display: 'block', backgroundColor: 'white', borderRadius: '12px', padding: '16px 20px',
     boxShadow: '0 1px 3px rgba(0,0,0,0.08)', textDecoration: 'none', cursor: 'pointer',
@@ -160,6 +133,7 @@ const styles = {
   actionTitle: { fontSize: '14px', fontWeight: '700', color: '#111827' },
   actionMeta: { fontSize: '12px', color: '#6b7280', marginTop: '2px' },
   twoCol: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' },
+  twoColMobile: { gridTemplateColumns: '1fr', gap: '12px', marginBottom: '16px' },
   panel: {
     backgroundColor: 'white', borderRadius: '12px', padding: '20px',
     boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
@@ -169,7 +143,7 @@ const styles = {
   emptyText: { fontSize: '13px', color: '#9ca3af' },
   listRow: {
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-    padding: '10px 0', borderBottom: '1px solid #f3f4f6',
+    padding: '10px 0', borderBottom: '1px solid #f3f4f6', gap: '8px',
   },
   row: {
     display: 'flex', alignItems: 'center', gap: '12px',
@@ -180,6 +154,6 @@ const styles = {
   rowMeta: { fontSize: '12px', color: '#6b7280', marginTop: '2px' },
   badge: {
     padding: '4px 10px', borderRadius: '999px', backgroundColor: '#3b82f6',
-    color: 'white', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap',
+    color: 'white', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap', flexShrink: 0,
   },
 }

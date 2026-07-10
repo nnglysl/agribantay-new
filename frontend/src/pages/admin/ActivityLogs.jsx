@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { useIsMobile } from '../../hooks/useIsMobile'
 
 export default function ActivityLogs() {
   const [roleFilter, setRoleFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const rowsPerPage = 10
+  const isMobile = useIsMobile()
 
   const params = {}
   if (roleFilter) params.role = roleFilter
@@ -47,19 +49,25 @@ export default function ActivityLogs() {
     <AdminLayout>
       <div style={styles.header}>
         <div>
-          <h1 style={styles.title}>Activity Logs</h1>
+          <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Activity Logs</h1>
           <p style={styles.subtitle}>Full audit trail — all users</p>
         </div>
       </div>
 
-      <div style={styles.filters}>
-        <FilterPill label="All" active={!roleFilter} onClick={() => setRoleFilter('')} />
-        <FilterPill label="Admin" active={roleFilter === 'admin'} onClick={() => setRoleFilter('admin')} />
-        <FilterPill label="Farm Owner" active={roleFilter === 'farm_owner'} onClick={() => setRoleFilter('farm_owner')} />
-        <FilterPill label="Vet" active={roleFilter === 'vet'} onClick={() => setRoleFilter('vet')} />
-        <FilterPill label="System" active={roleFilter === 'System'} onClick={() => setRoleFilter('System')} />
+      <div style={{ ...styles.filters, ...(isMobile ? styles.filtersMobile : {}) }}>
+        <div style={styles.pillRow}>
+          <FilterPill label="All" active={!roleFilter} onClick={() => setRoleFilter('')} />
+          <FilterPill label="Admin" active={roleFilter === 'admin'} onClick={() => setRoleFilter('admin')} />
+          <FilterPill label="Farm Owner" active={roleFilter === 'farm_owner'} onClick={() => setRoleFilter('farm_owner')} />
+          <FilterPill label="Vet" active={roleFilter === 'vet'} onClick={() => setRoleFilter('vet')} />
+          <FilterPill label="System" active={roleFilter === 'System'} onClick={() => setRoleFilter('System')} />
+        </div>
 
-        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={styles.select}>
+        <select
+          value={typeFilter}
+          onChange={e => setTypeFilter(e.target.value)}
+          style={{ ...styles.select, ...(isMobile ? styles.selectMobile : {}) }}
+        >
           <option value="">All Types</option>
           <option value="Alert">Alert</option>
           <option value="Vaccination">Vaccination</option>
@@ -76,38 +84,43 @@ export default function ActivityLogs() {
       {!loading && !error && (
         <>
           <div style={styles.tableCard}>
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>Time</th>
-                  <th style={styles.th}>Actor</th>
-                  <th style={styles.th}>Role</th>
-                  <th style={styles.th}>Action</th>
-                  <th style={styles.th}>Details</th>
-                  <th style={styles.th}>Type</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paginatedLogs.map(log => (
-                  <tr key={log.id}>
-                    <td style={styles.td}>{log.created_at}</td>
-                    <td style={styles.td}>{log.user}</td>
-                    <td style={styles.td}>
-                      <span style={{ ...styles.badge, backgroundColor: roleColor[log.role] || '#6b7280' }}>
-                        {roleLabel[log.role] || log.role}
-                      </span>
-                    </td>
-                    <td style={styles.td}>{log.action}</td>
-                    <td style={styles.td}>{log.details}</td>
-                    <td style={styles.td}>
-                      <span style={{ ...styles.badge, backgroundColor: typeColor[log.type] || '#6b7280' }}>
-                        {log.type}
-                      </span>
-                    </td>
+            {isMobile && paginatedLogs.length > 0 && (
+              <p style={styles.scrollHint}>Swipe left/right to see all columns →</p>
+            )}
+            <div style={isMobile ? styles.tableScroll : undefined}>
+              <table style={{ ...styles.table, ...(isMobile ? styles.tableMobile : {}) }}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Time</th>
+                    <th style={styles.th}>Actor</th>
+                    <th style={styles.th}>Role</th>
+                    <th style={styles.th}>Action</th>
+                    <th style={styles.th}>Details</th>
+                    <th style={styles.th}>Type</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {paginatedLogs.map(log => (
+                    <tr key={log.id}>
+                      <td style={styles.td}>{log.created_at}</td>
+                      <td style={styles.td}>{log.user}</td>
+                      <td style={styles.td}>
+                        <span style={{ ...styles.badge, backgroundColor: roleColor[log.role] || '#6b7280' }}>
+                          {roleLabel[log.role] || log.role}
+                        </span>
+                      </td>
+                      <td style={styles.td}>{log.action}</td>
+                      <td style={styles.td}>{log.details}</td>
+                      <td style={styles.td}>
+                        <span style={{ ...styles.badge, backgroundColor: typeColor[log.type] || '#6b7280' }}>
+                          {log.type}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             {allLogs.length === 0 && <div style={styles.empty}>No activity recorded yet.</div>}
           </div>
 
@@ -151,11 +164,15 @@ function FilterPill({ label, active, onClick }) {
 const styles = {
   header: { marginBottom: '20px' },
   title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
+  titleMobile: { fontSize: '18px' },
   subtitle: { fontSize: '13px', color: '#6b7280', marginTop: '4px' },
   filters: { display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap' },
+  filtersMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  pillRow: { display: 'flex', gap: '8px', flexWrap: 'wrap' },
   filterPill: {
     padding: '6px 14px', borderRadius: '999px', fontSize: '13px', fontWeight: '500',
     color: '#374151', backgroundColor: 'white', border: '1px solid #d1d5db', cursor: 'pointer',
+    whiteSpace: 'nowrap',
   },
   filterPillActive: {
     backgroundColor: '#2E7D32', color: 'white', border: '1px solid #2E7D32',
@@ -164,9 +181,13 @@ const styles = {
     marginLeft: 'auto', padding: '8px 12px', borderRadius: '8px',
     border: '1px solid #d1d5db', fontSize: '13px',
   },
+  selectMobile: { marginLeft: 0, width: '100%', boxSizing: 'border-box' },
   tableCard: { backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', overflow: 'hidden' },
+  scrollHint: { fontSize: '11px', color: '#9ca3af', margin: '12px 16px 0' },
+  tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  th: { textAlign: 'left', padding: '14px 16px', fontSize: '12px', color: '#6b7280', borderBottom: '1px solid #e5e7eb', textTransform: 'uppercase' },
+  tableMobile: { minWidth: '760px' },
+  th: { textAlign: 'left', padding: '14px 16px', fontSize: '12px', color: '#6b7280', borderBottom: '1px solid #e5e7eb', textTransform: 'uppercase', whiteSpace: 'nowrap' },
   td: { padding: '14px 16px', fontSize: '13px', color: '#374151', borderBottom: '1px solid #f3f4f6' },
   badge: { padding: '3px 10px', borderRadius: '999px', color: 'white', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap' },
   empty: { padding: '32px', textAlign: 'center', color: '#9ca3af', fontSize: '14px' },

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api/axios'
 import { setAuth } from '../utils/auth'
+import { useIsMobile } from '../hooks/useIsMobile'
 
 export default function Login() {
   const [login, setLogin] = useState('')
@@ -11,6 +12,8 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
   const [showForgotModal, setShowForgotModal] = useState(false)
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
+  const [mobileStep, setMobileStep] = useState('welcome')
 
   const handleLogin = async (e) => {
     e.preventDefault()
@@ -38,103 +41,213 @@ export default function Login() {
     }
   }
 
+  const showPhotoBackground = !isMobile || mobileStep === 'form'
+
   return (
-    <div style={styles.page}>
-      {/* Background overlay */}
-      <div style={styles.overlay} />
+    <div style={{
+      ...styles.page,
+      ...(showPhotoBackground ? {} : styles.pageSplash),
+      padding: isMobile && mobileStep === 'welcome' ? '0' : (isMobile ? '16px' : '24px'),
+      ...(isMobile ? { flexDirection: 'column', justifyContent: 'center', alignItems: 'center' } : {}),
+    }}>
+      {/* Background overlay - only over the photo background */}
+      {showPhotoBackground && <div style={styles.overlay} />}
 
-      {/* Card */}
-      <div style={styles.card}>
-
-        {/* Left Panel */}
-        <div style={styles.leftPanel}>
-        <img
-            src="/src/assets/login_img.png"
-            alt="AgriBantay"
-            style={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            display: 'block',
-            }}
-        />
-        </div>
-
-        {/* Right Panel */}
-        <div style={styles.rightPanel}>
-          <h2 style={styles.welcomeTitle}>Welcome back!</h2>
-          <p style={styles.welcomeSub}>San Jose Municipal Agriculture Office</p>
-
-          <form onSubmit={handleLogin} style={styles.form}>
-            {error && (
-              <div style={styles.errorBox}>
-                {error}
-              </div>
-            )}
-
-            <div style={styles.fieldGroup}>
-              <label style={styles.label}>Email or Mobile Number</label>
-              <input
-                type="text"
-                placeholder="Enter your email or mobile number"
-                value={login}
-                onChange={e => setLogin(e.target.value)}
-                style={styles.input}
-                required
+      {isMobile ? (
+        mobileStep === 'welcome' ? (
+          <div style={styles.splashWrapper}>
+            <div style={styles.splashIllustration}>
+              <img
+                src="/src/assets/login_img.png"
+                alt="AgriBantay"
+                style={{ width: '100%', height: 'auto', display: 'block' }}
               />
             </div>
 
-            <div style={styles.fieldGroup}>
-              <label style={styles.label}>Password</label>
-              <div style={styles.passwordWrapper}>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  style={{ ...styles.input, marginBottom: 0 }}
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  style={styles.eyeBtn}
-                >
-                  {showPassword ? <EyeOffIcon /> : <EyeIcon />}
-                </button>
-              </div>
-            </div>
-
-            <div style={styles.forgotWrapper}>
+            <div style={styles.splashFooter}>
               <button
                 type="button"
-                onClick={() => setShowForgotModal(true)}
-                style={styles.forgotLinkBtn}
+                onClick={() => setMobileStep('form')}
+                style={styles.loginBtn}
               >
-                Forgot password?
+                Login
               </button>
+              <p style={styles.contactNote}>
+                Need an account?{' '}
+                <span style={styles.contactLink}>Contact the Municipal Office</span>
+              </p>
             </div>
+          </div>
+        ) : (
+          <div style={styles.mobileGroup}>
+            <div style={styles.cardMobileOnly}>
+              <div style={styles.rightPanelMobile}>
+                <button
+                  type="button"
+                  onClick={() => setMobileStep('welcome')}
+                  style={styles.backBtn}
+                >
+                  <BackIcon /> Back
+                </button>
 
-            <button
-              type="submit"
-              disabled={loading}
-              style={{
-                ...styles.loginBtn,
-                opacity: loading ? 0.7 : 1,
-                cursor: loading ? 'not-allowed' : 'pointer',
-              }}
-            >
-              {loading ? 'Logging in...' : 'Login'}
-            </button>
+                <h2 style={styles.welcomeTitleMobile}>Welcome back!</h2>
+                <p style={styles.welcomeSub}>San Jose Municipal Agriculture Office</p>
 
-            <p style={styles.contactNote}>
-              Need an account?{' '}
-              <span style={styles.contactLink}>Contact the Municipal Office</span>
-            </p>
-          </form>
+                <form onSubmit={handleLogin} style={styles.form}>
+                  {error && (
+                    <div style={styles.errorBox}>
+                      {error}
+                    </div>
+                  )}
+
+                  <div style={styles.fieldGroup}>
+                    <label style={styles.label}>Email or Mobile Number</label>
+                    <input
+                      type="text"
+                      placeholder="Enter your email or mobile number"
+                      value={login}
+                      onChange={e => setLogin(e.target.value)}
+                      style={styles.input}
+                      required
+                    />
+                  </div>
+
+                  <div style={styles.fieldGroup}>
+                    <label style={styles.label}>Password</label>
+                    <div style={styles.passwordWrapper}>
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        placeholder="Enter your password"
+                        value={password}
+                        onChange={e => setPassword(e.target.value)}
+                        style={{ ...styles.input, marginBottom: 0 }}
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        style={styles.eyeBtn}
+                      >
+                        {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={styles.forgotWrapper}>
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotModal(true)}
+                      style={styles.forgotLinkBtn}
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    style={{
+                      ...styles.loginBtn,
+                      opacity: loading ? 0.7 : 1,
+                      cursor: loading ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {loading ? 'Logging in...' : 'Login'}
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+        )
+      ) : (
+        <div style={styles.card}>
+          <div style={styles.leftPanel}>
+            <img
+                src="/src/assets/login_img.png"
+                alt="AgriBantay"
+                style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                display: 'block',
+                }}
+            />
+          </div>
+
+          <div style={styles.rightPanel}>
+            <h2 style={styles.welcomeTitle}>Welcome back!</h2>
+            <p style={styles.welcomeSub}>San Jose Municipal Agriculture Office</p>
+
+            <form onSubmit={handleLogin} style={styles.form}>
+              {error && (
+                <div style={styles.errorBox}>
+                  {error}
+                </div>
+              )}
+
+              <div style={styles.fieldGroup}>
+                <label style={styles.label}>Email or Mobile Number</label>
+                <input
+                  type="text"
+                  placeholder="Enter your email or mobile number"
+                  value={login}
+                  onChange={e => setLogin(e.target.value)}
+                  style={styles.input}
+                  required
+                />
+              </div>
+
+              <div style={styles.fieldGroup}>
+                <label style={styles.label}>Password</label>
+                <div style={styles.passwordWrapper}>
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    style={{ ...styles.input, marginBottom: 0 }}
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    style={styles.eyeBtn}
+                  >
+                    {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                  </button>
+                </div>
+              </div>
+
+              <div style={styles.forgotWrapper}>
+                <button
+                  type="button"
+                  onClick={() => setShowForgotModal(true)}
+                  style={styles.forgotLinkBtn}
+                >
+                  Forgot password?
+                </button>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                style={{
+                  ...styles.loginBtn,
+                  opacity: loading ? 0.7 : 1,
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {loading ? 'Logging in...' : 'Login'}
+              </button>
+
+              <p style={styles.contactNote}>
+                Need an account?{' '}
+                <span style={styles.contactLink}>Contact the Municipal Office</span>
+              </p>
+            </form>
+          </div>
         </div>
-
-      </div>
+      )}
 
       {showForgotModal && (
         <ForgotPasswordModal onClose={() => setShowForgotModal(false)} />
@@ -231,6 +344,24 @@ function ForgotPasswordModal({ onClose }) {
   )
 }
 
+function LeafIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
+      <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />
+    </svg>
+  )
+}
+
+function BackIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M19 12H5" />
+      <path d="M12 19l-7-7 7-7" />
+    </svg>
+  )
+}
+
 function EyeIcon() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="#6b7280">
@@ -275,6 +406,53 @@ const styles = {
     position: 'relative',
     zIndex: 1,
   },
+  mobileGroup: {
+    display: 'flex',
+    flexDirection: 'column',
+    width: '100%',
+    maxWidth: '400px',
+    zIndex: 1,
+    position: 'relative',
+  },
+  cardMobileOnly: {
+    width: '100%',
+    backgroundColor: 'white',
+    borderRadius: '16px',
+    overflow: 'hidden',
+    boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+  },
+  pageSplash: {
+    backgroundImage: 'none',
+    backgroundColor: '#ffffff',
+  },
+  splashWrapper: {
+    width: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    textAlign: 'center',
+    backgroundColor: '#ffffff',
+  },
+  splashIllustration: {
+    width: '100%',
+  },
+  splashFooter: {
+    padding: '20px',
+    width: '100%',
+    boxSizing: 'border-box',
+  },
+  backBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    background: 'none',
+    border: 'none',
+    color: '#6b7280',
+    fontSize: '13px',
+    padding: 0,
+    marginBottom: '16px',
+    cursor: 'pointer',
+  },
   leftPanel: {
     flex: 1,
     overflow: 'hidden',
@@ -288,16 +466,14 @@ const styles = {
     marginBottom: '8px',
   },
   logoIcon: {
-    width: '40px',
-    height: '40px',
+    width: '32px',
+    height: '32px',
     borderRadius: '50%',
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#2E7D32',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    fontSize: '18px',
-    fontWeight: 'bold',
-    color: 'white',
+    flexShrink: 0,
   },
   logoText: {
     fontSize: '26px',
@@ -328,10 +504,20 @@ const styles = {
     flexDirection: 'column',
     justifyContent: 'center',
   },
+  rightPanelMobile: {
+    padding: '24px 20px 28px',
+  },
   welcomeTitle: {
     fontSize: '26px',
     fontWeight: '700',
     color: '#1a3c1a',
+    marginBottom: '4px',
+  },
+  welcomeTitleMobile: {
+    fontSize: '21px',
+    fontWeight: '700',
+    color: '#1a3c1a',
+    marginTop: 0,
     marginBottom: '4px',
   },
   welcomeSub: {

@@ -1,6 +1,7 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useState } from 'react'
 import { getUser, clearAuth } from '../utils/auth'
+import { useIsMobile } from '../hooks/useIsMobile'
 
 const iconPaths = {
   dashboard: <path d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z" />,
@@ -50,6 +51,23 @@ function IconLogout({ color }) {
     </svg>
   )
 }
+function IconMenu({ color }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round">
+      <path d="M3 6h18" />
+      <path d="M3 12h18" />
+      <path d="M3 18h18" />
+    </svg>
+  )
+}
+function IconClose({ color }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round">
+      <path d="M18 6L6 18" />
+      <path d="M6 6l12 12" />
+    </svg>
+  )
+}
 
 const iconMap = {
   dashboard: IconGrid,
@@ -64,11 +82,18 @@ export default function AdminLayout({ children }) {
   const navigate = useNavigate()
   const location = useLocation()
   const user = getUser()
+  const isMobile = useIsMobile()
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const handleLogout = () => {
     clearAuth()
     navigate('/login')
+  }
+
+  const handleNavigate = (path) => {
+    navigate(path)
+    if (isMobile) setSidebarOpen(false)
   }
 
   const navItems = [
@@ -79,6 +104,14 @@ export default function AdminLayout({ children }) {
     { label: 'Reports', path: '/admin/reports', icon: 'reports' },
     { label: 'Settings', path: '/admin/settings', icon: 'settings' },
   ]
+
+  const sidebarStyle = isMobile
+    ? {
+        ...styles.sidebar,
+        ...styles.sidebarMobile,
+        transform: sidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
+      }
+    : styles.sidebar
 
   return (
     <div style={styles.wrapper}>
@@ -93,13 +126,26 @@ export default function AdminLayout({ children }) {
         }
       `}</style>
 
-      <aside style={styles.sidebar} className="no-print">
+      {isMobile && sidebarOpen && (
+        <div style={styles.sidebarOverlay} className="no-print" onClick={() => setSidebarOpen(false)} />
+      )}
+
+      <aside style={sidebarStyle} className="no-print">
         <div style={styles.logo}>
           <div style={styles.logoCircle}>A</div>
           <div>
             <div style={styles.logoText}>AgriBantay</div>
             <div style={styles.logoSub}>San Jose, Batangas</div>
           </div>
+          {isMobile && (
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(false)}
+              style={styles.sidebarCloseBtn}
+            >
+              <IconClose color="#C9DDCE" />
+            </button>
+          )}
         </div>
 
         <nav style={styles.nav}>
@@ -109,7 +155,7 @@ export default function AdminLayout({ children }) {
             return (
               <div
                 key={item.path}
-                onClick={() => navigate(item.path)}
+                onClick={() => handleNavigate(item.path)}
                 style={{ ...styles.navItem, ...(active ? styles.navItemActive : {}) }}
               >
                 <Icon color={active ? '#1B4332' : '#7FA98C'} />
@@ -126,13 +172,29 @@ export default function AdminLayout({ children }) {
       </aside>
 
       <main style={styles.main} className="print-reset">
-        <div style={styles.topbar} className="no-print">
-          <div>
-            <div style={styles.userName}>{user.first_name} {user.last_name}</div>
-            <div style={styles.userRole}>Administrator</div>
-          </div>
+        <div style={{ ...styles.topbar, ...(isMobile ? styles.topbarMobile : {}) }} className="no-print">
+          {isMobile ? (
+            <>
+              <div style={styles.mobileTopbarLogo}>
+                <div style={styles.logoCircle}>A</div>
+                <span style={styles.mobileTopbarLogoText}>AgriBantay</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSidebarOpen(true)}
+                style={styles.menuBtn}
+              >
+                <IconMenu color="#1B4332" />
+              </button>
+            </>
+          ) : (
+            <div>
+              <div style={styles.userName}>{user.first_name} {user.last_name}</div>
+              <div style={styles.userRole}>Administrator</div>
+            </div>
+          )}
         </div>
-        <div style={styles.content}>{children}</div>
+        <div style={{ ...styles.content, ...(isMobile ? styles.contentMobile : {}) }}>{children}</div>
       </main>
 
       {showLogoutConfirm && (
@@ -168,6 +230,31 @@ const styles = {
     height: '100vh',
     overflowY: 'auto',
   },
+  sidebarMobile: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    height: '100vh',
+    zIndex: 60,
+    boxShadow: '4px 0 24px rgba(0,0,0,0.3)',
+    transition: 'transform 0.25s ease',
+  },
+  sidebarOverlay: {
+    position: 'fixed',
+    inset: 0,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    zIndex: 55,
+  },
+  sidebarCloseBtn: {
+    marginLeft: 'auto',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '4px',
+  },
   logo: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '28px', padding: '0 8px' },
   logoCircle: {
     width: '32px', height: '32px', borderRadius: '50%', backgroundColor: '#F2B84B',
@@ -192,17 +279,43 @@ const styles = {
     padding: '10px 12px', fontSize: '14px', color: '#F2B84B', cursor: 'pointer',
     borderTop: '0.5px solid rgba(255,255,255,0.12)', marginTop: '8px', paddingTop: '16px',
   },
-  main: { flex: 1, display: 'flex', flexDirection: 'column' },
+  main: { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 },
   topbar: {
     backgroundColor: '#F0EBDD',
     borderBottom: '1px solid #DDD5C4',
     padding: '16px 32px',
     display: 'flex',
+    alignItems: 'center',
     justifyContent: 'flex-end',
+    gap: '12px',
+  },
+  topbarMobile: {
+    padding: '14px 16px',
+    justifyContent: 'space-between',
+  },
+  mobileTopbarLogo: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  mobileTopbarLogoText: {
+    fontSize: '15px',
+    fontWeight: '700',
+    color: '#1B4332',
+  },
+  menuBtn: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '4px',
   },
   userName: { fontSize: '14px', fontWeight: '600', color: '#111827', textAlign: 'right' },
   userRole: { fontSize: '12px', color: '#6B6B5F', textAlign: 'right' },
   content: { padding: '32px', flex: 1 },
+  contentMobile: { padding: '16px' },
 }
 
 const confirmStyles = {

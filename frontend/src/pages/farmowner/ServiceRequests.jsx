@@ -2,10 +2,12 @@ import { useState } from 'react'
 import api from '../../api/axios'
 import FarmerLayout from '../../components/FarmerLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { useIsMobile } from '../../hooks/useIsMobile'
 
 export default function ServiceRequests() {
   const [tab, setTab] = useState('active')
   const [showModal, setShowModal] = useState(false)
+  const isMobile = useIsMobile()
 
   const { data, loading, error, refetch } = useCachedFetch('/farmer/service-requests')
   const requestData = data || { active: [], past: [] }
@@ -21,12 +23,15 @@ export default function ServiceRequests() {
 
   return (
     <FarmerLayout>
-      <div style={styles.header}>
+      <div style={{ ...styles.header, ...(isMobile ? styles.headerMobile : {}) }}>
         <div>
-          <h1 style={styles.title}>Service Requests</h1>
+          <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Service Requests</h1>
           <p style={styles.subtitle}>My requests & history</p>
         </div>
-        <button style={styles.newBtn} onClick={() => setShowModal(true)}>
+        <button
+          style={{ ...styles.newBtn, ...(isMobile ? styles.newBtnMobile : {}) }}
+          onClick={() => setShowModal(true)}
+        >
           + Request a Service
         </button>
       </div>
@@ -56,8 +61,8 @@ export default function ServiceRequests() {
       {!loading && !error && (
         <div style={styles.list}>
           {list.map(r => (
-            <div key={r.id} style={styles.card}>
-              <div>
+            <div key={r.id} style={{ ...styles.card, ...(isMobile ? styles.cardMobile : {}) }}>
+              <div style={{ minWidth: 0 }}>
                 <div style={styles.cardTitle}>{r.service_type}</div>
                 <div style={styles.cardMeta}>
                   {r.assigned_to && <>👤 {r.assigned_to} · </>}
@@ -67,7 +72,11 @@ export default function ServiceRequests() {
                 </div>
                 {r.notes && <div style={styles.cardNotes}>{r.notes}</div>}
               </div>
-              <div style={{ ...styles.badge, backgroundColor: statusColor[r.status] || '#6b7280' }}>
+              <div style={{
+                ...styles.badge,
+                backgroundColor: statusColor[r.status] || '#6b7280',
+                ...(isMobile ? styles.badgeMobile : {}),
+              }}>
                 {r.status}
               </div>
             </div>
@@ -77,6 +86,7 @@ export default function ServiceRequests() {
 
       {showModal && (
         <RequestModal
+          isMobile={isMobile}
           onClose={() => setShowModal(false)}
           onSuccess={() => { setShowModal(false); refetch() }}
         />
@@ -85,7 +95,7 @@ export default function ServiceRequests() {
   )
 }
 
-function RequestModal({ onClose, onSuccess }) {
+function RequestModal({ onClose, onSuccess, isMobile }) {
   const [serviceType, setServiceType] = useState('')
   const [notes, setNotes] = useState('')
   const [error, setError] = useState('')
@@ -113,7 +123,7 @@ function RequestModal({ onClose, onSuccess }) {
 
   return (
     <div style={modalStyles.overlay} onClick={onClose}>
-      <div style={modalStyles.modal} onClick={e => e.stopPropagation()}>
+      <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
         <div style={modalStyles.header}>
           <h3 style={modalStyles.title}>Request a Service</h3>
           <span style={modalStyles.close} onClick={onClose}>×</span>
@@ -145,9 +155,19 @@ function RequestModal({ onClose, onSuccess }) {
             Vaccine requests will be forwarded to the Municipal Veterinarian. Odor control requests will be reviewed by the Administrator.
           </p>
 
-          <div style={modalStyles.actions}>
-            <button type="button" onClick={onClose} style={modalStyles.cancelBtn}>Cancel</button>
-            <button type="submit" disabled={loading} style={modalStyles.submitBtn}>
+          <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
+            >
               {loading ? 'Submitting...' : 'Submit Request'}
             </button>
           </div>
@@ -159,12 +179,15 @@ function RequestModal({ onClose, onSuccess }) {
 
 const styles = {
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' },
+  headerMobile: { flexDirection: 'column', gap: '14px' },
   title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
+  titleMobile: { fontSize: '18px' },
   subtitle: { fontSize: '13px', color: '#6b7280', marginTop: '4px' },
   newBtn: {
     backgroundColor: '#2E7D32', color: 'white', border: 'none', borderRadius: '8px',
     padding: '10px 18px', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
   },
+  newBtnMobile: { width: '100%', boxSizing: 'border-box' },
   tabs: { display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid #e5e7eb' },
   tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7280', cursor: 'pointer', borderBottom: '2px solid transparent' },
   tabActive: { color: '#2E7D32', fontWeight: '600', borderBottom: '2px solid #2E7D32' },
@@ -173,12 +196,14 @@ const styles = {
   card: {
     backgroundColor: 'white', borderRadius: '12px', padding: '16px 20px',
     display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.08)', gap: '12px',
   },
+  cardMobile: { padding: '14px 16px' },
   cardTitle: { fontSize: '15px', fontWeight: '600', color: '#111827' },
   cardMeta: { fontSize: '13px', color: '#6b7280', marginTop: '4px' },
   cardNotes: { fontSize: '13px', color: '#374151', marginTop: '6px' },
   badge: { padding: '4px 12px', borderRadius: '999px', color: 'white', fontSize: '12px', fontWeight: '600', whiteSpace: 'nowrap' },
+  badgeMobile: { flexShrink: 0 },
 }
 
 const modalStyles = {
@@ -187,6 +212,7 @@ const modalStyles = {
     display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50,
   },
   modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '420px', maxWidth: '90%' },
+  modalMobile: { width: '100%', maxWidth: '100%', borderRadius: '16px 16px 0 0', padding: '20px', margin: '0', position: 'fixed', bottom: 0, left: 0, maxHeight: '85vh', overflowY: 'auto' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' },
   title: { fontSize: '18px', fontWeight: '700', color: '#111827', margin: 0 },
   close: { fontSize: '22px', cursor: 'pointer', color: '#6b7280' },
@@ -201,6 +227,8 @@ const modalStyles = {
   },
   hint: { fontSize: '12px', color: '#6b7280', marginTop: '14px', lineHeight: '1.5' },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' },
+  actionsMobile: { flexDirection: 'column-reverse' },
+  btnFull: { width: '100%', boxSizing: 'border-box' },
   cancelBtn: {
     padding: '10px 18px', borderRadius: '8px', border: '1px solid #d1d5db',
     backgroundColor: 'white', fontSize: '14px', cursor: 'pointer',
