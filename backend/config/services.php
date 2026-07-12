@@ -34,9 +34,11 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
-    'iprog_sms' => [
-        'api_token' => env('IPROG_SMS_API_TOKEN'),
-        'base_url'  => env('IPROG_SMS_BASE_URL', 'https://sms.iprogtech.com/api/v1'),
+
+    'unisms' => [
+        'secret_key' => env('UNISMS_SECRET_KEY'),
+        'base_url'   => env('UNISMS_BASE_URL', 'https://unismsapi.com/api'),
+        'sender_id'  => env('UNISMS_SENDER_ID', 'UNISOFT'),
     ],
 
 ];

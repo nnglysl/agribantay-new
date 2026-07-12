@@ -8,13 +8,15 @@ use Illuminate\Support\Facades\Log;
 
 class SmsService
 {
-    protected string $apiToken;
+    protected string $secretKey;
     protected string $baseUrl;
+    protected string $senderId;
 
     public function __construct()
     {
-        $this->apiToken = config('services.iprog_sms.api_token');
-        $this->baseUrl  = config('services.iprog_sms.base_url');
+        $this->secretKey = config('services.unisms.secret_key');
+        $this->baseUrl   = config('services.unisms.base_url', 'https://unismsapi.com/api');
+        $this->senderId  = config('services.unisms.sender_id', 'UNISOFT');
     }
 
     /**
@@ -25,20 +27,27 @@ class SmsService
      * @param string $type 'Account Creation' or 'Farm Status'
      * @param int|null $userId
      * @param int|null $farmId
-     * @return bool true if sent successfully, false otherwise
+     * @return bool true if sent/queued successfully, false otherwise
      */
     public function send(string $phoneNumber, string $message, string $type, ?int $userId = null, ?int $farmId = null): bool
     {
         try {
-            $response = Http::asJson()->post("{$this->baseUrl}/sms_messages", [
-                'api_token'    => $this->apiToken,
-                'phone_number' => $this->normalizeNumber($phoneNumber),
-                'message'      => $message,
-            ]);
+            $response = Http::withBasicAuth($this->secretKey, '')
+                ->asJson()
+                ->post("{$this->baseUrl}/sms", [
+                    'recipient' => $this->normalizeNumber($phoneNumber),
+                    'content'   => $message,
+                    'sender_id' => $this->senderId,
+                ]);
 
             $data = $response->json();
+            $status = $data['message']['status'] ?? null;
 
-            if ($response->successful() && ($data['status'] ?? null) == 200) {
+            // UniSMS returns 201 with status "pending" when the message is
+            // accepted and queued for delivery. "sent" is the final success
+            // state once the carrier confirms handoff. Both count as success
+            // here since "failed" is the only state that means it didn't go out.
+            if ($response->successful() && in_array($status, ['pending', 'sent', 'retrying'], true)) {
                 SmsLog::create([
                     'user_id'      => $userId,
                     'farm_id'      => $farmId,
@@ -46,7 +55,7 @@ class SmsService
                     'message'      => $message,
                     'type'         => $type,
                     'status'       => 'Sent',
-                    'message_id'   => $data['message_id'] ?? null,
+                    'message_id'   => $data['message']['reference_id'] ?? null,
                 ]);
 
                 return true;
@@ -59,7 +68,9 @@ class SmsService
                 'message'        => $message,
                 'type'           => $type,
                 'status'         => 'Failed',
-                'failure_reason' => $this->stringifyReason($data['message'] ?? 'Unknown API error'),
+                'failure_reason' => $this->stringifyReason(
+                    $data['message']['fail_reason'] ?? $data['errors'] ?? 'Unknown API error'
+                ),
             ]);
 
             return false;
@@ -82,7 +93,8 @@ class SmsService
     }
 
     /**
-     * Normalize Philippine mobile numbers to the 09XXXXXXXXX format iProg expects.
+     * Normalize Philippine mobile numbers to the 09XXXXXXXXX local format,
+     * which UniSMS accepts alongside E.164 (+63...) format.
      */
     private function normalizeNumber(string $number): string
     {
@@ -97,9 +109,9 @@ class SmsService
 
     /**
      * Safely convert an API error response into a loggable string,
-     * since iProg may return either a string or an array of errors.
+     * since UniSMS may return either a string or an array of errors.
      */
-    private function stringifyReason($reason): string
+    private function stringifyReason(mixed $reason): string
     {
         if (is_array($reason)) {
             return json_encode($reason);
