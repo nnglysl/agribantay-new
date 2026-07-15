@@ -53,6 +53,9 @@ class FarmController extends Controller
                 'address'     => $farm->address,
                 'num_birds'   => $farm->num_birds,
                 'farm_size'   => $farm->farm_size,
+                'farm_type'   => $farm->farm_type,
+                'farm_area'   => $farm->farm_area,
+                'farm_area_unit' => $farm->farm_area_unit,
                 'status'      => $farm->status,
                 'current_status' => $farm->current_status,
                 'ammonia'     => $latestReading?->ammonia,
@@ -92,6 +95,9 @@ class FarmController extends Controller
     /**
      * Geocode an address, falling back to barangay-only if the full
      * address fails to resolve (common for sparse rural addresses).
+     * Only used when the frontend didn't already supply lat/lng itself
+     * (the new farm-registration flow geotags client-side via Nominatim
+     * autocomplete and sends coordinates directly).
      */
     private function geocodeWithFallback(?string $lotNumber, ?string $street, string $barangay): ?array
     {
@@ -120,82 +126,130 @@ class FarmController extends Controller
         return $coordinates;
     }
 
+    /**
+     * Creates a farm. Supports two flows:
+     *
+     *  - New flow: `farm_owner_id` is provided (owner was already created
+     *    via POST /admin/farm-owners in a previous request). No new User
+     *    is created here, no SMS is sent — this call just attaches a farm
+     *    to that existing owner. Latitude/longitude, when provided, are
+     *    used as-is (already geotagged client-side).
+     *
+     *  - Legacy flow: no `farm_owner_id` — first_name/last_name/mobile_number
+     *    are required and a new owner + farm are created together in one
+     *    call, exactly as before. Kept for backward compatibility.
+     */
     public function store(Request $request)
     {
         $request->validate([
-            'first_name'    => 'required|string',
-            'last_name'     => 'required|string',
-            'mobile_number' => 'required|string|unique:users,mobile_number',
+            'farm_owner_id' => 'nullable|exists:users,id',
+
+            'first_name'    => 'required_without:farm_owner_id|string',
+            'last_name'     => 'required_without:farm_owner_id|string',
+            'mobile_number' => 'required_without:farm_owner_id|string|unique:users,mobile_number',
+
             'farm_name'     => 'required|string',
+            'farm_type'     => 'nullable|string',
+            'farm_area'     => 'nullable|numeric',
+            'farm_area_unit'=> 'nullable|in:sqm,hectare',
             'barangay'      => 'required|string',
             'lot_number'    => 'nullable|string',
             'street'        => 'nullable|string',
             'landmark'      => 'nullable|string',
-            'farm_size' => 'required|in:Small,Medium,Large',
+            'address'       => 'nullable|string',
+            'latitude'      => 'nullable|numeric',
+            'longitude'     => 'nullable|numeric',
+            'farm_size'     => 'required|in:Small,Medium,Large',
         ]);
 
-        $tempPassword = Str::random(10);
+        $smsSent = null;
 
-        $user = User::create([
-            'first_name'           => $request->first_name,
-            'last_name'            => $request->last_name,
-            'mobile_number'        => $request->mobile_number,
-            'password'             => bcrypt($tempPassword),
-            'role'                 => 'farm_owner',
-            'status'               => 'active',
-            'must_change_password' => true,
-        ]);
+        if ($request->farm_owner_id) {
+            // New flow — owner already exists.
+            $user = User::where('id', $request->farm_owner_id)
+                ->where('role', 'farm_owner')
+                ->firstOrFail();
+        } else {
+            // Legacy flow — create the owner inline, same as before.
+            $tempPassword = Str::random(10);
 
-        $addressParts = array_filter([
-            $request->lot_number,
-            $request->street,
-            $request->barangay,
-            'San Jose',
-            'Batangas',
-            'Philippines',
-        ]);
-        $fullAddress = implode(', ', $addressParts);
+            $user = User::create([
+                'first_name'           => $request->first_name,
+                'last_name'            => $request->last_name,
+                'mobile_number'        => $request->mobile_number,
+                'password'             => bcrypt($tempPassword),
+                'role'                 => 'farm_owner',
+                'status'               => 'active',
+                'must_change_password' => true,
+            ]);
 
-        $coordinates = $this->geocodeWithFallback(
-            $request->lot_number,
-            $request->street,
-            $request->barangay
-        );
+            $smsMessage = "Welcome to AgriBantay, {$request->first_name}! Your account is ready. Temporary password: {$tempPassword}. You will be asked to set a new password on your first visit to the AgriBantay portal.";
+
+            $smsSent = app(SmsService::class)->send(
+                $request->mobile_number,
+                $smsMessage,
+                'Account Creation',
+                $user->id
+            );
+        }
+
+        // Location: prefer coordinates the frontend already resolved via
+        // its own address-autocomplete geotagging; otherwise fall back to
+        // server-side geocoding from barangay/lot/street (legacy path).
+        if ($request->filled('latitude') && $request->filled('longitude')) {
+            $latitude  = $request->latitude;
+            $longitude = $request->longitude;
+            $fullAddress = $request->address ?: implode(', ', array_filter([
+                $request->barangay, 'San Jose', 'Batangas', 'Philippines',
+            ]));
+        } else {
+            $addressParts = array_filter([
+                $request->lot_number,
+                $request->street,
+                $request->barangay,
+                'San Jose',
+                'Batangas',
+                'Philippines',
+            ]);
+            $fullAddress = implode(', ', $addressParts);
+
+            $coordinates = $this->geocodeWithFallback(
+                $request->lot_number,
+                $request->street,
+                $request->barangay
+            );
+            $latitude  = $coordinates['latitude'] ?? null;
+            $longitude = $coordinates['longitude'] ?? null;
+        }
 
         $farm = Farm::create([
-            'user_id'       => $user->id,
-            'farm_name'     => $request->farm_name,
-            'owner_name'    => $user->first_name . ' ' . $user->last_name,
-            'mobile_number' => $request->mobile_number,
-            'barangay'      => $request->barangay,
-            'address'       => $fullAddress . ($request->landmark ? " (near {$request->landmark})" : ''),
-            'farm_size'     => $request->farm_size,
-            'status'        => 'Active',
-            'latitude'      => $coordinates['latitude'] ?? null,
-            'longitude'     => $coordinates['longitude'] ?? null,
+            'user_id'        => $user->id,
+            'farm_name'      => $request->farm_name,
+            'owner_name'     => $user->first_name . ' ' . $user->last_name,
+            'mobile_number'  => $user->mobile_number,
+            'barangay'       => $request->barangay,
+            'address'        => $fullAddress . ($request->landmark ? " (near {$request->landmark})" : ''),
+            'farm_size'      => $request->farm_size,
+            'farm_type'      => $request->farm_type,
+            'farm_area'      => $request->farm_area,
+            'farm_area_unit' => $request->farm_area_unit ?? 'sqm',
+            'status'         => 'Active',
+            'latitude'       => $latitude,
+            'longitude'      => $longitude,
         ]);
-
-        $smsMessage = "Welcome to AgriBantay, {$request->first_name}! Your account is ready. Temporary password: {$tempPassword}. You will be asked to set a new password on your first visit to the AgriBantay portal.";
-
-        $smsSent = app(SmsService::class)->send(
-            $request->mobile_number,
-            $smsMessage,
-            'Account Creation',
-            $user->id
-        );
 
         ActivityLog::create([
             'user_id' => Auth::id(),
             'role'    => 'admin',
-            'action'  => 'Created Farm Owner Account',
-            'details' => "Created account for {$user->first_name} {$user->last_name} — {$farm->farm_name}",
-            'type'    => 'Account',
+            'action'  => $request->farm_owner_id ? 'Added Farm to Existing Owner' : 'Created Farm Owner Account',
+            'details' => "{$farm->farm_name} — {$user->first_name} {$user->last_name}",
+            'type'    => 'Farm',
         ]);
 
         return response()->json([
             'success'  => true,
-            'message'  => 'Farm owner and farm created successfully.',
-            'sms_sent' => $smsSent,
+            'message'  => 'Farm registered successfully.',
+            'sms_sent' => $smsSent, // null when reusing an existing owner (no SMS sent this call)
             'data'     => ['user' => $user, 'farm' => $farm],
         ]);
     }
@@ -252,7 +306,7 @@ class FarmController extends Controller
             'lot_number'    => 'nullable|string',
             'street'        => 'nullable|string',
             'landmark'      => 'nullable|string',
-            'farm_size' => 'sometimes|in:Small,Medium,Large',
+            'farm_size'     => 'sometimes|in:Small,Medium,Large',
         ]);
 
         $farm->update($request->only([

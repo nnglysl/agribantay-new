@@ -13,6 +13,7 @@ class DatabaseSeeder extends Seeder
             FarmSeeder::class,
             SensorReadingSeeder::class,
             ServiceRequestSeeder::class,
+            InspectionSeeder::class,
         ]);
     }
 }

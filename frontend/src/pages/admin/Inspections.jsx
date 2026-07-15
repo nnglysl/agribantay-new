@@ -4,15 +4,30 @@ import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { useMonthFilter, filterByMonth } from '../../hooks/useMonthFilter'
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 const DAY_NAMES_SHORT = ['S','M','T','W','T','F','S']
 
+// Matches the summary card palette: General → clay, Follow-up → gold.
+function inspectionTypeStyle(type) {
+  const isFollowUp = type === 'Follow-up'
+  return {
+    label: isFollowUp ? 'Follow-up Inspection' : 'General Inspection',
+    bg: isFollowUp ? '#D4AF37' : '#B5651D',
+    text: isFollowUp ? '#122A1E' : '#ffffff',
+  }
+}
+
+function sameDay(a, b) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+}
+
 export default function Inspections() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [tab, setTab] = useState('schedule')
-  const [viewDate, setViewDate] = useState(new Date())
+  const { month: viewDate, setMonth: setViewDate, prevMonth, nextMonth, label: monthLabel } = useMonthFilter()
   const [modalDate, setModalDate] = useState(null)
   const [prefillFarm, setPrefillFarm] = useState(null)
   const [confirmCancel, setConfirmCancel] = useState(null)
@@ -37,7 +52,11 @@ export default function Inspections() {
         setModalDate(new Date())
         setTab('schedule')
       }
-      setSearchParams({}, { replace: true })
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev)
+        next.delete('farmId')
+        return next
+      }, { replace: true })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [farms.length])
@@ -67,10 +86,30 @@ export default function Inspections() {
 
   const statusColor = { Scheduled: '#3b82f6', Completed: '#2E7D32', Cancelled: '#6b7280' }
 
+  const monthInspections = filterByMonth(inspections, viewDate)
+  const totalThisMonth = monthInspections.length
+  const followUpThisMonth = monthInspections.filter(i => i.inspection_type === 'Follow-up').length
+  const generalThisMonth = totalThisMonth - followUpThisMonth
+
   return (
     <AdminLayout>
-      <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Inspections</h1>
-      <p style={styles.subtitle}>Farm inspection scheduling & records</p>
+      <div style={{ ...styles.headerRow, ...(isMobile ? styles.headerRowMobile : {}) }}>
+        <div>
+          <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Inspections</h1>
+          <p style={styles.subtitle}>Farm inspection scheduling & records</p>
+        </div>
+        <div style={styles.monthNav}>
+          <span style={styles.monthNavBtn} onClick={prevMonth} aria-label="Previous month">‹</span>
+          <span style={styles.monthNavLabel}>{monthLabel}</span>
+          <span style={styles.monthNavBtn} onClick={nextMonth} aria-label="Next month">›</span>
+        </div>
+      </div>
+
+      <div style={{ ...styles.summaryGrid, ...(isMobile ? styles.summaryGridMobile : {}) }}>
+        <SummaryCard label="Total Inspections" value={totalThisMonth} sub={monthLabel} variant="green" isMobile={isMobile} />
+        <SummaryCard label="General Inspections" value={generalThisMonth} sub={monthLabel} variant="clay" isMobile={isMobile} />
+        <SummaryCard label="Follow-up Inspections" value={followUpThisMonth} sub={monthLabel} variant="gold" isMobile={isMobile} />
+      </div>
 
       <div style={styles.tabs}>
         {['schedule', 'scheduled', 'completed', 'history'].map(t => (
@@ -92,7 +131,8 @@ export default function Inspections() {
           inspections={inspections}
           viewDate={viewDate}
           setViewDate={setViewDate}
-          onSelectDate={(date) => setModalDate(date)}
+          onAddSchedule={(date) => setModalDate(date)}
+          onViewEvent={setViewInspection}
           isMobile={isMobile}
         />
       )}
@@ -216,6 +256,16 @@ export default function Inspections() {
   )
 }
 
+function SummaryCard({ label, value, sub, variant, isMobile }) {
+  return (
+    <div style={{ ...styles.summaryCard, ...styles[`summaryCard_${variant}`], ...(isMobile ? styles.summaryCardMobile : {}) }}>
+      <div style={{ ...styles.summaryValue, ...(isMobile ? styles.summaryValueMobile : {}) }}>{value}</div>
+      <div style={styles.summaryLabel}>{label}</div>
+      <div style={styles.summarySub}>{sub}</div>
+    </div>
+  )
+}
+
 function InspectionList({ list, statusColor, onCancel, onComplete, onView, isMobile }) {
   if (list.length === 0) return <div style={styles.empty}>No inspections here yet.</div>
 
@@ -258,7 +308,7 @@ function InspectionList({ list, statusColor, onCancel, onComplete, onView, isMob
 
         return (
           <div key={i.id} style={{ ...styles.card, ...(isMobile ? styles.cardMobile : {}) }}>
-            <div style={isMobile ? styles.cardTopRow : { display: 'contents' }}>
+            <div style={isMobile ? styles.cardTopRow : styles.cardTopRowDesktop}>
               <div style={styles.cardBar} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={styles.cardTitle}>{i.inspection_number} — {i.farm_name}</div>
@@ -269,8 +319,12 @@ function InspectionList({ list, statusColor, onCancel, onComplete, onView, isMob
                 </div>
                 {i.findings && <div style={styles.cardFindings}>{i.findings}</div>}
               </div>
-              {!isMobile && badge}
-              {!isMobile && actions}
+              {!isMobile && (
+                <div style={styles.cardRight}>
+                  {badge}
+                  {actions}
+                </div>
+              )}
             </div>
 
             {isMobile && (
@@ -286,10 +340,11 @@ function InspectionList({ list, statusColor, onCancel, onComplete, onView, isMob
   )
 }
 
-function CalendarView({ inspections, viewDate, setViewDate, onSelectDate, isMobile }) {
+function CalendarView({ inspections, viewDate, setViewDate, onAddSchedule, onViewEvent, isMobile }) {
   const year = viewDate.getFullYear()
   const month = viewDate.getMonth()
   const today = new Date()
+  const [dayPopup, setDayPopup] = useState(null)
 
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const firstWeekday = new Date(year, month, 1).getDay()
@@ -313,6 +368,23 @@ function CalendarView({ inspections, viewDate, setViewDate, onSelectDate, isMobi
   const goPrev = () => setViewDate(new Date(year, month - 1, 1))
   const goNext = () => setViewDate(new Date(year, month + 1, 1))
 
+  const handleEventClick = (e, insp) => {
+    e.stopPropagation()
+    onViewEvent(insp)
+  }
+
+  const openDayPopup = (e, date) => {
+    e.stopPropagation()
+    setDayPopup(date)
+  }
+
+  const popupInspections = dayPopup
+    ? inspections
+        .filter(i => sameDay(new Date(i.scheduled_at), dayPopup))
+        .slice()
+        .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
+    : []
+
   return (
     <div style={{ ...styles.calendarCard, ...(isMobile ? styles.calendarCardMobile : {}) }}>
       <div style={styles.calendarHeader}>
@@ -332,6 +404,10 @@ function CalendarView({ inspections, viewDate, setViewDate, onSelectDate, isMobi
 
         {cells.map((day, idx) => {
           const dayInspections = getInspectionsForDay(day)
+          const visibleEvents = dayInspections.slice(0, 2)
+          const hiddenCount = dayInspections.length - visibleEvents.length
+          const dateForDay = day ? new Date(year, month, day) : null
+
           return (
             <div
               key={idx}
@@ -341,34 +417,59 @@ function CalendarView({ inspections, viewDate, setViewDate, onSelectDate, isMobi
                 ...(day ? {} : styles.calendarCellEmpty),
                 ...(isToday(day) ? styles.calendarCellToday : {}),
               }}
-              onClick={() => day && onSelectDate(new Date(year, month, day))}
+              onClick={(e) => day && openDayPopup(e, dateForDay)}
             >
               {day && (
                 <>
                   <div style={{ ...styles.calendarDayNum, ...(isMobile ? styles.calendarDayNumMobile : {}) }}>{day}</div>
+
                   {isMobile ? (
-                    dayInspections.length > 0 && (
-                      <div style={styles.calendarDotsMobile}>
-                        {dayInspections.slice(0, 3).map((insp, i) => (
-                          <span
-                            key={i}
-                            style={{
-                              ...styles.calendarDotSmall,
-                              backgroundColor: insp.inspection_type === 'Follow-up' ? '#f59e0b' : '#3b82f6',
-                            }}
-                          />
-                        ))}
+                    visibleEvents.length > 0 && (
+                      <div style={styles.calendarEventsMobile}>
+                        {visibleEvents.map((insp, i) => {
+                          const t = inspectionTypeStyle(insp.inspection_type)
+                          return (
+                            <div
+                              key={i}
+                              style={{ ...styles.calendarEventMobile, backgroundColor: t.bg, color: t.text }}
+                              onClick={(e) => handleEventClick(e, insp)}
+                              title={`${t.label} — ${insp.farm_name}`}
+                            >
+                              {insp.farm_name}
+                            </div>
+                          )
+                        })}
+                        {hiddenCount > 0 && (
+                          <div style={styles.calendarMoreMobile} onClick={(e) => openDayPopup(e, dateForDay)}>
+                            +{hiddenCount} more
+                          </div>
+                        )}
                       </div>
                     )
                   ) : (
-                    dayInspections.slice(0, 2).map((insp, i) => (
-                      <div key={i} style={{
-                        ...styles.calendarDot,
-                        backgroundColor: insp.inspection_type === 'Follow-up' ? '#f59e0b' : '#3b82f6',
-                      }}>
-                        {insp.inspection_type === 'Follow-up' ? 'Follow-up' : 'General'}
-                      </div>
-                    ))
+                    <>
+                      {visibleEvents.map((insp, i) => {
+                        const t = inspectionTypeStyle(insp.inspection_type)
+                        return (
+                          <div
+                            key={i}
+                            style={{ ...styles.calendarEvent, backgroundColor: t.bg, color: t.text }}
+                            onClick={(e) => handleEventClick(e, insp)}
+                          >
+                            <div style={styles.calendarEventType}>{t.label}</div>
+                            <div style={{ ...styles.calendarEventFarm, color: t.text }}>{insp.farm_name}</div>
+                            <div style={{ ...styles.calendarEventTime, color: t.text }}>
+                              {new Date(insp.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                          </div>
+                        )
+                      })}
+                      {hiddenCount > 0 && (
+                        <div style={styles.calendarMoreDesktop} onClick={(e) => openDayPopup(e, dateForDay)}>
+                          +{hiddenCount} more
+                        </div>
+                      )}
+                    </>
                   )}
                 </>
               )}
@@ -378,9 +479,54 @@ function CalendarView({ inspections, viewDate, setViewDate, onSelectDate, isMobi
       </div>
 
       <div style={{ ...styles.legend, ...(isMobile ? styles.legendMobile : {}) }}>
-        <span style={styles.legendItem}><span style={{ ...styles.legendDot, backgroundColor: '#3b82f6' }} /> General Inspection</span>
-        <span style={styles.legendItem}><span style={{ ...styles.legendDot, backgroundColor: '#f59e0b' }} /> Follow-up</span>
+        <span style={styles.legendItem}><span style={{ ...styles.legendDot, backgroundColor: '#B5651D' }} /> General Inspection</span>
+        <span style={styles.legendItem}><span style={{ ...styles.legendDot, backgroundColor: '#D4AF37' }} /> Follow-up Inspection</span>
       </div>
+
+      {dayPopup && (
+        <div style={modalStyles.overlay} onClick={() => setDayPopup(null)}>
+          <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
+            <div style={modalStyles.header}>
+              <h3 style={modalStyles.title}>
+                {dayPopup.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+              </h3>
+              <span style={modalStyles.close} onClick={() => setDayPopup(null)}>×</span>
+            </div>
+
+            <button style={styles.addInspectionBtn} onClick={() => onAddSchedule(dayPopup)}>
+              + Add Inspection
+            </button>
+
+            <div style={styles.scheduledLabel}>
+              Scheduled Inspections{popupInspections.length > 0 ? ` (${popupInspections.length})` : ''}
+            </div>
+
+            {popupInspections.length === 0 ? (
+              <p style={styles.selectedEmpty}>No inspections scheduled for this date.</p>
+            ) : (
+              <div style={styles.selectedList}>
+                {popupInspections.map(insp => {
+                  const t = inspectionTypeStyle(insp.inspection_type)
+                  return (
+                    <div key={insp.id} style={styles.selectedItem} onClick={() => onViewEvent(insp)}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ ...styles.selectedItemType, backgroundColor: t.bg, color: t.text }}>{t.label}</span>
+                        <div style={styles.selectedItemFarm}>{insp.farm_name}</div>
+                        <div style={styles.selectedItemTime}>
+                          {new Date(insp.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      </div>
+                      <span style={styles.selectedItemView} onClick={(e) => { e.stopPropagation(); onViewEvent(insp) }}>
+                        View
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -444,7 +590,7 @@ function ScheduleModal({ date, farms, prefillFarm, onClose, onSuccess, isMobile 
           <h3 style={modalStyles.title}>Schedule Inspection</h3>
           <span style={modalStyles.close} onClick={onClose}>×</span>
         </div>
-        <p style={modalStyles.dateLabel}>Date selected: {dateLabel}</p>
+        <p style={modalStyles.dateLabel}>Schedule Date: {dateLabel}</p>
         {prefillFarm && (
           <div style={modalStyles.prefillBanner}>
             Pre-selected from Critical Alert: {prefillFarm.farm_name}
@@ -602,9 +748,37 @@ function CompleteModal({ inspection, onClose, onSuccess, isMobile }) {
 }
 
 const styles = {
+  headerRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '18px' },
+  headerRowMobile: { flexDirection: 'column', gap: '12px' },
   title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
   titleMobile: { fontSize: '18px' },
-  subtitle: { fontSize: '13px', color: '#6b7280', marginTop: '4px', marginBottom: '20px' },
+  subtitle: { fontSize: '13px', color: '#6b7280', marginTop: '4px' },
+
+  monthNav: {
+    display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: 'white',
+    border: '1px solid #e5e7eb', borderRadius: '999px', padding: '6px 8px',
+  },
+  monthNavBtn: {
+    width: '26px', height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    borderRadius: '50%', cursor: 'pointer', fontSize: '15px', color: '#374151', backgroundColor: '#f3f4f6',
+  },
+  monthNavLabel: { fontSize: '13.5px', fontWeight: '700', color: '#111827', minWidth: '110px', textAlign: 'center' },
+
+  summaryGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px', marginBottom: '20px' },
+  summaryGridMobile: { gridTemplateColumns: '1fr', gap: '10px' },
+  summaryCard: {
+    borderRadius: '14px', padding: '16px 18px', color: 'white',
+    boxShadow: '0 6px 18px rgba(0,0,0,0.10)',
+  },
+  summaryCard_green: { background: 'linear-gradient(135deg, #234A35 0%, #122A1E 100%)' },
+  summaryCard_clay: { background: 'linear-gradient(135deg, #D68A46 0%, #B5651D 100%)' },
+  summaryCard_gold: { background: 'linear-gradient(135deg, #E8C766 0%, #D4AF37 55%, #B8912B 100%)', color: '#122A1E' },
+  summaryCardMobile: { padding: '14px 16px' },
+  summaryValue: { fontSize: '26px', fontWeight: '800', lineHeight: 1 },
+  summaryValueMobile: { fontSize: '22px' },
+  summaryLabel: { fontSize: '12px', fontWeight: '700', marginTop: '6px', textTransform: 'uppercase', letterSpacing: '0.3px', opacity: 0.95 },
+  summarySub: { fontSize: '11px', marginTop: '4px', opacity: 0.8 },
+
   tabs: { display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid #e5e7eb', overflowX: 'auto' },
   tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7280', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap' },
   tabActive: { color: '#2E7D32', fontWeight: '600', borderBottom: '2px solid #2E7D32' },
@@ -617,15 +791,17 @@ const styles = {
   },
   cardMobile: { flexDirection: 'column', alignItems: 'stretch', padding: '14px 16px', gap: '12px' },
   cardTopRow: { display: 'flex', alignItems: 'flex-start', gap: '12px' },
+  cardTopRowDesktop: { display: 'flex', alignItems: 'center', gap: '14px', width: '100%' },
+  cardRight: { display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 },
   cardBottomRow: {
-    display: 'flex', flexDirection: 'column', gap: '10px',
+    display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '10px',
     borderTop: '1px solid #f3f4f6', paddingTop: '10px',
   },
   cardBar: { width: '4px', height: '36px', backgroundColor: '#3b82f6', borderRadius: '2px', flexShrink: 0 },
   cardTitle: { fontSize: '14px', fontWeight: '600', color: '#111827' },
   cardMeta: { fontSize: '12px', color: '#6b7280', marginTop: '4px' },
   cardFindings: { fontSize: '13px', color: '#374151', marginTop: '6px' },
-  badge: { padding: '4px 12px', borderRadius: '999px', color: 'white', fontSize: '12px', fontWeight: '600', whiteSpace: 'nowrap', alignSelf: 'flex-start' },
+  badge: { padding: '4px 12px', borderRadius: '999px', color: 'white', fontSize: '12px', fontWeight: '600', whiteSpace: 'nowrap' },
   actionBtn: {
     padding: '5px 12px',
     borderRadius: '6px',
@@ -662,23 +838,66 @@ const styles = {
     width: '30px', height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center',
     border: '1px solid #d1d5db', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', color: '#374151',
   },
-  calendarGrid: { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px' },
+
+  calendarGrid: { display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: '4px' },
   calendarDayName: { fontSize: '11px', fontWeight: '600', color: '#9ca3af', textAlign: 'center', padding: '6px 0' },
   calendarCell: {
-    minHeight: '80px', border: '1px solid #f3f4f6', borderRadius: '6px', padding: '6px',
-    cursor: 'pointer', fontSize: '12px',
+    minHeight: '108px', minWidth: 0, border: '1px solid #f3f4f6', borderRadius: '6px', padding: '6px',
+    cursor: 'pointer', fontSize: '12px', overflow: 'hidden',
   },
-  calendarCellMobile: { minHeight: '46px', padding: '3px', borderRadius: '4px' },
+  calendarCellMobile: { minHeight: '64px', padding: '3px', borderRadius: '4px' },
   calendarCellEmpty: { cursor: 'default', backgroundColor: 'transparent', border: 'none' },
   calendarCellToday: { backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' },
   calendarDayNum: { fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '4px' },
   calendarDayNumMobile: { fontSize: '11px', marginBottom: '2px', textAlign: 'center' },
-  calendarDot: {
-    fontSize: '10px', color: 'white', borderRadius: '4px', padding: '2px 6px',
-    marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+
+  calendarEvent: {
+    borderRadius: '5px', padding: '3px 5px', marginBottom: '3px',
+    cursor: 'pointer', lineHeight: '1.25',
   },
-  calendarDotsMobile: { display: 'flex', justifyContent: 'center', gap: '2px' },
-  calendarDotSmall: { width: '5px', height: '5px', borderRadius: '50%' },
+  calendarEventType: { fontSize: '9.5px', fontWeight: '700' },
+  calendarEventFarm: {
+    fontSize: '9px', fontWeight: '600', opacity: 0.95,
+    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  },
+  calendarEventTime: { fontSize: '8.5px', opacity: 0.85 },
+  calendarMoreDesktop: { fontSize: '9.5px', color: '#6b7280', fontWeight: '600', marginTop: '1px', cursor: 'pointer' },
+
+  calendarEventsMobile: { display: 'flex', flexDirection: 'column', gap: '2px' },
+  calendarEventMobile: {
+    fontSize: '7.5px', fontWeight: '600', borderRadius: '3px',
+    padding: '1.5px 3px', overflow: 'hidden', textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap', cursor: 'pointer',
+  },
+  calendarMoreMobile: { fontSize: '7.5px', color: '#6b7280', fontWeight: '600', cursor: 'pointer' },
+
+  addInspectionBtn: {
+    width: '100%', boxSizing: 'border-box', padding: '11px', borderRadius: '8px', border: 'none',
+    backgroundColor: '#2E7D32', color: 'white', fontSize: '14px', fontWeight: '700', cursor: 'pointer',
+    marginTop: '14px', marginBottom: '18px',
+  },
+  scheduledLabel: {
+    fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase',
+    letterSpacing: '0.4px', marginBottom: '8px',
+  },
+  selectedEmpty: { fontSize: '13.5px', color: '#9ca3af', padding: '8px 0' },
+  selectedList: { display: 'flex', flexDirection: 'column', maxHeight: '320px', overflowY: 'auto' },
+  selectedItem: {
+    display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 4px',
+    borderBottom: '1px solid #f3f4f6', cursor: 'pointer',
+  },
+  selectedItemType: {
+    display: 'inline-block', fontSize: '10.5px', fontWeight: '700', padding: '2px 8px',
+    borderRadius: '999px', marginBottom: '5px',
+  },
+  selectedItemFarm: { fontSize: '14px', fontWeight: '600', color: '#111827' },
+  selectedItemTime: { fontSize: '12px', color: '#6b7280', marginTop: '2px' },
+  selectedItemView: {
+    flexShrink: 0, fontSize: '12px', fontWeight: '700', color: '#3b82f6',
+    backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px',
+    padding: '5px 12px', cursor: 'pointer',
+  },
+
   legend: { display: 'flex', gap: '20px', marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #f3f4f6' },
   legendMobile: { gap: '12px', flexWrap: 'wrap' },
   legendItem: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#6b7280' },

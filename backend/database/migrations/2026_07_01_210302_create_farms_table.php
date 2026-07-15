@@ -8,25 +8,31 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('farms', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('user_id')->constrained()->onDelete('cascade');
-            $table->string('farm_name');
-            $table->string('owner_name');
-            $table->string('mobile_number')->nullable();
-            $table->string('barangay');
-            $table->string('municipality')->default('San Jose');
-            $table->string('province')->default('Batangas');
-            $table->text('address')->nullable();
-            $table->integer('num_birds')->default(0);
-            $table->enum('farm_size', ['Small', 'Semi-Commercial', 'Commercial'])->default('Small');
-            $table->enum('status', ['Active', 'Inactive', 'Deactivated'])->default('Active');
-            $table->timestamps();
+        Schema::table('farms', function (Blueprint $table) {
+            if (!Schema::hasColumn('farms', 'farm_type')) {
+                $table->string('farm_type')->nullable()->after('farm_name');
+            }
+            if (!Schema::hasColumn('farms', 'farm_area')) {
+                $table->decimal('farm_area', 12, 2)->nullable()->after('farm_size');
+            }
+            if (!Schema::hasColumn('farms', 'farm_area_unit')) {
+                $table->string('farm_area_unit')->default('sqm')->after('farm_area');
+            }
+            // Guarded in case an earlier migration you haven't shown me
+            // already added these — safe either way.
+            if (!Schema::hasColumn('farms', 'latitude')) {
+                $table->decimal('latitude', 10, 7)->nullable();
+            }
+            if (!Schema::hasColumn('farms', 'longitude')) {
+                $table->decimal('longitude', 10, 7)->nullable();
+            }
         });
     }
 
     public function down(): void
     {
-        Schema::dropIfExists('farms');
+        Schema::table('farms', function (Blueprint $table) {
+            $table->dropColumn(['farm_type', 'farm_area', 'farm_area_unit']);
+        });
     }
 };

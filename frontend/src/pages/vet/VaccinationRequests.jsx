@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import api from '../../api/axios'
 import VetLayout from '../../components/VetLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
@@ -10,8 +10,52 @@ const BIRD_ESTIMATES = {
   'Large': 'Above 50,000 layers',
 }
 
+const RANGE_OPTIONS = [
+  { value: 'all', label: 'All time' },
+  { value: 'today', label: 'Today' },
+  { value: 'week', label: 'This Week' },
+  { value: 'month', label: 'This Month' },
+  { value: 'quarter', label: 'This Quarter' },
+  { value: 'year', label: 'This Year' },
+  { value: 'custom', label: 'Custom range' },
+]
+
+function getRangeBounds(rangeKey, customFrom, customTo) {
+  const now = new Date()
+  const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0)
+  const endOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59)
+
+  switch (rangeKey) {
+    case 'today':
+      return [startOfDay(now), endOfDay(now)]
+    case 'week': {
+      const day = now.getDay()
+      const start = new Date(now)
+      start.setDate(now.getDate() - day)
+      return [startOfDay(start), endOfDay(now)]
+    }
+    case 'month':
+      return [new Date(now.getFullYear(), now.getMonth(), 1), endOfDay(now)]
+    case 'quarter': {
+      const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3
+      return [new Date(now.getFullYear(), quarterStartMonth, 1), endOfDay(now)]
+    }
+    case 'year':
+      return [new Date(now.getFullYear(), 0, 1), endOfDay(now)]
+    case 'custom':
+      if (!customFrom || !customTo) return [null, null]
+      return [startOfDay(new Date(customFrom)), endOfDay(new Date(customTo))]
+    case 'all':
+    default:
+      return [null, null]
+  }
+}
+
 export default function VaccinationRequests() {
   const [tab, setTab] = useState('scheduled')
+  const [range, setRange] = useState('all')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
   const [acceptTarget, setAcceptTarget] = useState(null)
   const [noteTarget, setNoteTarget] = useState(null)
   const [viewTarget, setViewTarget] = useState(null)
@@ -34,7 +78,22 @@ export default function VaccinationRequests() {
     refetch()
   }
 
-  const list = tab === 'scheduled' ? requestData.scheduled : requestData.completed
+  const [rangeStart, rangeEnd] = useMemo(
+    () => getRangeBounds(range, customFrom, customTo),
+    [range, customFrom, customTo]
+  )
+
+  const filteredCompleted = useMemo(() => {
+    const completedList = requestData.completed || []
+    if (!rangeStart || !rangeEnd) return completedList
+    return completedList.filter(r => {
+      if (!r.completed_at) return false
+      const d = new Date(r.completed_at)
+      return d >= rangeStart && d <= rangeEnd
+    })
+  }, [requestData.completed, rangeStart, rangeEnd])
+
+  const list = tab === 'scheduled' ? requestData.scheduled : filteredCompleted
 
   return (
     <VetLayout>
@@ -56,6 +115,38 @@ export default function VaccinationRequests() {
         </div>
       </div>
 
+      {tab === 'completed' && (
+        <div style={{ ...styles.filterRow, ...(isMobile ? styles.filterRowMobile : {}) }}>
+          <select
+            value={range}
+            onChange={e => setRange(e.target.value)}
+            style={{ ...styles.filterSelect, ...(isMobile ? styles.filterSelectMobile : {}) }}
+          >
+            {RANGE_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+
+          {range === 'custom' && (
+            <div style={{ ...styles.customDates, ...(isMobile ? styles.customDatesMobile : {}) }}>
+              <input
+                type="date"
+                value={customFrom}
+                onChange={e => setCustomFrom(e.target.value)}
+                style={styles.filterDateInput}
+              />
+              <span style={styles.customDatesSep}>to</span>
+              <input
+                type="date"
+                value={customTo}
+                onChange={e => setCustomTo(e.target.value)}
+                style={styles.filterDateInput}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
       {loading && <p>Loading...</p>}
       {error && <p style={{ color: '#dc2626' }}>{error}</p>}
 
@@ -76,7 +167,7 @@ export default function VaccinationRequests() {
             )
 
             const actions = (
-              <div style={{ display: 'flex', gap: '8px', ...(isMobile ? { width: '100%' } : {}) }}>
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-start', ...(isMobile ? { width: '100%' } : {}) }}>
                 {r.status === 'Completed' && (
                   <span
                     style={{ ...styles.actionBtn, ...styles.viewBtn, ...(isMobile ? styles.actionBtnMobile : {}) }}
@@ -122,19 +213,22 @@ export default function VaccinationRequests() {
 
             return (
               <div key={r.id} style={{ ...styles.card, ...(isMobile ? styles.cardMobile : {}) }}>
-                <div style={isMobile ? styles.cardTopRow : { display: 'contents' }}>
-                  <div style={{ ...styles.cardBar, backgroundColor: r.status === 'Pending' ? '#f59e0b' : '#3b82f6' }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={styles.cardTitle}>{r.farm_name}</div>
-                    <div style={styles.cardMeta}>
-                      {r.owner_name} · {r.barangay} · {BIRD_ESTIMATES[r.farm_size] || 'Size unknown'}
-                      {r.scheduled_at && <> · {new Date(r.scheduled_at).toLocaleDateString()}</>}
-                    </div>
-                    {r.notes && <div style={styles.cardNotes}>{r.notes}</div>}
+                <div style={{ ...styles.cardBar, backgroundColor: r.status === 'Pending' ? '#f59e0b' : '#3b82f6' }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={styles.cardTitle}>{r.farm_name}</div>
+                  <div style={styles.cardMeta}>
+                    {r.owner_name} · {r.barangay} · {BIRD_ESTIMATES[r.farm_size] || 'Size unknown'}
+                    {r.scheduled_at && <> · {new Date(r.scheduled_at).toLocaleDateString()}</>}
                   </div>
-                  {!isMobile && badge}
-                  {!isMobile && actions}
+                  {r.notes && <div style={styles.cardNotes}>{r.notes}</div>}
                 </div>
+
+                {!isMobile && (
+                  <div style={styles.badgeActionsGroup}>
+                    {badge}
+                    {actions}
+                  </div>
+                )}
 
                 {isMobile && (
                   <div style={styles.cardBottomRow}>
@@ -167,53 +261,12 @@ export default function VaccinationRequests() {
       )}
 
       {viewTarget && (
-        <div style={modalStyles.overlay} onClick={() => setViewTarget(null)}>
-          <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
-            <div style={modalStyles.header}>
-              <h3 style={modalStyles.title}>{viewTarget.farm_name}</h3>
-              <span style={modalStyles.close} onClick={() => setViewTarget(null)}>×</span>
-            </div>
-
-            <div style={detailStyles.row}>
-              <span style={detailStyles.label}>Owner</span>
-              <span style={detailStyles.value}>{viewTarget.owner_name}</span>
-            </div>
-            <div style={detailStyles.row}>
-              <span style={detailStyles.label}>Barangay</span>
-              <span style={detailStyles.value}>{viewTarget.barangay}</span>
-            </div>
-            <div style={detailStyles.row}>
-              <span style={detailStyles.label}>Est. Birds</span>
-              <span style={detailStyles.value}>{BIRD_ESTIMATES[viewTarget.farm_size] || '—'}</span>
-            </div>
-            <div style={detailStyles.row}>
-              <span style={detailStyles.label}>Status</span>
-              <span style={detailStyles.value}>{viewTarget.status}</span>
-            </div>
-            {viewTarget.scheduled_at && (
-              <div style={detailStyles.row}>
-                <span style={detailStyles.label}>Scheduled</span>
-                <span style={detailStyles.value}>{new Date(viewTarget.scheduled_at).toLocaleString()}</span>
-              </div>
-            )}
-            {viewTarget.completed_at && (
-              <div style={detailStyles.row}>
-                <span style={detailStyles.label}>Completed</span>
-                <span style={detailStyles.value}>{new Date(viewTarget.completed_at).toLocaleString()}</span>
-              </div>
-            )}
-            {viewTarget.notes && (
-              <div style={detailStyles.block}>
-                <span style={detailStyles.label}>Notes</span>
-                <p style={detailStyles.text}>{viewTarget.notes}</p>
-              </div>
-            )}
-
-            <div style={modalStyles.actions}>
-              <button onClick={() => setViewTarget(null)} style={modalStyles.cancelBtn}>Close</button>
-            </div>
-          </div>
-        </div>
+        <FarmHistoryModal
+          farm={viewTarget}
+          allRequests={[...(requestData.scheduled || []), ...(requestData.completed || [])]}
+          isMobile={isMobile}
+          onClose={() => setViewTarget(null)}
+        />
       )}
 
       {confirmDecline && (
@@ -378,6 +431,145 @@ function NoteModal({ request, onClose, onSuccess, isMobile }) {
   )
 }
 
+function FarmHistoryModal({ farm, allRequests, onClose, isMobile }) {
+  const [expandedId, setExpandedId] = useState(null)
+  const statusColor = { Pending: '#f59e0b', Scheduled: '#3b82f6', Completed: '#2E7D32' }
+
+  const farmRecords = allRequests
+    .filter(r => (farm.farm_id ? r.farm_id === farm.farm_id : r.farm_name === farm.farm_name && r.owner_name === farm.owner_name))
+    .sort((a, b) => {
+      const dateA = new Date(a.completed_at || a.scheduled_at || 0)
+      const dateB = new Date(b.completed_at || b.scheduled_at || 0)
+      return dateB - dateA
+    })
+
+  const completedCount = farmRecords.filter(r => r.status === 'Completed').length
+  const initial = farm.farm_name?.[0]?.toUpperCase() ?? '?'
+
+  const toggleExpand = (id) => setExpandedId(prev => (prev === id ? null : id))
+
+  return (
+    <div style={modalStyles.overlay} onClick={onClose}>
+      <div style={{ ...historyStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
+        <span style={historyStyles.close} onClick={onClose}>×</span>
+
+        <div style={historyStyles.heroHeader}>
+          <div style={historyStyles.avatar}>{initial}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={historyStyles.farmName}>{farm.farm_name}</div>
+            <div style={historyStyles.ownerName}>{farm.owner_name}</div>
+          </div>
+        </div>
+
+        <div style={historyStyles.body}>
+          <div style={historyStyles.sectionLabel}> &nbsp;FARM & OWNER</div>
+          <div style={{ ...historyStyles.infoGrid, ...(isMobile ? historyStyles.infoGridMobile : {}) }}>
+            <div style={historyStyles.infoCard}>
+              <div>
+                <div style={historyStyles.infoLabel}>Barangay</div>
+                <div style={historyStyles.infoValue}>{farm.barangay}</div>
+              </div>
+            </div>
+            <div style={historyStyles.infoCard}>
+              <div>
+                <div style={historyStyles.infoLabel}>Farm Size</div>
+                <div style={historyStyles.infoValue}>{farm.farm_size} <span style={historyStyles.infoValueSub}>({BIRD_ESTIMATES[farm.farm_size] || '—'})</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ ...historyStyles.infoGrid, ...(isMobile ? historyStyles.infoGridMobile : {}), marginTop: '10px' }}>
+            <div style={historyStyles.infoCard}>
+              <div>
+                <div style={historyStyles.infoLabel}>Total Records</div>
+                <div style={historyStyles.infoValue}>{farmRecords.length}</div>
+              </div>
+            </div>
+            <div style={historyStyles.infoCard}>
+              <div>
+                <div style={historyStyles.infoLabel}>Completed</div>
+                <div style={historyStyles.infoValue}>{completedCount}</div>
+              </div>
+            </div>
+          </div>
+
+          <div style={historyStyles.sectionLabel}> &nbsp;VACCINATION HISTORY</div>
+
+          {farmRecords.length === 0 ? (
+            <div style={historyStyles.emptyBox}>
+              <div style={{ fontSize: '20px' }}>📭</div>
+              <p style={{ fontSize: '13px', color: '#9ca3af', margin: '6px 0 0' }}>No records found.</p>
+            </div>
+          ) : (
+            <div style={historyStyles.recordList}>
+              {farmRecords.map(r => {
+                const isExpanded = expandedId === r.id
+                const color = statusColor[r.status] || '#9ca3af'
+                return (
+                  <div
+                    key={r.id}
+                    style={{ ...historyStyles.recordCard, borderColor: isExpanded ? color : '#e5e7eb' }}
+                    onClick={() => toggleExpand(r.id)}
+                  >
+                    <div style={historyStyles.recordTop}>
+                      <span style={{ ...historyStyles.recordBadge, backgroundColor: color }}>{r.status}</span>
+                      <span style={historyStyles.recordDateRow}>
+                        <span style={historyStyles.recordDate}>
+                          {r.completed_at
+                            ? new Date(r.completed_at).toLocaleDateString()
+                            : r.scheduled_at
+                            ? new Date(r.scheduled_at).toLocaleDateString()
+                            : '—'}
+                        </span>
+                        <span style={{ ...historyStyles.chevron, transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</span>
+                      </span>
+                    </div>
+
+                    {!isExpanded && r.notes && <p style={historyStyles.recordNotes}>{r.notes}</p>}
+
+                    {isExpanded && (
+                      <div style={historyStyles.expandedBox}>
+                        {r.scheduled_at && (
+                          <div style={historyStyles.expandedRow}>
+                            <span style={historyStyles.expandedLabel}>Scheduled</span>
+                            <span style={historyStyles.expandedValue}>{new Date(r.scheduled_at).toLocaleString()}</span>
+                          </div>
+                        )}
+                        {r.completed_at && (
+                          <div style={historyStyles.expandedRow}>
+                            <span style={historyStyles.expandedLabel}>Completed</span>
+                            <span style={historyStyles.expandedValue}>{new Date(r.completed_at).toLocaleString()}</span>
+                          </div>
+                        )}
+                        <div style={historyStyles.expandedRow}>
+                          <span style={historyStyles.expandedLabel}>Status</span>
+                          <span style={historyStyles.expandedValue}>{r.status}</span>
+                        </div>
+                        {r.notes ? (
+                          <div style={{ marginTop: '8px' }}>
+                            <span style={historyStyles.expandedLabel}>Notes</span>
+                            <p style={historyStyles.expandedNotes}>{r.notes}</p>
+                          </div>
+                        ) : (
+                          <p style={historyStyles.expandedNotes}>No notes recorded.</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          <div style={historyStyles.footer}>
+            <button onClick={onClose} style={historyStyles.closeBtn}>Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const styles = {
   title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
   titleMobile: { fontSize: '18px' },
@@ -385,15 +577,31 @@ const styles = {
   tabs: { display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid #e5e7eb' },
   tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7280', cursor: 'pointer', borderBottom: '2px solid transparent' },
   tabActive: { color: '#2E7D32', fontWeight: '600', borderBottom: '2px solid #2E7D32' },
+  filterRow: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' },
+  filterRowMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  filterSelect: {
+    padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db',
+    fontSize: '13px', color: '#374151', backgroundColor: 'white',
+  },
+  filterSelectMobile: { width: '100%', boxSizing: 'border-box' },
+  customDates: { display: 'flex', alignItems: 'center', gap: '8px' },
+  customDatesMobile: { width: '100%' },
+  customDatesSep: { fontSize: '13px', color: '#9ca3af' },
+  filterDateInput: {
+    padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px', color: '#374151',
+  },
   empty: { color: '#9ca3af', fontSize: '14px', padding: '24px 0' },
   list: { display: 'flex', flexDirection: 'column', gap: '12px' },
   card: {
     backgroundColor: 'white', borderRadius: '12px', padding: '16px 20px',
-    display: 'flex', alignItems: 'center', gap: '14px',
+    display: 'grid', gridTemplateColumns: 'auto 1fr auto', alignItems: 'center', gap: '14px',
     boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
   },
   cardMobile: {
-    flexDirection: 'column', alignItems: 'stretch', padding: '14px 16px', gap: '12px',
+    display: 'flex', flexDirection: 'column', alignItems: 'stretch', padding: '14px 16px', gap: '12px',
+  },
+  badgeActionsGroup: {
+    display: 'grid', gridTemplateColumns: '100px 170px', alignItems: 'center', gap: '10px',
   },
   cardTopRow: { display: 'flex', alignItems: 'flex-start', gap: '12px' },
   cardBottomRow: {
@@ -404,10 +612,14 @@ const styles = {
   cardTitle: { fontSize: '14px', fontWeight: '600', color: '#111827' },
   cardMeta: { fontSize: '12px', color: '#6b7280', marginTop: '4px' },
   cardNotes: { fontSize: '13px', color: '#374151', marginTop: '6px' },
-  badge: { padding: '4px 12px', borderRadius: '999px', color: 'white', fontSize: '12px', fontWeight: '600', whiteSpace: 'nowrap', alignSelf: 'flex-start' },
+  badge: {
+    padding: '4px 12px', borderRadius: '999px', color: 'white', fontSize: '12px', fontWeight: '600',
+    whiteSpace: 'nowrap', alignSelf: 'flex-start', minWidth: '84px', textAlign: 'center', display: 'inline-block',
+  },
   actionBtn: {
     padding: '5px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600',
     cursor: 'pointer', border: '1px solid transparent', whiteSpace: 'nowrap',
+    minWidth: '76px', textAlign: 'center',
   },
   actionBtnMobile: { flex: 1, textAlign: 'center', padding: '8px 12px' },
   acceptBtn: { color: '#2E7D32', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' },
@@ -449,4 +661,75 @@ const detailStyles = {
   value: { fontSize: '13px', color: '#111827', fontWeight: '600' },
   block: { marginTop: '14px' },
   text: { fontSize: '13px', color: '#374151', lineHeight: '1.5', marginTop: '4px' },
+}
+
+const historyStyles = {
+  modal: {
+    backgroundColor: '#F0EBDD', borderRadius: '20px', width: '560px', maxWidth: '90%',
+    maxHeight: '90vh', overflowY: 'auto', position: 'relative', padding: 0,
+  },
+  close: {
+    position: 'absolute', top: '16px', right: '16px', fontSize: '16px',
+    color: 'white', cursor: 'pointer', lineHeight: 1, zIndex: 2,
+    width: '28px', height: '28px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.15)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
+  heroHeader: {
+    display: 'flex', alignItems: 'center', gap: '14px',
+    padding: '24px 24px 20px', backgroundColor: '#1B4332',
+    borderRadius: '20px 20px 0 0',
+  },
+  avatar: {
+    width: '52px', height: '52px', borderRadius: '50%', backgroundColor: '#1B4332',
+    color: '#F2B84B', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: '18px', fontWeight: '700', flexShrink: 0, border: '2px solid #F2B84B',
+  },
+  farmName: { fontSize: '18px', fontWeight: '700', color: 'white' },
+  ownerName: { fontSize: '13px', color: '#C9DDCE', marginTop: '2px' },
+  body: { padding: '20px 24px 24px' },
+  sectionLabel: {
+    fontSize: '12px', fontWeight: '700', color: '#1B4332',
+    textTransform: 'uppercase', letterSpacing: '0.4px', margin: '18px 0 10px',
+  },
+  infoGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' },
+  infoGridMobile: { gridTemplateColumns: '1fr' },
+  infoCard: {
+    backgroundColor: 'white', borderRadius: '12px', padding: '12px 14px',
+    display: 'flex', alignItems: 'center', gap: '10px',
+    boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+  },
+  infoIcon: { fontSize: '16px', flexShrink: 0 },
+  infoLabel: { fontSize: '10px', color: '#9ca3af', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.3px' },
+  infoValue: { fontSize: '14px', color: '#111827', fontWeight: '700', marginTop: '2px' },
+  infoValueSub: { fontSize: '11px', color: '#6b7280', fontWeight: '500' },
+  emptyBox: {
+    backgroundColor: 'white', borderRadius: '12px', padding: '24px', textAlign: 'center',
+  },
+  recordList: { display: 'flex', flexDirection: 'column', gap: '10px' },
+  recordCard: {
+    backgroundColor: 'white', borderRadius: '12px', padding: '12px 14px',
+    border: '1.5px solid #e5e7eb', cursor: 'pointer', transition: 'border-color 0.15s ease',
+  },
+  recordTop: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' },
+  recordBadge: {
+    padding: '3px 10px', borderRadius: '999px', color: 'white', fontSize: '11px', fontWeight: '700', whiteSpace: 'nowrap',
+  },
+  recordDateRow: { display: 'flex', alignItems: 'center', gap: '6px' },
+  recordDate: { fontSize: '12px', color: '#6b7280' },
+  chevron: { fontSize: '12px', color: '#9ca3af', transition: 'transform 0.15s ease', display: 'inline-block' },
+  recordNotes: { fontSize: '13px', color: '#374151', marginTop: '8px', marginBottom: 0, lineHeight: '1.4' },
+  expandedBox: {
+    backgroundColor: '#f9fafb', borderRadius: '10px', padding: '12px 14px', marginTop: '10px',
+  },
+  expandedRow: {
+    display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '12px',
+  },
+  expandedLabel: { color: '#9ca3af', fontWeight: '600' },
+  expandedValue: { color: '#111827', fontWeight: '600' },
+  expandedNotes: { fontSize: '13px', color: '#374151', marginTop: '4px', marginBottom: 0, lineHeight: '1.4' },
+  footer: { marginTop: '20px' },
+  closeBtn: {
+    width: '100%', padding: '10px 18px', borderRadius: '8px',
+    border: '1px solid #d1d5db', backgroundColor: 'white', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
+  },
 }

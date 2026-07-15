@@ -15,6 +15,7 @@ const Inspections = lazy(() => import('../pages/admin/Inspections'))
 const ActivityLogs = lazy(() => import('../pages/admin/ActivityLogs'))
 const Reports = lazy(() => import('../pages/admin/Reports'))
 const AdminSettings = lazy(() => import('../pages/admin/Settings'))
+const UserManagement = lazy(() => import('../pages/admin/UserManagement'))
 
 const VetDashboard = lazy(() => import('../pages/vet/Dashboard'))
 const VaccinationRequests = lazy(() => import('../pages/vet/VaccinationRequests'))
@@ -83,6 +84,11 @@ export default function AppRouter() {
               <AdminSettings />
             </ProtectedRoute>
           } />
+          <Route path="/admin/veterinarians" element={
+            <ProtectedRoute role="admin">
+              <UserManagement />
+            </ProtectedRoute>
+          } />
 
           {/* Farm Owner routes */}
           <Route path="/farmowner/dashboard" element={
@@ -100,8 +106,7 @@ export default function AppRouter() {
               <FarmerSettings />
             </ProtectedRoute>
           } />
-
-          {/* Vet routes */}
+{/* Vet routes */}
           <Route path="/vet/dashboard" element={
             <ProtectedRoute role="vet">
               <VetDashboard />

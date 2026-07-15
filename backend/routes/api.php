@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\FarmController;
+use App\Http\Controllers\Admin\FarmOwnerController;
 use App\Http\Controllers\Admin\InspectionController;
 use App\Http\Controllers\Admin\ServiceRequestController;
 use App\Http\Controllers\Admin\ActivityLogController;
@@ -16,6 +17,7 @@ use App\Http\Controllers\Vet\DashboardController as VetDashboardController;
 use App\Http\Controllers\Vet\VaccinationRequestController;
 use App\Http\Controllers\Vet\ReportController as VetReportController;
 use App\Http\Controllers\SensorIngestController;
+use App\Http\Controllers\Admin\UserManagementController;
 
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/sensor-readings', [SensorIngestController::class, 'store']);
@@ -55,6 +57,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/service-requests', [FarmerServiceRequestController::class, 'index']);
         Route::post('/service-requests', [FarmerServiceRequestController::class, 'store']);
         Route::get('/recommendations', [FarmerRecommendationController::class, 'index']);
+        Route::get('/farm-owners', [FarmOwnerController::class, 'index']);
+        Route::post('/farm-owners', [FarmOwnerController::class, 'store']);
     });
 
     /*
@@ -64,6 +68,8 @@ Route::middleware('auth:sanctum')->group(function () {
     */
     Route::middleware('role:admin')->prefix('admin')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'index']);
+
+        Route::post('/farm-owners', [FarmOwnerController::class, 'store']);
 
         Route::get('/farms', [FarmController::class, 'index']);
         Route::get('/farms-map', [FarmController::class, 'mapData']);
@@ -85,6 +91,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/activity-logs', [ActivityLogController::class, 'index']);
 
         Route::get('/reports', [ReportController::class, 'index']);
+
+        Route::get('/veterinarians', [UserManagementController::class, 'index']);
+        Route::post('/veterinarians', [UserManagementController::class, 'store']);
+        Route::put('/veterinarians/{id}', [UserManagementController::class, 'update']);
+        Route::patch('/veterinarians/{id}/activate', [UserManagementController::class, 'activate']);
+        Route::patch('/veterinarians/{id}/deactivate', [UserManagementController::class, 'deactivate']);
+        Route::post('/veterinarians/{id}/reset-password', [UserManagementController::class, 'resetPassword']);
     });
 
     // farm_owner and vet route groups will be added in later phases (3.3–3.7).

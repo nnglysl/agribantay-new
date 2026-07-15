@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -203,18 +203,39 @@ const SAN_JOSE_BOUNDARY = [
   [13.8585181, 121.0497665], [13.8584399, 121.0495573],
 ]
 
+// Rectangle that covers the whole world; combined with the boundary as a
+// hole, this grays out everything outside San Jose while leaving the
+// municipality itself in full color.
+const WORLD_RING = [[85, -180], [85, 180], [-85, 180], [-85, -180]]
+
 const statusColor = {
   Safe: '#2E7D32',
   Moderate: '#f59e0b',
   Critical: '#dc2626',
 }
 
-export default function FarmMap({ farms }) {
+const inspectionColor = {
+  'Follow-up': '#2563EB',
+  'General': '#9CA3AF',
+}
+
+// Matches an alert/inspection record back to its farm on the map — tries
+// farm_id first (if the API ever adds it), then falls back to farm_name.
+function findFarm(item, farms) {
+  if (item.farm_id) {
+    const byId = farms.find(f => f.id === item.farm_id)
+    if (byId) return byId
+  }
+  return farms.find(f => f.farm_name === item.farm_name)
+}
+
+export default function FarmMap({ farms = [], alerts = [], inspections = [], onSeeAllAlerts, onSeeAllInspections, monthLabel, onPrevMonth, onNextMonth }) {
   const mapRef = useRef(null)
   const containerRef = useRef(null)
   const markersRef = useRef([])
   const navigate = useNavigate()
   const isMobile = useIsMobile()
+  const [mode, setMode] = useState('alerts')
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -226,11 +247,19 @@ export default function FarmMap({ farms }) {
       maxZoom: 18,
     }).addTo(map)
 
+    // Gray mask over everything outside San Jose (the boundary is punched
+    // out as a hole, so it stays in full color while the rest is muted)
+    L.polygon([WORLD_RING, SAN_JOSE_BOUNDARY], {
+      stroke: false,
+      fillColor: '#7C8577',
+      fillOpacity: 0.5,
+      interactive: false,
+    }).addTo(map)
+
     L.polygon(SAN_JOSE_BOUNDARY, {
       color: '#1B4332',
-      weight: 2,
-      fillColor: '#1B4332',
-      fillOpacity: 0.08,
+      weight: 2.5,
+      fillOpacity: 0,
     }).addTo(map)
 
     mapRef.current = map
@@ -263,8 +292,20 @@ export default function FarmMap({ farms }) {
     farms.forEach(farm => {
       if (!farm.latitude || !farm.longitude) return
 
-      const isCritical = farm.current_status === 'Critical'
-      const color = statusColor[farm.current_status] || '#9ca3af'
+      let color
+      let tooltip
+      let inspection
+
+      if (mode === 'alerts') {
+        color = statusColor[farm.current_status] || '#9ca3af'
+        tooltip = `${farm.farm_name} — ${farm.current_status || 'Unknown'}`
+      } else {
+        inspection = inspections.find(i => findFarm(i, farms)?.id === farm.id)
+        color = inspection ? (inspectionColor[inspection.inspection_type] || '#9CA3AF') : '#D1CDBF'
+        tooltip = inspection
+          ? `${farm.farm_name} — ${inspection.inspection_type}`
+          : `${farm.farm_name} — No inspection scheduled`
+      }
 
       const icon = L.divIcon({
         className: '',
@@ -280,29 +321,267 @@ export default function FarmMap({ farms }) {
 
       const marker = L.marker([farm.latitude, farm.longitude], { icon })
         .addTo(mapRef.current)
-        .bindTooltip(`${farm.farm_name} — ${farm.owner_name}`, { direction: 'top', offset: [0, -8] })
+        .bindTooltip(tooltip, { direction: 'top', offset: [0, -8] })
 
-      if (isCritical) {
+      if (mode === 'alerts' && farm.current_status === 'Critical') {
         marker.on('click', () => {
           navigate(`/admin/inspections?farmId=${farm.id}`)
         })
       } else {
-        marker.bindPopup(`<strong>${farm.farm_name}</strong><br/>${farm.owner_name}<br/>Status: ${farm.current_status || 'Unknown'}`)
+        const statusLine = mode === 'alerts'
+          ? `Status: ${farm.current_status || 'Unknown'}`
+          : (inspection ? `Inspection: ${inspection.inspection_type}` : 'No inspection scheduled')
+        marker.bindPopup(`<strong>${farm.farm_name}</strong><br/>${farm.owner_name}<br/>${statusLine}`)
       }
 
       markersRef.current.push(marker)
     })
-  }, [farms, navigate])
+  }, [farms, inspections, mode, navigate])
+
+  const focusFarm = (farm) => {
+    if (!mapRef.current || !farm || farm.latitude == null || farm.longitude == null) return
+    mapRef.current.flyTo([farm.latitude, farm.longitude], 16, { duration: 0.6 })
+    const marker = markersRef.current.find(m => {
+      const ll = m.getLatLng()
+      return ll.lat === farm.latitude && ll.lng === farm.longitude
+    })
+    if (marker) marker.openPopup()
+  }
+
+  const alertItems = useMemo(
+    () => [...alerts].sort((a, b) => (b.ammonia ?? 0) - (a.ammonia ?? 0)),
+    [alerts]
+  )
+
+  const inspectionItems = useMemo(
+    () => [...inspections].sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at)),
+    [inspections]
+  )
+
+  const listItems = mode === 'alerts' ? alertItems : inspectionItems
+  const visibleItems = listItems.slice(0, 3)
 
   return (
-    <div
-      ref={containerRef}
-      style={{
-        height: isMobile ? '260px' : '400px',
-        width: '100%',
-        borderRadius: '12px',
-        overflow: 'hidden',
-      }}
-    />
+    <div style={styles.wrap}>
+      <div
+        ref={containerRef}
+        style={{ height: isMobile ? '320px' : '560px', width: '100%' }}
+      />
+
+      <div style={{ ...styles.toggle, ...(isMobile ? styles.toggleMobile : {}) }}>
+        <button
+          onClick={() => setMode('alerts')}
+          style={{ ...styles.toggleBtn, ...(mode === 'alerts' ? styles.toggleBtnActive : {}) }}
+        >
+          Alerts
+        </button>
+        <button
+          onClick={() => setMode('inspection')}
+          style={{ ...styles.toggleBtn, ...(mode === 'inspection' ? styles.toggleBtnActive : {}) }}
+        >
+          Inspections
+        </button>
+      </div>
+
+      <div style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}) }}>
+        <div style={styles.panelHead}>
+          <div style={styles.panelHeadLeft}>
+            <span style={styles.panelTitle}>
+              {mode === 'alerts' ? 'Critical Alerts' : 'Upcoming Inspections'}
+            </span>
+            {mode === 'inspection' && monthLabel && (
+              <div style={styles.panelMonthRow}>
+                <span style={styles.panelMonthBtn} onClick={onPrevMonth} aria-label="Previous month">‹</span>
+                <span style={styles.panelMonthLabel}>{monthLabel}</span>
+                <span style={styles.panelMonthBtn} onClick={onNextMonth} aria-label="Next month">›</span>
+              </div>
+            )}
+          </div>
+
+          {mode === 'alerts' ? (
+            <span style={styles.panelCount}>{listItems.length}</span>
+          ) : (
+            <div style={styles.panelCountGroup}>
+              <div style={styles.panelCountPill}>
+                <span style={styles.panelCountValue}>{listItems.length}</span>
+                <span style={styles.panelCountLabel}>Total</span>
+              </div>
+              {!isMobile && (
+                <div style={{ ...styles.panelCountPill, ...styles.panelCountPillAmber }}>
+                  <span style={styles.panelCountValue}>
+                    {listItems.filter(i => i.inspection_type === 'Follow-up').length}
+                  </span>
+                  <span style={styles.panelCountLabel}>Follow-up</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div style={styles.panelList}>
+          {visibleItems.length === 0 && (
+            <div style={styles.empty}>
+              {mode === 'alerts' ? 'No critical alerts right now.' : 'No upcoming inspections.'}
+            </div>
+          )}
+
+          {mode === 'alerts' && visibleItems.map(f => {
+            const farm = findFarm(f, farms)
+            const color = statusColor[f.ammonia_status] || '#dc2626'
+            return (
+              <div key={f.farm_id ?? f.farm_name} style={styles.item} onClick={() => focusFarm(farm)}>
+                <span style={{ ...styles.itemDot, backgroundColor: color }} />
+                <div style={styles.itemText}>
+                  <div style={styles.itemName}>{f.farm_name}</div>
+                  <div style={styles.itemSub}>Ammonia {f.ammonia} ppm</div>
+                </div>
+                <span style={{ ...styles.itemStatus, color }}>{f.ammonia_status}</span>
+              </div>
+            )
+          })}
+
+          {mode === 'inspection' && visibleItems.map(i => {
+            const farm = findFarm(i, farms)
+            const color = inspectionColor[i.inspection_type] || '#9CA3AF'
+            return (
+              <div key={i.id} style={styles.item} onClick={() => focusFarm(farm)}>
+                <span style={{ ...styles.itemDot, backgroundColor: color }} />
+                <div style={styles.itemText}>
+                  <div style={styles.itemName}>{i.farm_name}</div>
+                  <div style={styles.itemSub}>
+                    {new Date(i.scheduled_at).toLocaleDateString()} · {i.inspection_type}
+                  </div>
+                </div>
+                <span style={{ ...styles.itemStatus, color }}>{i.inspection_type}</span>
+              </div>
+            )
+          })}
+        </div>
+
+        {listItems.length > visibleItems.length && (
+          <button
+            style={styles.seeAll}
+            onClick={() => (mode === 'alerts' ? onSeeAllAlerts?.() : onSeeAllInspections?.())}
+          >
+            See all ({listItems.length - visibleItems.length} more)
+          </button>
+        )}
+      </div>
+
+      <div style={{ ...styles.legend, ...(isMobile ? styles.legendMobile : {}) }}>
+        <div style={styles.legendTitle}>
+          {mode === 'alerts' ? 'Alert status' : 'Inspection type'}
+        </div>
+        {mode === 'alerts' ? (
+          <>
+            <LegendRow color={statusColor.Safe} label="Normal" />
+            <LegendRow color={statusColor.Moderate} label="Warning" />
+            <LegendRow color={statusColor.Critical} label="Critical" />
+          </>
+        ) : (
+          <>
+            <LegendRow color={inspectionColor['Follow-up']} label="Follow-up" />
+            <LegendRow color={inspectionColor['General']} label="General" />
+          </>
+        )}
+      </div>
+    </div>
   )
+}
+
+function LegendRow({ color, label }) {
+  return (
+    <div style={styles.legendRow}>
+      <span style={{ ...styles.legendDot, backgroundColor: color }} />
+      {label}
+    </div>
+  )
+}
+
+const styles = {
+wrap: { position: 'relative', borderRadius: '12px', overflow: 'hidden', isolation: 'isolate' },
+
+  toggle: {
+    position: 'absolute', top: '14px', right: '14px', zIndex: 1001,
+    display: 'flex', background: 'rgba(255,255,255,0.92)', borderRadius: '999px',
+    padding: '3px', gap: '2px', boxShadow: '0 4px 12px rgba(0,0,0,0.18)',
+  },
+  toggleMobile: { top: '10px', right: '10px' },
+  toggleBtn: {
+    border: 'none', background: 'transparent', padding: '7px 14px', borderRadius: '999px',
+    fontSize: '12px', fontWeight: '700', color: '#6b7280', cursor: 'pointer',
+  },
+  toggleBtnActive: { background: '#234A35', color: '#fff' },
+
+  panel: {
+    position: 'absolute', right: '14px', top: '58px', zIndex: 1001,
+    width: '250px', maxHeight: 'calc(100% - 130px)',
+    background: 'rgba(24,46,34,0.7)',
+    backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)',
+    border: '1px solid rgba(255,255,255,0.18)', borderRadius: '14px',
+    boxShadow: '0 10px 28px rgba(0,0,0,0.28)',
+    display: 'flex', flexDirection: 'column', overflow: 'hidden',
+  },
+  panelMobile: { width: '180px', top: '52px', maxHeight: 'calc(100% - 96px)' },
+
+  panelHead: {
+    padding: '12px 14px 9px', borderBottom: '1px solid rgba(255,255,255,0.14)',
+    display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexShrink: 0, gap: '8px',
+  },
+  panelHeadLeft: { minWidth: 0 },
+  panelTitle: { fontSize: '12px', fontWeight: '800', color: '#fff' },
+  panelMonthRow: { display: 'flex', alignItems: 'center', gap: '6px', marginTop: '5px' },
+  panelMonthBtn: {
+    width: '17px', height: '17px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    borderRadius: '50%', cursor: 'pointer', fontSize: '11px', color: '#fff',
+    backgroundColor: 'rgba(255,255,255,0.16)', flexShrink: 0,
+  },
+  panelMonthLabel: { fontSize: '10.5px', color: 'rgba(255,255,255,0.75)', fontWeight: '600', whiteSpace: 'nowrap' },
+  panelCount: {
+    fontSize: '10.5px', fontWeight: '700', color: '#234A35', background: '#E8C766',
+    padding: '2px 8px', borderRadius: '999px', flexShrink: 0,
+  },
+  panelCountGroup: { display: 'flex', gap: '6px', flexShrink: 0 },
+  panelCountPill: {
+    display: 'flex', flexDirection: 'column', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.14)',
+    borderRadius: '8px', padding: '3px 8px', minWidth: '38px',
+  },
+  panelCountPillAmber: { backgroundColor: 'rgba(232,199,102,0.22)' },
+  panelCountValue: { fontSize: '13px', fontWeight: '800', color: '#fff', lineHeight: 1.1 },
+  panelCountLabel: { fontSize: '7.5px', fontWeight: '700', color: 'rgba(255,255,255,0.75)', textTransform: 'uppercase' },
+
+  panelList: { overflowY: 'auto', padding: '8px' },
+  empty: { padding: '14px 8px', textAlign: 'center', fontSize: '11.5px', color: 'rgba(255,255,255,0.6)' },
+
+  item: {
+    display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 8px',
+    borderRadius: '9px', cursor: 'pointer', marginBottom: '2px',
+  },
+  itemDot: { width: '10px', height: '10px', borderRadius: '50%', flexShrink: 0, boxShadow: '0 0 0 2px rgba(255,255,255,0.25)' },
+  itemText: { minWidth: 0, flex: 1 },
+  itemName: {
+    fontSize: '12px', fontWeight: '700', color: '#fff',
+    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+  },
+  itemSub: { fontSize: '10px', color: 'rgba(255,255,255,0.6)', marginTop: '1px' },
+  itemStatus: { fontSize: '9.5px', fontWeight: '700', whiteSpace: 'nowrap', flexShrink: 0 },
+
+  seeAll: {
+    flexShrink: 0, border: 'none', borderTop: '1px solid rgba(255,255,255,0.14)',
+    background: 'transparent', color: '#E8C766', fontSize: '11.5px', fontWeight: '700',
+    padding: '10px', cursor: 'pointer',
+  },
+
+  legend: {
+    position: 'absolute', left: '14px', bottom: '14px', zIndex: 10,
+    background: 'rgba(255,255,255,0.96)', borderRadius: '12px', padding: '10px 12px',
+    boxShadow: '0 4px 14px rgba(0,0,0,0.18)', border: '1px solid #E8E2D3', minWidth: '140px',
+  },
+  legendMobile: { padding: '8px 10px', minWidth: '110px' },
+  legendTitle: {
+    fontSize: '9.5px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.4px',
+    color: '#6b7280', marginBottom: '6px',
+  },
+  legendRow: { display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11.5px', color: '#374151', marginBottom: '4px' },
+  legendDot: { width: '9px', height: '9px', borderRadius: '50%', flexShrink: 0 },
 }

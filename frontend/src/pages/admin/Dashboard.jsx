@@ -3,20 +3,25 @@ import AdminLayout from '../../components/AdminLayout'
 import FarmMap from '../../components/FarmMap'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
-
-const VISIBLE_LIMIT = 3
+import { useMonthFilter, filterByMonth } from '../../hooks/useMonthFilter'
 
 export default function AdminDashboard() {
   const { data, loading, error } = useCachedFetch('/admin/dashboard')
   const { data: mapFarms } = useCachedFetch('/admin/farms-map')
+  const { data: inspectionsData } = useCachedFetch('/admin/inspections')
   const isMobile = useIsMobile()
   const [modalOpen, setModalOpen] = useState(null)
 
+  const { month, prevMonth, nextMonth, label: monthLabel } = useMonthFilter()
+
+  const allInspections = inspectionsData || []
+  const monthInspections = filterByMonth(allInspections, month)
+  const upcomingThisMonth = monthInspections
+    .filter(i => i.status === 'Scheduled')
+    .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
+
   if (loading) return <AdminLayout><p>Loading...</p></AdminLayout>
   if (error) return <AdminLayout><p style={{ color: '#dc2626' }}>{error}</p></AdminLayout>
-
-  const visibleCritical = data.critical_farms.slice(0, VISIBLE_LIMIT)
-  const visibleInspections = data.upcoming_inspections.slice(0, VISIBLE_LIMIT)
 
   return (
     <AdminLayout>
@@ -24,69 +29,43 @@ export default function AdminDashboard() {
       <p style={styles.subtitle}>Welcome back, Administrator</p>
 
       <div style={{ ...styles.statsGrid, ...(isMobile ? styles.statsGridMobile : {}) }}>
-        <StatCard value={data.total_farms} label="Total Farms" isMobile={isMobile} />
-        <StatCard value={data.active_requests} label="Active Requests" isMobile={isMobile} />
-        <StatCard value={data.resolved_requests} label="Resolved Requests" isMobile={isMobile} />
+        <StatCard
+          value={data.total_farms}
+          label="Total Farms"
+          foot="Registered in San Jose"
+          variant="green"
+          isMobile={isMobile}
+        />
+        <StatCard
+          value={data.active_requests}
+          label="Active Requests"
+          foot="Awaiting inspection"
+          variant="gold"
+          isMobile={isMobile}
+        />
+        <StatCard
+          value={data.resolved_requests}
+          label="Resolved Requests"
+          foot="Closed recently"
+          variant="clay"
+          isMobile={isMobile}
+        />
       </div>
 
-      <div style={{ ...styles.twoCol, ...(isMobile ? styles.twoColMobile : {}) }}>
-        <div style={styles.panel}>
-          <h3 style={styles.panelTitle}>Critical Alerts</h3>
-          {data.critical_farms.length === 0 && (
-            <p style={styles.emptyText}>No critical alerts right now.</p>
-          )}
-          {visibleCritical.map(f => (
-            <div key={f.farm_id} style={styles.alertRow}>
-              <div style={styles.alertBar} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={styles.alertFarm}>{f.farm_name}</div>
-                <div style={styles.alertDetail}>Ammonia {f.ammonia} ppm</div>
-              </div>
-              <span style={{ ...styles.badge, backgroundColor: '#dc2626' }}>
-                {f.ammonia_status}
-              </span>
-            </div>
-          ))}
-          {data.critical_farms.length > VISIBLE_LIMIT && (
-            <button style={styles.seeMoreBtn} onClick={() => setModalOpen('critical')}>
-              See more ({data.critical_farms.length - VISIBLE_LIMIT} more)
-            </button>
-          )}
-        </div>
-
-        <div style={styles.panel}>
-          <h3 style={styles.panelTitle}>Upcoming Inspections</h3>
-          {data.upcoming_inspections.length === 0 && (
-            <p style={styles.emptyText}>No upcoming inspections.</p>
-          )}
-          {visibleInspections.map(i => (
-            <div key={i.id} style={styles.alertRow}>
-              <div style={{ ...styles.alertBar, backgroundColor: '#3b82f6' }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={styles.alertFarm}>{i.farm_name}</div>
-                <div style={styles.alertDetail}>
-                  📅 {new Date(i.scheduled_at).toLocaleDateString()} · {i.inspection_type}
-                </div>
-              </div>
-              <span style={{ ...styles.badge, backgroundColor: '#3b82f6' }}>
-                {i.inspection_type === 'Follow-up' ? 'Follow-up' : 'General'}
-              </span>
-            </div>
-          ))}
-          {data.upcoming_inspections.length > VISIBLE_LIMIT && (
-            <button style={styles.seeMoreBtn} onClick={() => setModalOpen('inspections')}>
-              See more ({data.upcoming_inspections.length - VISIBLE_LIMIT} more)
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div style={{ marginTop: '20px' }}>
-        <h3 style={styles.panelTitle}>Farm monitoring map</h3>
-        <div style={isMobile ? styles.mapWrapMobile : undefined}>
-          <FarmMap farms={mapFarms || []} />
-        </div>
-      </div>
+      <h3 style={styles.mapTitle}>Farm monitoring map</h3>
+      <FarmMap
+        farms={mapFarms || []}
+        alerts={data.critical_farms}
+        inspections={upcomingThisMonth}
+        onSeeAllAlerts={() => setModalOpen('critical')}
+        onSeeAllInspections={() => setModalOpen('inspections')}
+        monthLabel={monthLabel}
+        onPrevMonth={prevMonth}
+        onNextMonth={nextMonth}
+      />
+      <p style={styles.mapNote}>
+        Note: Critical Alerts reflect live sensor status and aren't affected by the month filter above — only Inspections are month-scoped.
+      </p>
 
       {modalOpen === 'critical' && (
         <ListModal
@@ -94,6 +73,9 @@ export default function AdminDashboard() {
           onClose={() => setModalOpen(null)}
           isMobile={isMobile}
         >
+          {data.critical_farms.length === 0 && (
+            <p style={styles.emptyText}>No critical alerts right now.</p>
+          )}
           {data.critical_farms.map(f => (
             <div key={f.farm_id} style={styles.alertRow}>
               <div style={styles.alertBar} />
@@ -111,20 +93,23 @@ export default function AdminDashboard() {
 
       {modalOpen === 'inspections' && (
         <ListModal
-          title="Upcoming Inspections"
+          title={`Inspections — ${monthLabel}`}
           onClose={() => setModalOpen(null)}
           isMobile={isMobile}
         >
-          {data.upcoming_inspections.map(i => (
+          {monthInspections.length === 0 && (
+            <p style={styles.emptyText}>No inspections scheduled for {monthLabel}.</p>
+          )}
+          {monthInspections.map(i => (
             <div key={i.id} style={styles.alertRow}>
-              <div style={{ ...styles.alertBar, backgroundColor: '#3b82f6' }} />
+              <div style={{ ...styles.alertBar, backgroundColor: i.inspection_type === 'Follow-up' ? '#f59e0b' : '#3b82f6' }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={styles.alertFarm}>{i.farm_name}</div>
                 <div style={styles.alertDetail}>
                   📅 {new Date(i.scheduled_at).toLocaleDateString()} · {i.inspection_type}
                 </div>
               </div>
-              <span style={{ ...styles.badge, backgroundColor: '#3b82f6' }}>
+              <span style={{ ...styles.badge, backgroundColor: i.inspection_type === 'Follow-up' ? '#f59e0b' : '#3b82f6' }}>
                 {i.inspection_type === 'Follow-up' ? 'Follow-up' : 'General'}
               </span>
             </div>
@@ -154,11 +139,12 @@ function ListModal({ title, onClose, children, isMobile }) {
   )
 }
 
-function StatCard({ value, label, isMobile }) {
+function StatCard({ value, label, foot, variant, isMobile }) {
   return (
-    <div style={{ ...styles.statCard, ...(isMobile ? styles.statCardMobile : {}) }}>
+    <div style={{ ...styles.statCard, ...styles[`statCard_${variant}`], ...(isMobile ? styles.statCardMobile : {}) }}>
       <div style={{ ...styles.statValue, ...(isMobile ? styles.statValueMobile : {}) }}>{value}</div>
       <div style={styles.statLabel}>{label}</div>
+      {foot && <div style={styles.statFoot}>{foot}</div>}
     </div>
   )
 }
@@ -166,24 +152,28 @@ function StatCard({ value, label, isMobile }) {
 const styles = {
   title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
   titleMobile: { fontSize: '18px' },
-  subtitle: { fontSize: '13px', color: '#6B6B5F', marginTop: '4px', marginBottom: '24px' },
-  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' },
-  statsGridMobile: { gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', marginBottom: '18px' },
+  subtitle: { fontSize: '13px', color: '#6B6B5F', marginTop: '4px', marginBottom: '20px' },
+
+  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '20px' },
+  statsGridMobile: { gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', marginBottom: '16px' },
+
   statCard: {
-    backgroundColor: 'white', borderRadius: '12px', padding: '20px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+    position: 'relative', overflow: 'hidden', borderRadius: '14px', padding: '18px 20px',
+    color: 'white', boxShadow: '0 6px 18px rgba(0,0,0,0.12)',
   },
+  statCard_green: { background: 'linear-gradient(135deg, #234A35 0%, #122A1E 100%)' },
+  statCard_gold: { background: 'linear-gradient(135deg, #E8C766 0%, #D4AF37 55%, #B8912B 100%)', color: '#122A1E' },
+  statCard_clay: { background: 'linear-gradient(135deg, #D68A46 0%, #B5651D 100%)' },
   statCardMobile: { padding: '14px' },
-  statValue: { fontSize: '28px', fontWeight: '700', color: '#111827' },
+
+  statValue: { fontSize: '28px', fontWeight: '800', lineHeight: 1 },
   statValueMobile: { fontSize: '22px' },
-  statLabel: { fontSize: '13px', color: '#6b7280', marginTop: '2px' },
-  twoCol: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' },
-  twoColMobile: { gridTemplateColumns: '1fr', gap: '12px' },
-  panel: {
-    backgroundColor: 'white', borderRadius: '12px', padding: '20px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-  },
-  panelTitle: { fontSize: '15px', fontWeight: '700', color: '#111827', marginTop: 0, marginBottom: '16px' },
+  statLabel: { fontSize: '12.5px', fontWeight: '600', marginTop: '6px', textTransform: 'uppercase', letterSpacing: '0.4px', opacity: 0.92 },
+  statFoot: { fontSize: '11px', marginTop: '8px', opacity: 0.85 },
+
+  mapTitle: { fontSize: '15px', fontWeight: '700', color: '#111827', marginTop: '20px', marginBottom: '12px' },
+  mapNote: { fontSize: '11.5px', color: '#9ca3af', marginTop: '10px', lineHeight: '1.5' },
+
   emptyText: { fontSize: '13px', color: '#9ca3af' },
   alertRow: {
     display: 'flex', alignItems: 'center', gap: '12px',
@@ -193,13 +183,6 @@ const styles = {
   alertFarm: { fontSize: '14px', fontWeight: '600', color: '#111827' },
   alertDetail: { fontSize: '12px', color: '#6b7280', marginTop: '2px' },
   badge: { padding: '4px 10px', borderRadius: '999px', color: 'white', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap', flexShrink: 0 },
-  mapWrapMobile: { overflow: 'hidden', borderRadius: '12px' },
-  seeMoreBtn: {
-    display: 'block', width: '100%', textAlign: 'center',
-    background: 'none', border: 'none', color: '#2E7D32',
-    fontSize: '13px', fontWeight: '600', cursor: 'pointer',
-    padding: '12px 0 2px',
-  },
 }
 
 const modalStyles = {

@@ -2,6 +2,9 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useState } from 'react'
 import { getUser, clearAuth } from '../utils/auth'
 import { useIsMobile } from '../hooks/useIsMobile'
+import agribantayLogo from '../assets/agribantay_logo.png'
+import agribantayName from '../assets/agribantay_name.png'
+import agriLogoName from '../assets/agri_logo_name.png'
 
 const iconPaths = {
   dashboard: <path d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z" />,
@@ -42,6 +45,16 @@ function IconSettings({ color }) {
     </svg>
   )
 }
+function IconVet({ color }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6">
+      <circle cx="9" cy="8" r="3" />
+      <path d="M4 20c0-3.3 2.5-6 5-6s5 2.7 5 6" />
+      <path d="M17 4v6" />
+      <path d="M14 7h6" />
+    </svg>
+  )
+}
 function IconLogout({ color }) {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6">
@@ -73,6 +86,7 @@ const iconMap = {
   dashboard: IconGrid,
   farms: IconFarm,
   inspections: IconInspections,
+  vets: IconVet,
   activity: IconActivity,
   reports: IconReports,
   settings: IconSettings,
@@ -100,6 +114,7 @@ export default function AdminLayout({ children }) {
     { label: 'Dashboard', path: '/admin/dashboard', icon: 'dashboard' },
     { label: 'Farms', path: '/admin/farms', icon: 'farms' },
     { label: 'Inspections', path: '/admin/inspections', icon: 'inspections' },
+    { label: 'User Management', path: '/admin/veterinarians', icon: 'vets' },
     { label: 'Activity logs', path: '/admin/activity-logs', icon: 'activity' },
     { label: 'Reports', path: '/admin/reports', icon: 'reports' },
     { label: 'Settings', path: '/admin/settings', icon: 'settings' },
@@ -132,9 +147,9 @@ export default function AdminLayout({ children }) {
 
       <aside style={sidebarStyle} className="no-print">
         <div style={styles.logo}>
-          <div style={styles.logoCircle}>A</div>
-          <div>
-            <div style={styles.logoText}>AgriBantay</div>
+          <img src={agribantayLogo} alt="AgriBantay logo" style={styles.logoImg} />
+          <div style={styles.logoTextBlock}>
+            <img src={agribantayName} alt="AgriBantay" style={styles.logoNameImg} />
             <div style={styles.logoSub}>San Jose, Batangas</div>
           </div>
           {isMobile && (
@@ -171,14 +186,11 @@ export default function AdminLayout({ children }) {
         </div>
       </aside>
 
-      <main style={styles.main} className="print-reset">
+      <main style={{ ...styles.main, ...(isMobile ? styles.mainMobile : {}) }} className="print-reset">
         <div style={{ ...styles.topbar, ...(isMobile ? styles.topbarMobile : {}) }} className="no-print">
           {isMobile ? (
             <>
-              <div style={styles.mobileTopbarLogo}>
-                <div style={styles.logoCircle}>A</div>
-                <span style={styles.mobileTopbarLogoText}>AgriBantay</span>
-              </div>
+              <img src={agriLogoName} alt="AgriBantay" style={styles.mobileTopbarLogoImg} />
               <button
                 type="button"
                 onClick={() => setSidebarOpen(true)}
@@ -219,31 +231,37 @@ export default function AdminLayout({ children }) {
 
 const styles = {
   wrapper: { display: 'flex', minHeight: '100vh', backgroundColor: '#F0EBDD' },
+
+  // Desktop sidebar: `position: fixed` instead of `sticky` — sticky combined
+  // with height:100vh + overflowY:auto is fragile (it can fail to stay
+  // pinned as the page grows taller, e.g. from a tall map), which was
+  // pushing the Logout button out of view. `fixed` always stays pinned to
+  // the viewport regardless of page height, guaranteeing Logout is always
+  // reachable. Since fixed elements are removed from normal flow, `main`
+  // below is given a matching marginLeft to make room for it.
   sidebar: {
     width: '240px',
     backgroundColor: '#1B4332',
     display: 'flex',
     flexDirection: 'column',
     padding: '24px 16px',
-    position: 'sticky',
-    top: 0,
-    height: '100vh',
-    overflowY: 'auto',
-  },
-  sidebarMobile: {
     position: 'fixed',
     top: 0,
     left: 0,
     height: '100vh',
-    zIndex: 60,
+    overflowY: 'auto',
+    zIndex: 20,
+  },
+  sidebarMobile: {
     boxShadow: '4px 0 24px rgba(0,0,0,0.3)',
     transition: 'transform 0.25s ease',
+    zIndex: 100,
   },
   sidebarOverlay: {
     position: 'fixed',
     inset: 0,
     backgroundColor: 'rgba(0,0,0,0.45)',
-    zIndex: 55,
+    zIndex: 90,
   },
   sidebarCloseBtn: {
     marginLeft: 'auto',
@@ -255,14 +273,11 @@ const styles = {
     justifyContent: 'center',
     padding: '4px',
   },
-  logo: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '28px', padding: '0 8px' },
-  logoCircle: {
-    width: '32px', height: '32px', borderRadius: '50%', backgroundColor: '#F2B84B',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontSize: '14px', fontWeight: '600', color: '#1B4332', flexShrink: 0,
-  },
-  logoText: { fontSize: '15px', fontWeight: '700', color: 'white' },
-  logoSub: { fontSize: '11px', color: '#9CC6A8' },
+  logo: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '28px', padding: '0 8px' },
+  logoImg: { width: '48px', height: '48px', objectFit: 'contain', flexShrink: 0 },
+  logoTextBlock: { minWidth: 0 },
+  logoNameImg: { height: '26px', width: 'auto', display: 'block', objectFit: 'contain' },
+  logoSub: { fontSize: '11px', color: '#9CC6A8', marginTop: '5px' },
   nav: { display: 'flex', flexDirection: 'column', gap: '3px', flex: 1 },
   navItem: {
     display: 'flex', alignItems: 'center', gap: '10px',
@@ -279,7 +294,13 @@ const styles = {
     padding: '10px 12px', fontSize: '14px', color: '#F2B84B', cursor: 'pointer',
     borderTop: '0.5px solid rgba(255,255,255,0.12)', marginTop: '8px', paddingTop: '16px',
   },
-  main: { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 },
+
+  // `main` now needs to account for the sidebar being fixed (out of flow).
+  // Desktop: marginLeft equal to the sidebar's width. Mobile: 0, since the
+  // mobile sidebar is an off-canvas drawer that overlays rather than pushes.
+  main: { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, marginLeft: '240px' },
+  mainMobile: { marginLeft: 0 },
+
   topbar: {
     backgroundColor: '#F0EBDD',
     borderBottom: '1px solid #DDD5C4',
@@ -293,15 +314,10 @@ const styles = {
     padding: '14px 16px',
     justifyContent: 'space-between',
   },
-  mobileTopbarLogo: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-  },
-  mobileTopbarLogoText: {
-    fontSize: '15px',
-    fontWeight: '700',
-    color: '#1B4332',
+  mobileTopbarLogoImg: {
+    height: '38px',
+    width: 'auto',
+    objectFit: 'contain',
   },
   menuBtn: {
     background: 'none',
@@ -321,7 +337,7 @@ const styles = {
 const confirmStyles = {
   overlay: {
     position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50,
+    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200,
   },
   modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '360px', maxWidth: '90%' },
   title: { fontSize: '17px', fontWeight: '700', color: '#111827', marginTop: 0, marginBottom: '10px' },
