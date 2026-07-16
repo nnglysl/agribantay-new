@@ -3,6 +3,15 @@ import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
+
+delete L.Icon.Default.prototype._getIconUrl
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+})
 
 const BARANGAYS = [
   'Aguila', 'Anus', 'Aya', 'Bagong Pook', 'Balagtasin I', 'Balagtasin II',
@@ -14,9 +23,11 @@ const BARANGAYS = [
   'Sabang', 'Salaban', 'Santo Cristo', 'Taysan', 'Tugtug',
 ]
 
-const FARM_TYPES = ['Layer', 'Broiler', 'Free-range', 'Dual-purpose (Layer & Broiler)', 'Other']
-
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
+
+// San Jose, Batangas municipal center — used as the map's fallback view
+// before a barangay is selected.
+const SAN_JOSE_CENTER = [13.8797, 121.0989]
 
 // Nominatim search biased to San Jose, Batangas — mirrors the viewbox +
 // bounded=1 fix already applied to the sensor/dashboard geocoding, so farm
@@ -41,16 +52,21 @@ function emptyFarm() {
   return {
     localId: nextFarmLocalId(),
     farm_name: '',
-    farm_type: '',
     farm_size: '',
-    farm_area_value: '',
-    farm_area_unit: 'sqm',
     barangay: '',
     landmark: '',
     address: '',
     latitude: null,
     longitude: null,
   }
+}
+
+// e.g. "Jul 15, 2026" — used for the Registration Date column.
+function formatRegistrationDate(value) {
+  if (!value) return '—'
+  const d = new Date(value)
+  if (isNaN(d.getTime())) return '—'
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 export default function Farms() {
@@ -66,6 +82,8 @@ export default function Farms() {
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [showMobileFilters, setShowMobileFilters] = useState(false)
+  const [sortField, setSortField] = useState('created_at')
+  const [sortDirection, setSortDirection] = useState('desc') // newest registrations first by default
   const isMobile = useIsMobile()
 
   const params = {}
@@ -77,24 +95,44 @@ export default function Farms() {
   const { data: farms, loading, error, refetch } = useCachedFetch('/admin/farms', params)
   const allFarms = farms || []
 
-  // Reset to page 1 whenever filters, search, or page size change so the
-  // user never lands on an out-of-range page after refining results.
   useEffect(() => {
     setCurrentPage(1)
-  }, [statusFilter, barangayFilter, sizeFilter, search, pageSize])
+  }, [statusFilter, barangayFilter, sizeFilter, search, pageSize, sortField, sortDirection])
 
-  const totalItems = allFarms.length
+  const sortedFarms = useMemo(() => {
+    const list = [...allFarms]
+    list.sort((a, b) => {
+      let result
+      if (sortField === 'created_at') {
+        result = new Date(a.created_at ?? 0) - new Date(b.created_at ?? 0)
+      } else {
+        result = String(a[sortField] ?? '').localeCompare(String(b[sortField] ?? ''))
+      }
+      return sortDirection === 'asc' ? result : -result
+    })
+    return list
+  }, [allFarms, sortField, sortDirection])
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(d => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortField(field)
+      setSortDirection('asc')
+    }
+  }
+
+  const totalItems = sortedFarms.length
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
 
-  // Clamp current page if the data shrinks (e.g. after a deactivate/refetch).
   useEffect(() => {
     if (currentPage > totalPages) setCurrentPage(totalPages)
   }, [totalPages, currentPage])
 
   const paginatedFarms = useMemo(() => {
     const start = (currentPage - 1) * pageSize
-    return allFarms.slice(start, start + pageSize)
-  }, [allFarms, currentPage, pageSize])
+    return sortedFarms.slice(start, start + pageSize)
+  }, [sortedFarms, currentPage, pageSize])
 
   const rangeStart = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1
   const rangeEnd = Math.min(currentPage * pageSize, totalItems)
@@ -231,6 +269,12 @@ export default function Farms() {
                   <th style={styles.th}>Mobile</th>
                   <th style={styles.th}>Barangay</th>
                   <th style={styles.th}>Farm Size</th>
+                  <th style={{ ...styles.th, ...styles.thSortable }} onClick={() => handleSort('created_at')}>
+                    Registration Date
+                    {sortField === 'created_at' && (
+                      <span style={styles.sortArrow}>{sortDirection === 'asc' ? ' ▲' : ' ▼'}</span>
+                    )}
+                  </th>
                   <th style={styles.th}>Status</th>
                   <th style={styles.th}>Actions</th>
                 </tr>
@@ -245,6 +289,7 @@ export default function Farms() {
                     <td style={styles.td}>{f.mobile_number}</td>
                     <td style={styles.td}>{f.barangay}</td>
                     <td style={styles.td}>{f.farm_size}</td>
+                    <td style={styles.td}>{formatRegistrationDate(f.created_at)}</td>
                     <td style={styles.td}>
                       <span style={{ ...styles.badge, backgroundColor: statusColor[f.sensor_status] || '#9ca3af' }}>
                         {f.sensor_status}
@@ -360,7 +405,6 @@ function Pagination({
   rangeStart, rangeEnd, totalItems, isMobile,
 }) {
   const pageNumbers = useMemo(() => {
-    // Show up to 5 numbered buttons, with the current page centered when possible.
     const maxButtons = isMobile ? 3 : 5
     let start = Math.max(1, currentPage - Math.floor(maxButtons / 2))
     let end = start + maxButtons - 1
@@ -450,7 +494,7 @@ function Pagination({
 /* ------------------------------------------------------------------ *
  *  Register flow — Step 1: Farm Owner (created once)
  *                  Step 2: one or more Farms under that owner,
- *                          each with its own geotagged address.
+ *                          each with its own pinned map location.
  * ------------------------------------------------------------------ */
 
 function RegisterModal({ onClose, onSuccess, isMobile }) {
@@ -501,12 +545,12 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
     setFarmsError('')
 
     for (const f of farmsList) {
-      if (!f.farm_name || !f.farm_type || !f.farm_size || !f.farm_area_value || !f.barangay || !f.address) {
+      if (!f.farm_name || !f.farm_size || !f.barangay) {
         setFarmsError('Please complete every required field for each farm.')
         return
       }
       if (f.latitude == null || f.longitude == null) {
-        setFarmsError(`Please select an address suggestion for "${f.farm_name || 'a farm'}" so its location can be saved.`)
+        setFarmsError(`Please pin "${f.farm_name || 'a farm'}"'s exact location on the map so it can be saved.`)
         return
       }
     }
@@ -518,10 +562,7 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
           api.post('/admin/farms', {
             farm_owner_id: ownerId,
             farm_name: f.farm_name,
-            farm_type: f.farm_type,
             farm_size: f.farm_size,
-            farm_area: f.farm_area_value,
-            farm_area_unit: f.farm_area_unit,
             barangay: f.barangay,
             landmark: f.landmark,
             address: f.address,
@@ -699,12 +740,12 @@ function AddFarmModal({ onClose, onSuccess, isMobile }) {
     setFarmsError('')
 
     for (const f of farmsList) {
-      if (!f.farm_name || !f.farm_type || !f.farm_size || !f.farm_area_value || !f.barangay || !f.address) {
+      if (!f.farm_name || !f.farm_size || !f.barangay) {
         setFarmsError('Please complete every required field for each farm.')
         return
       }
       if (f.latitude == null || f.longitude == null) {
-        setFarmsError(`Please select an address suggestion for "${f.farm_name || 'a farm'}" so its location can be saved.`)
+        setFarmsError(`Please pin "${f.farm_name || 'a farm'}"'s exact location on the map so it can be saved.`)
         return
       }
     }
@@ -716,10 +757,7 @@ function AddFarmModal({ onClose, onSuccess, isMobile }) {
           api.post('/admin/farms', {
             farm_owner_id: selectedOwner.id,
             farm_name: f.farm_name,
-            farm_type: f.farm_type,
             farm_size: f.farm_size,
-            farm_area: f.farm_area_value,
-            farm_area_unit: f.farm_area_unit,
             barangay: f.barangay,
             landmark: f.landmark,
             address: f.address,
@@ -861,7 +899,19 @@ function Label({ text, required }) {
   )
 }
 
-// One farm's fields, including its own address autocomplete + geotag.
+/* ------------------------------------------------------------------ *
+ *  FarmEntry — Google-Maps-style location picker.
+ *
+ *  1. Selecting a barangay flies the map to that barangay's approximate
+ *     center (a Nominatim lookup, navigation only — no marker placed).
+ *  2. The admin clicks anywhere on the map to drop a pin, or drags the
+ *     pin to fine-tune it. That's the single source of truth for the
+ *     farm's saved latitude/longitude.
+ *  3. The address search box is an optional shortcut: picking a
+ *     suggestion flies the map there and drops the pin at that point,
+ *     but the pin remains freely draggable afterward for precision.
+ * ------------------------------------------------------------------ */
+
 function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
   const [suggestions, setSuggestions] = useState([])
   const [showSuggestions, setShowSuggestions] = useState(false)
@@ -869,10 +919,80 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
   const [geocodeError, setGeocodeError] = useState('')
   const debounceRef = useRef(null)
 
+  const mapContainerRef = useRef(null)
+  const mapRef = useRef(null)
+  const markerRef = useRef(null)
+
+  const addOrMoveMarker = (lat, lng) => {
+    if (!mapRef.current) return
+    if (markerRef.current) {
+      markerRef.current.setLatLng([lat, lng])
+    } else {
+      const marker = L.marker([lat, lng], { draggable: true }).addTo(mapRef.current)
+      marker.on('dragend', () => {
+        const pos = marker.getLatLng()
+        onChange('latitude', pos.lat)
+        onChange('longitude', pos.lng)
+      })
+      markerRef.current = marker
+    }
+  }
+
+  const placeMarker = (lat, lng) => {
+    addOrMoveMarker(lat, lng)
+    onChange('latitude', lat)
+    onChange('longitude', lng)
+  }
+
+  // Initialize the map once on mount.
+  useEffect(() => {
+    if (!mapContainerRef.current || mapRef.current) return
+
+    const hasExisting = farm.latitude != null && farm.longitude != null
+    const initialCenter = hasExisting ? [farm.latitude, farm.longitude] : SAN_JOSE_CENTER
+
+    const map = L.map(mapContainerRef.current).setView(initialCenter, hasExisting ? 16 : 13)
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors',
+      maxZoom: 18,
+    }).addTo(map)
+
+    map.on('click', (e) => placeMarker(e.latlng.lat, e.latlng.lng))
+
+    mapRef.current = map
+
+    if (hasExisting) addOrMoveMarker(farm.latitude, farm.longitude)
+
+    // Leaflet sometimes renders blank tiles if the container's size wasn't
+    // final at init time (e.g. inside a modal that's still animating in).
+    setTimeout(() => map.invalidateSize(), 200)
+
+    return () => {
+      map.remove()
+      mapRef.current = null
+      markerRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Selecting a barangay navigates the map there — it does not place a
+  // pin, since the exact spot still needs a deliberate click.
+  const handleBarangayChange = async (value) => {
+    onChange('barangay', value)
+    if (!value || !mapRef.current) return
+    try {
+      const results = await geocodeAddress(value)
+      if (results[0]) {
+        mapRef.current.flyTo([parseFloat(results[0].lat), parseFloat(results[0].lon)], 15, { duration: 0.6 })
+      }
+    } catch {
+      // Silent — this is just map navigation convenience, not a hard requirement.
+    }
+  }
+
   const handleAddressChange = (value) => {
     onChange('address', value)
-    onChange('latitude', null)
-    onChange('longitude', null)
     setGeocodeError('')
 
     if (debounceRef.current) clearTimeout(debounceRef.current)
@@ -887,7 +1007,7 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
         setSuggestions(results)
         setShowSuggestions(true)
       } catch {
-        setGeocodeError('Could not look up that address. Try a different search or check your connection.')
+        setGeocodeError('Could not look up that address — try a different search, or just click directly on the map instead.')
       } finally {
         setGeocodeLoading(false)
       }
@@ -896,8 +1016,10 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
 
   const selectSuggestion = (s) => {
     onChange('address', s.display_name)
-    onChange('latitude', parseFloat(s.lat))
-    onChange('longitude', parseFloat(s.lon))
+    const lat = parseFloat(s.lat)
+    const lng = parseFloat(s.lon)
+    if (mapRef.current) mapRef.current.flyTo([lat, lng], 17, { duration: 0.6 })
+    placeMarker(lat, lng)
     setShowSuggestions(false)
     setSuggestions([])
   }
@@ -922,52 +1044,20 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
         required
       />
 
-      <div style={{ ...modalStyles.row, ...(isMobile ? modalStyles.rowMobile : {}) }}>
-        <div>
-          <Label text="Farm Type" required />
-          <select value={farm.farm_type} onChange={e => onChange('farm_type', e.target.value)} style={modalStyles.input} required>
-            <option value="">-- Select Type --</option>
-            {FARM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-        </div>
-        <div>
-          <Label text="Farm Size" required />
-          <select value={farm.farm_size} onChange={e => onChange('farm_size', e.target.value)} style={modalStyles.input} required>
-            <option value="">Farm Size</option>
-            <option value="Small">Small (below 10,000 layers)</option>
-            <option value="Medium">Medium (10,000–50,000 layers)</option>
-            <option value="Large">Large (above 50,000 layers)</option>
-          </select>
-        </div>
-      </div>
-
-      <Label text="Farm Area" required />
-      <div style={modalStyles.areaRow}>
-        <input
-          type="number"
-          min="0"
-          step="0.01"
-          placeholder="e.g. 2500"
-          value={farm.farm_area_value}
-          onChange={e => onChange('farm_area_value', e.target.value)}
-          style={{ ...modalStyles.input, flex: 1 }}
-          required
-        />
-        <select
-          value={farm.farm_area_unit}
-          onChange={e => onChange('farm_area_unit', e.target.value)}
-          style={{ ...modalStyles.input, width: '110px' }}
-        >
-          <option value="sqm">sq. meters</option>
-          <option value="hectare">hectares</option>
-        </select>
-      </div>
+      <Label text="Farm Size" required />
+      <select value={farm.farm_size} onChange={e => onChange('farm_size', e.target.value)} style={modalStyles.inputFull} required>
+        <option value="">Farm Size</option>
+        <option value="Small">Small (below 10,000 layers)</option>
+        <option value="Medium">Medium (10,000–50,000 layers)</option>
+        <option value="Large">Large (above 50,000 layers)</option>
+      </select>
 
       <Label text="Barangay" required />
-      <select value={farm.barangay} onChange={e => onChange('barangay', e.target.value)} style={modalStyles.inputFull} required>
+      <select value={farm.barangay} onChange={e => handleBarangayChange(e.target.value)} style={modalStyles.inputFull} required>
         <option value="">-- Select Barangay --</option>
         {BARANGAYS.map(b => <option key={b} value={b}>Brgy. {b}</option>)}
       </select>
+      <p style={modalStyles.mapHint}>Selecting a barangay moves the map below to that area.</p>
 
       <Label text="Landmark (optional)" />
       <input
@@ -977,15 +1067,14 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
         style={modalStyles.inputFull}
       />
 
-      <Label text="Farm Address" required />
+      <Label text="Search Address (optional)" />
       <div style={{ position: 'relative' }}>
         <input
-          placeholder="Start typing the farm's address..."
+          placeholder="Search to jump the map there, or just click below..."
           value={farm.address}
           onChange={e => handleAddressChange(e.target.value)}
           onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
           style={modalStyles.inputFull}
-          required
         />
         {geocodeLoading && <span style={modalStyles.geocodeSpinner}>Searching...</span>}
         {showSuggestions && suggestions.length > 0 && (
@@ -1000,18 +1089,22 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
       </div>
       {geocodeError && <div style={modalStyles.geocodeError}>{geocodeError}</div>}
 
-      <div style={{ ...modalStyles.row, ...(isMobile ? modalStyles.rowMobile : {}) }}>
+      <Label text="Pin Exact Farm Location" required />
+      <p style={modalStyles.mapHint}>Click anywhere on the map to drop a pin, or drag the pin to fine-tune it.</p>
+      <div ref={mapContainerRef} style={modalStyles.mapContainer} />
+
+      <div style={{ ...modalStyles.row, marginTop: '10px' }}>
         <div>
           <label style={modalStyles.label}>Latitude</label>
-          <input value={farm.latitude ?? ''} readOnly disabled style={{ ...modalStyles.input, ...modalStyles.inputDisabled }} placeholder="Auto-filled from address" />
+          <input value={farm.latitude ?? ''} readOnly disabled style={{ ...modalStyles.input, ...modalStyles.inputDisabled }} placeholder="Click the map to set" />
         </div>
         <div>
           <label style={modalStyles.label}>Longitude</label>
-          <input value={farm.longitude ?? ''} readOnly disabled style={{ ...modalStyles.input, ...modalStyles.inputDisabled }} placeholder="Auto-filled from address" />
+          <input value={farm.longitude ?? ''} readOnly disabled style={{ ...modalStyles.input, ...modalStyles.inputDisabled }} placeholder="Click the map to set" />
         </div>
       </div>
       {farm.latitude != null && farm.longitude != null && (
-        <div style={modalStyles.geotagConfirmed}>✓ Location captured for this farm</div>
+        <div style={modalStyles.geotagConfirmed}>✓ Location pinned for this farm</div>
       )}
     </div>
   )
@@ -1334,8 +1427,10 @@ const styles = {
   scrollHint: { fontSize: '11px', color: '#9ca3af', margin: '12px 16px 0' },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  tableMobile: { minWidth: '760px' },
+  tableMobile: { minWidth: '900px' },
   th: { textAlign: 'left', padding: '14px 16px', fontSize: '12px', color: '#6b7280', borderBottom: '1px solid #e5e7eb', textTransform: 'uppercase', whiteSpace: 'nowrap' },
+  thSortable: { cursor: 'pointer', userSelect: 'none' },
+  sortArrow: { color: '#2E7D32', fontSize: '10px' },
   td: { padding: '14px 16px', fontSize: '13px', color: '#374151', borderBottom: '1px solid #f3f4f6' },
   badge: { padding: '3px 10px', borderRadius: '999px', color: 'white', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap' },
   actionBtn: {
@@ -1421,6 +1516,8 @@ const modalStyles = {
   errorBox: { backgroundColor: '#fef2f2', border: '1px solid #fca5a5', color: '#dc2626', padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '14px' },
   warnBox: { backgroundColor: '#fffbeb', border: '1px solid #fcd34d', color: '#92400e', padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '14px' },
   hint: { fontSize: '12px', color: '#6b7280', marginTop: '14px', lineHeight: '1.5' },
+  mapHint: { fontSize: '11.5px', color: '#9ca3af', margin: '-6px 0 8px', lineHeight: '1.4' },
+  mapContainer: { height: '260px', width: '100%', borderRadius: '10px', border: '1px solid #d1d5db', overflow: 'hidden' },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' },
   actionsMobile: { flexDirection: 'column-reverse' },
   btnFull: { width: '100%', boxSizing: 'border-box' },

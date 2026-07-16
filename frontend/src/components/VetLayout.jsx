@@ -2,6 +2,9 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useState } from 'react'
 import { getUser, clearAuth } from '../utils/auth'
 import { useIsMobile } from '../hooks/useIsMobile'
+import agribantayLogo from '../assets/agribantay_logo.png'
+import agribantayName from '../assets/agribantay_name.png'
+import agriLogoName from '../assets/agri_logo_name.png'
 
 function IconDashboard({ color }) {
   return (
@@ -98,8 +101,7 @@ export default function VetLayout({ children }) {
         transform: sidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
       }
     : styles.sidebar
-
-  return (
+return (
     <div style={styles.wrapper}>
       <style>{`
         @media print {
@@ -118,9 +120,9 @@ export default function VetLayout({ children }) {
 
       <aside style={sidebarStyle} className="no-print">
         <div style={styles.logo}>
-          <div style={styles.logoCircle}>A</div>
-          <div>
-            <div style={styles.logoText}>AgriBantay</div>
+          <img src={agribantayLogo} alt="AgriBantay logo" style={styles.logoImg} />
+          <div style={styles.logoTextBlock}>
+            <img src={agribantayName} alt="AgriBantay" style={styles.logoNameImg} />
             <div style={styles.logoSub}>San Jose, Batangas</div>
           </div>
           {isMobile && (
@@ -161,10 +163,7 @@ export default function VetLayout({ children }) {
         <div style={{ ...styles.topbar, ...(isMobile ? styles.topbarMobile : {}) }} className="no-print">
           {isMobile ? (
             <>
-              <div style={styles.mobileTopbarLogo}>
-                <div style={styles.logoCircle}>A</div>
-                <span style={styles.mobileTopbarLogoText}>AgriBantay</span>
-              </div>
+              <img src={agriLogoName} alt="AgriBantay" style={styles.mobileTopbarLogoImg} />
               <button
                 type="button"
                 onClick={() => setSidebarOpen(true)}
@@ -241,14 +240,11 @@ const styles = {
     justifyContent: 'center',
     padding: '4px',
   },
-  logo: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '28px', padding: '0 8px' },
-  logoCircle: {
-    width: '32px', height: '32px', borderRadius: '50%', backgroundColor: '#F2B84B',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontSize: '14px', fontWeight: '600', color: '#1B4332', flexShrink: 0,
-  },
-  logoText: { fontSize: '15px', fontWeight: '700', color: 'white' },
-  logoSub: { fontSize: '11px', color: '#9CC6A8' },
+  logo: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '28px', padding: '0 8px' },
+  logoImg: { width: '52px', height: '52px', objectFit: 'contain', flexShrink: 0 },
+  logoTextBlock: { minWidth: 0, maxWidth: '100%' },
+  logoNameImg: { maxHeight: '20px', maxWidth: '100%', width: 'auto', height: 'auto', display: 'block', objectFit: 'contain' },
+  logoSub: { fontSize: '11px', color: '#9CC6A8', marginTop: '5px' },
   nav: { display: 'flex', flexDirection: 'column', gap: '3px', flex: 1 },
   navItem: {
     display: 'flex', alignItems: 'center', gap: '10px',
@@ -279,15 +275,10 @@ const styles = {
     padding: '14px 16px',
     justifyContent: 'space-between',
   },
-  mobileTopbarLogo: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-  },
-  mobileTopbarLogoText: {
-    fontSize: '15px',
-    fontWeight: '700',
-    color: '#1B4332',
+  mobileTopbarLogoImg: {
+    height: '32px',
+    width: 'auto',
+    objectFit: 'contain',
   },
   menuBtn: {
     background: 'none',

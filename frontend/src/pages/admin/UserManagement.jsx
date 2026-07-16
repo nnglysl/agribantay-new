@@ -117,7 +117,6 @@ export default function UserManagement() {
                   <th style={styles.th}>Name</th>
                   <th style={styles.th}>Email</th>
                   <th style={styles.th}>Contact</th>
-                  <th style={styles.th}>Username</th>
                   <th style={styles.th}>Status</th>
                   <th style={styles.th}>Actions</th>
                 </tr>
@@ -128,7 +127,6 @@ export default function UserManagement() {
                     <td style={styles.td}>{v.first_name} {v.last_name}</td>
                     <td style={styles.td}>{v.email}</td>
                     <td style={styles.td}>{v.mobile_number}</td>
-                    <td style={styles.td}>{v.username}</td>
                     <td style={styles.td}>
                       <span style={{ ...styles.badge, backgroundColor: v.status === 'active' ? '#2E7D32' : '#9ca3af' }}>
                         {v.status === 'active' ? 'Active' : 'Inactive'}

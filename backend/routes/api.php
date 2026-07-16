@@ -69,6 +69,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('role:admin')->prefix('admin')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'index']);
 
+        Route::get('/farm-owners', [FarmOwnerController::class, 'index']);
         Route::post('/farm-owners', [FarmOwnerController::class, 'store']);
 
         Route::get('/farms', [FarmController::class, 'index']);

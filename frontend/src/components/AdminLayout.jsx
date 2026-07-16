@@ -274,9 +274,9 @@ const styles = {
     padding: '4px',
   },
   logo: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '28px', padding: '0 8px' },
-  logoImg: { width: '48px', height: '48px', objectFit: 'contain', flexShrink: 0 },
+  logoImg: { width: '52px', height: '52px', objectFit: 'contain', flexShrink: 0 },
   logoTextBlock: { minWidth: 0 },
-  logoNameImg: { height: '26px', width: 'auto', display: 'block', objectFit: 'contain' },
+  logoNameImg: { height: '20px', width: 'auto', display: 'block', objectFit: 'contain' },
   logoSub: { fontSize: '11px', color: '#9CC6A8', marginTop: '5px' },
   nav: { display: 'flex', flexDirection: 'column', gap: '3px', flex: 1 },
   navItem: {

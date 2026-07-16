@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { lazy, Suspense } from 'react'
 import { isAuthenticated, getRole } from '../utils/auth'
 
+const LandingPage = lazy(() => import('../pages/LandingPage'))
 const Login = lazy(() => import('../pages/Login'))
 const ChangePassword = lazy(() => import('../pages/ChangePassword'))
 
@@ -44,7 +45,7 @@ export default function AppRouter() {
     <BrowserRouter>
       <Suspense fallback={<PageLoader />}>
         <Routes>
-          <Route path="/" element={<Navigate to="/login" />} />
+          <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<Login />} />
 
           <Route path="/change-password" element={

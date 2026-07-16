@@ -8,12 +8,11 @@ import {
   LineElement,
   Tooltip,
 } from 'chart.js'
-import html2canvas from 'html2canvas'
-import jsPDF from 'jspdf'
 import VetLayout from '../../components/VetLayout'
+import ReportLetterhead from '../../components/ReportLetterhead'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
-import sanJoseLogo from '../../assets/sanjose-logo.png'
+import { exportToCSV, exportPrintRefToPDF, todayStamp } from '../../utils/exportUtils'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip)
 
@@ -31,6 +30,20 @@ const RANGE_OPTIONS = [
   { value: 'year', label: 'This Year' },
   { value: 'all', label: 'All time' },
   { value: 'custom', label: 'Custom range' },
+]
+
+// Standardized CSV column set for this report — same shape as the
+// on-screen and printed table, and the same pattern as the Admin
+// report's CSV_COLUMNS so every module's export code reads the same way.
+const CSV_COLUMNS = [
+  { key: 'id', label: 'ID' },
+  { key: 'farm_name', label: 'Farm' },
+  { key: 'owner_name', label: 'Owner' },
+  { key: 'barangay', label: 'Barangay' },
+  { key: 'est_birds', label: 'Est. birds' },
+  { key: 'completed_at', label: 'Date' },
+  { key: 'notes', label: 'Notes' },
+  { key: 'status', label: 'Status' },
 ]
 
 function getRangeBounds(rangeKey, customFrom, customTo) {
@@ -67,7 +80,7 @@ function getRangeBounds(rangeKey, customFrom, customTo) {
 export default function VetReports() {
   const { data, loading, error } = useCachedFetch('/vet/reports')
   const printRef = useRef(null)
-  const [exporting, setExporting] = useState(false)
+  const [exportingPdf, setExportingPdf] = useState(false)
   const isMobile = useIsMobile()
 
   const [range, setRange] = useState('all')
@@ -77,45 +90,29 @@ export default function VetReports() {
   const handlePrint = () => window.print()
 
   const handleExportPdf = async () => {
-    if (!printRef.current) return
-    setExporting(true)
+    setExportingPdf(true)
     try {
-      const canvas = await html2canvas(printRef.current, {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        useCORS: true,
-      })
-      const imgData = canvas.toDataURL('image/png')
-
-      const pdf = new jsPDF('p', 'mm', 'a4')
-      const margin = 12
-      const pageWidth = pdf.internal.pageSize.getWidth()
-      const pageHeight = pdf.internal.pageSize.getHeight()
-      const usableWidth = pageWidth - margin * 2
-      const usableHeight = pageHeight - margin * 2
-      const imgWidth = usableWidth
-      const imgHeight = (canvas.height * imgWidth) / canvas.width
-
-      let heightLeft = imgHeight
-      let position = margin
-
-      pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight)
-      heightLeft -= usableHeight
-
-      while (heightLeft > 0) {
-        position = margin - (imgHeight - heightLeft)
-        pdf.addPage()
-        pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight)
-        heightLeft -= usableHeight
-      }
-
-      pdf.save(`AgriBantay_Vaccination_Report_${new Date().toISOString().slice(0, 10)}.pdf`)
+      await exportPrintRefToPDF(printRef, `AgriBantay_Vaccination_Report_${todayStamp()}.pdf`)
     } catch (err) {
       console.error('PDF export failed:', err)
       alert('Could not generate PDF. Please try again.')
     } finally {
-      setExporting(false)
+      setExportingPdf(false)
     }
+  }
+
+  const handleExportCsv = () => {
+    const rows = completedVaccinations.map(v => ({
+      id: v.id,
+      farm_name: v.farm_name,
+      owner_name: v.owner_name,
+      barangay: v.barangay,
+      est_birds: BIRD_ESTIMATES[v.farm_size] || '—',
+      completed_at: v.completed_at,
+      notes: v.notes,
+      status: v.status,
+    }))
+    exportToCSV(rows, CSV_COLUMNS, `AgriBantay_Vaccination_Report_${todayStamp()}.csv`)
   }
 
   const allCompletedVaccinations = data?.completed_vaccinations ?? []
@@ -218,12 +215,15 @@ export default function VetReports() {
               ))}
             </select>
             <button style={{ ...styles.printBtn, ...(isMobile ? styles.controlFull : {}) }} onClick={handlePrint}>Print</button>
+            <button style={{ ...styles.csvBtn, ...(isMobile ? styles.controlFull : {}) }} onClick={handleExportCsv}>
+              Export CSV
+            </button>
             <button
               style={{ ...styles.exportBtn, ...(isMobile ? styles.controlFull : {}) }}
               onClick={handleExportPdf}
-              disabled={exporting}
+              disabled={exportingPdf}
             >
-              {exporting ? 'Generating...' : 'Export PDF'}
+              {exportingPdf ? 'Generating...' : 'Export PDF'}
             </button>
           </div>
         </div>
@@ -347,15 +347,7 @@ export default function VetReports() {
       </div>
 
       <div className="print-view" ref={printRef}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', borderBottom: '2px solid #000', paddingBottom: '12px', marginBottom: '4px' }}>
-          <img src={sanJoseLogo} alt="Municipality of San Jose, Batangas seal" style={{ width: '64px', height: '64px' }} />
-          <div>
-            <div style={{ fontSize: '11px' }}>Republic of the Philippines</div>
-            <div style={{ fontSize: '11px' }}>Province of Batangas</div>
-            <div style={{ fontSize: '13px', fontWeight: 'bold' }}>Municipality of San Jose</div>
-            <div style={{ fontSize: '12px' }}>Municipal Agriculture Office</div>
-          </div>
-        </div>
+        <ReportLetterhead />
 
         <h1 style={{ fontSize: '18px', textAlign: 'center', margin: '16px 0 4px' }}>AgriBantay Vaccination Report</h1>
         <p style={{ fontSize: '12px', textAlign: 'center', margin: '0 0 4px' }}>Vaccination history and records</p>
@@ -424,7 +416,7 @@ const styles = {
   title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
   titleMobile: { fontSize: '18px' },
   subtitle: { fontSize: '13px', color: '#6b7280', marginTop: '4px' },
-  controlsRow: { display: 'flex', gap: '10px' },
+  controlsRow: { display: 'flex', gap: '10px', flexWrap: 'wrap' },
   controlsRowMobile: { flexDirection: 'column', width: '100%' },
   controlFull: { width: '100%', boxSizing: 'border-box' },
   select: {
@@ -432,12 +424,19 @@ const styles = {
     borderRadius: '8px', padding: '0 12px', fontSize: '14px', height: '38px',
   },
   printBtn: {
-    backgroundColor: 'white', color: '#374151', border: '1px solid #d1d5db',
-    borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
+      background: 'linear-gradient(135deg, #E8C766 0%, #D4AF37 55%, #B8912B 100%)', color: '#122A1E', border: 'none',
+      borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
+      boxShadow: '0 4px 12px rgba(212,175,55,0.28)',
+    },
+  csvBtn: {
+      background: 'linear-gradient(135deg, #D68A46 0%, #B5651D 100%)', color: 'white', border: 'none',
+      borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
+      boxShadow: '0 4px 12px rgba(181,101,29,0.28)',
   },
   exportBtn: {
-    backgroundColor: '#2E7D32', color: 'white', border: 'none',
-    borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
+      background: 'linear-gradient(135deg, #234A35 0%, #122A1E 100%)', color: 'white', border: 'none',
+      borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
+      boxShadow: '0 4px 12px rgba(18,42,30,0.28)',
   },
   customRow: { display: 'flex', gap: '12px', marginBottom: '16px' },
   customRowMobile: { flexDirection: 'column' },

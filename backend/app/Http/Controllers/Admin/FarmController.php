@@ -32,7 +32,8 @@ class FarmController extends Controller
         if ($request->search) {
             $query->where(function ($q) use ($request) {
                 $q->where('farm_name', 'like', "%{$request->search}%")
-                  ->orWhere('owner_name', 'like', "%{$request->search}%");
+                  ->orWhere('owner_name', 'like', "%{$request->search}%")
+                  ->orWhereRaw("DATE_FORMAT(created_at, '%b %e, %Y') LIKE ?", ["%{$request->search}%"]);
             });
         }
 
@@ -61,6 +62,7 @@ class FarmController extends Controller
                 'ammonia'     => $latestReading?->ammonia,
                 'ammonia_status' => $latestReading?->ammonia_status,
                 'sensor_status'  => $latestReading?->ammonia_status ?? 'Offline',
+                'created_at'  => $farm->created_at,
             ];
         });
 

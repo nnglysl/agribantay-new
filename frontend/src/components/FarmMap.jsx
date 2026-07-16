@@ -214,9 +214,13 @@ const statusColor = {
   Critical: '#dc2626',
 }
 
-const inspectionColor = {
-  'Follow-up': '#2563EB',
-  'General': '#9CA3AF',
+// Matches the palette already used for General/Follow-up everywhere else
+// in the app (Inspections calendar, summary cards) — clay for General,
+// gold for Follow-up. Written as a function rather than a plain object
+// lookup because the actual stored value is "General Inspection", not
+// "General" — a plain lookup by that key was silently always missing.
+function inspectionTypeColor(type) {
+  return type === 'Follow-up' ? '#D4AF37' : '#B5651D'
 }
 
 // Matches an alert/inspection record back to its farm on the map — tries
@@ -301,7 +305,7 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], onS
         tooltip = `${farm.farm_name} — ${farm.current_status || 'Unknown'}`
       } else {
         inspection = inspections.find(i => findFarm(i, farms)?.id === farm.id)
-        color = inspection ? (inspectionColor[inspection.inspection_type] || '#9CA3AF') : '#D1CDBF'
+        color = inspection ? inspectionTypeColor(inspection.inspection_type) : '#D1CDBF'
         tooltip = inspection
           ? `${farm.farm_name} — ${inspection.inspection_type}`
           : `${farm.farm_name} — No inspection scheduled`
@@ -442,7 +446,7 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], onS
 
           {mode === 'inspection' && visibleItems.map(i => {
             const farm = findFarm(i, farms)
-            const color = inspectionColor[i.inspection_type] || '#9CA3AF'
+            const color = inspectionTypeColor(i.inspection_type)
             return (
               <div key={i.id} style={styles.item} onClick={() => focusFarm(farm)}>
                 <span style={{ ...styles.itemDot, backgroundColor: color }} />
@@ -480,8 +484,8 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], onS
           </>
         ) : (
           <>
-            <LegendRow color={inspectionColor['Follow-up']} label="Follow-up" />
-            <LegendRow color={inspectionColor['General']} label="General" />
+            <LegendRow color={inspectionTypeColor('Follow-up')} label="Follow-up Inspection" />
+            <LegendRow color={inspectionTypeColor('General')} label="General Inspection" />
           </>
         )}
       </div>
@@ -499,7 +503,7 @@ function LegendRow({ color, label }) {
 }
 
 const styles = {
-wrap: { position: 'relative', borderRadius: '12px', overflow: 'hidden', isolation: 'isolate' },
+  wrap: { position: 'relative', borderRadius: '12px', overflow: 'hidden', isolation: 'isolate' },
 
   toggle: {
     position: 'absolute', top: '14px', right: '14px', zIndex: 1001,
@@ -573,7 +577,7 @@ wrap: { position: 'relative', borderRadius: '12px', overflow: 'hidden', isolatio
   },
 
   legend: {
-    position: 'absolute', left: '14px', bottom: '14px', zIndex: 10,
+    position: 'absolute', left: '14px', bottom: '14px', zIndex: 1001,
     background: 'rgba(255,255,255,0.96)', borderRadius: '12px', padding: '10px 12px',
     boxShadow: '0 4px 14px rgba(0,0,0,0.18)', border: '1px solid #E8E2D3', minWidth: '140px',
   },
