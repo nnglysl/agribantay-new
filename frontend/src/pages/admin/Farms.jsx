@@ -1093,16 +1093,6 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
       <p style={modalStyles.mapHint}>Click anywhere on the map to drop a pin, or drag the pin to fine-tune it.</p>
       <div ref={mapContainerRef} style={modalStyles.mapContainer} />
 
-      <div style={{ ...modalStyles.row, marginTop: '10px' }}>
-        <div>
-          <label style={modalStyles.label}>Latitude</label>
-          <input value={farm.latitude ?? ''} readOnly disabled style={{ ...modalStyles.input, ...modalStyles.inputDisabled }} placeholder="Click the map to set" />
-        </div>
-        <div>
-          <label style={modalStyles.label}>Longitude</label>
-          <input value={farm.longitude ?? ''} readOnly disabled style={{ ...modalStyles.input, ...modalStyles.inputDisabled }} placeholder="Click the map to set" />
-        </div>
-      </div>
       {farm.latitude != null && farm.longitude != null && (
         <div style={modalStyles.geotagConfirmed}>✓ Location pinned for this farm</div>
       )}

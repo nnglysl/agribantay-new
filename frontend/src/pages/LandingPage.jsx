@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { useIsMobile } from '../hooks/useIsMobile'
 import agribantayLogo from '../assets/agribantay_logo.png'
 import agribantayName from '../assets/agribantay_name.png'
+// Save the uploaded poultry farm photo into src/assets/ under this exact
+// filename (or update this path to match whatever you name it).
+import heroImage from '../assets/poultry_bg.jpg'
 
 const NAV_LINKS = [
   { label: 'Home', href: '#home' },
@@ -21,25 +24,31 @@ const SNAPSHOT_READINGS = [
 const FEATURES = [
   {
     icon: 'gauge',
-    title: 'Real-Time Sensor Monitoring',
-    body: 'Ammonia, temperature, humidity, and moisture readings stream in from each farm, with automatic status flags the moment a reading drifts out of range.',
+    title: 'Continuous Sensor Monitoring',
+    body: 'Ammonia, temperature, humidity, and moisture are read from each farm around the clock. A reading that crosses a safe threshold gets flagged immediately, not at the next scheduled visit.',
+  },
+  {
+    icon: 'waste',
+    title: 'Manure & Waste Oversight',
+    body: 'Manure output and disposal are recorded per farm, giving the office an environmental record — useful for compliance, and for catching runoff risks before they reach nearby waterways.',
   },
   {
     icon: 'inspection',
     title: 'Inspection Scheduling',
-    body: 'The Municipal Agriculture Office schedules general and follow-up inspections on a calendar, with a full, searchable record for every farm.',
+    body: 'General and follow-up inspections go on a shared calendar. Every visit — completed or missed — stays on record for that farm.',
   },
   {
     icon: 'vet',
     title: 'Veterinary Coordination',
-    body: 'Registered veterinarians see vaccination requests and farm history in one place, so they can respond to concerns faster.',
-  },
-  {
-    icon: 'farm',
-    title: 'Farm & Service Management',
-    body: 'Farm registrations, service requests, and activity logs live in a single dashboard built for the office that runs the program.',
+    body: "Vaccination requests and farm history are visible to the assigned veterinarian the moment they're submitted, not after a phone call or a paper referral.",
   },
 ]
+
+// Height of the fixed nav bar. Used to keep the hero content clear of it
+// (position: fixed removes the nav from document flow, so the section
+// beneath it needs matching top padding or its content starts hidden
+// underneath the bar).
+const HEADER_HEIGHT = 68
 
 // Same trio used throughout the dashboard (sensor status, alert badges).
 const statusColor = { Normal: '#2E7D32', Warning: '#B45309', Critical: '#B91C1C' }
@@ -64,13 +73,17 @@ export default function LandingPage() {
           .agb-pulse { animation: none !important; }
         }
         @keyframes agbPulse {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(180,101,29,0.35); }
-          50% { box-shadow: 0 0 0 6px rgba(180,101,29,0); }
+          0%, 100% { box-shadow: 0 0 0 0 rgba(212,175,55,0.4); }
+          50% { box-shadow: 0 0 0 6px rgba(212,175,55,0); }
         }
         .agb-pulse { animation: agbPulse 2.4s ease-in-out infinite; }
         .agb-feature-card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.12); }
         .agb-nav-link:hover { opacity: 0.7; }
       `}</style>
+
+      {/* A thin brand-colored bar above the nav — the kind of detail that
+          reads as "official municipal portal" rather than a generic template. */}
+      <div style={styles.topStripe} />
 
       {/* ---------------------------------------------------------------- Nav */}
       <header style={styles.nav}>
@@ -117,20 +130,23 @@ export default function LandingPage() {
       </header>
 
       {/* --------------------------------------------------------------- Hero */}
-      <section id="home" style={{ ...styles.hero, ...(isMobile ? styles.heroMobile : {}) }}>
+      <section
+        id="home"
+        style={{
+          ...styles.hero,
+          ...(isMobile ? styles.heroMobile : {}),
+          backgroundImage: `linear-gradient(rgba(15,33,24,0.82), rgba(15,33,24,0.88)), url(${heroImage})`,
+        }}
+      >
         <div style={styles.heroInner}>
-          <div style={styles.heroBrand}>
-            <img src={agribantayLogo} alt="AgriBantay logo" style={styles.heroLogoImg} />
-            <img src={agribantayName} alt="AgriBantay" style={styles.heroNameImg} />
-          </div>
-
-          <span style={styles.heroEyebrow}>Municipality of San Jose, Batangas</span>
+          <span style={styles.heroEyebrow}>Municipality of San Jose, Batangas · Municipal Agriculture Office</span>
           <h1 style={styles.heroTitle}>
-            Every flock, watched.<br />Every farm, connected.
+            Track the flock. Manage the waste.<br />Protect the watershed.
           </h1>
           <p style={styles.heroSubtitle}>
-            AgriBantay tracks ammonia, temperature, humidity, and moisture across San Jose's
-            poultry farms in real time — so problems get caught before they become losses.
+            AgriBantay gives the Municipal Agriculture Office a live read on ammonia, manure
+            buildup, and flock conditions across San Jose — plus the inspection and veterinary
+            records to act on what the sensors find.
           </p>
 
           <div style={{ ...styles.heroActions, ...(isMobile ? styles.heroActionsMobile : {}) }}>
@@ -138,7 +154,7 @@ export default function LandingPage() {
               Register Your Farm
             </button>
             <button style={{ ...styles.ctaSecondary, ...(isMobile ? styles.btnFullMobile : {}) }} onClick={() => navigate('/login')}>
-              Login to Your Account
+              Login
             </button>
           </div>
 
@@ -147,13 +163,26 @@ export default function LandingPage() {
               <span className="agb-pulse" style={styles.snapshotDot} />
               Live farm snapshot — sample reading
             </div>
-            <div style={{ ...styles.snapshotGrid, ...(isMobile ? styles.snapshotGridMobile : {}) }}>
-              {SNAPSHOT_READINGS.map(r => (
-                <div key={r.key} style={{ ...styles.snapshotChip, borderLeftColor: statusColor[r.status] }}>
-                  <div style={{ color: statusColor[r.status] }}><SensorIcon name={r.icon} /></div>
-                  <div style={styles.snapshotChipLabel}>{r.label}</div>
-                  <div style={styles.snapshotChipValue}>{r.value}<span style={styles.snapshotChipUnit}>{r.unit}</span></div>
-                  <div style={{ ...styles.snapshotChipStatus, color: statusColor[r.status] }}>{r.status}</div>
+            <div style={{ ...styles.snapshotRow, ...(isMobile ? styles.snapshotRowMobile : {}) }}>
+              {SNAPSHOT_READINGS.map((r, i) => (
+                <div
+                  key={r.key}
+                  style={{
+                    ...styles.snapshotItem,
+                    ...(i > 0 ? (isMobile ? styles.snapshotItemDividerMobile : styles.snapshotItemDivider) : {}),
+                  }}
+                >
+                  <div style={styles.snapshotItemTop}>
+                    <span style={{ color: statusColor[r.status] }}><SensorIcon name={r.icon} /></span>
+                    <span style={styles.snapshotItemLabel}>{r.label}</span>
+                  </div>
+                  <div style={styles.snapshotItemValue}>
+                    {r.value}<span style={styles.snapshotItemUnit}>{r.unit}</span>
+                  </div>
+                  <div style={styles.snapshotItemStatus}>
+                    <span style={{ ...styles.snapshotItemDot, backgroundColor: statusColor[r.status] }} />
+                    <span style={{ color: statusColor[r.status] }}>{r.status}</span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -167,24 +196,24 @@ export default function LandingPage() {
           <div style={{ ...styles.aboutGrid, ...(isMobile ? styles.aboutGridMobile : {}) }}>
             <div>
               <span style={styles.sectionEyebrow}>About AgriBantay</span>
-              <h2 style={styles.sectionTitle}>Built for San Jose's poultry sector, not a generic farm app</h2>
+              <h2 style={styles.sectionTitle}>Built around how San Jose already inspects, treats, and tracks poultry farms</h2>
               <p style={styles.bodyText}>
-                AgriBantay is an IoT-based monitoring and service-management system developed for
-                the Municipality of San Jose, Batangas. It connects three groups who each play a
-                part in keeping local poultry farms healthy: the Municipal Agriculture Office,
-                registered veterinarians, and the farm owners themselves.
+                AgriBantay replaces paper inspection logs and phone-tag scheduling with one shared
+                system. The Municipal Agriculture Office, registered veterinarians, and farm owners
+                work from the same records — sensor readings, vaccination requests, and inspection
+                history — instead of three separate ones.
               </p>
               <p style={styles.bodyText}>
-                Instead of waiting for a farm visit to catch a problem, sensors installed on-site
-                report conditions continuously. When a reading crosses a safe threshold, the office
-                and the farm owner both know immediately — early enough to act before a flock is
-                at risk.
+                Ammonia buildup and poor manure management are leading causes of respiratory illness
+                in layer flocks, and a source of runoff that can affect nearby waterways. Sensors
+                installed at each farm report conditions continuously, so a problem gets flagged the
+                day it starts — not the day of the next scheduled visit.
               </p>
             </div>
             <div style={styles.aboutStatsCol}>
-              <AboutStat value="4" label="Sensor readings tracked per farm, continuously" />
-              <AboutStat value="3" label="Roles working from one shared system" />
-              <AboutStat value="33" label="Barangays covered across San Jose" />
+              <AboutStat value="4" label="Conditions tracked per farm, continuously" />
+              <AboutStat value="3" label="Roles sharing one inspection record" />
+              <AboutStat value="33" label="Barangays under one monitoring network" />
             </div>
           </div>
         </div>
@@ -211,10 +240,10 @@ export default function LandingPage() {
       <section id="contact" style={styles.contact}>
         <div style={styles.sectionInner}>
           <span style={{ ...styles.sectionEyebrow, color: 'rgba(247,242,231,0.65)' }}>Get in touch</span>
-          <h2 style={{ ...styles.sectionTitle, color: '#fff' }}>Register your farm through the Municipal Agriculture Office</h2>
+          <h2 style={{ ...styles.sectionTitle, color: '#fff' }}>Getting your farm on AgriBantay starts at the Agriculture Office</h2>
           <p style={{ ...styles.bodyText, color: 'rgba(247,242,231,0.8)', maxWidth: '560px' }}>
-            AgriBantay accounts are set up by the office directly, so your farm's records start
-            accurate from day one. Reach out using any of the details below to get started.
+            Accounts aren't self-service — the office sets each one up directly, so a farm's sensor
+            and inspection history starts accurate from day one. Reach out using the details below.
           </p>
 
           <div style={{ ...styles.contactGrid, ...(isMobile ? styles.contactGridMobile : {}) }}>
@@ -229,7 +258,7 @@ export default function LandingPage() {
       {/* ------------------------------------------------------------- Footer */}
       <footer style={styles.footer}>
         <img src={agribantayName} alt="AgriBantay" style={styles.footerNameImg} />
-        <span style={styles.footerNote}>Municipality of San Jose, Batangas</span>
+        <span style={styles.footerNote}>A digital service of the San Jose Municipal Agriculture Office</span>
       </footer>
     </div>
   )
@@ -278,15 +307,15 @@ function SensorIcon({ name }) {
     humidity: <path d="M7 16a4 4 0 0 1 .5-8 5 5 0 0 1 9.5 2 3.5 3.5 0 0 1-.5 7H7z" />,
     moisture: <path d="M4 20c8 0 12-6 12-14 0 0-10 0-12 8-1 4 0 6 0 6z" />,
   }
-  return <svg width="18" height="18" viewBox="0 0 24 24" {...iconBase}>{paths[name]}</svg>
+  return <svg width="13" height="13" viewBox="0 0 24 24" {...iconBase}>{paths[name]}</svg>
 }
 
 function FeatureIcon({ name }) {
   const paths = {
     gauge: <><circle cx="12" cy="13" r="8" /><path d="M12 13l3-4" /><path d="M9 5.5 10 4" /></>,
+    waste: <><path d="M12 3c4 5 6 8.5 6 11.5A6 6 0 0 1 6 14.5C6 11.5 8 8 12 3z" /><path d="M9.5 14.5c.5 1.5 2 2.5 3.5 2" /></>,
     inspection: <><rect x="5" y="4" width="14" height="17" rx="1.5" /><path d="M9 9l1.7 1.7L14 7.5" /></>,
     vet: <><circle cx="9" cy="8" r="3" /><path d="M4 20c0-3.3 2.5-6 5-6s5 2.7 5 6" /><path d="M17 4v6" /><path d="M14 7h6" /></>,
-    farm: <><path d="M3 21h18" /><path d="M5 21V9l7-5 7 5v12" /><path d="M9 21v-6h6v6" /></>,
   }
   return <svg width="24" height="24" viewBox="0 0 24 24" {...iconBase}>{paths[name]}</svg>
 }
@@ -302,19 +331,23 @@ function ContactIcon({ name }) {
 }
 
 /* ---------------------------------------------------------------- Styles */
-// One font family throughout, matching the rest of the app (AdminLayout,
-// VetLayout, FarmerLayout, and every page never declare a custom font —
-// they all rely on the browser's default system stack). Declared here
-// explicitly just so it's guaranteed consistent across browsers.
+// One font family throughout, matching the rest of the app.
 const SYSTEM_FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
 
 const styles = {
   page: { fontFamily: SYSTEM_FONT, color: '#1F2937', backgroundColor: '#F7F2E7', overflowX: 'hidden' },
 
-  // Nav
+  topStripe: {
+    position: 'fixed', top: 0, left: 0, right: 0, height: '4px', zIndex: 101,
+    backgroundImage: 'linear-gradient(90deg, #234A35 0%, #D4AF37 50%, #234A35 100%)',
+  },
+
+  // Nav — fixed, not sticky, so it can't silently break due to an
+  // ancestor's overflow/transform. HEADER_HEIGHT compensates the hero
+  // section below so its content doesn't start hidden underneath.
   nav: {
-    position: 'sticky', top: 0, zIndex: 100,
-    backgroundColor: 'rgba(247,242,231,0.95)',
+    position: 'fixed', top: '4px', left: 0, right: 0, zIndex: 100,
+    backgroundColor: 'rgba(247,242,231,0.96)',
     backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
     borderBottom: '1px solid #E8E2D3',
     boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
@@ -322,6 +355,7 @@ const styles = {
   navInner: {
     maxWidth: '1180px', margin: '0 auto', padding: '12px 28px',
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    minHeight: `${HEADER_HEIGHT - 4}px`, boxSizing: 'border-box',
   },
   navBrand: { display: 'flex', alignItems: 'center', gap: '10px', textDecoration: 'none' },
   navLogoImg: { width: '36px', height: '36px', objectFit: 'contain', flexShrink: 0 },
@@ -335,7 +369,7 @@ const styles = {
   navMenuBtn: { display: 'flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', padding: '4px' },
   navMobileMenu: {
     display: 'flex', flexDirection: 'column', padding: '8px 28px 20px', gap: '4px',
-    borderTop: '1px solid #E8E2D3',
+    borderTop: '1px solid #E8E2D3', backgroundColor: 'rgba(247,242,231,0.98)',
   },
   navMobileLink: {
     padding: '12px 4px', fontSize: '15.5px', fontWeight: 600, color: '#234A35',
@@ -343,60 +377,67 @@ const styles = {
   },
   navLoginBtnMobile: { marginTop: '12px', textAlign: 'center', width: '100%', boxSizing: 'border-box' },
 
-  // Hero
-  hero: { padding: '64px 28px 88px', textAlign: 'center' },
-  heroMobile: { padding: '40px 20px 56px' },
+  // Hero — real photo background with a brand-tinted dark overlay
+  // (linear-gradient set inline per-render since it composites with the
+  // imported image URL). paddingTop clears the fixed nav.
+  hero: {
+    backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat',
+    paddingTop: `${HEADER_HEIGHT + 56}px`, paddingBottom: '72px', paddingLeft: '28px', paddingRight: '28px',
+    textAlign: 'center',
+  },
+  heroMobile: { paddingTop: `${HEADER_HEIGHT + 36}px`, paddingBottom: '48px', paddingLeft: '20px', paddingRight: '20px' },
   heroInner: { maxWidth: '780px', margin: '0 auto' },
-  heroBrand: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '14px', marginBottom: '32px' },
-  heroLogoImg: { width: '56px', height: '56px', objectFit: 'contain', flexShrink: 0 },
-  heroNameImg: { height: '28px', width: 'auto', maxWidth: '220px', objectFit: 'contain', display: 'block' },
   heroActionsMobile: { flexDirection: 'column', alignItems: 'stretch' },
   btnFullMobile: { width: '100%', boxSizing: 'border-box' },
   heroEyebrow: {
     display: 'inline-block', fontSize: '12px', fontWeight: 700,
-    letterSpacing: '0.04em', textTransform: 'uppercase', color: '#B5651D',
-    backgroundColor: 'rgba(181,101,29,0.08)', padding: '6px 14px', borderRadius: '999px', marginBottom: '24px',
+    letterSpacing: '0.04em', textTransform: 'uppercase', color: '#E8C766',
+    backgroundColor: 'rgba(232,199,102,0.14)', border: '1px solid rgba(232,199,102,0.3)',
+    padding: '6px 14px', borderRadius: '999px', marginBottom: '24px',
   },
   heroTitle: {
-    fontWeight: 800, fontSize: 'clamp(30px, 5vw, 46px)',
-    lineHeight: 1.18, color: '#122A1E', margin: '0 0 20px', letterSpacing: '-0.01em',
+    fontWeight: 800, fontSize: 'clamp(28px, 4.6vw, 44px)',
+    lineHeight: 1.22, color: '#fff', margin: '0 0 20px', letterSpacing: '-0.01em',
   },
   heroSubtitle: {
-    fontSize: '16.5px', lineHeight: 1.65, color: '#4B5563', maxWidth: '580px',
+    fontSize: '16px', lineHeight: 1.65, color: 'rgba(247,242,231,0.88)', maxWidth: '580px',
     margin: '0 auto 32px',
   },
   heroActions: { display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '48px' },
   ctaPrimary: {
-    padding: '12px 26px', borderRadius: '8px', border: 'none', backgroundColor: '#2E7D32',
-    color: '#fff', fontSize: '14.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SYSTEM_FONT,
+    padding: '12px 26px', borderRadius: '8px', border: 'none', backgroundColor: '#D4AF37',
+    color: '#122A1E', fontSize: '14.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SYSTEM_FONT,
   },
   ctaSecondary: {
-    padding: '12px 26px', borderRadius: '8px', border: '1px solid #234A35', backgroundColor: 'white',
-    color: '#234A35', fontSize: '14.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SYSTEM_FONT,
+    padding: '12px 26px', borderRadius: '8px', border: '1.5px solid rgba(255,255,255,0.6)', backgroundColor: 'transparent',
+    color: '#fff', fontSize: '14.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SYSTEM_FONT,
   },
 
   snapshotStrip: {
     backgroundColor: '#fff', border: '1px solid #E8E2D3', borderRadius: '14px',
-    padding: '18px 20px 20px', textAlign: 'left', boxShadow: '0 6px 18px rgba(0,0,0,0.10)',
+    padding: '18px 20px 20px', textAlign: 'left', boxShadow: '0 12px 32px rgba(0,0,0,0.28)',
   },
   snapshotLabel: {
     display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11.5px',
     color: '#9ca3af', marginBottom: '14px', fontWeight: 600,
   },
-  snapshotDot: { width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#B5651D', flexShrink: 0 },
-  snapshotGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' },
-  snapshotGridMobile: { gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' },
-  snapshotChip: {
-    borderLeft: '3px solid', backgroundColor: '#FAFAF8', borderRadius: '8px',
-    padding: '12px 10px', textAlign: 'left',
+  snapshotDot: { width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#D4AF37', flexShrink: 0 },
+  snapshotRow: { display: 'flex', alignItems: 'stretch' },
+  snapshotRowMobile: { flexDirection: 'column', gap: '14px' },
+  snapshotItem: { flex: 1, padding: '0 16px', textAlign: 'left' },
+  snapshotItemDivider: { borderLeft: '1px solid #E8E2D3' },
+  snapshotItemDividerMobile: { borderLeft: 'none', borderTop: '1px solid #E8E2D3', paddingTop: '14px' },
+  snapshotItemTop: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' },
+  snapshotItemLabel: {
+    fontSize: '10.5px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.4px',
   },
-  snapshotChipLabel: {
-    fontSize: '10.5px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase',
-    letterSpacing: '0.3px', marginTop: '8px',
+  snapshotItemValue: {
+    fontSize: '19px', fontWeight: 800, color: '#122A1E',
+    fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em',
   },
-  snapshotChipValue: { fontSize: '17px', fontWeight: 800, color: '#122A1E', marginTop: '2px' },
-  snapshotChipUnit: { fontSize: '11px', color: '#9ca3af', marginLeft: '2px', fontWeight: 400 },
-  snapshotChipStatus: { fontSize: '10.5px', fontWeight: 700, marginTop: '3px' },
+  snapshotItemUnit: { fontSize: '11px', color: '#9ca3af', marginLeft: '3px', fontWeight: 400 },
+  snapshotItemStatus: { display: 'flex', alignItems: 'center', gap: '5px', marginTop: '5px', fontSize: '11px', fontWeight: 700 },
+  snapshotItemDot: { width: '5px', height: '5px', borderRadius: '50%', flexShrink: 0 },
 
   // Shared section
   sectionInner: { maxWidth: '1100px', margin: '0 auto', padding: '0 28px' },
