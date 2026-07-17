@@ -43,4 +43,19 @@ class Farm extends Model
     {
         return $this->hasMany(ServiceRequest::class);
     }
+
+    public function sensors()
+    {
+        return $this->hasMany(Sensor::class);
+    }
+
+    // Assumes Inspection has a farm_id column, following the same pattern
+    // as sensorReadings() and serviceRequests() above. If Inspection is
+    // linked to Farm differently (e.g. through a pivot, or a different
+    // column name), this will need adjusting — I don't have that model
+    // to confirm against.
+    public function inspections()
+    {
+        return $this->hasMany(Inspection::class);
+    }
 }

@@ -1189,13 +1189,33 @@ function EditModal({ farm, onClose, onSuccess, isMobile }) {
   )
 }
 
-function ViewFarmModal({ farmId, onClose, isMobile }) {
+// sensorMonitoringPath: pass a real route (e.g. "/admin/farms/123/monitoring")
+// once that page exists in your router — the button stays hidden until then,
+// since linking to a route that doesn't exist yet would just 404.
+function ViewFarmModal({ farmId, onClose, isMobile, sensorMonitoringPath }) {
   const { data: farm, loading, error } = useCachedFetch(`/admin/farms/${farmId}`)
 
   const statusColorMap = { Normal: '#2E7D32', Warning: '#B45309', Critical: '#B91C1C' }
   const reading = farm?.sensor_readings?.[0] ?? farm?.sensorReadings?.[0] ?? null
   const initials = farm ? getInitials(farm.owner_name) : ''
   const isActive = farm?.status === 'Active'
+  const isSensorOnline = !!reading
+  const riskLevel = farm?.current_status || (reading ? 'Normal' : null)
+
+  // Inspection summary — expects the backend's show() endpoint to
+  // eager-load 'inspections' the same way it already loads poultryHouses
+  // and sensorReadings. If that hasn't been added yet, this section will
+  // just show empty dashes instead of breaking.
+  const inspections = farm?.inspections ?? []
+  const completedInspections = inspections
+    .filter(i => i.status === 'Completed')
+    .sort((a, b) => new Date(b.completed_at) - new Date(a.completed_at))
+  const upcomingInspections = inspections
+    .filter(i => i.status === 'Scheduled')
+    .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
+  const lastInspection = completedInspections[0]
+  const nextInspection = upcomingInspections[0]
+  const latestInspection = [...inspections].sort((a, b) => new Date(b.scheduled_at) - new Date(a.scheduled_at))[0]
 
   return (
     <div style={profileStyles.overlay} onClick={onClose}>
@@ -1207,11 +1227,15 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
 
         {farm && (
           <>
-            <div style={profileStyles.header}>
-              <div style={profileStyles.avatar}>{initials || <IconFarm size={20} />}</div>
+            <div style={{ ...profileStyles.header, ...(isMobile ? profileStyles.headerMobile : {}) }}>
+              <div style={profileStyles.avatar}>{initials || <IconFarm size={22} />}</div>
               <div style={profileStyles.headerText}>
-                <div style={profileStyles.farmName}>{farm.farm_name}</div>
-                <div style={profileStyles.ownerName}>{farm.owner_name}</div>
+                <div style={profileStyles.ownerNameLarge}>{farm.owner_name}</div>
+                <div style={profileStyles.farmNameRow}>
+                  <IconFarm size={13} />
+                  <span>{farm.farm_name}</span>
+                </div>
+                <div style={profileStyles.farmIdText}>Farm ID #{farm.id}</div>
               </div>
               <span
                 style={{
@@ -1226,29 +1250,71 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
             </div>
 
             <div style={profileStyles.body}>
-              <div style={profileStyles.section}>
-                <div style={profileStyles.sectionLabel}>
-                  <IconFarm size={13} /> Farm &amp; Owner
+              <div style={{ ...profileStyles.twoColSection, ...(isMobile ? profileStyles.twoColSectionMobile : {}) }}>
+                {/* --------------------------------------------------- Farm Information */}
+                <div style={profileStyles.section}>
+                  <div style={profileStyles.sectionLabel}>
+                    <IconHome size={13} /> Farm Information
+                  </div>
+                  <div style={profileStyles.infoGrid}>
+                    <InfoCell icon={<IconHome />} label="Address" value={farm.address} full />
+                    <InfoCell icon={<IconMapPin />} label="Barangay" value={farm.barangay} />
+                    <InfoCell icon={<IconPhone />} label="Contact Number" value={farm.mobile_number} />
+                    <InfoCell icon={<IconScale />} label="Farm Size" value={farm.farm_size} />
+                    <InfoCell icon={<IconFarm size={15} />} label="Number of Poultry" value={farm.num_birds ? Number(farm.num_birds).toLocaleString() : null} />
+                    <InfoCell icon={<IconCalendar />} label="Date Registered" value={formatRegistrationDate(farm.created_at)} />
+                  </div>
                 </div>
-                <div style={{ ...profileStyles.infoGrid, ...(isMobile ? profileStyles.infoGridMobile : {}) }}>
-                  <InfoCell icon={<IconPhone />} label="Mobile" value={farm.mobile_number} />
-                  <InfoCell icon={<IconMapPin />} label="Barangay" value={farm.barangay} />
-                  <InfoCell icon={<IconHome />} label="Address" value={farm.address} full />
-                  <InfoCell icon={<IconScale />} label="Farm Size" value={farm.farm_size} />
+
+                {/* -------------------------------------------------- Sensor Information */}
+                <div style={profileStyles.section}>
+                  <div style={profileStyles.sectionLabel}>
+                    <IconCpu size={13} /> Sensor Information
+                  </div>
+                  <div style={profileStyles.infoGrid}>
+                    <InfoCell icon={<IconHash />} label="Sensor ID" value={reading?.sensor?.device_key ?? reading?.sensor?.label} full />
+                    <InfoCell
+                      icon={<IconSync />}
+                      label="Sensor Status"
+                      value={
+                        <span style={{ color: isSensorOnline ? '#2E7D32' : '#9ca3af', fontWeight: 700 }}>
+                          {isSensorOnline ? 'Online' : 'Offline'}
+                        </span>
+                      }
+                    />
+                    <InfoCell
+                      icon={<IconSync />}
+                      label="Last Synchronization"
+                      value={reading?.created_at ? new Date(reading.created_at).toLocaleString() : null}
+                    />
+                  </div>
+                  {farm.sensors?.length > 1 && (
+                    <div style={profileStyles.sensorCountNote}>
+                      Showing the sensor for the latest reading — {farm.sensors.length} sensors registered to this farm in total.
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <div style={{ ...profileStyles.section, marginTop: '22px' }}>
-                <div style={profileStyles.sectionLabel}>
-                  <IconGauge size={13} /> Latest Sensor Readings
+              {/* ------------------------------------------------- Latest Sensor Readings */}
+              <div style={{ ...profileStyles.section, marginTop: '24px' }}>
+                <div style={profileStyles.sectionLabelRow}>
+                  <div style={profileStyles.sectionLabel}>
+                    <IconGauge size={13} /> Latest Sensor Readings
+                  </div>
+                  {riskLevel && (
+                    <span style={{ ...profileStyles.riskBadge, ...riskBadgeStyle(riskLevel) }}>
+                      {riskLevel}
+                    </span>
+                  )}
                 </div>
 
                 {!reading ? (
                   <div style={profileStyles.emptySensor}>
                     <IconOffline />
                     <div>
-                      <div style={profileStyles.emptyTitle}>No readings yet</div>
-                      <div style={profileStyles.emptySub}>Hardware not connected to this farm.</div>
+                      <div style={profileStyles.emptyTitle}>No sensor connected to this farm yet.</div>
+                      <div style={profileStyles.emptySub}>Readings will appear here once hardware is installed.</div>
                     </div>
                   </div>
                 ) : (
@@ -1264,6 +1330,36 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                     )}
                   </>
                 )}
+
+                {sensorMonitoringPath && (
+                  <a href={sensorMonitoringPath} style={profileStyles.monitoringLink}>
+                    View Sensor Monitoring →
+                  </a>
+                )}
+              </div>
+
+              {/* ------------------------------------------------------ Inspection Summary */}
+              <div style={{ ...profileStyles.section, marginTop: '24px' }}>
+                <div style={profileStyles.sectionLabel}>
+                  <IconClipboard size={13} /> Inspection Summary
+                </div>
+                <div style={{ ...profileStyles.inspectionGrid, ...(isMobile ? profileStyles.inspectionGridMobile : {}) }}>
+                  <InfoCell
+                    icon={<IconCalendar />}
+                    label="Last Inspection Date"
+                    value={lastInspection ? new Date(lastInspection.completed_at).toLocaleDateString() : null}
+                  />
+                  <InfoCell
+                    icon={<IconCalendar />}
+                    label="Next Scheduled Inspection"
+                    value={nextInspection ? new Date(nextInspection.scheduled_at).toLocaleDateString() : null}
+                  />
+                  <InfoCell
+                    icon={<IconClipboard />}
+                    label="Latest Inspection Status"
+                    value={latestInspection?.status}
+                  />
+                </div>
               </div>
             </div>
 
@@ -1277,13 +1373,23 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
   )
 }
 
+// Maps a risk-level string coming back from the backend (Normal/Warning/
+// Critical today) to the badge color — keeps the badge readable even if
+// the exact wording differs from what you see here.
+function riskBadgeStyle(level) {
+  const normalized = String(level).toLowerCase()
+  if (normalized.includes('critical')) return { backgroundColor: 'rgba(220,38,38,0.12)', color: '#B91C1C', border: '1px solid rgba(220,38,38,0.3)' }
+  if (normalized.includes('warn') || normalized.includes('moderate')) return { backgroundColor: 'rgba(180,101,29,0.12)', color: '#B45309', border: '1px solid rgba(180,101,29,0.3)' }
+  return { backgroundColor: 'rgba(46,125,50,0.12)', color: '#2E7D32', border: '1px solid rgba(46,125,50,0.3)' }
+}
+
 function InfoCell({ icon, label, value, full }) {
   return (
     <div style={{ ...profileStyles.infoCell, ...(full ? profileStyles.infoCellFull : {}) }}>
       <div style={profileStyles.infoIcon}>{icon}</div>
       <div style={{ minWidth: 0 }}>
         <div style={profileStyles.infoLabel}>{label}</div>
-        <div style={profileStyles.infoValue}>{value || '—'}</div>
+        <div style={profileStyles.infoValue}>{value || value === 0 ? value : '—'}</div>
       </div>
     </div>
   )
@@ -1385,6 +1491,44 @@ function IconMoisture() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" {...iconBase}>
       <path d="M4 20c8 0 12-6 12-14 0 0-10 0-12 8-1 4 0 6 0 6z" />
+    </svg>
+  )
+}
+function IconCalendar() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" {...iconBase}>
+      <rect x="4" y="5" width="16" height="16" rx="2" /><path d="M8 3v4M16 3v4M4 10h16" />
+    </svg>
+  )
+}
+function IconCpu() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" {...iconBase}>
+      <rect x="7" y="7" width="10" height="10" rx="1.5" />
+      <path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3" />
+    </svg>
+  )
+}
+function IconHash() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" {...iconBase}>
+      <path d="M5 9h14M5 15h14M10 4L8 20M16 4l-2 16" />
+    </svg>
+  )
+}
+function IconSync() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" {...iconBase}>
+      <path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3" />
+      <path d="M18 3v4h-4M6 21v-4h4" />
+    </svg>
+  )
+}
+function IconClipboard() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" {...iconBase}>
+      <rect x="5" y="4" width="14" height="17" rx="1.5" />
+      <path d="M9 4V3h6v1M9 10h6M9 14h4" />
     </svg>
   )
 }
@@ -1566,13 +1710,13 @@ const profileStyles = {
     justifyContent: 'center', zIndex: 50, padding: '16px', boxSizing: 'border-box',
   },
   modal: {
-    backgroundColor: '#F7F2E7', borderRadius: '18px', width: '520px', maxWidth: '100%',
-    maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,0.35)',
+    backgroundColor: '#F7F2E7', borderRadius: '18px', width: '80%', maxWidth: '980px',
+    maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,0.35)',
     position: 'relative',
   },
   modalMobile: {
-    width: '100%', borderRadius: '18px 18px 0 0', position: 'fixed',
-    bottom: 0, left: 0, maxHeight: '88vh',
+    width: '100%', maxWidth: '100%', borderRadius: '18px 18px 0 0', position: 'fixed',
+    bottom: 0, left: 0, maxHeight: '92vh',
   },
   closeBtn: {
     position: 'absolute', top: '14px', right: '14px', width: '28px', height: '28px',
@@ -1582,32 +1726,46 @@ const profileStyles = {
   stateMsg: { padding: '40px 24px', textAlign: 'center', color: '#6b7280', fontSize: '14px' },
   header: {
     backgroundImage: 'linear-gradient(135deg, #234A35 0%, #122A1E 100%)',
-    borderRadius: '18px 18px 0 0', padding: '24px 44px 20px 24px',
-    display: 'flex', alignItems: 'center', gap: '14px',
+    borderRadius: '18px 18px 0 0', padding: '28px 48px 24px 28px',
+    display: 'flex', alignItems: 'center', gap: '16px',
   },
+  headerMobile: { padding: '22px 44px 18px 18px', gap: '12px' },
   avatar: {
-    width: '50px', height: '50px', borderRadius: '50%', backgroundColor: 'rgba(212,175,55,0.16)',
-    border: '1.5px solid #D4AF37', color: '#E8C766', display: 'flex', alignItems: 'center',
-    justifyContent: 'center', fontSize: '16px', fontWeight: '700', flexShrink: 0,
+    width: '64px', height: '64px', borderRadius: '50%', backgroundColor: 'rgba(212,175,55,0.16)',
+    border: '2px solid #D4AF37', color: '#E8C766', display: 'flex', alignItems: 'center',
+    justifyContent: 'center', fontSize: '20px', fontWeight: '700', flexShrink: 0,
   },
   headerText: { flex: 1, minWidth: 0 },
-  farmName: {
-    color: '#fff', fontSize: '17px', fontWeight: '700', lineHeight: '1.3',
+  ownerNameLarge: {
+    color: '#fff', fontSize: '19px', fontWeight: '700', lineHeight: '1.3',
     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
   },
-  ownerName: { color: 'rgba(247,242,231,0.65)', fontSize: '12.5px', marginTop: '2px' },
+  farmNameRow: {
+    display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(232,199,102,0.9)',
+    fontSize: '13px', fontWeight: '600', marginTop: '4px',
+  },
+  farmIdText: { color: 'rgba(247,242,231,0.5)', fontSize: '11px', marginTop: '4px' },
   statusPill: {
     padding: '4px 12px', borderRadius: '999px', fontSize: '11px', fontWeight: '700',
     letterSpacing: '0.3px', whiteSpace: 'nowrap', flexShrink: 0,
   },
-  body: { padding: '22px 24px 8px' },
+  body: { padding: '26px 28px 8px' },
   section: {},
+  twoColSection: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' },
+  twoColSectionMobile: { gridTemplateColumns: '1fr', gap: '22px' },
+  sectionLabelRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' },
   sectionLabel: {
     display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', fontWeight: '700',
     color: '#8A7A3E', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '12px',
   },
+  riskBadge: {
+    padding: '4px 12px', borderRadius: '999px', fontSize: '11px', fontWeight: '700',
+    letterSpacing: '0.3px', whiteSpace: 'nowrap',
+  },
   infoGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' },
   infoGridMobile: { gridTemplateColumns: '1fr' },
+  inspectionGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' },
+  inspectionGridMobile: { gridTemplateColumns: '1fr' },
   infoCell: {
     display: 'flex', gap: '10px', backgroundColor: '#fff', border: '1px solid #E8E2D3',
     borderRadius: '10px', padding: '10px 12px', alignItems: 'flex-start',
@@ -1619,6 +1777,11 @@ const profileStyles = {
     textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: '2px',
   },
   infoValue: { fontSize: '13.5px', color: '#1F2937', fontWeight: '600', wordBreak: 'break-word' },
+  sensorCountNote: { fontSize: '11.5px', color: '#9ca3af', marginTop: '10px', fontStyle: 'italic' },
+  monitoringLink: {
+    display: 'inline-block', marginTop: '14px', fontSize: '12.5px', fontWeight: '700',
+    color: '#2E7D32', textDecoration: 'none',
+  },
   emptySensor: {
     display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: '#fff',
     border: '1px dashed #D8D0BC', borderRadius: '10px', padding: '16px',

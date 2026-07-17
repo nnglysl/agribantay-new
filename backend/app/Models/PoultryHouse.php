@@ -22,4 +22,10 @@ class PoultryHouse extends Model
     {
         return $this->hasMany(SensorReading::class);
     }
+
+    public function sensors()
+    {
+        return $this->hasMany(Sensor::class);
+    }
 }
+

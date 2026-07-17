@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Farm;
+use App\Models\Sensor;
 use App\Models\SensorReading;
 use App\Services\FarmStatusService;
 use Illuminate\Http\Request;
@@ -19,10 +19,16 @@ class SensorIngestController extends Controller
             'soil_raw'      => 'required|numeric',
         ]);
 
-        $farm = Farm::where('device_key', $request->device_key)->first();
+        $sensor = Sensor::where('device_key', $request->device_key)->first();
+
+        if (!$sensor) {
+            return response()->json(['success' => false, 'message' => 'Unknown device.'], 401);
+        }
+
+        $farm = $sensor->farm;
 
         if (!$farm) {
-            return response()->json(['success' => false, 'message' => 'Unknown device.'], 401);
+            return response()->json(['success' => false, 'message' => 'Sensor is not linked to a farm.'], 422);
         }
 
         // NOTE: these conversions are placeholders. Calibrate against a real
@@ -32,6 +38,7 @@ class SensorIngestController extends Controller
 
         $reading = SensorReading::create([
             'farm_id'            => $farm->id,
+            'sensor_id'          => $sensor->id,
             'ammonia'            => $ammonia,
             'ammonia_status'     => $this->status($ammonia, 25, 35),
             'temperature'        => $request->temperature,
@@ -42,6 +49,10 @@ class SensorIngestController extends Controller
             'moisture_status'    => $this->status($moisture, 60, 70),
             'is_mock'            => false,
         ]);
+
+        // Bumps the sensor's updated_at — doubles as a cheap "last seen"
+        // timestamp without needing a dedicated column.
+        $sensor->touch();
 
         app(FarmStatusService::class)->syncStatus($farm);
 

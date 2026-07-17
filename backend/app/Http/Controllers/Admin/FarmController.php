@@ -288,9 +288,15 @@ class FarmController extends Controller
 
     public function show(int $id)
     {
-        $farm = Farm::with(['user', 'poultryHouses', 'sensorReadings' => function ($q) {
-            $q->latest()->limit(1);
-        }])->findOrFail($id);
+        $farm = Farm::with([
+            'user',
+            'poultryHouses',
+            'inspections',
+            'sensors.poultryHouse',
+            'sensorReadings' => function ($q) {
+                $q->latest()->limit(1)->with('sensor.poultryHouse');
+            },
+        ])->findOrFail($id);
 
         return response()->json(['success' => true, 'data' => $farm]);
     }

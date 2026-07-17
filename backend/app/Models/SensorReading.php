@@ -8,6 +8,7 @@ class SensorReading extends Model
 {
     protected $fillable = [
         'farm_id',
+        'sensor_id',
         'poultry_house_id',
         'ammonia',
         'temperature',
@@ -28,5 +29,10 @@ class SensorReading extends Model
     public function poultryHouse()
     {
         return $this->belongsTo(PoultryHouse::class);
+    }
+
+    public function sensor()
+    {
+        return $this->belongsTo(Sensor::class);
     }
 }
