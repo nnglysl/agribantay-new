@@ -31,7 +31,7 @@ export default function Login() {
         return
       }
 
-      if (user.role === 'admin') navigate('/admin/dashboard')
+      if (user.role === 'admin' || user.role === 'super_admin') navigate('/admin/dashboard')
       else if (user.role === 'farm_owner') navigate('/farmowner/dashboard')
       else if (user.role === 'vet') navigate('/vet/dashboard')
     } catch (err) {
@@ -50,6 +50,17 @@ export default function Login() {
       padding: isMobile && mobileStep === 'welcome' ? '0' : (isMobile ? '16px' : '24px'),
       ...(isMobile ? { flexDirection: 'column', justifyContent: 'center', alignItems: 'center' } : {}),
     }}>
+      {/* Floating back-to-landing-page button — always returns to "/",
+          independent of the mobile welcome/form step toggle below. */}
+      <button
+        type="button"
+        onClick={() => navigate('/')}
+        style={styles.landingBackBtn}
+        aria-label="Back to home"
+      >
+        <BackIcon />
+      </button>
+
       {/* Background overlay - only over the photo background */}
       {showPhotoBackground && <div style={styles.overlay} />}
 
@@ -394,6 +405,23 @@ const styles = {
     position: 'absolute',
     inset: 0,
     background: 'rgba(0,0,0,0.3)',
+  },
+  landingBackBtn: {
+    position: 'fixed',
+    top: '20px',
+    left: '20px',
+    zIndex: 5,
+    width: '40px',
+    height: '40px',
+    borderRadius: '50%',
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    border: 'none',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    color: '#234A35',
+    boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
   },
   card: {
     display: 'flex',

@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import api from '../../api/axios'
 import FarmerLayout from '../../components/FarmerLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
@@ -7,7 +8,19 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 export default function ServiceRequests() {
   const [tab, setTab] = useState('active')
   const [showModal, setShowModal] = useState(false)
+  const [prefillType, setPrefillType] = useState('')
   const isMobile = useIsMobile()
+  const location = useLocation()
+
+  // Arriving here from the dashboard's Critical-ammonia prompt pre-selects
+  // Odor Control Request and opens the modal immediately, instead of
+  // making the farmer navigate + pick it manually.
+  useEffect(() => {
+    if (location.state?.prefillService) {
+      setPrefillType(location.state.prefillService)
+      setShowModal(true)
+    }
+  }, [location.state])
 
   const { data, loading, error, refetch } = useCachedFetch('/farmer/service-requests')
   const requestData = data || { active: [], past: [] }
@@ -87,6 +100,7 @@ export default function ServiceRequests() {
       {showModal && (
         <RequestModal
           isMobile={isMobile}
+          initialServiceType={prefillType}
           onClose={() => setShowModal(false)}
           onSuccess={() => { setShowModal(false); refetch() }}
         />
@@ -95,8 +109,8 @@ export default function ServiceRequests() {
   )
 }
 
-function RequestModal({ onClose, onSuccess, isMobile }) {
-  const [serviceType, setServiceType] = useState('')
+function RequestModal({ onClose, onSuccess, isMobile, initialServiceType }) {
+  const [serviceType, setServiceType] = useState(initialServiceType || '')
   const [notes, setNotes] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -140,7 +154,9 @@ function RequestModal({ onClose, onSuccess, isMobile }) {
           >
             <option value="">-- Select service type --</option>
             <option value="Vaccine Request">Vaccine Request</option>
+            <option value="Blood Test Request">Blood Test Request</option>
             <option value="Odor Control Request">Odor Control Request</option>
+            <option value="Fly Control Request">Fly Control Request</option>
           </select>
 
           <label style={modalStyles.label}>Notes (optional)</label>
@@ -152,7 +168,7 @@ function RequestModal({ onClose, onSuccess, isMobile }) {
           />
 
           <p style={modalStyles.hint}>
-            Vaccine requests will be forwarded to the Municipal Veterinarian. Odor control requests will be reviewed by the Administrator.
+            Vaccine and blood test requests will be forwarded to the Municipal Veterinarian. Odor control and fly control requests will be reviewed by the Administrator.
           </p>
 
           <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>

@@ -81,10 +81,6 @@ export default function LandingPage() {
         .agb-nav-link:hover { opacity: 0.7; }
       `}</style>
 
-      {/* A thin brand-colored bar above the nav — the kind of detail that
-          reads as "official municipal portal" rather than a generic template. */}
-      <div style={styles.topStripe} />
-
       {/* ---------------------------------------------------------------- Nav */}
       <header style={styles.nav}>
         <div style={styles.navInner}>
@@ -337,16 +333,11 @@ const SYSTEM_FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helv
 const styles = {
   page: { fontFamily: SYSTEM_FONT, color: '#1F2937', backgroundColor: '#F7F2E7', overflowX: 'hidden' },
 
-  topStripe: {
-    position: 'fixed', top: 0, left: 0, right: 0, height: '4px', zIndex: 101,
-    backgroundImage: 'linear-gradient(90deg, #234A35 0%, #D4AF37 50%, #234A35 100%)',
-  },
-
   // Nav — fixed, not sticky, so it can't silently break due to an
   // ancestor's overflow/transform. HEADER_HEIGHT compensates the hero
   // section below so its content doesn't start hidden underneath.
   nav: {
-    position: 'fixed', top: '4px', left: 0, right: 0, zIndex: 100,
+    position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
     backgroundColor: 'rgba(247,242,231,0.96)',
     backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
     borderBottom: '1px solid #E8E2D3',
@@ -355,7 +346,7 @@ const styles = {
   navInner: {
     maxWidth: '1180px', margin: '0 auto', padding: '12px 28px',
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    minHeight: `${HEADER_HEIGHT - 4}px`, boxSizing: 'border-box',
+    minHeight: `${HEADER_HEIGHT}px`, boxSizing: 'border-box',
   },
   navBrand: { display: 'flex', alignItems: 'center', gap: '10px', textDecoration: 'none' },
   navLogoImg: { width: '36px', height: '36px', objectFit: 'contain', flexShrink: 0 },

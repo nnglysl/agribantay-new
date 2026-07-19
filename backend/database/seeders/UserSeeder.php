@@ -11,6 +11,16 @@ class UserSeeder extends Seeder
     public function run(): void
     {
         User::create([
+            'first_name'    => 'System',
+            'last_name'     => 'Super Admin',
+            'email'         => 'superadmin@agribantay.gov.ph',
+            'mobile_number' => '0917 999 9999',
+            'password'      => Hash::make('password'),
+            'role'          => 'super_admin',
+            'status'        => 'active',
+        ]);
+
+        User::create([
             'first_name'    => 'LGU',
             'last_name'     => 'Administrator',
             'email'         => 'admin@agribantay.gov.ph',

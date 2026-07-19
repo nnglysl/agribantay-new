@@ -5,9 +5,15 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Inspection;
 use App\Models\SensorReading;
+use App\Models\ServiceRequest;
 
 class ReportController extends Controller
 {
+    // The two service types Admin actually handles — mirrors
+    // ServiceRequestController's VET_ONLY_TYPES exclusion, just from the
+    // other side: these are the ones NOT sent to the Vet.
+    private const ADMIN_SERVICE_TYPES = ['Odor Control Request', 'Fly Control Request'];
+
     public function index()
     {
         $totalInspections     = Inspection::count();
@@ -40,6 +46,29 @@ class ReportController extends Controller
                 'status'            => $i->status,
             ]);
 
+        // Odor Control / Fly Control — previously not reported on at all.
+        $serviceQuery = fn() => ServiceRequest::whereIn('service_type', self::ADMIN_SERVICE_TYPES);
+
+        $totalServiceRequests     = $serviceQuery()->count();
+        $completedServiceRequests = $serviceQuery()->where('status', 'Completed')->count();
+        $pendingServiceRequests   = $serviceQuery()->where('status', 'Pending')->count();
+
+        $completedServicesList = $serviceQuery()
+            ->with('farm')
+            ->where('status', 'Completed')
+            ->latest('completed_at')
+            ->get()
+            ->map(fn($r) => [
+                'id'            => $r->request_number,
+                'service_type'  => $r->service_type,
+                'farm_name'     => $r->farm->farm_name,
+                'owner_name'    => $r->farm->owner_name,
+                'barangay'      => $r->farm->barangay,
+                'completed_at'  => $r->completed_at?->format('M d, Y'),
+                'notes'         => $r->notes,
+                'status'        => $r->status,
+            ]);
+
         return response()->json([
             'success' => true,
             'data'    => [
@@ -57,7 +86,13 @@ class ReportController extends Controller
                     'humidity_anomalies' => $humidityAnomalies,
                     'critical_alerts'    => $criticalAlerts,
                 ],
+                'service_summary' => [
+                    'total'     => $totalServiceRequests,
+                    'completed' => $completedServiceRequests,
+                    'pending'   => $pendingServiceRequests,
+                ],
                 'completed_inspections' => $completedInspectionsList,
+                'completed_services'    => $completedServicesList,
             ],
         ]);
     }

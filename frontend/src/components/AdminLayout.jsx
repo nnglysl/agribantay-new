@@ -26,6 +26,13 @@ function IconInspections({ color }) {
     </svg>
   )
 }
+function IconServiceRequests({ color }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6">
+      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.1-3.1a5 5 0 0 1-6.6 6.6l-6.5 6.5a2 2 0 0 1-2.8-2.8l6.5-6.5a5 5 0 0 1 6.6-6.6l-3.1 3.1z" />
+    </svg>
+  )
+}
 function IconActivity({ color }) {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6">
@@ -52,6 +59,16 @@ function IconVet({ color }) {
       <path d="M4 20c0-3.3 2.5-6 5-6s5 2.7 5 6" />
       <path d="M17 4v6" />
       <path d="M14 7h6" />
+    </svg>
+  )
+}
+function IconAccounts({ color }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6">
+      <circle cx="8" cy="8" r="3" />
+      <path d="M2 20c0-3.3 2.7-6 6-6s6 2.7 6 6" />
+      <circle cx="17" cy="7" r="2.5" />
+      <path d="M14.5 12.5c2.6.3 4.5 2.4 4.5 5.5" />
     </svg>
   )
 }
@@ -86,7 +103,8 @@ const iconMap = {
   dashboard: IconGrid,
   farms: IconFarm,
   inspections: IconInspections,
-  vets: IconVet,
+  serviceRequests: IconServiceRequests,
+  accounts: IconAccounts,
   activity: IconActivity,
   reports: IconReports,
   settings: IconSettings,
@@ -102,7 +120,7 @@ export default function AdminLayout({ children }) {
 
   const handleLogout = () => {
     clearAuth()
-    navigate('/login')
+    navigate('/') // Landing page, not straight to login — lets the user browse before signing in again
   }
 
   const handleNavigate = (path) => {
@@ -114,11 +132,18 @@ export default function AdminLayout({ children }) {
     { label: 'Dashboard', path: '/admin/dashboard', icon: 'dashboard' },
     { label: 'Farms', path: '/admin/farms', icon: 'farms' },
     { label: 'Inspections', path: '/admin/inspections', icon: 'inspections' },
-    { label: 'User Management', path: '/admin/veterinarians', icon: 'vets' },
-    { label: 'Activity logs', path: '/admin/activity-logs', icon: 'activity' },
-    { label: 'Reports', path: '/admin/reports', icon: 'reports' },
+    { label: 'Service Requests', path: '/admin/service-requests', icon: 'serviceRequests' },
+    { label: 'Reports', path: user.role === 'super_admin' ? '/superadmin/reports' : '/admin/reports', icon: 'reports' },
     { label: 'Settings', path: '/admin/settings', icon: 'settings' },
   ]
+
+  // Super Admin sees everything above (they pass the same role="admin"
+  // route checks), plus this one exclusive item — no separate layout
+  // needed just for one extra page.
+  if (user.role === 'super_admin') {
+    navItems.splice(1, 0, { label: 'Manage Accounts', path: '/superadmin/accounts', icon: 'accounts' })
+    navItems.splice(2, 0, { label: 'Activity logs', path: '/superadmin/activity-logs', icon: 'activity' })
+  }
 
   const sidebarStyle = isMobile
     ? {
@@ -202,7 +227,7 @@ export default function AdminLayout({ children }) {
           ) : (
             <div>
               <div style={styles.userName}>{user.first_name} {user.last_name}</div>
-              <div style={styles.userRole}>Administrator</div>
+              <div style={styles.userRole}>{user.role === 'super_admin' ? 'Super Administrator' : 'Administrator'}</div>
             </div>
           )}
         </div>
@@ -274,9 +299,9 @@ const styles = {
     padding: '4px',
   },
   logo: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '28px', padding: '0 8px' },
-  logoImg: { width: '52px', height: '52px', objectFit: 'contain', flexShrink: 0 },
-  logoTextBlock: { minWidth: 0 },
-  logoNameImg: { height: '20px', width: 'auto', display: 'block', objectFit: 'contain' },
+  logoImg: { width: '64px', height: '64px', objectFit: 'contain', flexShrink: 0 },
+  logoTextBlock: { minWidth: 0, maxWidth: '100%' },
+  logoNameImg: { maxHeight: '20px', maxWidth: '100%', width: 'auto', height: 'auto', display: 'block', objectFit: 'contain' },
   logoSub: { fontSize: '11px', color: '#9CC6A8', marginTop: '5px' },
   nav: { display: 'flex', flexDirection: 'column', gap: '3px', flex: 1 },
   navItem: {

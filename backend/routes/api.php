@@ -17,7 +17,7 @@ use App\Http\Controllers\Vet\DashboardController as VetDashboardController;
 use App\Http\Controllers\Vet\VaccinationRequestController;
 use App\Http\Controllers\Vet\ReportController as VetReportController;
 use App\Http\Controllers\SensorIngestController;
-use App\Http\Controllers\Admin\UserManagementController;
+use App\Http\Controllers\SuperAdmin\AccountController;
 
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/sensor-readings', [SensorIngestController::class, 'store']);
@@ -37,7 +37,7 @@ Route::middleware('auth:sanctum')->group(function () {
     | Veterinarian routes (role: vet)
     |--------------------------------------------------------------------------
     */
-    Route::middleware('role:vet')->prefix('vet')->group(function () {
+    Route::middleware('role:vet,super_admin')->prefix('vet')->group(function () {
         Route::get('/dashboard', [VetDashboardController::class, 'index']);
         Route::get('/vaccination-requests', [VaccinationRequestController::class, 'index']);
         Route::patch('/vaccination-requests/{id}/accept', [VaccinationRequestController::class, 'accept']);
@@ -63,10 +63,13 @@ Route::middleware('auth:sanctum')->group(function () {
 
     /*
     |--------------------------------------------------------------------------
-    | Admin routes (role: admin)
+    | Admin routes (role: admin) — Super Admin can call these too, so
+    | every existing Admin page/module keeps working for Super Admin
+    | with zero duplicated backend logic. Veterinarian account management
+    | has moved out of this group entirely (see Super Admin group below).
     |--------------------------------------------------------------------------
     */
-    Route::middleware('role:admin')->prefix('admin')->group(function () {
+    Route::middleware('role:admin,super_admin')->prefix('admin')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'index']);
 
         Route::get('/farm-owners', [FarmOwnerController::class, 'index']);
@@ -87,19 +90,28 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/inspections/{id}/complete', [InspectionController::class, 'complete']);
 
         Route::get('/service-requests', [ServiceRequestController::class, 'index']);
+        Route::patch('/service-requests/{id}/accept', [ServiceRequestController::class, 'accept']);
+        Route::patch('/service-requests/{id}/decline', [ServiceRequestController::class, 'decline']);
+        Route::patch('/service-requests/{id}/complete', [ServiceRequestController::class, 'complete']);
         Route::patch('/service-requests/{id}/cancel', [ServiceRequestController::class, 'cancel']);
 
-        Route::get('/activity-logs', [ActivityLogController::class, 'index']);
-
         Route::get('/reports', [ReportController::class, 'index']);
-
-        Route::get('/veterinarians', [UserManagementController::class, 'index']);
-        Route::post('/veterinarians', [UserManagementController::class, 'store']);
-        Route::put('/veterinarians/{id}', [UserManagementController::class, 'update']);
-        Route::patch('/veterinarians/{id}/activate', [UserManagementController::class, 'activate']);
-        Route::patch('/veterinarians/{id}/deactivate', [UserManagementController::class, 'deactivate']);
-        Route::post('/veterinarians/{id}/reset-password', [UserManagementController::class, 'resetPassword']);
     });
 
-    // farm_owner and vet route groups will be added in later phases (3.3–3.7).
+    /*
+    |--------------------------------------------------------------------------
+    | Super Admin routes (role: super_admin) — exclusive, not shared with
+    | regular Admin. Manages both Admin and Veterinarian accounts.
+    |--------------------------------------------------------------------------
+    */
+    Route::middleware('role:super_admin')->prefix('superadmin')->group(function () {
+        Route::get('/accounts', [AccountController::class, 'index']);
+        Route::post('/accounts', [AccountController::class, 'store']);
+        Route::put('/accounts/{id}', [AccountController::class, 'update']);
+        Route::patch('/accounts/{id}/activate', [AccountController::class, 'activate']);
+        Route::patch('/accounts/{id}/deactivate', [AccountController::class, 'deactivate']);
+        Route::post('/accounts/{id}/reset-password', [AccountController::class, 'resetPassword']);
+
+        Route::get('/activity-logs', [ActivityLogController::class, 'index']);
+    });
 });

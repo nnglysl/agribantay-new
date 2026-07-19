@@ -32,11 +32,9 @@ const RANGE_OPTIONS = [
   { value: 'custom', label: 'Custom range' },
 ]
 
-// Standardized CSV column set for this report — same shape as the
-// on-screen and printed table, and the same pattern as the Admin
-// report's CSV_COLUMNS so every module's export code reads the same way.
 const CSV_COLUMNS = [
   { key: 'id', label: 'ID' },
+  { key: 'service_type', label: 'Type' },
   { key: 'farm_name', label: 'Farm' },
   { key: 'owner_name', label: 'Owner' },
   { key: 'barangay', label: 'Barangay' },
@@ -92,7 +90,7 @@ export default function VetReports() {
   const handleExportPdf = async () => {
     setExportingPdf(true)
     try {
-      await exportPrintRefToPDF(printRef, `AgriBantay_Vaccination_Report_${todayStamp()}.pdf`)
+      await exportPrintRefToPDF(printRef, `AgriBantay_Vet_Report_${todayStamp()}.pdf`)
     } catch (err) {
       console.error('PDF export failed:', err)
       alert('Could not generate PDF. Please try again.')
@@ -102,8 +100,9 @@ export default function VetReports() {
   }
 
   const handleExportCsv = () => {
-    const rows = completedVaccinations.map(v => ({
+    const rows = completedServices.map(v => ({
       id: v.id,
+      service_type: v.service_type,
       farm_name: v.farm_name,
       owner_name: v.owner_name,
       barangay: v.barangay,
@@ -112,31 +111,31 @@ export default function VetReports() {
       notes: v.notes,
       status: v.status,
     }))
-    exportToCSV(rows, CSV_COLUMNS, `AgriBantay_Vaccination_Report_${todayStamp()}.csv`)
+    exportToCSV(rows, CSV_COLUMNS, `AgriBantay_Vet_Report_${todayStamp()}.csv`)
   }
 
-  const allCompletedVaccinations = data?.completed_vaccinations ?? []
+  const allCompletedServices = data?.completed_services ?? []
 
   const [rangeStart, rangeEnd] = useMemo(
     () => getRangeBounds(range, customFrom, customTo),
     [range, customFrom, customTo]
   )
 
-  const completedVaccinations = useMemo(() => {
-    if (!rangeStart || !rangeEnd) return allCompletedVaccinations
-    return allCompletedVaccinations.filter(v => {
+  const completedServices = useMemo(() => {
+    if (!rangeStart || !rangeEnd) return allCompletedServices
+    return allCompletedServices.filter(v => {
       const d = new Date(v.completed_at)
       return d >= rangeStart && d <= rangeEnd
     })
-  }, [allCompletedVaccinations, rangeStart, rangeEnd])
+  }, [allCompletedServices, rangeStart, rangeEnd])
 
   const completedThisMonth = useMemo(() => {
     const now = new Date()
-    return allCompletedVaccinations.filter(v => {
+    return allCompletedServices.filter(v => {
       const d = new Date(v.completed_at)
       return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()
     }).length
-  }, [allCompletedVaccinations])
+  }, [allCompletedServices])
 
   const monthlyTrend = useMemo(() => {
     const months = []
@@ -145,14 +144,14 @@ export default function VetReports() {
       d.setMonth(d.getMonth() - i)
       months.push({ key: `${d.getFullYear()}-${d.getMonth()}`, label: d.toLocaleString('default', { month: 'short' }), count: 0 })
     }
-    completedVaccinations.forEach(v => {
+    completedServices.forEach(v => {
       const d = new Date(v.completed_at)
       const key = `${d.getFullYear()}-${d.getMonth()}`
       const bucket = months.find(m => m.key === key)
       if (bucket) bucket.count += 1
     })
     return months
-  }, [completedVaccinations])
+  }, [completedServices])
 
   const generatedAt = new Date().toLocaleString('en-PH', {
     dateStyle: 'long',
@@ -202,7 +201,7 @@ export default function VetReports() {
         <div style={{ ...styles.header, ...(isMobile ? styles.headerMobile : {}) }}>
           <div>
             <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Reports</h1>
-            <p style={styles.subtitle}>Vaccination history and records</p>
+            <p style={styles.subtitle}>Vaccination & blood test history and records</p>
           </div>
           <div style={{ ...styles.controlsRow, ...(isMobile ? styles.controlsRowMobile : {}) }}>
             <select
@@ -253,8 +252,8 @@ export default function VetReports() {
 
         <div style={{ ...styles.statsGrid, ...(isMobile ? styles.statsGridMobile : {}) }}>
           <div style={styles.statCard}>
-            <div style={styles.statValue}>{data.total_vaccinations}</div>
-            <div style={styles.statLabel}>Total vaccinations</div>
+            <div style={styles.statValue}>{data.total_completed}</div>
+            <div style={styles.statLabel}>Total completed (vaccine + blood test)</div>
           </div>
           <div style={styles.statCard}>
             <div style={styles.statValue}>{data.farms_covered}</div>
@@ -270,10 +269,10 @@ export default function VetReports() {
         </p>
 
         <div style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}), marginTop: '20px' }}>
-          <h3 style={styles.panelTitle}>Vaccinations per month</h3>
+          <h3 style={styles.panelTitle}>Vaccinations & blood tests per month</h3>
           <p style={styles.panelSubtitle}>Last 6 months</p>
           {monthlyTrend.every(m => m.count === 0) ? (
-            <div style={styles.empty}>No vaccination history yet.</div>
+            <div style={styles.empty}>No service history yet.</div>
           ) : (
             <div style={{ position: 'relative', height: isMobile ? '220px' : '200px' }}>
               <Line
@@ -302,10 +301,10 @@ export default function VetReports() {
         </div>
 
         <div style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}), marginTop: '20px' }}>
-          <h3 style={styles.panelTitle}>Completed vaccinations</h3>
+          <h3 style={styles.panelTitle}>Completed vaccinations & blood tests</h3>
           <p style={styles.panelSubtitle}>{selectedRangeLabel}</p>
-          {completedVaccinations.length === 0 ? (
-            <div style={styles.empty}>No completed vaccinations in this range.</div>
+          {completedServices.length === 0 ? (
+            <div style={styles.empty}>No completed services in this range.</div>
           ) : (
             <>
               {isMobile && <p style={styles.scrollHint}>Swipe left/right to see all columns →</p>}
@@ -314,6 +313,7 @@ export default function VetReports() {
                   <thead>
                     <tr>
                       <th style={styles.th}>ID</th>
+                      <th style={styles.th}>Type</th>
                       <th style={styles.th}>Farm</th>
                       <th style={styles.th}>Owner</th>
                       <th style={styles.th}>Barangay</th>
@@ -324,9 +324,10 @@ export default function VetReports() {
                     </tr>
                   </thead>
                   <tbody>
-                    {completedVaccinations.map(v => (
+                    {completedServices.map(v => (
                       <tr key={v.id}>
                         <td style={styles.td}>{v.id}</td>
+                        <td style={styles.td}>{v.service_type}</td>
                         <td style={styles.td}>{v.farm_name}</td>
                         <td style={styles.td}>{v.owner_name}</td>
                         <td style={styles.td}>{v.barangay}</td>
@@ -349,28 +350,29 @@ export default function VetReports() {
       <div className="print-view" ref={printRef}>
         <ReportLetterhead />
 
-        <h1 style={{ fontSize: '18px', textAlign: 'center', margin: '16px 0 4px' }}>AgriBantay Vaccination Report</h1>
-        <p style={{ fontSize: '12px', textAlign: 'center', margin: '0 0 4px' }}>Vaccination history and records</p>
+        <h1 style={{ fontSize: '18px', textAlign: 'center', margin: '16px 0 4px' }}>AgriBantay Vet Service Report</h1>
+        <p style={{ fontSize: '12px', textAlign: 'center', margin: '0 0 4px' }}>Vaccination & blood test history and records</p>
         <p style={{ fontSize: '11px', textAlign: 'center', margin: '0 0 4px' }}>Period: {selectedRangeLabel}</p>
         <p style={{ fontSize: '11px', textAlign: 'center', margin: '0 0 16px' }}>Generated {generatedAt}</p>
 
         <div className="print-section-title">Summary</div>
         <table className="print-table">
           <tbody>
-            <tr><th>Total vaccinations</th><td>{data.total_vaccinations}</td></tr>
+            <tr><th>Total completed</th><td>{data.total_completed}</td></tr>
             <tr><th>Farms covered</th><td>{data.farms_covered}</td></tr>
             <tr><th>Completed this month</th><td>{completedThisMonth}</td></tr>
           </tbody>
         </table>
 
-        <div className="print-section-title">Completed vaccinations — {selectedRangeLabel}</div>
-        {completedVaccinations.length === 0 ? (
-          <p style={{ fontSize: '12px' }}>No completed vaccinations in this range.</p>
+        <div className="print-section-title">Completed vaccinations & blood tests — {selectedRangeLabel}</div>
+        {completedServices.length === 0 ? (
+          <p style={{ fontSize: '12px' }}>No completed services in this range.</p>
         ) : (
           <table className="print-table">
             <thead>
               <tr>
                 <th>ID</th>
+                <th>Type</th>
                 <th>Farm</th>
                 <th>Owner</th>
                 <th>Barangay</th>
@@ -381,9 +383,10 @@ export default function VetReports() {
               </tr>
             </thead>
             <tbody>
-              {completedVaccinations.map(v => (
+              {completedServices.map(v => (
                 <tr key={v.id}>
                   <td>{v.id}</td>
+                  <td>{v.service_type}</td>
                   <td>{v.farm_name}</td>
                   <td>{v.owner_name}</td>
                   <td>{v.barangay}</td>

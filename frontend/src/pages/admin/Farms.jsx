@@ -1272,7 +1272,7 @@ function ViewFarmModal({ farmId, onClose, isMobile, sensorMonitoringPath }) {
                     <IconCpu size={13} /> Sensor Information
                   </div>
                   <div style={profileStyles.infoGrid}>
-                    <InfoCell icon={<IconHash />} label="Sensor ID" value={reading?.sensor?.device_key ?? reading?.sensor?.label} full />
+                    <InfoCell icon={<IconHash />} label="Sensor ID" value={reading?.sensor?.sensor_code} full />
                     <InfoCell
                       icon={<IconSync />}
                       label="Sensor Status"

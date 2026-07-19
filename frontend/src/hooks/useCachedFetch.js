@@ -4,17 +4,28 @@ import api from '../api/axios'
 const cache = new Map()
 
 export function useCachedFetch(url, params = {}) {
-  const cacheKey = url + JSON.stringify(params)
-  const hasCached = cache.has(cacheKey)
+  // url can now be falsy (null/undefined/'') to mean "don't fetch at all" —
+  // e.g. a component conditionally fetching a second resource only for
+  // certain roles. Every existing caller passes a real url string, so
+  // this doesn't change behavior for anything already using this hook.
+  const cacheKey = url ? url + JSON.stringify(params) : null
+  const hasCached = cacheKey ? cache.has(cacheKey) : false
 
   const [data, setData] = useState(hasCached ? cache.get(cacheKey) : null)
-  const [loading, setLoading] = useState(!hasCached)
+  const [loading, setLoading] = useState(!!url && !hasCached)
   const [error, setError] = useState('')
   const [refetchTrigger, setRefetchTrigger] = useState(0)
   const paramsRef = useRef(params)
   paramsRef.current = params
 
   useEffect(() => {
+    if (!url) {
+      setData(null)
+      setLoading(false)
+      setError('')
+      return
+    }
+
     let cancelled = false
 
     // Skip the cache-check on refetch (trigger > 0) so it always hits the network,
@@ -43,9 +54,10 @@ export function useCachedFetch(url, params = {}) {
       })
 
     return () => { cancelled = true }
-  }, [cacheKey, refetchTrigger])
+  }, [cacheKey, refetchTrigger, url])
 
   const refetch = () => {
+    if (!cacheKey) return
     cache.delete(cacheKey)
     setRefetchTrigger(prev => prev + 1)
   }

@@ -13,19 +13,34 @@ const FarmerSettings = lazy(() => import('../pages/farmowner/Settings'))
 const AdminDashboard = lazy(() => import('../pages/admin/Dashboard'))
 const Farms = lazy(() => import('../pages/admin/Farms'))
 const Inspections = lazy(() => import('../pages/admin/Inspections'))
+const AdminServiceRequests = lazy(() => import('../pages/admin/ServiceRequests'))
 const ActivityLogs = lazy(() => import('../pages/admin/ActivityLogs'))
 const Reports = lazy(() => import('../pages/admin/Reports'))
 const AdminSettings = lazy(() => import('../pages/admin/Settings'))
-const UserManagement = lazy(() => import('../pages/admin/UserManagement'))
+
+// Manage Accounts (Admin + Vet) is now exclusive to Super Admin — the old
+// /admin/veterinarians route + regular Admin's access to it is gone.
+// Same underlying component/file, just re-gated and re-routed.
+const ManageAccounts = lazy(() => import('../pages/superadmin/ManageAccounts'))
+const SuperAdminReports = lazy(() => import('../pages/superadmin/Reports'))
 
 const VetDashboard = lazy(() => import('../pages/vet/Dashboard'))
 const VaccinationRequests = lazy(() => import('../pages/vet/VaccinationRequests'))
 const VetReports = lazy(() => import('../pages/vet/Reports'))
 const VetSettings = lazy(() => import('../pages/vet/Settings'))
 
+// Super Admin inherits every "admin"-gated route automatically (Farms,
+// Inspections, Service Requests, Reports, Settings) — matches "Access all
+// reports and analytics" / "View all system data across every module"
+// from the spec, without duplicating any of those pages. Only genuinely
+// Super-Admin-exclusive pages use role="super_admin" directly.
 function ProtectedRoute({ children, role }) {
   if (!isAuthenticated()) return <Navigate to="/login" />
-  if (role && getRole() !== role) return <Navigate to="/login" />
+
+  const userRole = getRole()
+  if (role === 'admin' && userRole === 'super_admin') return children
+
+  if (role && userRole !== role) return <Navigate to="/login" />
   return children
 }
 
@@ -54,7 +69,7 @@ export default function AppRouter() {
             </ProtectedRoute>
           } />
 
-          {/* Admin routes */}
+          {/* Admin routes — Super Admin passes these too, automatically */}
           <Route path="/admin/dashboard" element={
             <ProtectedRoute role="admin">
               <AdminDashboard />
@@ -70,9 +85,9 @@ export default function AppRouter() {
               <Inspections />
             </ProtectedRoute>
           } />
-          <Route path="/admin/activity-logs" element={
+          <Route path="/admin/service-requests" element={
             <ProtectedRoute role="admin">
-              <ActivityLogs />
+              <AdminServiceRequests />
             </ProtectedRoute>
           } />
           <Route path="/admin/reports" element={
@@ -85,9 +100,21 @@ export default function AppRouter() {
               <AdminSettings />
             </ProtectedRoute>
           } />
-          <Route path="/admin/veterinarians" element={
-            <ProtectedRoute role="admin">
-              <UserManagement />
+
+          {/* Super Admin — exclusive, not inherited by regular Admin */}
+          <Route path="/superadmin/accounts" element={
+            <ProtectedRoute role="super_admin">
+              <ManageAccounts />
+            </ProtectedRoute>
+          } />
+          <Route path="/superadmin/reports" element={
+            <ProtectedRoute role="super_admin">
+              <SuperAdminReports />
+            </ProtectedRoute>
+          } />
+          <Route path="/superadmin/activity-logs" element={
+            <ProtectedRoute role="super_admin">
+              <ActivityLogs />
             </ProtectedRoute>
           } />
 
@@ -107,7 +134,8 @@ export default function AppRouter() {
               <FarmerSettings />
             </ProtectedRoute>
           } />
-{/* Vet routes */}
+
+          {/* Vet routes */}
           <Route path="/vet/dashboard" element={
             <ProtectedRoute role="vet">
               <VetDashboard />
