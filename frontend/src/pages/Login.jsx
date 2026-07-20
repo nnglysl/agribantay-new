@@ -31,7 +31,8 @@ export default function Login() {
         return
       }
 
-      if (user.role === 'admin' || user.role === 'super_admin') navigate('/admin/dashboard')
+      if (user.role === 'super_admin') navigate('/superadmin/dashboard')
+      else if (user.role === 'admin') navigate('/admin/dashboard')
       else if (user.role === 'farm_owner') navigate('/farmowner/dashboard')
       else if (user.role === 'vet') navigate('/vet/dashboard')
     } catch (err) {

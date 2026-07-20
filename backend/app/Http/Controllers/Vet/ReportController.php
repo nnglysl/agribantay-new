@@ -33,6 +33,8 @@ class ReportController extends Controller
 
         $totalCompleted = $baseQuery()->where('status', 'Completed')->count();
 
+        $totalPending = $baseQuery()->where('status', 'Pending')->count();
+
         $farmsCovered = $baseQuery()->where('status', 'Completed')->distinct('farm_id')->count('farm_id');
 
         $completedServices = $baseQuery()
@@ -61,6 +63,7 @@ class ReportController extends Controller
             'success' => true,
             'data' => [
                 'total_completed'    => $totalCompleted,
+                'total_pending'      => $totalPending,
                 'farms_covered'      => $farmsCovered,
                 'completed_services' => $completedServices,
             ],

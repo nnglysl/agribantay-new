@@ -73,8 +73,8 @@ export default function LandingPage() {
           .agb-pulse { animation: none !important; }
         }
         @keyframes agbPulse {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(212,175,55,0.4); }
-          50% { box-shadow: 0 0 0 6px rgba(212,175,55,0); }
+          0%, 100% { box-shadow: 0 0 0 0 rgba(46,125,50,0.4); }
+          50% { box-shadow: 0 0 0 6px rgba(46,125,50,0); }
         }
         .agb-pulse { animation: agbPulse 2.4s ease-in-out infinite; }
         .agb-feature-card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.12); }
@@ -131,7 +131,7 @@ export default function LandingPage() {
         style={{
           ...styles.hero,
           ...(isMobile ? styles.heroMobile : {}),
-          backgroundImage: `linear-gradient(rgba(15,33,24,0.82), rgba(15,33,24,0.88)), url(${heroImage})`,
+          backgroundImage: `linear-gradient(rgba(20,50,20,0.82), rgba(20,50,20,0.88)), url(${heroImage})`,
         }}
       >
         <div style={styles.heroInner}>
@@ -235,9 +235,9 @@ export default function LandingPage() {
       {/* ------------------------------------------------------------ Contact */}
       <section id="contact" style={styles.contact}>
         <div style={styles.sectionInner}>
-          <span style={{ ...styles.sectionEyebrow, color: 'rgba(247,242,231,0.65)' }}>Get in touch</span>
+          <span style={{ ...styles.sectionEyebrow, color: 'rgba(255,255,255,0.65)' }}>Get in touch</span>
           <h2 style={{ ...styles.sectionTitle, color: '#fff' }}>Getting your farm on AgriBantay starts at the Agriculture Office</h2>
-          <p style={{ ...styles.bodyText, color: 'rgba(247,242,231,0.8)', maxWidth: '560px' }}>
+          <p style={{ ...styles.bodyText, color: 'rgba(255,255,255,0.8)', maxWidth: '560px' }}>
             Accounts aren't self-service — the office sets each one up directly, so a farm's sensor
             and inspection history starts accurate from day one. Reach out using the details below.
           </p>
@@ -263,7 +263,9 @@ export default function LandingPage() {
 function AboutStat({ value, label }) {
   return (
     <div style={styles.aboutStat}>
-      <div style={styles.aboutStatValue}>{value}</div>
+      <div style={styles.aboutStatBadge}>
+        <span style={styles.aboutStatValue}>{value}</span>
+      </div>
       <div style={styles.aboutStatLabel}>{label}</div>
     </div>
   )
@@ -286,7 +288,7 @@ const iconBase = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strok
 
 function IconMenu({ open }) {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#122A1E" strokeWidth="2" strokeLinecap="round">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1a3c1a" strokeWidth="2" strokeLinecap="round">
       {open ? (
         <><path d="M6 6l12 12" /><path d="M18 6L6 18" /></>
       ) : (
@@ -331,16 +333,13 @@ function ContactIcon({ name }) {
 const SYSTEM_FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
 
 const styles = {
-  page: { fontFamily: SYSTEM_FONT, color: '#1F2937', backgroundColor: '#F7F2E7', overflowX: 'hidden' },
+  page: { fontFamily: SYSTEM_FONT, color: '#1F2937', backgroundColor: '#ffffff', overflowX: 'hidden' },
 
-  // Nav — fixed, not sticky, so it can't silently break due to an
-  // ancestor's overflow/transform. HEADER_HEIGHT compensates the hero
-  // section below so its content doesn't start hidden underneath.
   nav: {
     position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
-    backgroundColor: 'rgba(247,242,231,0.96)',
+    backgroundColor: 'rgba(255,255,255,0.96)',
     backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
-    borderBottom: '1px solid #E8E2D3',
+    borderBottom: '1px solid #d1d5db',
     boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
   },
   navInner: {
@@ -352,7 +351,7 @@ const styles = {
   navLogoImg: { width: '36px', height: '36px', objectFit: 'contain', flexShrink: 0 },
   navNameImg: { height: '18px', width: 'auto', maxWidth: '140px', objectFit: 'contain', display: 'block' },
   navLinksDesktop: { display: 'flex', alignItems: 'center', gap: '30px' },
-  navLink: { fontSize: '14.5px', fontWeight: 600, color: '#234A35', textDecoration: 'none', transition: 'opacity 0.15s' },
+  navLink: { fontSize: '14.5px', fontWeight: 600, color: '#2E7D32', textDecoration: 'none', transition: 'opacity 0.15s' },
   navLoginBtn: {
     padding: '10px 20px', borderRadius: '8px', border: 'none', backgroundColor: '#2E7D32',
     color: '#fff', fontSize: '14px', fontWeight: 700, cursor: 'pointer', fontFamily: SYSTEM_FONT,
@@ -360,17 +359,14 @@ const styles = {
   navMenuBtn: { display: 'flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', padding: '4px' },
   navMobileMenu: {
     display: 'flex', flexDirection: 'column', padding: '8px 28px 20px', gap: '4px',
-    borderTop: '1px solid #E8E2D3', backgroundColor: 'rgba(247,242,231,0.98)',
+    borderTop: '1px solid #d1d5db', backgroundColor: 'rgba(255,255,255,0.98)',
   },
   navMobileLink: {
-    padding: '12px 4px', fontSize: '15.5px', fontWeight: 600, color: '#234A35',
-    textDecoration: 'none', borderBottom: '1px solid #EFE9DA',
+    padding: '12px 4px', fontSize: '15.5px', fontWeight: 600, color: '#2E7D32',
+    textDecoration: 'none', borderBottom: '1px solid #d1d5db',
   },
   navLoginBtnMobile: { marginTop: '12px', textAlign: 'center', width: '100%', boxSizing: 'border-box' },
 
-  // Hero — real photo background with a brand-tinted dark overlay
-  // (linear-gradient set inline per-render since it composites with the
-  // imported image URL). paddingTop clears the fixed nav.
   hero: {
     backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat',
     paddingTop: `${HEADER_HEIGHT + 56}px`, paddingBottom: '72px', paddingLeft: '28px', paddingRight: '28px',
@@ -382,8 +378,8 @@ const styles = {
   btnFullMobile: { width: '100%', boxSizing: 'border-box' },
   heroEyebrow: {
     display: 'inline-block', fontSize: '12px', fontWeight: 700,
-    letterSpacing: '0.04em', textTransform: 'uppercase', color: '#E8C766',
-    backgroundColor: 'rgba(232,199,102,0.14)', border: '1px solid rgba(232,199,102,0.3)',
+    letterSpacing: '0.04em', textTransform: 'uppercase', color: '#ffffff',
+    backgroundColor: 'rgba(255,255,255,0.14)', border: '1px solid rgba(255,255,255,0.3)',
     padding: '6px 14px', borderRadius: '999px', marginBottom: '24px',
   },
   heroTitle: {
@@ -391,13 +387,13 @@ const styles = {
     lineHeight: 1.22, color: '#fff', margin: '0 0 20px', letterSpacing: '-0.01em',
   },
   heroSubtitle: {
-    fontSize: '16px', lineHeight: 1.65, color: 'rgba(247,242,231,0.88)', maxWidth: '580px',
+    fontSize: '16px', lineHeight: 1.65, color: 'rgba(255,255,255,0.88)', maxWidth: '580px',
     margin: '0 auto 32px',
   },
   heroActions: { display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '48px' },
   ctaPrimary: {
-    padding: '12px 26px', borderRadius: '8px', border: 'none', backgroundColor: '#D4AF37',
-    color: '#122A1E', fontSize: '14.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SYSTEM_FONT,
+    padding: '12px 26px', borderRadius: '8px', border: 'none', backgroundColor: '#2E7D32',
+    color: '#fff', fontSize: '14.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SYSTEM_FONT,
   },
   ctaSecondary: {
     padding: '12px 26px', borderRadius: '8px', border: '1.5px solid rgba(255,255,255,0.6)', backgroundColor: 'transparent',
@@ -405,74 +401,74 @@ const styles = {
   },
 
   snapshotStrip: {
-    backgroundColor: '#fff', border: '1px solid #E8E2D3', borderRadius: '14px',
+    backgroundColor: '#fff', border: '1px solid #d1d5db', borderRadius: '14px',
     padding: '18px 20px 20px', textAlign: 'left', boxShadow: '0 12px 32px rgba(0,0,0,0.28)',
   },
   snapshotLabel: {
     display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11.5px',
     color: '#9ca3af', marginBottom: '14px', fontWeight: 600,
   },
-  snapshotDot: { width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#D4AF37', flexShrink: 0 },
+  snapshotDot: { width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#2E7D32', flexShrink: 0 },
   snapshotRow: { display: 'flex', alignItems: 'stretch' },
   snapshotRowMobile: { flexDirection: 'column', gap: '14px' },
   snapshotItem: { flex: 1, padding: '0 16px', textAlign: 'left' },
-  snapshotItemDivider: { borderLeft: '1px solid #E8E2D3' },
-  snapshotItemDividerMobile: { borderLeft: 'none', borderTop: '1px solid #E8E2D3', paddingTop: '14px' },
+  snapshotItemDivider: { borderLeft: '1px solid #d1d5db' },
+  snapshotItemDividerMobile: { borderLeft: 'none', borderTop: '1px solid #d1d5db', paddingTop: '14px' },
   snapshotItemTop: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' },
   snapshotItemLabel: {
     fontSize: '10.5px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.4px',
   },
   snapshotItemValue: {
-    fontSize: '19px', fontWeight: 800, color: '#122A1E',
+    fontSize: '19px', fontWeight: 800, color: '#1a3c1a',
     fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em',
   },
   snapshotItemUnit: { fontSize: '11px', color: '#9ca3af', marginLeft: '3px', fontWeight: 400 },
   snapshotItemStatus: { display: 'flex', alignItems: 'center', gap: '5px', marginTop: '5px', fontSize: '11px', fontWeight: 700 },
   snapshotItemDot: { width: '5px', height: '5px', borderRadius: '50%', flexShrink: 0 },
 
-  // Shared section
   sectionInner: { maxWidth: '1100px', margin: '0 auto', padding: '0 28px' },
   sectionEyebrow: {
     display: 'block', fontSize: '12px', fontWeight: 700, letterSpacing: '0.04em',
-    textTransform: 'uppercase', color: '#B5651D', marginBottom: '12px',
+    textTransform: 'uppercase', color: '#2E7D32', marginBottom: '12px',
   },
   sectionTitle: {
     fontWeight: 800, fontSize: 'clamp(22px, 3vw, 30px)',
-    color: '#122A1E', lineHeight: 1.25, margin: '0 0 18px', maxWidth: '640px',
+    color: '#1a3c1a', lineHeight: 1.25, margin: '0 0 18px', maxWidth: '640px',
   },
   bodyText: { fontSize: '14.5px', lineHeight: 1.7, color: '#4B5563', marginBottom: '14px' },
 
-  // About
   about: { padding: '64px 0' },
   aboutGrid: { display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: '48px', alignItems: 'start' },
   aboutGridMobile: { gridTemplateColumns: '1fr', gap: '28px' },
   aboutStatsCol: { display: 'flex', flexDirection: 'column', gap: '14px', paddingTop: '4px' },
   aboutStat: {
-    backgroundColor: '#fff', border: '1px solid #E8E2D3', borderRadius: '12px',
+    backgroundColor: '#FFF7ED', border: '1px solid #d1d5db', borderLeft: '3px solid #D97706', borderRadius: '12px',
     padding: '16px 18px', display: 'flex', alignItems: 'center', gap: '14px',
     boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
   },
-  aboutStatValue: { fontSize: '28px', fontWeight: 800, color: '#B5651D', flexShrink: 0 },
+  aboutStatBadge: {
+    width: '52px', height: '52px', borderRadius: '10px', flexShrink: 0,
+    backgroundColor: '#D97706', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
+  aboutStatValue: { fontSize: '20px', fontWeight: 800, color: '#fff' },
   aboutStatLabel: { fontSize: '12.5px', color: '#4B5563', lineHeight: 1.4 },
 
-  // Features
-  features: { padding: '64px 0', backgroundColor: '#FDFBF6', borderTop: '1px solid #E8E2D3', borderBottom: '1px solid #E8E2D3' },
+  features: { padding: '64px 0', backgroundColor: '#f9fafb', borderTop: '1px solid #d1d5db', borderBottom: '1px solid #d1d5db' },
   featuresGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginTop: '30px' },
   featuresGridMobile: { gridTemplateColumns: '1fr' },
   featureCard: {
-    backgroundColor: '#fff', border: '1px solid #E8E2D3', borderRadius: '12px',
+    backgroundColor: '#fff', border: '1px solid #d1d5db', borderRadius: '12px',
     padding: '22px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
     transition: 'transform 0.15s ease, box-shadow 0.15s ease',
   },
   featureIconWrap: {
-    width: '42px', height: '42px', borderRadius: '10px', backgroundColor: 'rgba(35,74,53,0.08)',
-    color: '#234A35', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '14px',
-  },
-  featureTitle: { fontSize: '16.5px', fontWeight: 700, color: '#122A1E', margin: '0 0 8px' },
+  width: '42px', height: '42px', borderRadius: '10px', backgroundColor: 'rgba(202,138,4,0.1)',
+  color: '#CA8A04', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '14px',
+},
+  featureTitle: { fontSize: '16.5px', fontWeight: 700, color: '#1a3c1a', margin: '0 0 8px' },
   featureBody: { fontSize: '13.5px', lineHeight: 1.6, color: '#6b7280', margin: 0 },
 
-  // Contact — same gradient used on the Farm Profile modal header
-  contact: { padding: '64px 0', backgroundImage: 'linear-gradient(135deg, #234A35 0%, #122A1E 100%)' },
+  contact: { padding: '64px 0', backgroundImage: 'linear-gradient(135deg, #2E7D32 0%, #1a3c1a 100%)' },
   contactGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '14px', marginTop: '32px' },
   contactGridMobile: { gridTemplateColumns: '1fr' },
   contactCard: {
@@ -480,20 +476,19 @@ const styles = {
     border: '1px solid rgba(255,255,255,0.14)', borderRadius: '12px', padding: '16px 18px',
   },
   contactCardIcon: {
-    width: '34px', height: '34px', borderRadius: '8px', backgroundColor: 'rgba(212,175,55,0.16)',
-    color: '#E8C766', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+    width: '34px', height: '34px', borderRadius: '8px', backgroundColor: 'rgba(255,255,255,0.16)',
+    color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
   contactCardLabel: {
-    fontSize: '10.5px', fontWeight: 700, color: 'rgba(247,242,231,0.55)',
+    fontSize: '10.5px', fontWeight: 700, color: 'rgba(255,255,255,0.55)',
     textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: '4px',
   },
   contactCardValue: { fontSize: '14px', color: '#fff', fontWeight: 600, lineHeight: 1.4 },
 
-  // Footer
   footer: {
     padding: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px',
-    backgroundColor: '#122A1E',
+    backgroundColor: '#1a3c1a',
   },
   footerNameImg: { height: '18px', width: 'auto', maxWidth: '150px', objectFit: 'contain' },
-  footerNote: { fontSize: '11.5px', color: 'rgba(247,242,231,0.5)' },
+  footerNote: { fontSize: '11.5px', color: 'rgba(255,255,255,0.5)' },
 }

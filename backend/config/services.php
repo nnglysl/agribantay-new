@@ -40,5 +40,8 @@ return [
         'base_url'   => env('UNISMS_BASE_URL', 'https://unismsapi.com/api'),
         'sender_id'  => env('UNISMS_SENDER_ID', 'UNISOFT'),
     ],
+    'gemini' => [
+        'api_key' => env('GEMINI_API_KEY'),
+    ],
 
 ];

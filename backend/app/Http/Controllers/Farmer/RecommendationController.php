@@ -34,43 +34,16 @@ class RecommendationController extends Controller
         ]);
     }
 
+    /**
+     * Only Community Alert remains here — Ventilation Improvement, Litter
+     * Management, and Equipment Check were removed because they duplicated
+     * content the AI-Assisted Insight Layer (/farmer/insights) already
+     * covers, just worded differently. Community Alert has no equivalent
+     * anywhere in that pipeline (it's single-farm only), so it's the one
+     * genuinely distinct thing left for this system to track.
+     */
     private function syncRecommendations(Farm $farm): void
     {
-        $recentReadings = SensorReading::where('farm_id', $farm->id)
-            ->latest()
-            ->take(3)
-            ->get();
-
-        if ($recentReadings->isEmpty()) {
-            return;
-        }
-
-        $latest = $recentReadings->first();
-
-        $this->evaluate($farm, 'Ventilation Improvement', 'Priority',
-            $this->isTrending($recentReadings, 'ammonia_status'),
-            $latest->ammonia_status,
-            "Ammonia levels are trending upward, currently at {$latest->ammonia}ppm across recent readings.",
-            'Increase exhaust fan operation and check for blocked vents.',
-            'Request a maintenance visit through Service Requests if levels persist.'
-        );
-
-        $this->evaluate($farm, 'Litter Management', 'Routine',
-            $this->isTrending($recentReadings, 'moisture_status'),
-            $latest->moisture_status,
-            "Litter moisture has been elevated across recent readings, currently at {$latest->moisture}%.",
-            'Turn and partially replace litter to reduce moisture buildup.',
-            'Schedule a litter check before the next inspection visit.'
-        );
-
-        $this->evaluate($farm, 'Equipment Check', 'Scheduled',
-            $this->isTrending($recentReadings, 'temperature_status'),
-            $latest->temperature_status,
-            "Temperature readings have been unstable, currently at {$latest->temperature}°C.",
-            'Have the fan and cooling system inspected before the next heat period.',
-            'Request a maintenance visit through the Service Requests tab.'
-        );
-
         $barangayIssue = SensorReading::whereHas('farm', function ($q) use ($farm) {
                 $q->where('barangay', $farm->barangay)->where('id', '!=', $farm->id);
             })
@@ -84,23 +57,6 @@ class RecommendationController extends Controller
             'This may be linked to a regional weather pattern — monitor your readings closely.',
             'Compare your dashboard trend chart with the past 48 hours of data.'
         );
-    }
-
-    /**
-     * Trend check: fires immediately if the latest reading is Critical.
-     * For Warning, requires at least 2 of the last 3 readings to be Warning or Critical
-     * to avoid false alarms from a single noisy reading.
-     */
-    private function isTrending($readings, string $field): bool
-    {
-        $latest = $readings->first();
-
-        if ($latest->$field === 'Critical') {
-            return true;
-        }
-
-        $flagged = $readings->filter(fn($r) => in_array($r->$field, ['Warning', 'Critical']))->count();
-        return $flagged >= 2;
     }
 
     private function evaluate(Farm $farm, string $type, string $priority, bool $shouldBeActive, ?string $status, string $rootCause, string $preventiveAction, string $nextStep): void

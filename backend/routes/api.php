@@ -8,10 +8,13 @@ use App\Http\Controllers\Admin\FarmOwnerController;
 use App\Http\Controllers\Admin\InspectionController;
 use App\Http\Controllers\Admin\ServiceRequestController;
 use App\Http\Controllers\Admin\ActivityLogController;
+use App\Http\Controllers\Admin\AlertHistoryController;
 use App\Http\Controllers\Admin\ReportController;
 use App\Http\Controllers\Farmer\DashboardController as FarmerDashboardController;
 use App\Http\Controllers\Farmer\ServiceRequestController as FarmerServiceRequestController;
 use App\Http\Controllers\Farmer\RecommendationController as FarmerRecommendationController;
+use App\Http\Controllers\Farmer\InsightController as FarmerInsightController;
+use App\Http\Controllers\Farmer\MaintenanceController as FarmerMaintenanceController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\Vet\DashboardController as VetDashboardController;
 use App\Http\Controllers\Vet\VaccinationRequestController;
@@ -57,6 +60,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/service-requests', [FarmerServiceRequestController::class, 'index']);
         Route::post('/service-requests', [FarmerServiceRequestController::class, 'store']);
         Route::get('/recommendations', [FarmerRecommendationController::class, 'index']);
+        Route::get('/insights', [FarmerInsightController::class, 'index']);
+        Route::get('/maintenance', [FarmerMaintenanceController::class, 'index']);
+        Route::post('/maintenance', [FarmerMaintenanceController::class, 'store']);
         Route::get('/farm-owners', [FarmOwnerController::class, 'index']);
         Route::post('/farm-owners', [FarmOwnerController::class, 'store']);
     });
@@ -79,6 +85,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/farms-map', [FarmController::class, 'mapData']);
         Route::post('/farms', [FarmController::class, 'store']);
         Route::get('/farms/{id}', [FarmController::class, 'show']);
+        Route::get('/farms/{id}/trend', [FarmController::class, 'trend']);
+        Route::get('/farms/{id}/root-cause', [FarmController::class, 'rootCause']);
         Route::put('/farms/{id}', [FarmController::class, 'update']);
         Route::patch('/farms/{id}/deactivate', [FarmController::class, 'deactivate']);
         Route::patch('/farms/{id}/activate', [FarmController::class, 'activate']);
@@ -96,6 +104,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/service-requests/{id}/cancel', [ServiceRequestController::class, 'cancel']);
 
         Route::get('/reports', [ReportController::class, 'index']);
+
+        Route::get('/alert-history', [AlertHistoryController::class, 'index']);
     });
 
     /*

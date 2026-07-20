@@ -1202,6 +1202,15 @@ function ViewFarmModal({ farmId, onClose, isMobile, sensorMonitoringPath }) {
   const isSensorOnline = !!reading
   const riskLevel = farm?.current_status || (reading ? 'Normal' : null)
 
+  // AI-Assisted Insight — diagnosis + explanation only, no farmer-facing
+  // action tips (those are for the Farm Owner view, not Admin/Super
+  // Admin, since only the farm owner can actually carry them out). Skips
+  // the call entirely when there's no reading, since the endpoint would
+  // just 422 with nothing useful to show.
+  const { data: insight, loading: insightLoading } = useCachedFetch(
+    reading ? `/admin/farms/${farmId}/root-cause` : null
+  )
+
   // Inspection summary — expects the backend's show() endpoint to
   // eager-load 'inspections' the same way it already loads poultryHouses
   // and sensorReadings. If that hasn't been added yet, this section will
@@ -1338,6 +1347,45 @@ function ViewFarmModal({ farmId, onClose, isMobile, sensorMonitoringPath }) {
                 )}
               </div>
 
+              {/* --------------------------------------------------------- AI Insight */}
+              {reading && (
+                <div style={{ ...profileStyles.section, marginTop: '24px' }}>
+                  <div style={profileStyles.sectionLabel}>
+                    <IconSparkle size={13} /> AI Insight
+                  </div>
+
+                  {insightLoading && (
+                    <div style={profileStyles.empty}>Analyzing sensor data…</div>
+                  )}
+
+                  {!insightLoading && insight && (
+                    <div style={profileStyles.insightCard}>
+                      <div style={profileStyles.insightHeader}>
+                        <span style={profileStyles.insightRootCause}>{insight.diagnosis.root_cause}</span>
+                        <span style={{
+                          ...profileStyles.riskBadge,
+                          ...confidenceBadgeStyle(insight.diagnosis.root_cause, insight.diagnosis.confidence),
+                        }}>
+                          {insight.diagnosis.confidence}% confidence
+                        </span>
+                      </div>
+
+                      {insight.explanation ? (
+                        <p style={profileStyles.insightExplanation}>{insight.explanation}</p>
+                      ) : (
+                        <p style={profileStyles.insightExplanationUnavailable}>
+                          Explanation unavailable right now — the diagnosis above is still accurate.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {!insightLoading && !insight && (
+                    <div style={profileStyles.empty}>Insight unavailable for this farm right now.</div>
+                  )}
+                </div>
+              )}
+
               {/* ------------------------------------------------------ Inspection Summary */}
               <div style={{ ...profileStyles.section, marginTop: '24px' }}>
                 <div style={profileStyles.sectionLabel}>
@@ -1381,6 +1429,19 @@ function riskBadgeStyle(level) {
   if (normalized.includes('critical')) return { backgroundColor: 'rgba(220,38,38,0.12)', color: '#B91C1C', border: '1px solid rgba(220,38,38,0.3)' }
   if (normalized.includes('warn') || normalized.includes('moderate')) return { backgroundColor: 'rgba(180,101,29,0.12)', color: '#B45309', border: '1px solid rgba(180,101,29,0.3)' }
   return { backgroundColor: 'rgba(46,125,50,0.12)', color: '#2E7D32', border: '1px solid rgba(46,125,50,0.3)' }
+}
+
+// "Normal conditions" is always green regardless of confidence — any
+// other diagnosed cause scales amber->red by confidence, since higher
+// confidence in a real problem warrants more visual attention.
+function confidenceBadgeStyle(rootCause, confidence) {
+  if (rootCause === 'Normal conditions') {
+    return { backgroundColor: 'rgba(46,125,50,0.12)', color: '#2E7D32', border: '1px solid rgba(46,125,50,0.3)' }
+  }
+  if (confidence >= 30) {
+    return { backgroundColor: 'rgba(220,38,38,0.12)', color: '#B91C1C', border: '1px solid rgba(220,38,38,0.3)' }
+  }
+  return { backgroundColor: 'rgba(180,101,29,0.12)', color: '#B45309', border: '1px solid rgba(180,101,29,0.3)' }
 }
 
 function InfoCell({ icon, label, value, full }) {
@@ -1513,6 +1574,14 @@ function IconHash() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" {...iconBase}>
       <path d="M5 9h14M5 15h14M10 4L8 20M16 4l-2 16" />
+    </svg>
+  )
+}
+function IconSparkle({ size = 15 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...iconBase}>
+      <path d="M12 3v4M12 17v4M3 12h4M17 12h4M6.3 6.3l2.1 2.1M15.6 15.6l2.1 2.1M17.7 6.3l-2.1 2.1M8.4 15.6l-2.1 2.1" />
+      <circle cx="12" cy="12" r="2.5" />
     </svg>
   )
 }
@@ -1781,6 +1850,19 @@ const profileStyles = {
   monitoringLink: {
     display: 'inline-block', marginTop: '14px', fontSize: '12.5px', fontWeight: '700',
     color: '#2E7D32', textDecoration: 'none',
+  },
+  empty: { fontSize: '13px', color: '#9ca3af', padding: '4px 0' },
+  insightCard: {
+    backgroundColor: '#fff', border: '1px solid #E8E2D3', borderRadius: '10px', padding: '16px',
+  },
+  insightHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' },
+  insightRootCause: { fontSize: '14.5px', fontWeight: '700', color: '#122A1E' },
+  insightExplanation: {
+    fontSize: '13.5px', color: '#374151', lineHeight: '1.6', marginTop: '12px', marginBottom: 0,
+    paddingLeft: '12px', borderLeft: '3px solid #D4AF37',
+  },
+  insightExplanationUnavailable: {
+    fontSize: '12.5px', color: '#9ca3af', fontStyle: 'italic', marginTop: '12px', marginBottom: 0,
   },
   emptySensor: {
     display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: '#fff',

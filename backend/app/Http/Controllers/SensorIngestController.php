@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Sensor;
 use App\Models\SensorReading;
 use App\Services\FarmStatusService;
+use App\Services\AlertHistoryService;
 use Illuminate\Http\Request;
 
 class SensorIngestController extends Controller
@@ -53,6 +54,16 @@ class SensorIngestController extends Controller
         // Bumps the sensor's updated_at — doubles as a cheap "last seen"
         // timestamp without needing a dedicated column.
         $sensor->touch();
+
+        // Objective 5.2 — one call per sensor type, opens/updates/closes
+        // the running incident history. Separate from the SMS alert
+        // pipeline below (or wherever that already lives) — this never
+        // notifies anyone, it only ever records.
+        $alertHistory = app(AlertHistoryService::class);
+        $alertHistory->recordReading($farm->id, 'ammonia', $reading->ammonia_status, $reading->ammonia);
+        $alertHistory->recordReading($farm->id, 'temperature', $reading->temperature_status, $reading->temperature);
+        $alertHistory->recordReading($farm->id, 'humidity', $reading->humidity_status, $reading->humidity);
+        $alertHistory->recordReading($farm->id, 'moisture', $reading->moisture_status, $reading->moisture);
 
         app(FarmStatusService::class)->syncStatus($farm);
 

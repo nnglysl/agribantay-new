@@ -129,10 +129,13 @@ export default function AdminLayout({ children }) {
   }
 
   const navItems = [
-    { label: 'Dashboard', path: '/admin/dashboard', icon: 'dashboard' },
+    { label: 'Dashboard', path: user.role === 'super_admin' ? '/superadmin/dashboard' : '/admin/dashboard', icon: 'dashboard' },
     { label: 'Farms', path: '/admin/farms', icon: 'farms' },
     { label: 'Inspections', path: '/admin/inspections', icon: 'inspections' },
     { label: 'Service Requests', path: '/admin/service-requests', icon: 'serviceRequests' },
+    { label: 'Reports', path: user.role === 'super_admin' ? '/superadmin/reports' : '/admin/reports', icon: 'reports' },
+    { label: 'Service Requests', path: '/admin/service-requests', icon: 'serviceRequests' },
+    { label: 'Alert History', path: '/admin/alert-history', icon: 'activity' },
     { label: 'Reports', path: user.role === 'super_admin' ? '/superadmin/reports' : '/admin/reports', icon: 'reports' },
     { label: 'Settings', path: '/admin/settings', icon: 'settings' },
   ]

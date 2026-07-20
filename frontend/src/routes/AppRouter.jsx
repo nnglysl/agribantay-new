@@ -17,12 +17,14 @@ const AdminServiceRequests = lazy(() => import('../pages/admin/ServiceRequests')
 const ActivityLogs = lazy(() => import('../pages/admin/ActivityLogs'))
 const Reports = lazy(() => import('../pages/admin/Reports'))
 const AdminSettings = lazy(() => import('../pages/admin/Settings'))
+const AlertHistory = lazy(() => import('../pages/admin/AlertHistory'))
 
 // Manage Accounts (Admin + Vet) is now exclusive to Super Admin — the old
 // /admin/veterinarians route + regular Admin's access to it is gone.
 // Same underlying component/file, just re-gated and re-routed.
 const ManageAccounts = lazy(() => import('../pages/superadmin/ManageAccounts'))
 const SuperAdminReports = lazy(() => import('../pages/superadmin/Reports'))
+const SuperAdminDashboard = lazy(() => import('../pages/superadmin/Dashboard'))
 
 const VetDashboard = lazy(() => import('../pages/vet/Dashboard'))
 const VaccinationRequests = lazy(() => import('../pages/vet/VaccinationRequests'))
@@ -95,6 +97,11 @@ export default function AppRouter() {
               <Reports />
             </ProtectedRoute>
           } />
+          <Route path="/admin/alert-history" element={
+            <ProtectedRoute role="admin">
+              <AlertHistory />
+            </ProtectedRoute>
+          } />
           <Route path="/admin/settings" element={
             <ProtectedRoute role="admin">
               <AdminSettings />
@@ -102,6 +109,11 @@ export default function AppRouter() {
           } />
 
           {/* Super Admin — exclusive, not inherited by regular Admin */}
+          <Route path="/superadmin/dashboard" element={
+            <ProtectedRoute role="super_admin">
+              <SuperAdminDashboard />
+            </ProtectedRoute>
+          } />
           <Route path="/superadmin/accounts" element={
             <ProtectedRoute role="super_admin">
               <ManageAccounts />

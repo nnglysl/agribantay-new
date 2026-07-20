@@ -14,7 +14,7 @@ export default function ActivityLogs() {
   if (roleFilter) params.role = roleFilter
   if (typeFilter) params.type = typeFilter
 
-  const { data: logs, loading, error } = useCachedFetch('/admin/activity-logs', params)
+  const { data: logs, loading, error } = useCachedFetch('/superadmin/activity-logs', params)
 
   useEffect(() => { setCurrentPage(1) }, [roleFilter, typeFilter])
 

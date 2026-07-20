@@ -9,6 +9,12 @@ use App\Models\ActivityLog;
 use App\Services\SmsService;
 use App\Services\FarmStatusService;
 use App\Services\GeocodingService;
+use App\Services\TrendAnalysisService;
+use App\Services\RootCauseService;
+use App\Services\PreventiveActionService;
+use App\Services\RecommendationExplanationService;
+use App\Services\MaintenanceStatusService;
+use App\Models\MaintenanceLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Auth;
@@ -298,7 +304,95 @@ class FarmController extends Controller
             },
         ])->findOrFail($id);
 
+        // Objective 3.2 — same computed status the Farm Owner sees,
+        // shown here read-only for oversight. No new logic — reuses
+        // the exact same service, just a different consumer.
+        $farm->maintenance_status = app(MaintenanceStatusService::class)->getStatus($farm);
+        $farm->maintenance_logs = MaintenanceLog::where('farm_id', $farm->id)
+            ->latest('performed_at')
+            ->limit(5)
+            ->get()
+            ->map(fn($log) => [
+                'id'           => $log->id,
+                'performed_at' => $log->performed_at->format('M d, Y'),
+                'notes'        => $log->notes,
+                'photo_url'    => asset('storage/' . $log->photo_path),
+            ]);
+
         return response()->json(['success' => true, 'data' => $farm]);
+    }
+
+    /**
+     * Trend Analysis — AI-Assisted Insight Layer, step 1. Returns
+     * direction/rate/projected-time-to-critical for each sensor type,
+     * computed by TrendAnalysisService from this farm's recent readings.
+     * Root Cause and Recommendation Explanation (steps 2-3) build on
+     * top of this endpoint's output rather than duplicating the math.
+     */
+    public function trend(int $id)
+    {
+        Farm::findOrFail($id); // 404s cleanly if the farm doesn't exist
+
+        $trend = app(TrendAnalysisService::class)->analyzeFarm($id);
+
+        return response()->json(['success' => true, 'data' => $trend]);
+    }
+
+    /**
+     * AI-Assisted Insight Layer, step 2. Combines Trend Analysis with
+     * RootCauseService's fuzzy diagnosis in one response — kept separate
+     * from trend() so that already-working endpoint stays untouched.
+     */
+    public function rootCause(int $id)
+    {
+        $farm = Farm::with(['sensorReadings' => function ($q) {
+            $q->latest()->limit(1);
+        }])->findOrFail($id);
+
+        $latestReading = $farm->sensorReadings->first();
+
+        if (!$latestReading) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No sensor readings available for this farm yet.',
+            ], 422);
+        }
+
+        $trend = app(TrendAnalysisService::class)->analyzeFarm($id);
+
+        $diagnosis = app(RootCauseService::class)->diagnose([
+            'ammonia'     => $latestReading->ammonia,
+            'temperature' => $latestReading->temperature,
+            'humidity'    => $latestReading->humidity,
+            'moisture'    => $latestReading->moisture,
+        ], $trend);
+
+        $preventiveActions = app(PreventiveActionService::class)->suggestActions(
+            $diagnosis['memberships'],
+            $diagnosis['root_cause']
+        );
+
+        // AI-Assisted Insight Layer, step 4. Gemini only ever writes
+        // prose for the diagnosis already decided above — it never
+        // determines the root cause or the action itself. Returns null
+        // (not an error) if the API call fails for any reason, so the
+        // deterministic diagnosis/actions above still work on their own.
+        $explanation = app(RecommendationExplanationService::class)->explain([
+            'farm_name'           => $farm->farm_name,
+            'root_cause'          => $diagnosis['root_cause'],
+            'trend'               => $trend,
+            'recommended_action'  => $preventiveActions['overall_action'],
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'trend'              => $trend,
+                'diagnosis'          => $diagnosis,
+                'preventive_actions' => $preventiveActions,
+                'explanation'        => $explanation,
+            ],
+        ]);
     }
 
     public function update(Request $request, int $id)
