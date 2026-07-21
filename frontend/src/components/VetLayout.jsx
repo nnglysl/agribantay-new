@@ -89,7 +89,7 @@ export default function VetLayout({ children }) {
 
   const navItems = [
     { label: 'Dashboard', path: '/vet/dashboard', icon: 'dashboard' },
-    { label: 'Vaccination requests', path: '/vet/vaccination-requests', icon: 'vaccination' },
+    { label: 'Service Requests', path: '/vet/vaccination-requests', icon: 'vaccination' },
     { label: 'Reports', path: '/vet/reports', icon: 'reports' },
     { label: 'Settings', path: '/vet/settings', icon: 'settings' },
   ]

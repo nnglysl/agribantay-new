@@ -11,9 +11,9 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 })
 
-const SAN_JOSE_CENTER = [13.8797, 121.0989]
+export const SAN_JOSE_CENTER = [13.8797, 121.0989]
 
-const SAN_JOSE_BOUNDARY = [
+export const SAN_JOSE_BOUNDARY = [
   [13.8584399, 121.0495573], [13.8554087, 121.0498792], [13.8554139, 121.050083],
   [13.8510558, 121.050763], [13.8507107, 121.0509762], [13.8499972, 121.0511452],
   [13.850018, 121.0514563], [13.8491013, 121.0516602], [13.8490805, 121.0518908],
@@ -206,7 +206,7 @@ const SAN_JOSE_BOUNDARY = [
 // Rectangle that covers the whole world; combined with the boundary as a
 // hole, this grays out everything outside San Jose while leaving the
 // municipality itself in full color.
-const WORLD_RING = [[85, -180], [85, 180], [-85, 180], [-85, -180]]
+export const WORLD_RING = [[85, -180], [85, 180], [-85, 180], [-85, -180]]
 
 const statusColor = {
   Safe: '#2E7D32',

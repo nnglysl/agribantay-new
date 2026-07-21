@@ -98,6 +98,15 @@ function IconClose({ color }) {
     </svg>
   )
 }
+function IconOverdue({ color }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6">
+      <path d="M12 3 2 20h20L12 3z" />
+      <path d="M12 10v4" />
+      <circle cx="12" cy="17" r="0.6" fill={color} stroke="none" />
+    </svg>
+  )
+}
 
 const iconMap = {
   dashboard: IconGrid,
@@ -106,6 +115,7 @@ const iconMap = {
   serviceRequests: IconServiceRequests,
   accounts: IconAccounts,
   activity: IconActivity,
+  overdue: IconOverdue,
   reports: IconReports,
   settings: IconSettings,
 }
@@ -133,9 +143,8 @@ export default function AdminLayout({ children }) {
     { label: 'Farms', path: '/admin/farms', icon: 'farms' },
     { label: 'Inspections', path: '/admin/inspections', icon: 'inspections' },
     { label: 'Service Requests', path: '/admin/service-requests', icon: 'serviceRequests' },
-    { label: 'Reports', path: user.role === 'super_admin' ? '/superadmin/reports' : '/admin/reports', icon: 'reports' },
-    { label: 'Service Requests', path: '/admin/service-requests', icon: 'serviceRequests' },
     { label: 'Alert History', path: '/admin/alert-history', icon: 'activity' },
+    { label: 'Overdue Maintenance', path: '/admin/maintenance/overdue', icon: 'overdue' },
     { label: 'Reports', path: user.role === 'super_admin' ? '/superadmin/reports' : '/admin/reports', icon: 'reports' },
     { label: 'Settings', path: '/admin/settings', icon: 'settings' },
   ]

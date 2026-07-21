@@ -13,16 +13,24 @@ export function useCachedFetch(url, params = {}) {
 
   const [data, setData] = useState(hasCached ? cache.get(cacheKey) : null)
   const [loading, setLoading] = useState(!!url && !hasCached)
+  // isRefetching covers background refreshes (polling, manual refetch())
+  // when we already have data on screen — separate from `loading`, which
+  // is reserved for the true first-load-with-nothing-to-show case. Callers
+  // that don't care about the distinction can keep ignoring it.
+  const [isRefetching, setIsRefetching] = useState(false)
   const [error, setError] = useState('')
   const [refetchTrigger, setRefetchTrigger] = useState(0)
   const paramsRef = useRef(params)
   paramsRef.current = params
+  const hasDataRef = useRef(hasCached)
 
   useEffect(() => {
     if (!url) {
       setData(null)
       setLoading(false)
+      setIsRefetching(false)
       setError('')
+      hasDataRef.current = false
       return
     }
 
@@ -33,16 +41,22 @@ export function useCachedFetch(url, params = {}) {
     if (refetchTrigger === 0 && cache.has(cacheKey)) {
       setData(cache.get(cacheKey))
       setLoading(false)
+      hasDataRef.current = true
       return
     }
 
-    setLoading(true)
+    if (hasDataRef.current) {
+      setIsRefetching(true)
+    } else {
+      setLoading(true)
+    }
 
     api.get(url, { params: paramsRef.current })
       .then(res => {
         if (cancelled) return
         cache.set(cacheKey, res.data.data)
         setData(res.data.data)
+        hasDataRef.current = true
         setError('')
       })
       .catch(err => {
@@ -50,7 +64,10 @@ export function useCachedFetch(url, params = {}) {
         setError(err.response?.data?.message || 'Failed to load data.')
       })
       .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+          setIsRefetching(false)
+        }
       })
 
     return () => { cancelled = true }
@@ -62,5 +79,5 @@ export function useCachedFetch(url, params = {}) {
     setRefetchTrigger(prev => prev + 1)
   }
 
-  return { data, loading, error, refetch }
+  return { data, loading, isRefetching, error, refetch }
 }

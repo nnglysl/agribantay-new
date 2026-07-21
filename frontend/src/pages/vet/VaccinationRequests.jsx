@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import api from '../../api/axios'
 import VetLayout from '../../components/VetLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
@@ -19,6 +19,17 @@ const RANGE_OPTIONS = [
   { value: 'year', label: 'This Year' },
   { value: 'custom', label: 'Custom range' },
 ]
+
+const TYPE_FILTERS = [
+  { value: 'all', label: 'All types' },
+  { value: 'Vaccine Request', label: 'Vaccine' },
+  { value: 'Blood Test Request', label: 'Blood Test' },
+]
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50]
+
+const requestTypeColor = (type) => (type === 'Blood Test Request' ? '#3b82f6' : '#2E7D32')
+const requestTypeLabel = (type) => (type === 'Blood Test Request' ? 'Blood Test' : 'Vaccine')
 
 function getRangeBounds(rangeKey, customFrom, customTo) {
   const now = new Date()
@@ -53,9 +64,12 @@ function getRangeBounds(rangeKey, customFrom, customTo) {
 
 export default function VaccinationRequests() {
   const [tab, setTab] = useState('scheduled')
+  const [typeFilter, setTypeFilter] = useState('all')
   const [range, setRange] = useState('all')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
   const [acceptTarget, setAcceptTarget] = useState(null)
   const [noteTarget, setNoteTarget] = useState(null)
   const [viewTarget, setViewTarget] = useState(null)
@@ -65,6 +79,13 @@ export default function VaccinationRequests() {
 
   const { data, loading, error, refetch } = useCachedFetch('/vet/vaccination-requests')
   const requestData = data || { scheduled: [], completed: [] }
+
+  useEffect(() => {
+    refetch()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => { setCurrentPage(1) }, [tab, typeFilter, range, customFrom, customTo, pageSize])
 
   const handleDeclineAction = async () => {
     await api.patch(`/vet/vaccination-requests/${confirmDecline.id}/decline`)
@@ -93,12 +114,39 @@ export default function VaccinationRequests() {
     })
   }, [requestData.completed, rangeStart, rangeEnd])
 
-  const list = tab === 'scheduled' ? requestData.scheduled : filteredCompleted
+  const baseList = tab === 'scheduled' ? requestData.scheduled : filteredCompleted
+
+  const sortedList = useMemo(
+    () => [...baseList].sort((a, b) => a.id - b.id),
+    [baseList]
+  )
+
+  const typeFilteredList = useMemo(() => {
+    if (typeFilter === 'all') return sortedList
+    return sortedList.filter(r => r.service_type === typeFilter)
+  }, [sortedList, typeFilter])
+
+  const totalItems = typeFilteredList.length
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages)
+  }, [totalPages, currentPage])
+
+  const list = useMemo(() => {
+    const start = (currentPage - 1) * pageSize
+    return typeFilteredList.slice(start, start + pageSize)
+  }, [typeFilteredList, currentPage, pageSize])
+
+  const rangeStartIdx = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1
+  const rangeEndIdx = Math.min(currentPage * pageSize, totalItems)
+
+  const statusColor = { Pending: '#f59e0b', Scheduled: '#3b82f6', Completed: '#2E7D32', Cancelled: '#6b7280' }
 
   return (
     <VetLayout>
-      <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Vaccination Requests</h1>
-      <p style={styles.subtitle}>Bird vaccination scheduling & records</p>
+      <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Vaccination & Blood Test Requests</h1>
+      <p style={styles.subtitle}>Scheduling & records for both request types</p>
 
       <div style={styles.tabs}>
         <div
@@ -115,8 +163,20 @@ export default function VaccinationRequests() {
         </div>
       </div>
 
-      {tab === 'completed' && (
-        <div style={{ ...styles.filterRow, ...(isMobile ? styles.filterRowMobile : {}) }}>
+      <div style={{ ...styles.filterRow, ...(isMobile ? styles.filterRowMobile : {}) }}>
+        <div style={styles.pillRow}>
+          {TYPE_FILTERS.map(f => (
+            <span
+              key={f.value}
+              onClick={() => setTypeFilter(f.value)}
+              style={{ ...styles.filterPill, ...(typeFilter === f.value ? styles.filterPillActive : {}) }}
+            >
+              {f.label}
+            </span>
+          ))}
+        </div>
+
+        {tab === 'completed' && (
           <select
             value={range}
             onChange={e => setRange(e.target.value)}
@@ -126,119 +186,140 @@ export default function VaccinationRequests() {
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
+        )}
+      </div>
 
-          {range === 'custom' && (
-            <div style={{ ...styles.customDates, ...(isMobile ? styles.customDatesMobile : {}) }}>
-              <input
-                type="date"
-                value={customFrom}
-                onChange={e => setCustomFrom(e.target.value)}
-                style={styles.filterDateInput}
-              />
-              <span style={styles.customDatesSep}>to</span>
-              <input
-                type="date"
-                value={customTo}
-                onChange={e => setCustomTo(e.target.value)}
-                style={styles.filterDateInput}
-              />
-            </div>
-          )}
+      {tab === 'completed' && range === 'custom' && (
+        <div style={{ ...styles.customDates, ...(isMobile ? styles.customDatesMobile : {}), marginBottom: '16px' }}>
+          <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} style={styles.filterDateInput} />
+          <span style={styles.customDatesSep}>to</span>
+          <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} style={styles.filterDateInput} />
         </div>
       )}
 
       {loading && <p>Loading...</p>}
       {error && <p style={{ color: '#dc2626' }}>{error}</p>}
 
-      {!loading && !error && list.length === 0 && (
-        <div style={styles.empty}>No requests here yet.</div>
-      )}
-
       {!loading && !error && (
-        <div style={styles.list}>
-          {list.map(r => {
-            const badge = (
-              <span style={{
-                ...styles.badge,
-                backgroundColor: r.status === 'Pending' ? '#f59e0b' : r.status === 'Completed' ? '#2E7D32' : '#3b82f6',
-              }}>
-                {r.status}
-              </span>
-            )
+        <div style={styles.tableCard}>
+          {isMobile && list.length > 0 && (
+            <p style={styles.scrollHint}>Swipe left/right to see all columns →</p>
+          )}
 
-            const actions = (
-              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-start', ...(isMobile ? { width: '100%' } : {}) }}>
-                {r.status === 'Completed' && (
-                  <span
-                    style={{ ...styles.actionBtn, ...styles.viewBtn, ...(isMobile ? styles.actionBtnMobile : {}) }}
-                    onClick={() => setViewTarget(r)}
-                  >
-                    View
-                  </span>
-                )}
-                {r.status === 'Pending' && (
-                  <>
-                    <span
-                      style={{ ...styles.actionBtn, ...styles.acceptBtn, ...(isMobile ? styles.actionBtnMobile : {}) }}
-                      onClick={() => setAcceptTarget(r)}
-                    >
-                      Accept
-                    </span>
-                    <span
-                      style={{ ...styles.actionBtn, ...styles.declineBtn, ...(isMobile ? styles.actionBtnMobile : {}) }}
-                      onClick={() => setConfirmDecline(r)}
-                    >
-                      Decline
-                    </span>
-                  </>
-                )}
-                {r.status === 'Scheduled' && (
-                  <>
-                    <span
-                      style={{ ...styles.actionBtn, ...styles.noteBtn, ...(isMobile ? styles.actionBtnMobile : {}) }}
-                      onClick={() => setNoteTarget(r)}
-                    >
-                      Add Note
-                    </span>
-                    <span
-                      style={{ ...styles.actionBtn, ...styles.completeBtn, ...(isMobile ? styles.actionBtnMobile : {}) }}
-                      onClick={() => setConfirmComplete(r)}
-                    >
-                      Complete
-                    </span>
-                  </>
-                )}
-              </div>
-            )
+          <div style={isMobile ? styles.tableScroll : undefined}>
+            <table style={{ ...styles.table, ...(isMobile ? styles.tableMobile : {}) }}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>Farm</th>
+                  <th style={styles.th}>Type</th>
+                  <th style={styles.th}>Owner</th>
+                  <th style={styles.th}>Date</th>
+                  <th style={styles.th}>Status</th>
+                  <th style={styles.th}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.map(r => {
+                  const typeColor = requestTypeColor(r.service_type)
+                  return (
+                    <tr key={r.id}>
+                      <td style={styles.td}>
+                        <div style={styles.farmName}>{r.farm_name}</div>
+                        <div style={styles.farmMeta}>
+                          {r.barangay} · {BIRD_ESTIMATES[r.farm_size] || 'Size unknown'}
+                        </div>
+                        {r.notes && <div style={styles.notes}>{r.notes}</div>}
+                      </td>
+                      <td style={styles.td}>
+                        <span style={{
+                          ...styles.typeTag,
+                          color: typeColor,
+                          backgroundColor: `${typeColor}1A`,
+                          borderColor: `${typeColor}55`,
+                        }}>
+                          {requestTypeLabel(r.service_type)}
+                        </span>
+                      </td>
+                      <td style={styles.td}>{r.owner_name}</td>
+                      <td style={styles.td}>
+                        {r.completed_at
+                          ? new Date(r.completed_at).toLocaleDateString()
+                          : r.scheduled_at
+                          ? new Date(r.scheduled_at).toLocaleDateString()
+                          : '—'}
+                      </td>
+                      <td style={styles.td}>
+                        <span style={{ ...styles.badge, backgroundColor: statusColor[r.status] || '#6b7280' }}>
+                          {r.status}
+                        </span>
+                      </td>
+                      <td style={styles.td}>
+                        <div style={styles.actionGroup}>
+                          {r.status === 'Completed' && (
+                            <span
+                              style={{ ...styles.actionBtn, ...styles.viewBtn }}
+                              onClick={() => setViewTarget(r)}
+                            >
+                              View
+                            </span>
+                          )}
+                          {r.status === 'Pending' && (
+                            <>
+                              <span
+                                style={{ ...styles.actionBtn, ...styles.acceptBtn }}
+                                onClick={() => setAcceptTarget(r)}
+                              >
+                                Accept
+                              </span>
+                              <span
+                                style={{ ...styles.actionBtn, ...styles.declineBtn }}
+                                onClick={() => setConfirmDecline(r)}
+                              >
+                                Decline
+                              </span>
+                            </>
+                          )}
+                          {r.status === 'Scheduled' && (
+                            <>
+                              <span
+                                style={{ ...styles.actionBtn, ...styles.noteBtn }}
+                                onClick={() => setNoteTarget(r)}
+                              >
+                                Add Note
+                              </span>
+                              <span
+                                style={{ ...styles.actionBtn, ...styles.completeBtn }}
+                                onClick={() => setConfirmComplete(r)}
+                              >
+                                Complete
+                              </span>
+                            </>
+                          )}
+                          {r.status === 'Cancelled' && <span style={styles.noAction}>—</span>}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
 
-            return (
-              <div key={r.id} style={{ ...styles.card, ...(isMobile ? styles.cardMobile : {}) }}>
-                <div style={{ ...styles.cardBar, backgroundColor: r.status === 'Pending' ? '#f59e0b' : '#3b82f6' }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={styles.cardTitle}>{r.farm_name}</div>
-                  <div style={styles.cardMeta}>
-                    {r.owner_name} · {r.barangay} · {BIRD_ESTIMATES[r.farm_size] || 'Size unknown'}
-                    {r.scheduled_at && <> · {new Date(r.scheduled_at).toLocaleDateString()}</>}
-                  </div>
-                  {r.notes && <div style={styles.cardNotes}>{r.notes}</div>}
-                </div>
+          {list.length === 0 && <div style={styles.empty}>No requests here yet.</div>}
 
-                {!isMobile && (
-                  <div style={styles.badgeActionsGroup}>
-                    {badge}
-                    {actions}
-                  </div>
-                )}
-
-                {isMobile && (
-                  <div style={styles.cardBottomRow}>
-                    {badge}
-                    {actions}
-                  </div>
-                )}
-              </div>
-            )
-          })}
+          {totalItems > 0 && (
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
+              rangeStart={rangeStartIdx}
+              rangeEnd={rangeEndIdx}
+              totalItems={totalItems}
+              isMobile={isMobile}
+            />
+          )}
         </div>
       )}
 
@@ -273,7 +354,9 @@ export default function VaccinationRequests() {
         <div style={modalStyles.overlay} onClick={() => setConfirmDecline(null)}>
           <div style={{ ...confirmStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
             <h3 style={confirmStyles.title}>Decline Request</h3>
-            <p style={confirmStyles.message}>Decline the vaccination request from {confirmDecline.farm_name}?</p>
+            <p style={confirmStyles.message}>
+              Decline the {requestTypeLabel(confirmDecline.service_type).toLowerCase()} request from {confirmDecline.farm_name}?
+            </p>
             <div style={modalStyles.actions}>
               <button onClick={() => setConfirmDecline(null)} style={modalStyles.cancelBtn}>Keep it</button>
               <button onClick={handleDeclineAction} style={{ ...modalStyles.submitBtn, backgroundColor: '#dc2626' }}>
@@ -287,8 +370,10 @@ export default function VaccinationRequests() {
       {confirmComplete && (
         <div style={modalStyles.overlay} onClick={() => setConfirmComplete(null)}>
           <div style={{ ...confirmStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
-            <h3 style={confirmStyles.title}>Complete Vaccination</h3>
-            <p style={confirmStyles.message}>Mark the vaccination at {confirmComplete.farm_name} as completed?</p>
+            <h3 style={confirmStyles.title}>Complete {requestTypeLabel(confirmComplete.service_type)}</h3>
+            <p style={confirmStyles.message}>
+              Mark the {requestTypeLabel(confirmComplete.service_type).toLowerCase()} at {confirmComplete.farm_name} as completed?
+            </p>
             <div style={modalStyles.actions}>
               <button onClick={() => setConfirmComplete(null)} style={modalStyles.cancelBtn}>Cancel</button>
               <button onClick={handleCompleteAction} style={{ ...modalStyles.submitBtn, backgroundColor: '#2E7D32' }}>
@@ -299,6 +384,92 @@ export default function VaccinationRequests() {
         </div>
       )}
     </VetLayout>
+  )
+}
+
+function Pagination({
+  currentPage, totalPages, pageSize, onPageChange, onPageSizeChange,
+  rangeStart, rangeEnd, totalItems, isMobile,
+}) {
+  const pageNumbers = useMemo(() => {
+    const maxButtons = isMobile ? 3 : 5
+    let start = Math.max(1, currentPage - Math.floor(maxButtons / 2))
+    let end = start + maxButtons - 1
+    if (end > totalPages) {
+      end = totalPages
+      start = Math.max(1, end - maxButtons + 1)
+    }
+    const pages = []
+    for (let p = start; p <= end; p++) pages.push(p)
+    return pages
+  }, [currentPage, totalPages, isMobile])
+
+  return (
+    <div style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+      <div style={paginationStyles.info}>
+        {totalItems === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
+      </div>
+
+      <div style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
+        <select
+          value={pageSize}
+          onChange={e => onPageSizeChange(Number(e.target.value))}
+          style={paginationStyles.pageSizeSelect}
+        >
+          {PAGE_SIZE_OPTIONS.map(size => (
+            <option key={size} value={size}>{size} / page</option>
+          ))}
+        </select>
+
+        <button
+          style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
+          onClick={() => onPageChange(1)}
+          disabled={currentPage === 1}
+          aria-label="First page"
+        >
+          «
+        </button>
+        <button
+          style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={currentPage === 1}
+          aria-label="Previous page"
+        >
+          ‹
+        </button>
+
+        {pageNumbers[0] > 1 && <span style={paginationStyles.ellipsis}>…</span>}
+
+        {pageNumbers.map(p => (
+          <button
+            key={p}
+            onClick={() => onPageChange(p)}
+            style={{ ...paginationStyles.pageBtn, ...(p === currentPage ? paginationStyles.pageBtnActive : {}) }}
+          >
+            {p}
+          </button>
+        ))}
+
+        {pageNumbers[pageNumbers.length - 1] < totalPages && <span style={paginationStyles.ellipsis}>…</span>}
+
+        <button
+          style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={currentPage === totalPages}
+          aria-label="Next page"
+        >
+          ›
+        </button>
+        <button
+          style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
+          onClick={() => onPageChange(totalPages)}
+          disabled={currentPage === totalPages}
+          aria-label="Last page"
+        >
+          »
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -336,7 +507,7 @@ function AcceptModal({ request, onClose, onSuccess, isMobile }) {
     <div style={modalStyles.overlay} onClick={onClose}>
       <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
         <div style={modalStyles.header}>
-          <h3 style={modalStyles.title}>Accept & Schedule Vaccination</h3>
+          <h3 style={modalStyles.title}>Accept & Schedule {requestTypeLabel(request.service_type)}</h3>
           <span style={modalStyles.close} onClick={onClose}>×</span>
         </div>
         <p style={modalStyles.dateLabel}>Farm: {request.farm_name} · Owner: {request.owner_name}</p>
@@ -360,11 +531,13 @@ function AcceptModal({ request, onClose, onSuccess, isMobile }) {
             value={notes}
             onChange={e => setNotes(e.target.value)}
             style={{ ...modalStyles.input, minHeight: '70px', resize: 'vertical' }}
-            placeholder="Vaccine type, dosage, or special instructions"
+            placeholder="Vaccine type/dosage, blood test panel, or special instructions"
           />
 
           <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
-            <button type="button" onClick={onClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>Cancel</button>
+            <button type="button" onClick={onClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
+              Cancel
+            </button>
             <button type="submit" disabled={loading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
               {loading ? 'Scheduling...' : 'Confirm Schedule'}
             </button>
@@ -420,7 +593,9 @@ function NoteModal({ request, onClose, onSuccess, isMobile }) {
           />
 
           <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
-            <button type="button" onClick={onClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>Cancel</button>
+            <button type="button" onClick={onClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
+              Cancel
+            </button>
             <button type="submit" disabled={loading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
               {loading ? 'Saving...' : 'Save Note'}
             </button>
@@ -462,7 +637,7 @@ function FarmHistoryModal({ farm, allRequests, onClose, isMobile }) {
         </div>
 
         <div style={historyStyles.body}>
-          <div style={historyStyles.sectionLabel}> &nbsp;FARM & OWNER</div>
+          <div style={historyStyles.sectionLabel}>FARM & OWNER</div>
           <div style={{ ...historyStyles.infoGrid, ...(isMobile ? historyStyles.infoGridMobile : {}) }}>
             <div style={historyStyles.infoCard}>
               <div>
@@ -473,7 +648,9 @@ function FarmHistoryModal({ farm, allRequests, onClose, isMobile }) {
             <div style={historyStyles.infoCard}>
               <div>
                 <div style={historyStyles.infoLabel}>Farm Size</div>
-                <div style={historyStyles.infoValue}>{farm.farm_size} <span style={historyStyles.infoValueSub}>({BIRD_ESTIMATES[farm.farm_size] || '—'})</span></div>
+                <div style={historyStyles.infoValue}>
+                  {farm.farm_size} <span style={historyStyles.infoValueSub}>({BIRD_ESTIMATES[farm.farm_size] || '—'})</span>
+                </div>
               </div>
             </div>
           </div>
@@ -493,12 +670,11 @@ function FarmHistoryModal({ farm, allRequests, onClose, isMobile }) {
             </div>
           </div>
 
-          <div style={historyStyles.sectionLabel}> &nbsp;VACCINATION HISTORY</div>
+          <div style={historyStyles.sectionLabel}>REQUEST HISTORY</div>
 
           {farmRecords.length === 0 ? (
             <div style={historyStyles.emptyBox}>
-              <div style={{ fontSize: '20px' }}>📭</div>
-              <p style={{ fontSize: '13px', color: '#9ca3af', margin: '6px 0 0' }}>No records found.</p>
+              <p style={{ fontSize: '13px', color: '#9ca3af', margin: 0 }}>No records found.</p>
             </div>
           ) : (
             <div style={historyStyles.recordList}>
@@ -512,7 +688,12 @@ function FarmHistoryModal({ farm, allRequests, onClose, isMobile }) {
                     onClick={() => toggleExpand(r.id)}
                   >
                     <div style={historyStyles.recordTop}>
-                      <span style={{ ...historyStyles.recordBadge, backgroundColor: color }}>{r.status}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ ...historyStyles.recordBadge, backgroundColor: color }}>{r.status}</span>
+                        <span style={{ ...historyStyles.recordTypeTag, color: requestTypeColor(r.service_type) }}>
+                          {requestTypeLabel(r.service_type)}
+                        </span>
+                      </div>
                       <span style={historyStyles.recordDateRow}>
                         <span style={historyStyles.recordDate}>
                           {r.completed_at
@@ -574,59 +755,78 @@ const styles = {
   title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
   titleMobile: { fontSize: '18px' },
   subtitle: { fontSize: '13px', color: '#6b7280', marginTop: '4px', marginBottom: '20px' },
-  tabs: { display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid #e5e7eb' },
+  tabs: { display: 'flex', gap: '8px', marginBottom: '16px', borderBottom: '1px solid #e5e7eb' },
   tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7280', cursor: 'pointer', borderBottom: '2px solid transparent' },
   tabActive: { color: '#2E7D32', fontWeight: '600', borderBottom: '2px solid #2E7D32' },
-  filterRow: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' },
+
+  filterRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' },
   filterRowMobile: { flexDirection: 'column', alignItems: 'stretch' },
-  filterSelect: {
-    padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db',
-    fontSize: '13px', color: '#374151', backgroundColor: 'white',
+  pillRow: { display: 'flex', gap: '8px', flexWrap: 'wrap' },
+  filterPill: {
+    padding: '6px 14px', borderRadius: '999px', fontSize: '13px', fontWeight: '500',
+    color: '#374151', backgroundColor: 'white', border: '1px solid #d1d5db', cursor: 'pointer', whiteSpace: 'nowrap',
   },
+  filterPillActive: { backgroundColor: '#2E7D32', color: 'white', border: '1px solid #2E7D32' },
+  filterSelect: { padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px', color: '#374151', backgroundColor: 'white' },
   filterSelectMobile: { width: '100%', boxSizing: 'border-box' },
   customDates: { display: 'flex', alignItems: 'center', gap: '8px' },
   customDatesMobile: { width: '100%' },
   customDatesSep: { fontSize: '13px', color: '#9ca3af' },
-  filterDateInput: {
-    padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px', color: '#374151',
+  filterDateInput: { padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px', color: '#374151' },
+
+  tableCard: { backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', overflow: 'hidden' },
+  scrollHint: { fontSize: '11px', color: '#9ca3af', margin: '12px 16px 0' },
+  tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
+  table: { width: '100%', borderCollapse: 'collapse' },
+  tableMobile: { minWidth: '760px' },
+  th: {
+    textAlign: 'left', padding: '14px 16px', fontSize: '12px', color: '#6b7280',
+    borderBottom: '1px solid #e5e7eb', textTransform: 'uppercase', whiteSpace: 'nowrap',
   },
-  empty: { color: '#9ca3af', fontSize: '14px', padding: '24px 0' },
-  list: { display: 'flex', flexDirection: 'column', gap: '12px' },
-  card: {
-    backgroundColor: 'white', borderRadius: '12px', padding: '16px 20px',
-    display: 'grid', gridTemplateColumns: 'auto 1fr auto', alignItems: 'center', gap: '14px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+  td: { padding: '14px 16px', fontSize: '13px', color: '#374151', borderBottom: '1px solid #f3f4f6', verticalAlign: 'top' },
+  farmName: { fontSize: '13.5px', fontWeight: '600', color: '#111827' },
+  farmMeta: { fontSize: '11.5px', color: '#9ca3af', marginTop: '2px' },
+  notes: { fontSize: '12px', color: '#6b7280', marginTop: '4px', maxWidth: '240px' },
+  typeTag: {
+    fontSize: '11px', fontWeight: '700', padding: '3px 10px', borderRadius: '999px',
+    border: '1px solid', whiteSpace: 'nowrap',
   },
-  cardMobile: {
-    display: 'flex', flexDirection: 'column', alignItems: 'stretch', padding: '14px 16px', gap: '12px',
-  },
-  badgeActionsGroup: {
-    display: 'grid', gridTemplateColumns: '100px 170px', alignItems: 'center', gap: '10px',
-  },
-  cardTopRow: { display: 'flex', alignItems: 'flex-start', gap: '12px' },
-  cardBottomRow: {
-    display: 'flex', flexDirection: 'column', gap: '10px',
-    borderTop: '1px solid #f3f4f6', paddingTop: '10px',
-  },
-  cardBar: { width: '4px', height: '36px', borderRadius: '2px', flexShrink: 0 },
-  cardTitle: { fontSize: '14px', fontWeight: '600', color: '#111827' },
-  cardMeta: { fontSize: '12px', color: '#6b7280', marginTop: '4px' },
-  cardNotes: { fontSize: '13px', color: '#374151', marginTop: '6px' },
-  badge: {
-    padding: '4px 12px', borderRadius: '999px', color: 'white', fontSize: '12px', fontWeight: '600',
-    whiteSpace: 'nowrap', alignSelf: 'flex-start', minWidth: '84px', textAlign: 'center', display: 'inline-block',
-  },
+  badge: { padding: '3px 10px', borderRadius: '999px', color: 'white', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap' },
+  actionGroup: { display: 'flex', gap: '8px', whiteSpace: 'nowrap' },
   actionBtn: {
     padding: '5px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600',
     cursor: 'pointer', border: '1px solid transparent', whiteSpace: 'nowrap',
-    minWidth: '76px', textAlign: 'center',
   },
-  actionBtnMobile: { flex: 1, textAlign: 'center', padding: '8px 12px' },
   acceptBtn: { color: '#2E7D32', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' },
   declineBtn: { color: '#dc2626', backgroundColor: '#fef2f2', border: '1px solid #fecaca' },
   noteBtn: { color: '#3b82f6', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe' },
   completeBtn: { color: '#2E7D32', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' },
   viewBtn: { color: '#3b82f6', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe' },
+  noAction: { color: '#d1d5db' },
+  empty: { padding: '32px', textAlign: 'center', color: '#9ca3af', fontSize: '14px' },
+}
+
+const paginationStyles = {
+  wrap: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '14px 16px', borderTop: '1px solid #f3f4f6', flexWrap: 'wrap', gap: '10px',
+  },
+  wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  info: { fontSize: '12.5px', color: '#6b7280', whiteSpace: 'nowrap' },
+  controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
+  controlsMobile: { justifyContent: 'space-between' },
+  pageSizeSelect: { padding: '6px 10px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '12.5px', color: '#374151', marginRight: '8px' },
+  navBtn: {
+    minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '6px',
+    border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151', fontSize: '13px', cursor: 'pointer',
+  },
+  navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
+  pageBtn: {
+    minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '6px',
+    border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151', fontSize: '12.5px', fontWeight: '600', cursor: 'pointer',
+  },
+  pageBtnActive: { backgroundColor: '#2E7D32', borderColor: '#2E7D32', color: 'white' },
+  ellipsis: { padding: '0 4px', color: '#9ca3af', fontSize: '13px' },
 }
 
 const modalStyles = {
@@ -655,81 +855,44 @@ const confirmStyles = {
   message: { fontSize: '14px', color: '#6b7280', lineHeight: '1.5', marginBottom: '4px' },
 }
 
-const detailStyles = {
-  row: { display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f3f4f6' },
-  label: { fontSize: '13px', color: '#6b7280', fontWeight: '500' },
-  value: { fontSize: '13px', color: '#111827', fontWeight: '600' },
-  block: { marginTop: '14px' },
-  text: { fontSize: '13px', color: '#374151', lineHeight: '1.5', marginTop: '4px' },
-}
-
 const historyStyles = {
-  modal: {
-    backgroundColor: '#F0EBDD', borderRadius: '20px', width: '560px', maxWidth: '90%',
-    maxHeight: '90vh', overflowY: 'auto', position: 'relative', padding: 0,
-  },
+  modal: { backgroundColor: '#F0EBDD', borderRadius: '20px', width: '560px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto', position: 'relative', padding: 0 },
   close: {
-    position: 'absolute', top: '16px', right: '16px', fontSize: '16px',
-    color: 'white', cursor: 'pointer', lineHeight: 1, zIndex: 2,
-    width: '28px', height: '28px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.15)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    position: 'absolute', top: '16px', right: '16px', fontSize: '16px', color: 'white', cursor: 'pointer',
+    lineHeight: 1, zIndex: 2, width: '28px', height: '28px', borderRadius: '50%',
+    backgroundColor: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
-  heroHeader: {
-    display: 'flex', alignItems: 'center', gap: '14px',
-    padding: '24px 24px 20px', backgroundColor: '#1B4332',
-    borderRadius: '20px 20px 0 0',
-  },
+  heroHeader: { display: 'flex', alignItems: 'center', gap: '14px', padding: '24px 24px 20px', backgroundColor: '#1B4332', borderRadius: '20px 20px 0 0' },
   avatar: {
-    width: '52px', height: '52px', borderRadius: '50%', backgroundColor: '#1B4332',
-    color: '#F2B84B', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontSize: '18px', fontWeight: '700', flexShrink: 0, border: '2px solid #F2B84B',
+    width: '52px', height: '52px', borderRadius: '50%', backgroundColor: '#1B4332', color: '#F2B84B',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', fontWeight: '700',
+    flexShrink: 0, border: '2px solid #F2B84B',
   },
   farmName: { fontSize: '18px', fontWeight: '700', color: 'white' },
   ownerName: { fontSize: '13px', color: '#C9DDCE', marginTop: '2px' },
   body: { padding: '20px 24px 24px' },
-  sectionLabel: {
-    fontSize: '12px', fontWeight: '700', color: '#1B4332',
-    textTransform: 'uppercase', letterSpacing: '0.4px', margin: '18px 0 10px',
-  },
+  sectionLabel: { fontSize: '12px', fontWeight: '700', color: '#1B4332', textTransform: 'uppercase', letterSpacing: '0.4px', margin: '18px 0 10px' },
   infoGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' },
   infoGridMobile: { gridTemplateColumns: '1fr' },
-  infoCard: {
-    backgroundColor: 'white', borderRadius: '12px', padding: '12px 14px',
-    display: 'flex', alignItems: 'center', gap: '10px',
-    boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-  },
-  infoIcon: { fontSize: '16px', flexShrink: 0 },
+  infoCard: { backgroundColor: 'white', borderRadius: '12px', padding: '12px 14px', display: 'flex', alignItems: 'center', gap: '10px', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' },
   infoLabel: { fontSize: '10px', color: '#9ca3af', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.3px' },
   infoValue: { fontSize: '14px', color: '#111827', fontWeight: '700', marginTop: '2px' },
   infoValueSub: { fontSize: '11px', color: '#6b7280', fontWeight: '500' },
-  emptyBox: {
-    backgroundColor: 'white', borderRadius: '12px', padding: '24px', textAlign: 'center',
-  },
+  emptyBox: { backgroundColor: 'white', borderRadius: '12px', padding: '24px', textAlign: 'center' },
   recordList: { display: 'flex', flexDirection: 'column', gap: '10px' },
-  recordCard: {
-    backgroundColor: 'white', borderRadius: '12px', padding: '12px 14px',
-    border: '1.5px solid #e5e7eb', cursor: 'pointer', transition: 'border-color 0.15s ease',
-  },
+  recordCard: { backgroundColor: 'white', borderRadius: '12px', padding: '12px 14px', border: '1.5px solid #e5e7eb', cursor: 'pointer', transition: 'border-color 0.15s ease' },
   recordTop: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' },
-  recordBadge: {
-    padding: '3px 10px', borderRadius: '999px', color: 'white', fontSize: '11px', fontWeight: '700', whiteSpace: 'nowrap',
-  },
+  recordBadge: { padding: '3px 10px', borderRadius: '999px', color: 'white', fontSize: '11px', fontWeight: '700', whiteSpace: 'nowrap' },
+  recordTypeTag: { fontSize: '10.5px', fontWeight: '700' },
   recordDateRow: { display: 'flex', alignItems: 'center', gap: '6px' },
   recordDate: { fontSize: '12px', color: '#6b7280' },
   chevron: { fontSize: '12px', color: '#9ca3af', transition: 'transform 0.15s ease', display: 'inline-block' },
   recordNotes: { fontSize: '13px', color: '#374151', marginTop: '8px', marginBottom: 0, lineHeight: '1.4' },
-  expandedBox: {
-    backgroundColor: '#f9fafb', borderRadius: '10px', padding: '12px 14px', marginTop: '10px',
-  },
-  expandedRow: {
-    display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '12px',
-  },
+  expandedBox: { backgroundColor: '#f9fafb', borderRadius: '10px', padding: '12px 14px', marginTop: '10px' },
+  expandedRow: { display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '12px' },
   expandedLabel: { color: '#9ca3af', fontWeight: '600' },
   expandedValue: { color: '#111827', fontWeight: '600' },
   expandedNotes: { fontSize: '13px', color: '#374151', marginTop: '4px', marginBottom: 0, lineHeight: '1.4' },
   footer: { marginTop: '20px' },
-  closeBtn: {
-    width: '100%', padding: '10px 18px', borderRadius: '8px',
-    border: '1px solid #d1d5db', backgroundColor: 'white', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
-  },
+  closeBtn: { width: '100%', padding: '10px 18px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: 'white', fontSize: '14px', fontWeight: '600', cursor: 'pointer' },
 }

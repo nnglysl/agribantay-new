@@ -1386,6 +1386,76 @@ function ViewFarmModal({ farmId, onClose, isMobile, sensorMonitoringPath }) {
                 </div>
               )}
 
+             {/* ------------------------------------------------ Maintenance Status */}
+              {farm.maintenance_status && (
+                <div style={{ ...profileStyles.section, marginTop: '24px' }}>
+                  <div style={profileStyles.sectionLabelRow}>
+                    <div style={profileStyles.sectionLabel}>
+                      <IconClipboard size={13} /> Manure Clean-out Status
+                    </div>
+                    <span style={{ ...profileStyles.riskBadge, ...maintBadgeStyle(farm.maintenance_status.status) }}>
+                      {farm.maintenance_status.status}
+                    </span>
+                  </div>
+
+                  <div style={profileStyles.infoGrid}>
+                    <InfoCell
+                      icon={<IconCalendar />}
+                      label="Last Logged"
+                      value={farm.maintenance_status.last_performed_at || 'No clean-out logged yet'}
+                    />
+                    <InfoCell
+                      icon={<IconClipboard />}
+                      label="Days Since"
+                      value={`${farm.maintenance_status.days_since} of ~${farm.maintenance_status.expected_interval_days} expected`}
+                    />
+                  </div>
+
+                  {farm.maintenance_logs?.length > 0 && (
+                    <div style={profileStyles.maintLogsList}>
+                      {farm.maintenance_logs.map(log => (
+                        <a
+                          key={log.id}
+                          href={log.photo_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={profileStyles.maintLogRow}
+                        >
+                          <img src={log.photo_url} alt="Clean-out proof" style={profileStyles.maintLogThumb} />
+                          <div style={{ minWidth: 0 }}>
+                            <div style={profileStyles.maintLogDate}>{log.performed_at}</div>
+                            <div style={profileStyles.maintLogNote}>{log.notes || 'No notes provided'}</div>
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ------------------------------------------------ Manure Disposal Records */}
+              <div style={{ ...profileStyles.section, marginTop: '24px' }}>
+                <div style={profileStyles.sectionLabel}>
+                  <IconClipboard size={13} /> Manure Disposal Records
+                </div>
+
+                {farm.disposal_records?.length > 0 ? (
+                  <div style={profileStyles.maintLogsList}>
+                    {farm.disposal_records.map(r => (
+                      <div key={r.id} style={profileStyles.disposalRow}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={profileStyles.maintLogDate}>{r.disposal_date} — {r.disposal_method}</div>
+                          <div style={profileStyles.maintLogNote}>
+                            {r.quantity} kg{r.buyer_name ? ` · ${r.buyer_name}` : ''}{r.notes ? ` · ${r.notes}` : ''}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={profileStyles.empty}>No disposal records logged for this farm yet.</div>
+                )}
+              </div>
               {/* ------------------------------------------------------ Inspection Summary */}
               <div style={{ ...profileStyles.section, marginTop: '24px' }}>
                 <div style={profileStyles.sectionLabel}>
@@ -1442,6 +1512,13 @@ function confidenceBadgeStyle(rootCause, confidence) {
     return { backgroundColor: 'rgba(220,38,38,0.12)', color: '#B91C1C', border: '1px solid rgba(220,38,38,0.3)' }
   }
   return { backgroundColor: 'rgba(180,101,29,0.12)', color: '#B45309', border: '1px solid rgba(180,101,29,0.3)' }
+}
+
+// Green for Up to date, amber for Due (the 30-day grace period), red for Overdue.
+function maintBadgeStyle(status) {
+  if (status === 'Overdue') return { backgroundColor: 'rgba(220,38,38,0.12)', color: '#B91C1C', border: '1px solid rgba(220,38,38,0.3)' }
+  if (status === 'Due') return { backgroundColor: 'rgba(180,101,29,0.12)', color: '#B45309', border: '1px solid rgba(180,101,29,0.3)' }
+  return { backgroundColor: 'rgba(46,125,50,0.12)', color: '#2E7D32', border: '1px solid rgba(46,125,50,0.3)' }
 }
 
 function InfoCell({ icon, label, value, full }) {
@@ -1864,7 +1941,23 @@ const profileStyles = {
   insightExplanationUnavailable: {
     fontSize: '12.5px', color: '#9ca3af', fontStyle: 'italic', marginTop: '12px', marginBottom: 0,
   },
-  emptySensor: {
+  maintLogsList: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '14px' },
+  maintLogRow: {
+    display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: '#fff',
+    border: '1px solid #E8E2D3', borderRadius: '10px', padding: '10px 12px',
+    textDecoration: 'none', cursor: 'pointer',
+  },
+  disposalRow: {
+    display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: '#fff',
+    border: '1px solid #E8E2D3', borderRadius: '10px', padding: '10px 12px',
+  },
+  maintLogThumb: {
+    width: '44px', height: '44px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0,
+    border: '1px solid #E8E2D3',
+  },
+  maintLogDate: { fontSize: '13px', fontWeight: '700', color: '#1F2937' },
+  maintLogNote: { fontSize: '12px', color: '#6b7280', marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+    emptySensor: {
     display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: '#fff',
     border: '1px dashed #D8D0BC', borderRadius: '10px', padding: '16px',
   },

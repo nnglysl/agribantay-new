@@ -279,7 +279,7 @@ sidebarMobile: {
 const confirmStyles = {
   overlay: {
     position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50,
+    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 70,
   },
   modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '360px', maxWidth: '90%' },
   title: { fontSize: '17px', fontWeight: '700', color: '#111827', marginTop: 0, marginBottom: '10px' },

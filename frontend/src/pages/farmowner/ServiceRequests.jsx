@@ -1,12 +1,16 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
 import api from '../../api/axios'
 import FarmerLayout from '../../components/FarmerLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 
+const PAGE_SIZE_OPTIONS = [10, 25, 50]
+
 export default function ServiceRequests() {
   const [tab, setTab] = useState('active')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
   const [showModal, setShowModal] = useState(false)
   const [prefillType, setPrefillType] = useState('')
   const isMobile = useIsMobile()
@@ -22,10 +26,29 @@ export default function ServiceRequests() {
     }
   }, [location.state])
 
+  // Reset to page 1 whenever the tab or page size changes so the farmer
+  // isn't stuck on a page number that doesn't exist for the new list.
+  useEffect(() => { setCurrentPage(1) }, [tab, pageSize])
+
   const { data, loading, error, refetch } = useCachedFetch('/farmer/service-requests')
   const requestData = data || { active: [], past: [] }
 
   const list = tab === 'active' ? requestData.active : requestData.past
+
+  const totalItems = list.length
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages)
+  }, [totalPages, currentPage])
+
+  const pagedList = useMemo(() => {
+    const start = (currentPage - 1) * pageSize
+    return list.slice(start, start + pageSize)
+  }, [list, currentPage, pageSize])
+
+  const rangeStart = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1
+  const rangeEnd = Math.min(currentPage * pageSize, totalItems)
 
   const statusColor = {
     Pending: '#f59e0b',
@@ -67,33 +90,49 @@ export default function ServiceRequests() {
       {loading && <p>Loading...</p>}
       {error && <p style={{ color: '#dc2626' }}>{error}</p>}
 
-      {!loading && !error && list.length === 0 && (
-        <div style={styles.empty}>No {tab === 'active' ? 'active requests' : 'past records'} yet.</div>
-      )}
-
       {!loading && !error && (
-        <div style={styles.list}>
-          {list.map(r => (
-            <div key={r.id} style={{ ...styles.card, ...(isMobile ? styles.cardMobile : {}) }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={styles.cardTitle}>{r.service_type}</div>
-                <div style={styles.cardMeta}>
-                  {r.assigned_to && <>👤 {r.assigned_to} · </>}
-                  {r.scheduled_at
-                    ? `📅 ${new Date(r.scheduled_at).toLocaleDateString()}`
-                    : 'Awaiting review'}
+        <div style={styles.listCard}>
+          {list.length === 0 ? (
+            <div style={styles.empty}>No {tab === 'active' ? 'active requests' : 'past records'} yet.</div>
+          ) : (
+            <div style={styles.list}>
+              {pagedList.map(r => (
+                <div key={r.id} style={{ ...styles.card, ...(isMobile ? styles.cardMobile : {}) }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={styles.cardTitle}>{r.service_type}</div>
+                    <div style={styles.cardMeta}>
+                      {r.assigned_to && <>{r.assigned_to} · </>}
+                      {r.scheduled_at
+                        ? new Date(r.scheduled_at).toLocaleDateString()
+                        : 'Awaiting review'}
+                    </div>
+                    {r.notes && <div style={styles.cardNotes}>{r.notes}</div>}
+                  </div>
+                  <div style={{
+                    ...styles.badge,
+                    backgroundColor: statusColor[r.status] || '#6b7280',
+                    ...(isMobile ? styles.badgeMobile : {}),
+                  }}>
+                    {r.status}
+                  </div>
                 </div>
-                {r.notes && <div style={styles.cardNotes}>{r.notes}</div>}
-              </div>
-              <div style={{
-                ...styles.badge,
-                backgroundColor: statusColor[r.status] || '#6b7280',
-                ...(isMobile ? styles.badgeMobile : {}),
-              }}>
-                {r.status}
-              </div>
+              ))}
             </div>
-          ))}
+          )}
+
+          {list.length > 0 && (
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
+              rangeStart={rangeStart}
+              rangeEnd={rangeEnd}
+              totalItems={totalItems}
+              isMobile={isMobile}
+            />
+          )}
         </div>
       )}
 
@@ -106,6 +145,97 @@ export default function ServiceRequests() {
         />
       )}
     </FarmerLayout>
+  )
+}
+
+function Pagination({
+  currentPage, totalPages, pageSize, onPageChange, onPageSizeChange,
+  rangeStart, rangeEnd, totalItems, isMobile,
+}) {
+  const pageNumbers = useMemo(() => {
+    const maxButtons = isMobile ? 3 : 5
+    let start = Math.max(1, currentPage - Math.floor(maxButtons / 2))
+    let end = start + maxButtons - 1
+    if (end > totalPages) {
+      end = totalPages
+      start = Math.max(1, end - maxButtons + 1)
+    }
+    const pages = []
+    for (let p = start; p <= end; p++) pages.push(p)
+    return pages
+  }, [currentPage, totalPages, isMobile])
+
+  return (
+    <div style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+      <div style={paginationStyles.info}>
+        {totalItems === 0
+          ? 'No results'
+          : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
+      </div>
+
+      <div style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
+        <select
+          value={pageSize}
+          onChange={e => onPageSizeChange(Number(e.target.value))}
+          style={paginationStyles.pageSizeSelect}
+        >
+          {PAGE_SIZE_OPTIONS.map(size => (
+            <option key={size} value={size}>{size} / page</option>
+          ))}
+        </select>
+
+        <button
+          style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
+          onClick={() => onPageChange(1)}
+          disabled={currentPage === 1}
+          aria-label="First page"
+        >
+          «
+        </button>
+        <button
+          style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={currentPage === 1}
+          aria-label="Previous page"
+        >
+          ‹
+        </button>
+
+        {pageNumbers[0] > 1 && <span style={paginationStyles.ellipsis}>…</span>}
+
+        {pageNumbers.map(p => (
+          <button
+            key={p}
+            onClick={() => onPageChange(p)}
+            style={{
+              ...paginationStyles.pageBtn,
+              ...(p === currentPage ? paginationStyles.pageBtnActive : {}),
+            }}
+          >
+            {p}
+          </button>
+        ))}
+
+        {pageNumbers[pageNumbers.length - 1] < totalPages && <span style={paginationStyles.ellipsis}>…</span>}
+
+        <button
+          style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={currentPage === totalPages}
+          aria-label="Next page"
+        >
+          ›
+        </button>
+        <button
+          style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
+          onClick={() => onPageChange(totalPages)}
+          disabled={currentPage === totalPages}
+          aria-label="Last page"
+        >
+          »
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -207,12 +337,13 @@ const styles = {
   tabs: { display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid #e5e7eb' },
   tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7280', cursor: 'pointer', borderBottom: '2px solid transparent' },
   tabActive: { color: '#2E7D32', fontWeight: '600', borderBottom: '2px solid #2E7D32' },
-  empty: { color: '#9ca3af', fontSize: '14px', padding: '24px 0' },
-  list: { display: 'flex', flexDirection: 'column', gap: '12px' },
+  empty: { padding: '32px', textAlign: 'center', color: '#9ca3af', fontSize: '14px' },
+  listCard: { backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', overflow: 'hidden' },
+  list: { display: 'flex', flexDirection: 'column' },
   card: {
-    backgroundColor: 'white', borderRadius: '12px', padding: '16px 20px',
+    padding: '16px 20px',
     display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.08)', gap: '12px',
+    borderBottom: '1px solid #f3f4f6', gap: '12px',
   },
   cardMobile: { padding: '14px 16px' },
   cardTitle: { fontSize: '15px', fontWeight: '600', color: '#111827' },
@@ -220,6 +351,36 @@ const styles = {
   cardNotes: { fontSize: '13px', color: '#374151', marginTop: '6px' },
   badge: { padding: '4px 12px', borderRadius: '999px', color: 'white', fontSize: '12px', fontWeight: '600', whiteSpace: 'nowrap' },
   badgeMobile: { flexShrink: 0 },
+}
+
+const paginationStyles = {
+  wrap: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '14px 16px', borderTop: '1px solid #f3f4f6', flexWrap: 'wrap', gap: '10px',
+  },
+  wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  info: { fontSize: '12.5px', color: '#6b7280', whiteSpace: 'nowrap' },
+  controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
+  controlsMobile: { justifyContent: 'space-between' },
+  pageSizeSelect: {
+    padding: '6px 10px', borderRadius: '6px', border: '1px solid #d1d5db',
+    fontSize: '12.5px', color: '#374151', marginRight: '8px',
+  },
+  navBtn: {
+    minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '6px',
+    border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151',
+    fontSize: '13px', cursor: 'pointer',
+  },
+  navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
+  pageBtn: {
+    minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '6px',
+    border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151',
+    fontSize: '12.5px', fontWeight: '600', cursor: 'pointer',
+  },
+  pageBtnActive: {
+    backgroundColor: '#2E7D32', borderColor: '#2E7D32', color: 'white',
+  },
+  ellipsis: { padding: '0 4px', color: '#9ca3af', fontSize: '13px' },
 }
 
 const modalStyles = {
