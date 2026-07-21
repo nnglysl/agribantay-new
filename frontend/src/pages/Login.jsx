@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import api from '../api/axios'
 import { setAuth } from '../utils/auth'
 import { useIsMobile } from '../hooks/useIsMobile'
+import loginImg from '../assets/login_img.png'
 
 export default function Login() {
   const [login, setLogin] = useState('')
@@ -70,7 +71,7 @@ export default function Login() {
           <div style={styles.splashWrapper}>
             <div style={styles.splashIllustration}>
               <img
-                src="/src/assets/login_img.png"
+                src={loginImg}
                 alt="AgriBantay"
                 style={{ width: '100%', height: 'auto', display: 'block' }}
               />
@@ -175,7 +176,7 @@ export default function Login() {
         <div style={styles.card}>
           <div style={styles.leftPanel}>
             <img
-                src="/src/assets/login_img.png"
+                src={loginImg}
                 alt="AgriBantay"
                 style={{
                 width: '100%',

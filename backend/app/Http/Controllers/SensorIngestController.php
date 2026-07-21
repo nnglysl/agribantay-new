@@ -35,7 +35,25 @@ class SensorIngestController extends Controller
         // NOTE: these conversions are placeholders. Calibrate against a real
         // reference (ammonia meter, known-wet/dry soil) before trusting the values.
         $ammonia = round(($request->ammonia_raw / 4095) * 100, 2);
-        $moisture = round(100 - ($request->soil_raw / 4095) * 100, 2);
+
+        // A raw ADC value of exactly 0 means the pin is reading no signal at
+        // all — the probe is unplugged, unpowered, or wired to the wrong GPIO.
+        // A working soil probe in dry air reads HIGH (dry soil = high
+        // resistance), and even a floating, unconnected pin produces drifting
+        // noise rather than a stable 0. So a hard 0 is a hardware fault, not a
+        // measurement.
+        //
+        // This matters because the moisture conversion is inverted (low raw =
+        // wet). Treating a faulty 0 as real would compute 100% moisture and
+        // flag the farm Critical, which then cascades into false drainage
+        // recommendations and unnecessary fly-control service suggestions on
+        // the farmer dashboard. Recording it as unknown keeps a broken sensor
+        // from generating fabricated alerts.
+        $soilRaw    = (int) $request->soil_raw;
+        $soilFaulty = $soilRaw <= 0;
+
+        $moisture       = $soilFaulty ? null : round(100 - ($soilRaw / 4095) * 100, 2);
+        $moistureStatus = $soilFaulty ? 'Unknown' : $this->status($moisture, 60, 70);
 
         $reading = SensorReading::create([
             'farm_id'            => $farm->id,
@@ -47,7 +65,7 @@ class SensorIngestController extends Controller
             'humidity'           => $request->humidity,
             'humidity_status'    => $this->status($request->humidity, 70, 80),
             'moisture'           => $moisture,
-            'moisture_status'    => $this->status($moisture, 60, 70),
+            'moisture_status'    => $moistureStatus,
             'is_mock'            => false,
         ]);
 
@@ -63,7 +81,13 @@ class SensorIngestController extends Controller
         $alertHistory->recordReading($farm->id, 'ammonia', $reading->ammonia_status, $reading->ammonia);
         $alertHistory->recordReading($farm->id, 'temperature', $reading->temperature_status, $reading->temperature);
         $alertHistory->recordReading($farm->id, 'humidity', $reading->humidity_status, $reading->humidity);
-        $alertHistory->recordReading($farm->id, 'moisture', $reading->moisture_status, $reading->moisture);
+
+        // A faulty sensor shouldn't open or close moisture incidents — an
+        // unknown reading is neither an alert nor a recovery, so the running
+        // incident (if any) is left untouched until real data returns.
+        if (!$soilFaulty) {
+            $alertHistory->recordReading($farm->id, 'moisture', $moistureStatus, $moisture);
+        }
 
         app(FarmStatusService::class)->syncStatus($farm);
 
