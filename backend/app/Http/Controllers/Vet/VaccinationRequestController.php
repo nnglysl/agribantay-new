@@ -14,18 +14,25 @@ class VaccinationRequestController extends Controller
     {
         $vetId = Auth::id();
 
-        // Requests assigned to this vet OR unassigned pending vaccine requests they could accept
+        // Requests assigned to this vet OR unassigned pending requests they
+        // could accept — now covers both Vaccine and Blood Test requests,
+        // since both route to the vet role. Ordered oldest-first (was
+        // ->latest()) so requests are naturally worked in the order they
+        // were submitted; the frontend also re-sorts by id defensively, but
+        // fixing it here too keeps the two in agreement.
         $requests = ServiceRequest::with('farm')
-            ->where('service_type', 'Vaccine Request')
+            ->whereIn('service_type', ['Vaccine Request', 'Blood Test Request'])
             ->where(function ($q) use ($vetId) {
                 $q->where('assigned_to', $vetId)
                   ->orWhereNull('assigned_to');
             })
-            ->latest()
+            ->oldest()
             ->get()
             ->map(fn($r) => [
                 'id'             => $r->id,
                 'request_number' => $r->request_number,
+                'service_type'   => $r->service_type,
+                'farm_id'        => $r->farm->id,
                 'farm_name'      => $r->farm->farm_name,
                 'owner_name'     => $r->farm->owner_name,
                 'barangay'       => $r->farm->barangay,
@@ -63,14 +70,14 @@ class VaccinationRequestController extends Controller
         ActivityLog::create([
             'user_id' => Auth::id(),
             'role'    => 'vet',
-            'action'  => 'Scheduled vaccination',
+            'action'  => 'Scheduled ' . strtolower($sr->service_type),
             'details' => "{$sr->request_number} — {$sr->farm->farm_name}",
             'type'    => 'Vaccination',
         ]);
 
         return response()->json([
             'success' => true,
-            'message' => 'Vaccination scheduled.',
+            'message' => ucfirst($sr->service_type) . ' scheduled.',
             'data'    => $sr,
         ]);
     }
@@ -82,7 +89,7 @@ class VaccinationRequestController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Vaccination request declined.',
+            'message' => ucfirst($sr->service_type) . ' declined.',
         ]);
     }
 
@@ -97,14 +104,14 @@ class VaccinationRequestController extends Controller
         ActivityLog::create([
             'user_id' => Auth::id(),
             'role'    => 'vet',
-            'action'  => 'Completed vaccination',
+            'action'  => 'Completed ' . strtolower($sr->service_type),
             'details' => "{$sr->request_number} — {$sr->farm->farm_name}",
             'type'    => 'Vaccination',
         ]);
 
         return response()->json([
             'success' => true,
-            'message' => 'Vaccination marked as completed.',
+            'message' => ucfirst($sr->service_type) . ' marked as completed.',
             'data'    => $sr,
         ]);
     }

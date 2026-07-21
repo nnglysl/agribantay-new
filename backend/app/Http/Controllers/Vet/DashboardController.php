@@ -13,7 +13,7 @@ class DashboardController extends Controller
         $vetId = Auth::id();
 
         $baseQuery = fn() => ServiceRequest::where('assigned_to', $vetId)
-            ->where('service_type', 'Vaccine Request');
+            ->whereIn('service_type', ['Vaccine Request', 'Blood Test Request']);
 
         $assignedRequests = $baseQuery()->count();
 
@@ -21,7 +21,7 @@ class DashboardController extends Controller
             ->whereDate('scheduled_at', now()->toDateString())
             ->count();
 
-        $pending = ServiceRequest::where('service_type', 'Vaccine Request')
+        $pending = ServiceRequest::whereIn('service_type', ['Vaccine Request', 'Blood Test Request'])
             ->where('status', 'Pending')
             ->whereNull('assigned_to')
             ->count();
@@ -85,6 +85,33 @@ class DashboardController extends Controller
             ];
         }
 
+        // Feeds the dashboard map: every Scheduled request assigned to this vet,
+        // across both service types (Vaccine + Blood Test — the two types vets
+        // actually handle). Only Scheduled requests are included, since those
+        // are the only ones with a confirmed date and a farm worth plotting;
+        // Pending requests don't have a scheduled_at yet. Farm coordinates are
+        // included here since neither scheduledVaccinations nor assignedFarms
+        // carry them.
+        $mapRequests = ServiceRequest::where('assigned_to', $vetId)
+            ->whereIn('service_type', ['Vaccine Request', 'Blood Test Request'])
+            ->where('status', 'Scheduled')
+            ->with('farm')
+            ->orderBy('scheduled_at')
+            ->get()
+            ->filter(fn($r) => $r->farm && $r->farm->latitude && $r->farm->longitude)
+            ->map(fn($r) => [
+                'id'             => $r->id,
+                'request_number' => $r->request_number,
+                'service_type'   => $r->service_type,
+                'farm_id'        => $r->farm->id,
+                'farm_name'      => $r->farm->farm_name,
+                'owner_name'     => $r->farm->owner_name,
+                'latitude'       => (float) $r->farm->latitude,
+                'longitude'      => (float) $r->farm->longitude,
+                'scheduled_at'   => $r->scheduled_at,
+            ])
+            ->values();
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -96,6 +123,7 @@ class DashboardController extends Controller
                 'recent_requests'        => $recentRequests,
                 'assigned_farms'         => $assignedFarms,
                 'monthly_progress'       => $monthlyProgress,
+                'map_requests'           => $mapRequests,
             ],
         ]);
     }

@@ -15,6 +15,7 @@ use App\Services\PreventiveActionService;
 use App\Services\RecommendationExplanationService;
 use App\Services\MaintenanceStatusService;
 use App\Models\MaintenanceLog;
+use App\Models\ManureDisposalRecord;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Auth;
@@ -317,6 +318,23 @@ class FarmController extends Controller
                 'performed_at' => $log->performed_at->format('M d, Y'),
                 'notes'        => $log->notes,
                 'photo_url'    => asset('storage/' . $log->photo_path),
+            ]);
+
+        // Objective 3.3 — read-only for Admin/Super Admin. Compliance
+        // visibility into how each farm actually handles its manure,
+        // not a service the LGU performs (farmers sell/compost their
+        // own manure; there's no municipal pickup for it).
+        $farm->disposal_records = ManureDisposalRecord::where('farm_id', $farm->id)
+            ->latest('disposal_date')
+            ->limit(5)
+            ->get()
+            ->map(fn($r) => [
+                'id'              => $r->id,
+                'disposal_method' => $r->disposal_method,
+                'quantity'        => $r->quantity,
+                'buyer_name'      => $r->buyer_name,
+                'disposal_date'   => $r->disposal_date->format('M d, Y'),
+                'notes'           => $r->notes,
             ]);
 
         return response()->json(['success' => true, 'data' => $farm]);

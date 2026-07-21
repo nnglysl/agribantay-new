@@ -9,12 +9,14 @@ use App\Http\Controllers\Admin\InspectionController;
 use App\Http\Controllers\Admin\ServiceRequestController;
 use App\Http\Controllers\Admin\ActivityLogController;
 use App\Http\Controllers\Admin\AlertHistoryController;
+use App\Http\Controllers\Admin\MaintenanceController as AdminMaintenanceController;
 use App\Http\Controllers\Admin\ReportController;
 use App\Http\Controllers\Farmer\DashboardController as FarmerDashboardController;
 use App\Http\Controllers\Farmer\ServiceRequestController as FarmerServiceRequestController;
 use App\Http\Controllers\Farmer\RecommendationController as FarmerRecommendationController;
 use App\Http\Controllers\Farmer\InsightController as FarmerInsightController;
 use App\Http\Controllers\Farmer\MaintenanceController as FarmerMaintenanceController;
+use App\Http\Controllers\Farmer\DisposalController as FarmerDisposalController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\Vet\DashboardController as VetDashboardController;
 use App\Http\Controllers\Vet\VaccinationRequestController;
@@ -63,6 +65,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/insights', [FarmerInsightController::class, 'index']);
         Route::get('/maintenance', [FarmerMaintenanceController::class, 'index']);
         Route::post('/maintenance', [FarmerMaintenanceController::class, 'store']);
+        Route::get('/disposal-records', [FarmerDisposalController::class, 'index']);
+        Route::post('/disposal-records', [FarmerDisposalController::class, 'store']);
         Route::get('/farm-owners', [FarmOwnerController::class, 'index']);
         Route::post('/farm-owners', [FarmOwnerController::class, 'store']);
     });
@@ -106,6 +110,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/reports', [ReportController::class, 'index']);
 
         Route::get('/alert-history', [AlertHistoryController::class, 'index']);
+
+        Route::get('/maintenance/overdue', [AdminMaintenanceController::class, 'overdue']);
     });
 
     /*
