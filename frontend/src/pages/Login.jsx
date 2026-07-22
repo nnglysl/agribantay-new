@@ -4,6 +4,7 @@ import api from '../api/axios'
 import { setAuth } from '../utils/auth'
 import { useIsMobile } from '../hooks/useIsMobile'
 import loginImg from '../assets/login_img.png'
+import sanjoseBg from '../assets/sanjosebg.png'
 
 export default function Login() {
   const [login, setLogin] = useState('')
@@ -397,7 +398,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundImage: 'url(/src/assets/sanjosebg.png)',
+    backgroundImage: `url(${sanjoseBg})`,
     backgroundSize: 'cover',
     backgroundPosition: 'center',
     padding: '24px',
