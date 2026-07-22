@@ -24,7 +24,7 @@ class DashboardController extends Controller
         foreach (['ammonia_status', 'temperature_status', 'humidity_status', 'moisture_status'] as $field) {
             $status = $latestReading?->$field;
             if ($status === 'Critical') {
-                $healthScore -= 20;
+                $healthScore -= 35;
             } elseif ($status === 'Warning') {
                 $healthScore -= 10;
             }
