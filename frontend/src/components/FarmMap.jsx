@@ -209,18 +209,15 @@ export const SAN_JOSE_BOUNDARY = [
 export const WORLD_RING = [[85, -180], [85, 180], [-85, 180], [-85, -180]]
 
 const statusColor = {
-  Safe: '#2E7D32',
-  Moderate: '#f59e0b',
-  Critical: '#dc2626',
+  Safe: '#2c8047',
+  Moderate: '#d9880f',
+  Critical: '#c0392b',
 }
 
-// Matches the palette already used for General/Follow-up everywhere else
-// in the app (Inspections calendar, summary cards) — clay for General,
-// gold for Follow-up. Written as a function rather than a plain object
-// lookup because the actual stored value is "General Inspection", not
-// "General" — a plain lookup by that key was silently always missing.
+// General = green, Follow-up = amber. (The stored value is "General
+// Inspection", not "General", so this is a function rather than a lookup.)
 function inspectionTypeColor(type) {
-  return type === 'Follow-up' ? '#D4AF37' : '#B5651D'
+  return type === 'Follow-up' ? '#d9880f' : '#2c8047'
 }
 
 // Matches an alert/inspection record back to its farm on the map — tries
@@ -261,7 +258,7 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], onS
     }).addTo(map)
 
     L.polygon(SAN_JOSE_BOUNDARY, {
-      color: '#1B4332',
+      color: '#14301c',
       weight: 2.5,
       fillOpacity: 0,
     }).addTo(map)
@@ -276,9 +273,8 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], onS
   }, [])
 
   // Leaflet caches its container size on init — if the container's size
-  // changes after mount (e.g. rotating a phone, or the drawer sidebar
-  // toggling and reflowing layout), tell Leaflet to recalculate so tiles
-  // don't render blank/cut off.
+  // changes after mount (rotating a phone, sidebar toggling), tell Leaflet
+  // to recalculate so tiles don't render blank/cut off.
   useEffect(() => {
     if (!mapRef.current) return
     const timeout = setTimeout(() => {
@@ -305,7 +301,7 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], onS
         tooltip = `${farm.farm_name} — ${farm.current_status || 'Unknown'}`
       } else {
         inspection = inspections.find(i => findFarm(i, farms)?.id === farm.id)
-        color = inspection ? inspectionTypeColor(inspection.inspection_type) : '#D1CDBF'
+        color = inspection ? inspectionTypeColor(inspection.inspection_type) : '#d4d8cf'
         tooltip = inspection
           ? `${farm.farm_name} — ${inspection.inspection_type}`
           : `${farm.farm_name} — No inspection scheduled`
@@ -366,72 +362,69 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], onS
   const visibleItems = listItems.slice(0, 3)
 
   return (
-    <div style={styles.wrap}>
-      <div
-        ref={containerRef}
-        style={{ height: isMobile ? '320px' : '560px', width: '100%' }}
-      />
-
-      <div style={{ ...styles.toggle, ...(isMobile ? styles.toggleMobile : {}) }}>
-        <button
-          onClick={() => setMode('alerts')}
-          style={{ ...styles.toggleBtn, ...(mode === 'alerts' ? styles.toggleBtnActive : {}) }}
-        >
-          Alerts
-        </button>
-        <button
-          onClick={() => setMode('inspection')}
-          style={{ ...styles.toggleBtn, ...(mode === 'inspection' ? styles.toggleBtnActive : {}) }}
-        >
-          Inspections
-        </button>
+    <div style={{ ...styles.layout, ...(isMobile ? styles.layoutMobile : {}) }}>
+      <div style={styles.mapCol}>
+        <div ref={containerRef} style={{ height: isMobile ? '320px' : '520px', width: '100%' }} />
+        <div style={{ ...styles.legend, ...(isMobile ? styles.legendMobile : {}) }}>
+          <div style={styles.legendTitle}>{mode === 'alerts' ? 'Alert status' : 'Inspection type'}</div>
+          {mode === 'alerts' ? (
+            <>
+              <LegendRow color={statusColor.Safe} label="Normal" />
+              <LegendRow color={statusColor.Moderate} label="Warning" />
+              <LegendRow color={statusColor.Critical} label="Critical" />
+            </>
+          ) : (
+            <>
+              <LegendRow color={inspectionTypeColor('Follow-up')} label="Follow-up Inspection" />
+              <LegendRow color={inspectionTypeColor('General')} label="General Inspection" />
+            </>
+          )}
+        </div>
       </div>
 
-      <div style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}) }}>
-        <div style={styles.panelHead}>
-          <div style={styles.panelHeadLeft}>
-            <span style={styles.panelTitle}>
-              {mode === 'alerts' ? 'Critical Alerts' : 'Upcoming Inspections'}
-            </span>
+      <div style={{ ...styles.side, ...(isMobile ? styles.sideMobile : {}) }}>
+        <div style={styles.sideTabsWrap}>
+          <div style={styles.sideTabs}>
+            <button onClick={() => setMode('alerts')} style={{ ...styles.sideTab, ...(mode === 'alerts' ? styles.sideTabActive : {}) }}>Alerts</button>
+            <button onClick={() => setMode('inspection')} style={{ ...styles.sideTab, ...(mode === 'inspection' ? styles.sideTabActive : {}) }}>Inspections</button>
+          </div>
+        </div>
+
+        <div style={styles.sideHead}>
+          <div style={styles.sideHeadLeft}>
+            <span style={styles.sideTitle}>{mode === 'alerts' ? 'Critical Alerts' : 'Upcoming Inspections'}</span>
             {mode === 'inspection' && monthLabel && (
-              <div style={styles.panelMonthRow}>
-                <span style={styles.panelMonthBtn} onClick={onPrevMonth} aria-label="Previous month">‹</span>
-                <span style={styles.panelMonthLabel}>{monthLabel}</span>
-                <span style={styles.panelMonthBtn} onClick={onNextMonth} aria-label="Next month">›</span>
+              <div style={styles.monthRow}>
+                <span style={styles.monthBtn} onClick={onPrevMonth} aria-label="Previous month">‹</span>
+                <span style={styles.monthLabel}>{monthLabel}</span>
+                <span style={styles.monthBtn} onClick={onNextMonth} aria-label="Next month">›</span>
               </div>
             )}
           </div>
-
           {mode === 'alerts' ? (
-            <span style={styles.panelCount}>{listItems.length}</span>
+            <span style={styles.countAlert}>{listItems.length}</span>
           ) : (
-            <div style={styles.panelCountGroup}>
-              <div style={styles.panelCountPill}>
-                <span style={styles.panelCountValue}>{listItems.length}</span>
-                <span style={styles.panelCountLabel}>Total</span>
+            <div style={styles.countGroup}>
+              <div style={styles.countPill}>
+                <span style={styles.countValue}>{listItems.length}</span>
+                <span style={styles.countLabel}>Total</span>
               </div>
-              {!isMobile && (
-                <div style={{ ...styles.panelCountPill, ...styles.panelCountPillAmber }}>
-                  <span style={styles.panelCountValue}>
-                    {listItems.filter(i => i.inspection_type === 'Follow-up').length}
-                  </span>
-                  <span style={styles.panelCountLabel}>Follow-up</span>
-                </div>
-              )}
+              <div style={{ ...styles.countPill, ...styles.countPillAmber }}>
+                <span style={styles.countValue}>{listItems.filter(i => i.inspection_type === 'Follow-up').length}</span>
+                <span style={styles.countLabel}>Follow-up</span>
+              </div>
             </div>
           )}
         </div>
 
-        <div style={styles.panelList}>
+        <div style={styles.sideList}>
           {visibleItems.length === 0 && (
-            <div style={styles.empty}>
-              {mode === 'alerts' ? 'No critical alerts right now.' : 'No upcoming inspections.'}
-            </div>
+            <div style={styles.empty}>{mode === 'alerts' ? 'No critical alerts right now.' : 'No upcoming inspections.'}</div>
           )}
 
           {mode === 'alerts' && visibleItems.map(f => {
             const farm = findFarm(f, farms)
-            const color = statusColor[f.ammonia_status] || '#dc2626'
+            const color = statusColor[f.ammonia_status] || '#c0392b'
             return (
               <div key={f.farm_id ?? f.farm_name} style={styles.item} onClick={() => focusFarm(farm)}>
                 <span style={{ ...styles.itemDot, backgroundColor: color }} />
@@ -452,9 +445,7 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], onS
                 <span style={{ ...styles.itemDot, backgroundColor: color }} />
                 <div style={styles.itemText}>
                   <div style={styles.itemName}>{i.farm_name}</div>
-                  <div style={styles.itemSub}>
-                    {new Date(i.scheduled_at).toLocaleDateString()} · {i.inspection_type}
-                  </div>
+                  <div style={styles.itemSub}>{new Date(i.scheduled_at).toLocaleDateString()} · {i.inspection_type}</div>
                 </div>
                 <span style={{ ...styles.itemStatus, color }}>{i.inspection_type}</span>
               </div>
@@ -463,30 +454,9 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], onS
         </div>
 
         {listItems.length > visibleItems.length && (
-          <button
-            style={styles.seeAll}
-            onClick={() => (mode === 'alerts' ? onSeeAllAlerts?.() : onSeeAllInspections?.())}
-          >
+          <button style={styles.seeAll} onClick={() => (mode === 'alerts' ? onSeeAllAlerts?.() : onSeeAllInspections?.())}>
             See all ({listItems.length - visibleItems.length} more)
           </button>
-        )}
-      </div>
-
-      <div style={{ ...styles.legend, ...(isMobile ? styles.legendMobile : {}) }}>
-        <div style={styles.legendTitle}>
-          {mode === 'alerts' ? 'Alert status' : 'Inspection type'}
-        </div>
-        {mode === 'alerts' ? (
-          <>
-            <LegendRow color={statusColor.Safe} label="Normal" />
-            <LegendRow color={statusColor.Moderate} label="Warning" />
-            <LegendRow color={statusColor.Critical} label="Critical" />
-          </>
-        ) : (
-          <>
-            <LegendRow color={inspectionTypeColor('Follow-up')} label="Follow-up Inspection" />
-            <LegendRow color={inspectionTypeColor('General')} label="General Inspection" />
-          </>
         )}
       </div>
     </div>
@@ -503,89 +473,47 @@ function LegendRow({ color, label }) {
 }
 
 const styles = {
-  wrap: { position: 'relative', borderRadius: '12px', overflow: 'hidden', isolation: 'isolate' },
+  layout: { display: 'flex', gap: '16px', alignItems: 'stretch', fontFamily: "'Public Sans', system-ui, sans-serif" },
+  layoutMobile: { flexDirection: 'column' },
 
-  toggle: {
-    position: 'absolute', top: '14px', right: '14px', zIndex: 1001,
-    display: 'flex', background: 'rgba(255,255,255,0.92)', borderRadius: '999px',
-    padding: '3px', gap: '2px', boxShadow: '0 4px 12px rgba(0,0,0,0.18)',
-  },
-  toggleMobile: { top: '10px', right: '10px' },
-  toggleBtn: {
-    border: 'none', background: 'transparent', padding: '7px 14px', borderRadius: '999px',
-    fontSize: '12px', fontWeight: '700', color: '#6b7280', cursor: 'pointer',
-  },
-  toggleBtnActive: { background: '#234A35', color: '#fff' },
+  mapCol: { position: 'relative', flex: 1, minWidth: 0, borderRadius: '14px', overflow: 'hidden', border: '1px solid #e7e8e0', isolation: 'isolate' },
 
-  panel: {
-    position: 'absolute', right: '14px', top: '58px', zIndex: 1001,
-    width: '250px', maxHeight: 'calc(100% - 130px)',
-    background: 'rgba(24,46,34,0.7)',
-    backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)',
-    border: '1px solid rgba(255,255,255,0.18)', borderRadius: '14px',
-    boxShadow: '0 10px 28px rgba(0,0,0,0.28)',
-    display: 'flex', flexDirection: 'column', overflow: 'hidden',
-  },
-  panelMobile: { width: '180px', top: '52px', maxHeight: 'calc(100% - 96px)' },
+  side: { width: '300px', flexShrink: 0, display: 'flex', flexDirection: 'column', background: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px', overflow: 'hidden' },
+  sideMobile: { width: '100%' },
 
-  panelHead: {
-    padding: '12px 14px 9px', borderBottom: '1px solid rgba(255,255,255,0.14)',
-    display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexShrink: 0, gap: '8px',
-  },
-  panelHeadLeft: { minWidth: 0 },
-  panelTitle: { fontSize: '12px', fontWeight: '800', color: '#fff' },
-  panelMonthRow: { display: 'flex', alignItems: 'center', gap: '6px', marginTop: '5px' },
-  panelMonthBtn: {
-    width: '17px', height: '17px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    borderRadius: '50%', cursor: 'pointer', fontSize: '11px', color: '#fff',
-    backgroundColor: 'rgba(255,255,255,0.16)', flexShrink: 0,
-  },
-  panelMonthLabel: { fontSize: '10.5px', color: 'rgba(255,255,255,0.75)', fontWeight: '600', whiteSpace: 'nowrap' },
-  panelCount: {
-    fontSize: '10.5px', fontWeight: '700', color: '#234A35', background: '#E8C766',
-    padding: '2px 8px', borderRadius: '999px', flexShrink: 0,
-  },
-  panelCountGroup: { display: 'flex', gap: '6px', flexShrink: 0 },
-  panelCountPill: {
-    display: 'flex', flexDirection: 'column', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.14)',
-    borderRadius: '8px', padding: '3px 8px', minWidth: '38px',
-  },
-  panelCountPillAmber: { backgroundColor: 'rgba(232,199,102,0.22)' },
-  panelCountValue: { fontSize: '13px', fontWeight: '800', color: '#fff', lineHeight: 1.1 },
-  panelCountLabel: { fontSize: '7.5px', fontWeight: '700', color: 'rgba(255,255,255,0.75)', textTransform: 'uppercase' },
+  sideTabsWrap: { padding: '12px', borderBottom: '1px solid #eceee7' },
+  sideTabs: { display: 'flex', gap: '3px', background: '#f3f4ef', borderRadius: '10px', padding: '3px' },
+  sideTab: { flex: 1, border: 'none', background: 'transparent', color: '#6b7770', padding: '8px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' },
+  sideTabActive: { background: '#2c8047', color: '#fff' },
 
-  panelList: { overflowY: 'auto', padding: '8px' },
-  empty: { padding: '14px 8px', textAlign: 'center', fontSize: '11.5px', color: 'rgba(255,255,255,0.6)' },
+  sideHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', padding: '14px 16px 10px' },
+  sideHeadLeft: { minWidth: 0 },
+  sideTitle: { fontSize: '13px', fontWeight: 800, color: '#16311d' },
+  monthRow: { display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px' },
+  monthBtn: { width: '18px', height: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', cursor: 'pointer', fontSize: '12px', color: '#33413a', backgroundColor: '#eef1ea', flexShrink: 0 },
+  monthLabel: { fontSize: '11px', color: '#6b7770', fontWeight: 600, whiteSpace: 'nowrap' },
 
-  item: {
-    display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 8px',
-    borderRadius: '9px', cursor: 'pointer', marginBottom: '2px',
-  },
-  itemDot: { width: '10px', height: '10px', borderRadius: '50%', flexShrink: 0, boxShadow: '0 0 0 2px rgba(255,255,255,0.25)' },
+  countAlert: { fontSize: '11px', fontWeight: 700, color: '#b91c1c', background: '#fbeaea', padding: '3px 9px', borderRadius: '999px', flexShrink: 0 },
+  countGroup: { display: 'flex', gap: '6px', flexShrink: 0 },
+  countPill: { display: 'flex', flexDirection: 'column', alignItems: 'center', backgroundColor: '#f3f4ef', borderRadius: '8px', padding: '3px 9px', minWidth: '40px' },
+  countPillAmber: { backgroundColor: '#fbf1e2' },
+  countValue: { fontSize: '14px', fontWeight: 800, color: '#16311d', lineHeight: 1.1 },
+  countLabel: { fontSize: '8px', fontWeight: 700, color: '#8a968d', textTransform: 'uppercase' },
+
+  sideList: { overflowY: 'auto', padding: '0 8px', flex: 1 },
+  empty: { padding: '18px 8px', textAlign: 'center', fontSize: '12.5px', color: '#9aa79d' },
+  item: { display: 'flex', alignItems: 'center', gap: '11px', padding: '11px 8px', borderRadius: '9px', cursor: 'pointer' },
+  itemDot: { width: '10px', height: '10px', borderRadius: '50%', flexShrink: 0 },
   itemText: { minWidth: 0, flex: 1 },
-  itemName: {
-    fontSize: '12px', fontWeight: '700', color: '#fff',
-    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-  },
-  itemSub: { fontSize: '10px', color: 'rgba(255,255,255,0.6)', marginTop: '1px' },
-  itemStatus: { fontSize: '9.5px', fontWeight: '700', whiteSpace: 'nowrap', flexShrink: 0 },
+  itemName: { fontSize: '13px', fontWeight: 700, color: '#16311d', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  itemSub: { fontSize: '11px', color: '#8a968d', marginTop: '1px' },
+  itemStatus: { fontSize: '10.5px', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 },
 
-  seeAll: {
-    flexShrink: 0, border: 'none', borderTop: '1px solid rgba(255,255,255,0.14)',
-    background: 'transparent', color: '#E8C766', fontSize: '11.5px', fontWeight: '700',
-    padding: '10px', cursor: 'pointer',
-  },
+  seeAll: { border: 'none', borderTop: '1px solid #eceee7', background: 'transparent', color: '#2c8047', fontSize: '12px', fontWeight: 700, padding: '12px', cursor: 'pointer', fontFamily: 'inherit' },
 
-  legend: {
-    position: 'absolute', left: '14px', bottom: '14px', zIndex: 1001,
-    background: 'rgba(255,255,255,0.96)', borderRadius: '12px', padding: '10px 12px',
-    boxShadow: '0 4px 14px rgba(0,0,0,0.18)', border: '1px solid #E8E2D3', minWidth: '140px',
-  },
-  legendMobile: { padding: '8px 10px', minWidth: '110px' },
-  legendTitle: {
-    fontSize: '9.5px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.4px',
-    color: '#6b7280', marginBottom: '6px',
-  },
-  legendRow: { display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11.5px', color: '#374151', marginBottom: '4px' },
+  legend: { position: 'absolute', left: '14px', bottom: '14px', zIndex: 1001, background: '#fff', border: '1px solid #e7e8e0', borderRadius: '12px', padding: '11px 13px', boxShadow: '0 4px 14px rgba(20,48,28,0.14)', minWidth: '150px' },
+  legendMobile: { padding: '9px 11px', minWidth: '120px' },
+  legendTitle: { fontSize: '9.5px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#8a968d', marginBottom: '8px' },
+  legendRow: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#33413a', marginBottom: '5px' },
   legendDot: { width: '9px', height: '9px', borderRadius: '50%', flexShrink: 0 },
 }

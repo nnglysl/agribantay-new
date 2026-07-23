@@ -20,8 +20,8 @@ export default function AdminDashboard() {
     .filter(i => i.status === 'Scheduled')
     .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
 
-  if (loading) return <AdminLayout><p>Loading...</p></AdminLayout>
-  if (error) return <AdminLayout><p style={{ color: '#dc2626' }}>{error}</p></AdminLayout>
+  if (loading) return <AdminLayout><p style={styles.stateText}>Loading...</p></AdminLayout>
+  if (error) return <AdminLayout><p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p></AdminLayout>
 
   return (
     <AdminLayout>
@@ -29,27 +29,9 @@ export default function AdminDashboard() {
       <p style={styles.subtitle}>Welcome back, Administrator</p>
 
       <div style={{ ...styles.statsGrid, ...(isMobile ? styles.statsGridMobile : {}) }}>
-        <StatCard
-          value={data.total_farms}
-          label="Total Farms"
-          foot="Registered in San Jose"
-          variant="green"
-          isMobile={isMobile}
-        />
-        <StatCard
-          value={data.active_requests}
-          label="Active Requests"
-          foot="Awaiting inspection"
-          variant="gold"
-          isMobile={isMobile}
-        />
-        <StatCard
-          value={data.resolved_requests}
-          label="Resolved Requests"
-          foot="Closed recently"
-          variant="clay"
-          isMobile={isMobile}
-        />
+        <StatCard value={data.total_farms} label="Total Farms" foot="Registered in San Jose" tone="green" icon="farm" isMobile={isMobile} />
+        <StatCard value={data.active_requests} label="Active Requests" foot="Awaiting inspection" tone="amber" icon="clock" badge="Awaiting" isMobile={isMobile} />
+        <StatCard value={data.resolved_requests} label="Resolved Requests" foot="Closed recently" tone="green" icon="check" isMobile={isMobile} />
       </div>
 
       <h3 style={styles.mapTitle}>Farm monitoring map</h3>
@@ -68,14 +50,8 @@ export default function AdminDashboard() {
       </p>
 
       {modalOpen === 'critical' && (
-        <ListModal
-          title="Critical Alerts"
-          onClose={() => setModalOpen(null)}
-          isMobile={isMobile}
-        >
-          {data.critical_farms.length === 0 && (
-            <p style={styles.emptyText}>No critical alerts right now.</p>
-          )}
+        <ListModal title="Critical Alerts" onClose={() => setModalOpen(null)} isMobile={isMobile}>
+          {data.critical_farms.length === 0 && <p style={styles.emptyText}>No critical alerts right now.</p>}
           {data.critical_farms.map(f => (
             <div key={f.farm_id} style={styles.alertRow}>
               <div style={styles.alertBar} />
@@ -83,37 +59,32 @@ export default function AdminDashboard() {
                 <div style={styles.alertFarm}>{f.farm_name}</div>
                 <div style={styles.alertDetail}>Ammonia {f.ammonia} ppm</div>
               </div>
-              <span style={{ ...styles.badge, backgroundColor: '#dc2626' }}>
-                {f.ammonia_status}
-              </span>
+              <span style={{ ...styles.badge, backgroundColor: '#c0392b' }}>{f.ammonia_status}</span>
             </div>
           ))}
         </ListModal>
       )}
 
       {modalOpen === 'inspections' && (
-        <ListModal
-          title={`Inspections — ${monthLabel}`}
-          onClose={() => setModalOpen(null)}
-          isMobile={isMobile}
-        >
-          {monthInspections.length === 0 && (
-            <p style={styles.emptyText}>No inspections scheduled for {monthLabel}.</p>
-          )}
-          {monthInspections.map(i => (
-            <div key={i.id} style={styles.alertRow}>
-              <div style={{ ...styles.alertBar, backgroundColor: i.inspection_type === 'Follow-up' ? '#f59e0b' : '#3b82f6' }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={styles.alertFarm}>{i.farm_name}</div>
-                <div style={styles.alertDetail}>
-                  📅 {new Date(i.scheduled_at).toLocaleDateString()} · {i.inspection_type}
+        <ListModal title={`Inspections — ${monthLabel}`} onClose={() => setModalOpen(null)} isMobile={isMobile}>
+          {monthInspections.length === 0 && <p style={styles.emptyText}>No inspections scheduled for {monthLabel}.</p>}
+          {monthInspections.map(i => {
+            const c = i.inspection_type === 'Follow-up' ? '#d9880f' : '#2c8047'
+            return (
+              <div key={i.id} style={styles.alertRow}>
+                <div style={{ ...styles.alertBar, backgroundColor: c }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={styles.alertFarm}>{i.farm_name}</div>
+                  <div style={styles.alertDetail}>
+                    {new Date(i.scheduled_at).toLocaleDateString()} · {i.inspection_type}
+                  </div>
                 </div>
+                <span style={{ ...styles.badge, backgroundColor: c }}>
+                  {i.inspection_type === 'Follow-up' ? 'Follow-up' : 'General'}
+                </span>
               </div>
-              <span style={{ ...styles.badge, backgroundColor: i.inspection_type === 'Follow-up' ? '#f59e0b' : '#3b82f6' }}>
-                {i.inspection_type === 'Follow-up' ? 'Follow-up' : 'General'}
-              </span>
-            </div>
-          ))}
+            )
+          })}
         </ListModal>
       )}
     </AdminLayout>
@@ -123,25 +94,36 @@ export default function AdminDashboard() {
 function ListModal({ title, onClose, children, isMobile }) {
   return (
     <div style={modalStyles.overlay} onClick={onClose}>
-      <div
-        style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }}
-        onClick={e => e.stopPropagation()}
-      >
+      <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
         <div style={modalStyles.header}>
           <h3 style={modalStyles.title}>{title}</h3>
           <span style={modalStyles.close} onClick={onClose}>×</span>
         </div>
-        <div style={modalStyles.body}>
-          {children}
-        </div>
+        <div style={modalStyles.body}>{children}</div>
       </div>
     </div>
   )
 }
 
-function StatCard({ value, label, foot, variant, isMobile }) {
+const ICONS = {
+  farm: <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21V9l9-6 9 6v12h-6v-7H9v7H3z" /></svg>,
+  clock: <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></svg>,
+  check: <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>,
+}
+
+function StatCard({ value, label, foot, tone, icon, badge, isMobile }) {
+  const tones = {
+    green: { bg: '#eaf3ec', fg: '#2c8047' },
+    amber: { bg: '#fbf1e2', fg: '#b45309' },
+    neutral: { bg: '#eef1ea', fg: '#4b5a50' },
+  }
+  const t = tones[tone] || tones.green
   return (
-    <div style={{ ...styles.statCard, ...styles[`statCard_${variant}`], ...(isMobile ? styles.statCardMobile : {}) }}>
+    <div style={{ ...styles.statCard, ...(isMobile ? styles.statCardMobile : {}) }}>
+      <div style={styles.statTop}>
+        <span style={{ ...styles.statIcon, background: t.bg, color: t.fg }}>{ICONS[icon]}</span>
+        {badge && <span style={{ ...styles.statBadge, color: t.fg, background: t.bg }}>{badge}</span>}
+      </div>
       <div style={{ ...styles.statValue, ...(isMobile ? styles.statValueMobile : {}) }}>{value}</div>
       <div style={styles.statLabel}>{label}</div>
       {foot && <div style={styles.statFoot}>{foot}</div>}
@@ -149,58 +131,44 @@ function StatCard({ value, label, foot, variant, isMobile }) {
   )
 }
 
+const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+
 const styles = {
-  title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
-  titleMobile: { fontSize: '18px' },
-  subtitle: { fontSize: '13px', color: '#6B6B5F', marginTop: '4px', marginBottom: '20px' },
+  stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
+  title: { fontFamily: SANS, fontSize: '24px', fontWeight: 800, letterSpacing: '-0.015em', color: '#16311d', margin: 0 },
+  titleMobile: { fontSize: '20px' },
+  subtitle: { fontFamily: SANS, fontSize: '13.5px', color: '#6b7770', marginTop: '5px', marginBottom: '24px' },
 
-  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '20px' },
-  statsGridMobile: { gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', marginBottom: '16px' },
+  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '28px' },
+  statsGridMobile: { gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '20px' },
 
-  statCard: {
-    position: 'relative', overflow: 'hidden', borderRadius: '14px', padding: '18px 20px',
-    color: 'white', boxShadow: '0 6px 18px rgba(0,0,0,0.12)',
-  },
-  statCard_green: { background: 'linear-gradient(135deg, #234A35 0%, #122A1E 100%)' },
-  statCard_gold: { background: 'linear-gradient(135deg, #E8C766 0%, #D4AF37 55%, #B8912B 100%)', color: '#122A1E' },
-  statCard_clay: { background: 'linear-gradient(135deg, #D68A46 0%, #B5651D 100%)' },
-  statCardMobile: { padding: '14px' },
+  statCard: { fontFamily: SANS, background: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px', padding: '20px 22px' },
+  statCardMobile: { padding: '16px' },
+  statTop: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' },
+  statIcon: { width: '40px', height: '40px', borderRadius: '11px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  statBadge: { fontSize: '11px', fontWeight: 700, padding: '3px 9px', borderRadius: '999px' },
+  statValue: { fontSize: '30px', fontWeight: 800, letterSpacing: '-0.02em', color: '#14301c', lineHeight: 1 },
+  statValueMobile: { fontSize: '24px' },
+  statLabel: { fontSize: '13px', fontWeight: 700, color: '#33413a', marginTop: '8px' },
+  statFoot: { fontSize: '12px', color: '#8a968d', marginTop: '3px' },
 
-  statValue: { fontSize: '28px', fontWeight: '800', lineHeight: 1 },
-  statValueMobile: { fontSize: '22px' },
-  statLabel: { fontSize: '12.5px', fontWeight: '600', marginTop: '6px', textTransform: 'uppercase', letterSpacing: '0.4px', opacity: 0.92 },
-  statFoot: { fontSize: '11px', marginTop: '8px', opacity: 0.85 },
+  mapTitle: { fontFamily: SANS, fontSize: '15px', fontWeight: 700, color: '#16311d', marginTop: '20px', marginBottom: '13px' },
+  mapNote: { fontFamily: SANS, fontSize: '11.5px', color: '#9aa79d', marginTop: '12px', lineHeight: 1.5 },
 
-  mapTitle: { fontSize: '15px', fontWeight: '700', color: '#111827', marginTop: '20px', marginBottom: '12px' },
-  mapNote: { fontSize: '11.5px', color: '#9ca3af', marginTop: '10px', lineHeight: '1.5' },
-
-  emptyText: { fontSize: '13px', color: '#9ca3af' },
-  alertRow: {
-    display: 'flex', alignItems: 'center', gap: '12px',
-    padding: '12px 0', borderBottom: '1px solid #f3f4f6',
-  },
-  alertBar: { width: '4px', height: '32px', backgroundColor: '#dc2626', borderRadius: '2px', flexShrink: 0 },
-  alertFarm: { fontSize: '14px', fontWeight: '600', color: '#111827' },
-  alertDetail: { fontSize: '12px', color: '#6b7280', marginTop: '2px' },
-  badge: { padding: '4px 10px', borderRadius: '999px', color: 'white', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap', flexShrink: 0 },
+  emptyText: { fontFamily: SANS, fontSize: '13px', color: '#9aa79d' },
+  alertRow: { display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 0', borderBottom: '1px solid #f0efe8' },
+  alertBar: { width: '4px', height: '32px', backgroundColor: '#c0392b', borderRadius: '2px', flexShrink: 0 },
+  alertFarm: { fontSize: '14px', fontWeight: 600, color: '#16311d' },
+  alertDetail: { fontSize: '12px', color: '#6b7770', marginTop: '2px' },
+  badge: { padding: '4px 10px', borderRadius: '999px', color: 'white', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 },
 }
 
 const modalStyles = {
-  overlay: {
-    position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50,
-  },
-  modal: {
-    backgroundColor: 'white', borderRadius: '16px', padding: '24px',
-    width: '480px', maxWidth: '90%', maxHeight: '80vh', overflowY: 'auto',
-  },
-  modalMobile: {
-    width: '100%', maxWidth: '100%', borderRadius: '16px 16px 0 0',
-    padding: '20px', margin: '0', position: 'fixed', bottom: 0, left: 0,
-    maxHeight: '80vh',
-  },
+  overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 },
+  modal: { fontFamily: SANS, backgroundColor: 'white', borderRadius: '16px', padding: '24px', width: '480px', maxWidth: '90%', maxHeight: '80vh', overflowY: 'auto' },
+  modalMobile: { width: '100%', maxWidth: '100%', borderRadius: '16px 16px 0 0', padding: '20px', margin: 0, position: 'fixed', bottom: 0, left: 0, maxHeight: '80vh' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
-  title: { fontSize: '17px', fontWeight: '700', color: '#111827', margin: 0 },
-  close: { fontSize: '22px', cursor: 'pointer', color: '#6b7280' },
+  title: { fontSize: '17px', fontWeight: 800, color: '#16311d', margin: 0 },
+  close: { fontSize: '24px', cursor: 'pointer', color: '#8a968d', lineHeight: 1 },
   body: { display: 'flex', flexDirection: 'column' },
 }

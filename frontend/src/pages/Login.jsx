@@ -3,36 +3,31 @@ import { useNavigate } from 'react-router-dom'
 import api from '../api/axios'
 import { setAuth } from '../utils/auth'
 import { useIsMobile } from '../hooks/useIsMobile'
-import loginImg from '../assets/login_img.png'
+import loginImg from '../assets/login_imgg.png'
+import agribantayLogo from '../assets/agribantay_logo.png'
+import agribantayName from '../assets/agribantay_name.png'
 import sanjoseBg from '../assets/sanjosebg.png'
 
 export default function Login() {
   const [login, setLogin] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [remember, setRemember] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [showForgotModal, setShowForgotModal] = useState(false)
   const navigate = useNavigate()
   const isMobile = useIsMobile()
-  const [mobileStep, setMobileStep] = useState('welcome')
 
   const handleLogin = async (e) => {
     e.preventDefault()
     setError('')
     setLoading(true)
-
     try {
       const res = await api.post('/login', { login, password })
       const { token, user } = res.data
-
       setAuth(token, user)
-
-      if (user.must_change_password) {
-        navigate('/change-password')
-        return
-      }
-
+      if (user.must_change_password) { navigate('/change-password'); return }
       if (user.role === 'super_admin') navigate('/superadmin/dashboard')
       else if (user.role === 'admin') navigate('/admin/dashboard')
       else if (user.role === 'farm_owner') navigate('/farmowner/dashboard')
@@ -44,228 +39,93 @@ export default function Login() {
     }
   }
 
-  const showPhotoBackground = !isMobile || mobileStep === 'form'
+  const CLIP = 'ellipse(100% 132% at 0% 50%)'
 
   return (
-    <div style={{
-      ...styles.page,
-      ...(showPhotoBackground ? {} : styles.pageSplash),
-      padding: isMobile && mobileStep === 'welcome' ? '0' : (isMobile ? '16px' : '24px'),
-      ...(isMobile ? { flexDirection: 'column', justifyContent: 'center', alignItems: 'center' } : {}),
-    }}>
-      {/* Floating back-to-landing-page button — always returns to "/",
-          independent of the mobile welcome/form step toggle below. */}
-      <button
-        type="button"
-        onClick={() => navigate('/')}
-        style={styles.landingBackBtn}
-        aria-label="Back to home"
-      >
-        <BackIcon />
+    <div style={{ ...styles.page, padding: isMobile ? '16px' : '30px' }}>
+      <style>{`
+        html, body { margin: 0; }
+        .agb-input { transition: border-color .15s ease, box-shadow .15s ease; }
+        .agb-input:focus { border-color: #2c8047; box-shadow: 0 0 0 3px rgba(44,128,71,0.14); background: #ffffff; }
+        .agb-btn { transition: transform .12s ease, background-color .15s ease, box-shadow .15s ease; }
+        .agb-btn:active { transform: translateY(1px); }
+        .agb-primary:hover { background-color: #17472a; box-shadow: 0 10px 24px -10px rgba(20,48,28,0.7); }
+      `}</style>
+
+      <button type="button" onClick={() => navigate('/')} style={styles.backHome} aria-label="Back to home">
+        <BackIcon /> Home
       </button>
 
-      {/* Background overlay - only over the photo background */}
-      {showPhotoBackground && <div style={styles.overlay} />}
-
-      {isMobile ? (
-        mobileStep === 'welcome' ? (
-          <div style={styles.splashWrapper}>
-            <div style={styles.splashIllustration}>
-              <img
-                src={loginImg}
-                alt="AgriBantay"
-                style={{ width: '100%', height: 'auto', display: 'block' }}
-              />
-            </div>
-
-            <div style={styles.splashFooter}>
-              <button
-                type="button"
-                onClick={() => setMobileStep('form')}
-                style={styles.loginBtn}
-              >
-                Login
-              </button>
-              <p style={styles.contactNote}>
-                Need an account?{' '}
-                <span style={styles.contactLink}>Contact the Municipal Office</span>
-              </p>
+      <div style={{ ...styles.card, flexDirection: isMobile ? 'column' : 'row', maxWidth: isMobile ? '440px' : '920px', minHeight: isMobile ? 'auto' : '600px' }}>
+        {/* Illustration cell — desktop only */}
+        {!isMobile && (
+          <div style={{ ...styles.imgCell, flex: '0 0 45%', order: 1 }}>
+            <div style={{ ...styles.imgCurve, clipPath: CLIP }} />
+            <div style={{ ...styles.imgClip, clipPath: CLIP }}>
+              <img src={loginImg} alt="AgriBantay" style={styles.artImg} />
             </div>
           </div>
-        ) : (
-          <div style={styles.mobileGroup}>
-            <div style={styles.cardMobileOnly}>
-              <div style={styles.rightPanelMobile}>
-                <button
-                  type="button"
-                  onClick={() => setMobileStep('welcome')}
-                  style={styles.backBtn}
-                >
-                  <BackIcon /> Back
-                </button>
+        )}
 
-                <h2 style={styles.welcomeTitleMobile}>Welcome back!</h2>
-                <p style={styles.welcomeSub}>San Jose Municipal Agriculture Office</p>
-
-                <form onSubmit={handleLogin} style={styles.form}>
-                  {error && (
-                    <div style={styles.errorBox}>
-                      {error}
-                    </div>
-                  )}
-
-                  <div style={styles.fieldGroup}>
-                    <label style={styles.label}>Email or Mobile Number</label>
-                    <input
-                      type="text"
-                      placeholder="Enter your email or mobile number"
-                      value={login}
-                      onChange={e => setLogin(e.target.value)}
-                      style={styles.input}
-                      required
-                    />
-                  </div>
-
-                  <div style={styles.fieldGroup}>
-                    <label style={styles.label}>Password</label>
-                    <div style={styles.passwordWrapper}>
-                      <input
-                        type={showPassword ? 'text' : 'password'}
-                        placeholder="Enter your password"
-                        value={password}
-                        onChange={e => setPassword(e.target.value)}
-                        style={{ ...styles.input, marginBottom: 0 }}
-                        required
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        style={styles.eyeBtn}
-                      >
-                        {showPassword ? <EyeOffIcon /> : <EyeIcon />}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div style={styles.forgotWrapper}>
-                    <button
-                      type="button"
-                      onClick={() => setShowForgotModal(true)}
-                      style={styles.forgotLinkBtn}
-                    >
-                      Forgot password?
-                    </button>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    style={{
-                      ...styles.loginBtn,
-                      opacity: loading ? 0.7 : 1,
-                      cursor: loading ? 'not-allowed' : 'pointer',
-                    }}
-                  >
-                    {loading ? 'Logging in...' : 'Login'}
-                  </button>
-                </form>
-              </div>
+        {/* Form cell */}
+        <div style={{ ...styles.formCell, order: 2, padding: isMobile ? '34px 26px 30px' : '48px 56px' }}>
+          <div style={styles.formInner}>
+            <div style={styles.logoRow}>
+              <img src={agribantayLogo} alt="" style={styles.logoMark} />
+              <img src={agribantayName} alt="AgriBantay" style={styles.logoName} />
             </div>
-          </div>
-        )
-      ) : (
-        <div style={styles.card}>
-          <div style={styles.leftPanel}>
-            <img
-                src={loginImg}
-                alt="AgriBantay"
-                style={{
-                width: '100%',
-                height: '100%',
-                objectFit: 'cover',
-                display: 'block',
-                }}
-            />
-          </div>
 
-          <div style={styles.rightPanel}>
-            <h2 style={styles.welcomeTitle}>Welcome back!</h2>
-            <p style={styles.welcomeSub}>San Jose Municipal Agriculture Office</p>
+            <h1 style={styles.title}>Welcome Back</h1>
+            <p style={styles.subtitle}>Login to your account to continue</p>
 
             <form onSubmit={handleLogin} style={styles.form}>
-              {error && (
-                <div style={styles.errorBox}>
-                  {error}
-                </div>
-              )}
+              {error && <div style={styles.errorBox}>{error}</div>}
 
-              <div style={styles.fieldGroup}>
+              <div>
                 <label style={styles.label}>Email or Mobile Number</label>
-                <input
-                  type="text"
-                  placeholder="Enter your email or mobile number"
-                  value={login}
-                  onChange={e => setLogin(e.target.value)}
-                  style={styles.input}
-                  required
-                />
+                <div style={styles.inputWrap}>
+                  <span style={styles.inputIcon}><MailIcon /></span>
+                  <input className="agb-input" type="text" placeholder="Enter your email or mobile number"
+                    value={login} onChange={e => setLogin(e.target.value)} style={{ ...styles.input, paddingLeft: '40px' }} required />
+                </div>
               </div>
 
-              <div style={styles.fieldGroup}>
+              <div>
                 <label style={styles.label}>Password</label>
-                <div style={styles.passwordWrapper}>
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="Enter your password"
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    style={{ ...styles.input, marginBottom: 0 }}
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    style={styles.eyeBtn}
-                  >
+                <div style={styles.inputWrap}>
+                  <span style={styles.inputIcon}><LockIcon /></span>
+                  <input className="agb-input" type={showPassword ? 'text' : 'password'} placeholder="Enter your password"
+                    value={password} onChange={e => setPassword(e.target.value)} style={{ ...styles.input, padding: '12px 44px 12px 40px' }} required />
+                  <button type="button" onClick={() => setShowPassword(v => !v)} style={styles.eyeBtn} aria-label="Toggle password visibility">
                     {showPassword ? <EyeOffIcon /> : <EyeIcon />}
                   </button>
                 </div>
               </div>
 
-              <div style={styles.forgotWrapper}>
-                <button
-                  type="button"
-                  onClick={() => setShowForgotModal(true)}
-                  style={styles.forgotLinkBtn}
-                >
-                  Forgot password?
+              <div style={styles.optionRow}>
+                <button type="button" onClick={() => setRemember(v => !v)} style={styles.rememberBtn}>
+                  <span style={{ ...styles.checkbox, background: remember ? '#1f5a34' : '#fff', borderColor: remember ? '#1f5a34' : '#c4cabd' }}>
+                    {remember && <CheckIcon />}
+                  </span>
+                  Remember me
                 </button>
+                <button type="button" onClick={() => setShowForgotModal(true)} style={styles.forgotLinkBtn}>Forgot password?</button>
               </div>
 
-              <button
-                type="submit"
-                disabled={loading}
-                style={{
-                  ...styles.loginBtn,
-                  opacity: loading ? 0.7 : 1,
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                }}
-              >
+              <button type="submit" disabled={loading} className="agb-btn agb-primary"
+                style={{ ...styles.loginBtn, opacity: loading ? 0.7 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>
                 {loading ? 'Logging in...' : 'Login'}
               </button>
 
-              <p style={styles.contactNote}>
-                Need an account?{' '}
-                <span style={styles.contactLink}>Contact the Municipal Office</span>
+              <p style={styles.legal}>
+                By continuing, you agree to our <span style={styles.legalLink}>Terms of Service</span> and <span style={styles.legalLink}>Privacy Policy</span>.
               </p>
             </form>
           </div>
         </div>
-      )}
+      </div>
 
-      {showForgotModal && (
-        <ForgotPasswordModal onClose={() => setShowForgotModal(false)} />
-      )}
+      {showForgotModal && <ForgotPasswordModal onClose={() => setShowForgotModal(false)} />}
     </div>
   )
 }
@@ -280,7 +140,6 @@ function ForgotPasswordModal({ onClose }) {
     e.preventDefault()
     setError('')
     setSubmitting(true)
-
     try {
       await api.post('/forgot-password', { mobile_number: mobileNumber })
       setSubmitted(true)
@@ -298,55 +157,28 @@ function ForgotPasswordModal({ onClose }) {
           <>
             <h3 style={modalStyles.title}>Check your phone</h3>
             <p style={modalStyles.message}>
-              If an account exists for that mobile number, a temporary password
-              has been sent via SMS. Use it to log in, and you'll be asked to
-              set a new password.
+              If an account exists for that mobile number, a temporary password has been sent via SMS.
+              Use it to log in, and you'll be asked to set a new password.
             </p>
             <div style={modalStyles.actions}>
-              <button onClick={onClose} style={modalStyles.confirmBtn}>
-                Back to login
-              </button>
+              <button onClick={onClose} className="agb-btn agb-primary" style={modalStyles.confirmBtn}>Back to login</button>
             </div>
           </>
         ) : (
           <>
             <h3 style={modalStyles.title}>Forgot password</h3>
             <p style={modalStyles.message}>
-              Enter the mobile number linked to your account. We'll send a
-              temporary password by SMS.
+              Enter the mobile number linked to your account. We'll send a temporary password by SMS.
             </p>
-
             <form onSubmit={handleSubmit}>
               {error && <div style={modalStyles.errorBox}>{error}</div>}
-
-              <input
-                type="text"
-                placeholder="Mobile number"
-                value={mobileNumber}
-                onChange={e => setMobileNumber(e.target.value)}
-                style={modalStyles.input}
-                required
-                autoFocus
-              />
-
+              <input className="agb-input" type="text" placeholder="Mobile number" value={mobileNumber}
+                onChange={e => setMobileNumber(e.target.value)} style={modalStyles.input} required autoFocus />
               <div style={modalStyles.actions}>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  style={modalStyles.cancelBtn}
-                  disabled={submitting}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  style={{
-                    ...modalStyles.confirmBtn,
-                    opacity: submitting ? 0.7 : 1,
-                    cursor: submitting ? 'not-allowed' : 'pointer',
-                  }}
-                  disabled={submitting}
-                >
+                <button type="button" onClick={onClose} className="agb-btn" style={modalStyles.cancelBtn} disabled={submitting}>Cancel</button>
+                <button type="submit" className="agb-btn agb-primary"
+                  style={{ ...modalStyles.confirmBtn, opacity: submitting ? 0.7 : 1, cursor: submitting ? 'not-allowed' : 'pointer' }}
+                  disabled={submitting}>
                   {submitting ? 'Sending...' : 'Send temporary password'}
                 </button>
               </div>
@@ -358,361 +190,87 @@ function ForgotPasswordModal({ onClose }) {
   )
 }
 
-function LeafIcon() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
-      <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />
-    </svg>
-  )
-}
-
+/* ---------------------------------------------------------------- Icons */
 function BackIcon() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M19 12H5" />
-      <path d="M12 19l-7-7 7-7" />
-    </svg>
-  )
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5" /><path d="M12 19l-7-7 7-7" /></svg>
 }
-
+function MailIcon() {
+  return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 7l9 6 9-6" /></svg>
+}
+function LockIcon() {
+  return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
+}
+function CheckIcon() {
+  return <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+}
 function EyeIcon() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="#6b7280">
-      <path d="M607.5-372.5Q660-425 660-500t-52.5-127.5Q555-680 480-680t-127.5 52.5Q300-575 300-500t52.5 127.5Q405-320 480-320t127.5-52.5Zm-204-51Q372-455 372-500t31.5-76.5Q435-608 480-608t76.5 31.5Q588-545 588-500t-31.5 76.5Q525-392 480-392t-76.5-31.5ZM214-281.5Q94-363 40-500q54-137 174-218.5T480-800q146 0 266 81.5T920-500q-54 137-174 218.5T480-200q-146 0-266-81.5ZM480-500Zm207.5 160.5Q782-399 832-500q-50-101-144.5-160.5T480-720q-113 0-207.5 59.5T128-500q50 101 144.5 160.5T480-280q113 0 207.5-59.5Z"/>
-    </svg>
-  )
+  return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg>
+}
+function EyeOffIcon() {
+  return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3l18 18" /><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" /><path d="M9.4 5.2A9 9 0 0 1 12 5c5 0 9 5 9 7a13 13 0 0 1-2.2 2.9" /><path d="M6.6 6.6C4 8.2 3 11 3 12c0 2 4 7 9 7a9 9 0 0 0 3.2-.6" /></svg>
 }
 
-function EyeOffIcon() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="#6b7280">
-      <path d="m644-428-58-58q9-47-27-88t-93-32l-58-58q17-8 34.5-12t37.5-4q75 0 127.5 52.5T660-500q0 20-4 37.5T644-428Zm128 126-58-56q38-29 67.5-63.5T832-500q-50-101-143.5-160.5T480-720q-29 0-57 4t-55 12l-62-62q41-17 84-25.5t90-8.5q151 0 269 83.5T920-500q-23 59-60.5 109.5T772-302Zm20 246L624-222q-35 11-70.5 16.5T480-200q-151 0-269-83.5T40-500q21-53 53-98.5t73-81.5L56-792l56-56 736 736-56 56ZM222-624q-29 26-53 57t-41 67q50 101 143.5 160.5T480-280q20 0 39-2.5t39-5.5l-36-38q-11 3-21 4.5t-21 1.5q-75 0-127.5-52.5T300-500q0-11 1.5-21t4.5-21l-84-82Zm319 93Zm-151 75Z"/>
-    </svg>
-  )
-}
+/* ---------------------------------------------------------------- Styles */
+const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 const styles = {
   page: {
-    minHeight: '100vh',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundImage: `url(${sanjoseBg})`,
-    backgroundSize: 'cover',
-    backgroundPosition: 'center',
-    padding: '24px',
-    position: 'relative',
+    fontFamily: SANS, color: '#1c2a20', position: 'relative', minHeight: '100vh',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box',
+    backgroundImage: `linear-gradient(rgba(20,48,28,0.55), rgba(20,48,28,0.6)), url(${sanjoseBg})`,
+    backgroundSize: 'cover', backgroundPosition: 'center',
   },
-  overlay: {
-    position: 'absolute',
-    inset: 0,
-    background: 'rgba(0,0,0,0.3)',
-  },
-  landingBackBtn: {
-    position: 'fixed',
-    top: '20px',
-    left: '20px',
-    zIndex: 5,
-    width: '40px',
-    height: '40px',
-    borderRadius: '50%',
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    border: 'none',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    cursor: 'pointer',
-    color: '#234A35',
-    boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
+  backHome: {
+    position: 'fixed', top: '22px', left: '22px', zIndex: 40, display: 'inline-flex', alignItems: 'center', gap: '8px',
+    height: '40px', padding: '0 16px 0 13px', borderRadius: '999px', border: '1px solid #e3e6dd',
+    background: '#fff', color: '#14301c', fontSize: '13.5px', fontWeight: 600, fontFamily: SANS,
+    cursor: 'pointer', boxShadow: '0 4px 14px -6px rgba(0,0,0,0.35)',
   },
   card: {
-    display: 'flex',
-    width: '100%',
-    maxWidth: '720px',
-    minHeight: '440px',
-    borderRadius: '16px',
-    overflow: 'hidden',
-    boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-    position: 'relative',
-    zIndex: 1,
+    position: 'relative', overflow: 'hidden', display: 'flex', width: '100%', borderRadius: '22px',
+    background: '#fff', boxShadow: '0 40px 90px -40px rgba(15,38,22,0.55)',
   },
-  mobileGroup: {
-    display: 'flex',
-    flexDirection: 'column',
-    width: '100%',
-    maxWidth: '400px',
-    zIndex: 1,
-    position: 'relative',
-  },
-  cardMobileOnly: {
-    width: '100%',
-    backgroundColor: 'white',
-    borderRadius: '16px',
-    overflow: 'hidden',
-    boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-  },
-  pageSplash: {
-    backgroundImage: 'none',
-    backgroundColor: '#ffffff',
-  },
-  splashWrapper: {
-    width: '100%',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    textAlign: 'center',
-    backgroundColor: '#ffffff',
-  },
-  splashIllustration: {
-    width: '100%',
-  },
-  splashFooter: {
-    padding: '20px',
-    width: '100%',
-    boxSizing: 'border-box',
-  },
-  backBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    background: 'none',
-    border: 'none',
-    color: '#6b7280',
-    fontSize: '13px',
-    padding: 0,
-    marginBottom: '16px',
-    cursor: 'pointer',
-  },
-  leftPanel: {
-    flex: 1,
-    overflow: 'hidden',
-    padding: 0,
-    backgroundColor: '#2E7D32',
-    },
-  logo: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    marginBottom: '8px',
-  },
-  logoIcon: {
-    width: '32px',
-    height: '32px',
-    borderRadius: '50%',
-    backgroundColor: '#2E7D32',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  logoText: {
-    fontSize: '26px',
-    fontWeight: '700',
-    color: 'white',
-  },
-  logoSub: {
-    fontSize: '13px',
-    color: 'rgba(255,255,255,0.8)',
-    marginBottom: '4px',
-    textAlign: 'center',
-  },
-  logoDesc: {
-    fontSize: '12px',
-    color: 'rgba(255,255,255,0.6)',
-    marginBottom: '32px',
-    textAlign: 'center',
-  },
-  illustration: {
-    fontSize: '100px',
-    marginTop: '16px',
-  },
-  rightPanel: {
-    flex: 1,
-    backgroundColor: 'white',
-    padding: '36px 32px',
-    display: 'flex',
-    flexDirection: 'column',
-    justifyContent: 'center',
-  },
-  rightPanelMobile: {
-    padding: '24px 20px 28px',
-  },
-  welcomeTitle: {
-    fontSize: '26px',
-    fontWeight: '700',
-    color: '#1a3c1a',
-    marginBottom: '4px',
-  },
-  welcomeTitleMobile: {
-    fontSize: '21px',
-    fontWeight: '700',
-    color: '#1a3c1a',
-    marginTop: 0,
-    marginBottom: '4px',
-  },
-  welcomeSub: {
-    fontSize: '13px',
-    color: '#888',
-    marginBottom: '32px',
-  },
-  form: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '16px',
-  },
-  errorBox: {
-    backgroundColor: '#fef2f2',
-    border: '1px solid #fca5a5',
-    color: '#dc2626',
-    padding: '10px 14px',
-    borderRadius: '8px',
-    fontSize: '13px',
-  },
-  fieldGroup: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '6px',
-  },
-  label: {
-    fontSize: '13px',
-    fontWeight: '500',
-    color: '#374151',
-  },
+  imgCell: { position: 'relative', zIndex: 2, alignSelf: 'stretch' },
+  imgCurve: { position: 'absolute', top: 0, bottom: 0, left: 0, right: '-22px', background: 'linear-gradient(160deg, #35935a, #1f5a34)' },
+  imgClip: { position: 'absolute', inset: 0, overflow: 'hidden', background: '#14301c' },
+  artImg: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
+
+  formCell: { position: 'relative', zIndex: 1, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' },
+  formInner: { width: '100%', maxWidth: '360px' },
+  logoRow: { display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', marginBottom: '22px' },
+  logoMark: { height: '54px', width: 'auto', objectFit: 'contain' },
+  logoName: { height: '30px', width: 'auto', objectFit: 'contain' },
+  title: { textAlign: 'center', fontSize: '25px', fontWeight: 800, letterSpacing: '-0.01em', color: '#16311d', margin: '0 0 6px' },
+  subtitle: { textAlign: 'center', fontSize: '14px', color: '#6b7770', margin: '0 0 30px' },
+  form: { display: 'flex', flexDirection: 'column', gap: '18px' },
+  errorBox: { background: '#fdf2f2', border: '1px solid #f3c9c9', color: '#b3261e', padding: '10px 13px', borderRadius: '9px', fontSize: '13px' },
+  label: { display: 'block', fontSize: '13px', fontWeight: 700, color: '#2b3830', marginBottom: '8px' },
+  inputWrap: { position: 'relative' },
+  inputIcon: { position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', display: 'flex', color: '#9aa79d' },
   input: {
-    padding: '10px 14px',
-    borderRadius: '8px',
-    border: '1px solid #d1d5db',
-    fontSize: '14px',
-    color: '#111827',
-    outline: 'none',
-    width: '100%',
-    boxSizing: 'border-box',
-  },
-  passwordWrapper: {
-    position: 'relative',
+    width: '100%', padding: '12px 14px', borderRadius: '10px', border: '1px solid #d9dcd4', background: '#fbfbf8',
+    fontSize: '14.5px', fontFamily: SANS, color: '#1c2a20', outline: 'none', boxSizing: 'border-box',
   },
   eyeBtn: {
-    position: 'absolute',
-    right: '12px',
-    top: '50%',
-    transform: 'translateY(-50%)',
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
-    padding: 0,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+    position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', width: '30px', height: '30px',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: 'pointer', color: '#8a968d',
   },
-  forgotWrapper: {
-    textAlign: 'right',
-    marginTop: '-8px',
-  },
-  forgotLinkBtn: {
-    fontSize: '13px',
-    color: '#2E7D32',
-    background: 'none',
-    border: 'none',
-    padding: 0,
-    cursor: 'pointer',
-    textDecoration: 'none',
-  },
-  loginBtn: {
-    backgroundColor: '#2E7D32',
-    color: 'white',
-    border: 'none',
-    borderRadius: '8px',
-    padding: '12px',
-    fontSize: '15px',
-    fontWeight: '600',
-    width: '100%',
-    marginTop: '8px',
-  },
-  contactNote: {
-    fontSize: '13px',
-    color: '#888',
-    textAlign: 'center',
-    marginTop: '8px',
-  },
-  contactLink: {
-    color: '#2E7D32',
-    fontWeight: '500',
-    cursor: 'pointer',
-  },
+  optionRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '-2px' },
+  rememberBtn: { display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: '13px', color: '#4b5a50', fontFamily: SANS },
+  checkbox: { width: '17px', height: '17px', borderRadius: '5px', border: '1.5px solid #c4cabd', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  forgotLinkBtn: { fontSize: '13px', fontWeight: 600, color: '#2c8047', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: SANS },
+  loginBtn: { marginTop: '4px', background: '#2c8047', color: '#fff', border: 'none', borderRadius: '10px', padding: '13px', fontSize: '15px', fontWeight: 700, fontFamily: SANS, width: '100%' },  legal: { textAlign: 'center', fontSize: '12.5px', lineHeight: 1.6, color: '#8a968d', margin: '10px 0 0' },
+  legalLink: { color: '#2c8047', fontWeight: 600, cursor: 'pointer' },
 }
 
 const modalStyles = {
-  overlay: {
-    position: 'fixed',
-    inset: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 50,
-  },
-  modal: {
-    backgroundColor: 'white',
-    borderRadius: '16px',
-    padding: '28px',
-    width: '380px',
-    maxWidth: '90%',
-  },
-  title: {
-    fontSize: '17px',
-    fontWeight: '700',
-    color: '#111827',
-    marginTop: 0,
-    marginBottom: '10px',
-  },
-  message: {
-    fontSize: '14px',
-    color: '#6b7280',
-    lineHeight: '1.5',
-    marginBottom: '20px',
-  },
-  input: {
-    padding: '10px 14px',
-    borderRadius: '8px',
-    border: '1px solid #d1d5db',
-    fontSize: '14px',
-    color: '#111827',
-    outline: 'none',
-    width: '100%',
-    boxSizing: 'border-box',
-    marginBottom: '16px',
-  },
-  errorBox: {
-    backgroundColor: '#fef2f2',
-    border: '1px solid #fca5a5',
-    color: '#dc2626',
-    padding: '10px 14px',
-    borderRadius: '8px',
-    fontSize: '13px',
-    marginBottom: '16px',
-  },
-  actions: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-    gap: '10px',
-  },
-  cancelBtn: {
-    padding: '10px 18px',
-    borderRadius: '8px',
-    border: '1px solid #d1d5db',
-    backgroundColor: 'white',
-    fontSize: '14px',
-    cursor: 'pointer',
-  },
-  confirmBtn: {
-    padding: '10px 18px',
-    borderRadius: '8px',
-    border: 'none',
-    backgroundColor: '#2E7D32',
-    color: 'white',
-    fontSize: '14px',
-    fontWeight: '600',
-    cursor: 'pointer',
-  },
+  overlay: { position: 'fixed', inset: 0, background: 'rgba(15,38,22,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: '20px' },
+  modal: { background: '#fff', border: '1px solid #e9e8e0', borderRadius: '16px', padding: '28px', width: '400px', maxWidth: '100%', boxShadow: '0 30px 70px -20px rgba(15,38,22,0.5)' },
+  title: { fontSize: '20px', fontWeight: 800, color: '#16311d', margin: '0 0 10px' },
+  message: { fontSize: '14px', color: '#647065', lineHeight: 1.55, margin: '0 0 20px' },
+  input: { padding: '12px 14px', borderRadius: '10px', border: '1px solid #d9dcd4', background: '#fbfbf8', fontSize: '14.5px', fontFamily: SANS, color: '#1c2a20', outline: 'none', width: '100%', boxSizing: 'border-box', marginBottom: '18px' },
+  errorBox: { background: '#fdf2f2', border: '1px solid #f3c9c9', color: '#b3261e', padding: '10px 13px', borderRadius: '9px', fontSize: '13px', marginBottom: '16px' },
+  actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px' },
+  cancelBtn: { padding: '11px 18px', borderRadius: '10px', border: '1px solid #d9dcd4', background: '#fff', fontSize: '14px', fontWeight: 600, color: '#33413a', cursor: 'pointer' },
+  confirmBtn: { padding: '11px 18px', borderRadius: '10px', border: 'none', background: '#2c8047 ', color: '#fff', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
 }

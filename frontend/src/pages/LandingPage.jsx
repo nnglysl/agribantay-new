@@ -3,8 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { useIsMobile } from '../hooks/useIsMobile'
 import agribantayLogo from '../assets/agribantay_logo.png'
 import agribantayName from '../assets/agribantay_name.png'
-// Save the uploaded poultry farm photo into src/assets/ under this exact
-// filename (or update this path to match whatever you name it).
 import heroImage from '../assets/poultry_bg.jpg'
 
 const NAV_LINKS = [
@@ -44,14 +42,24 @@ const FEATURES = [
   },
 ]
 
-// Height of the fixed nav bar. Used to keep the hero content clear of it
-// (position: fixed removes the nav from document flow, so the section
-// beneath it needs matching top padding or its content starts hidden
-// underneath the bar).
+const ABOUT_STATS = [
+  { value: '4', label: 'Conditions tracked per farm, continuously' },
+  { value: '3', label: 'Roles sharing one inspection record' },
+  { value: '33', label: 'Barangays under one monitoring network' },
+]
+
+const CONTACT_CARDS = [
+  { icon: 'pin', label: 'Office Address', value: 'Dagatan, San Jose, Batangas' },
+  { icon: 'phone', label: 'Contact Number', value: '779-8550 to 779-8554 loc. 1005 / 2005' },
+  { icon: 'mail', label: 'Email', value: 'agriculture@sanjosebatangas.gov.ph' },
+  { icon: 'clock', label: 'Office Hours', value: 'Mon–Fri, 8AM–5PM' },
+]
+
+// Height of the fixed nav bar. Used to offset in-page scroll targets so
+// section headings don't land hidden underneath the bar.
 const HEADER_HEIGHT = 68
 
-// Same trio used throughout the dashboard (sensor status, alert badges).
-const statusColor = { Normal: '#2E7D32', Warning: '#B45309', Critical: '#B91C1C' }
+const statusColor = { Normal: '#256b3d', Warning: '#b45309', Critical: '#b91c1c' }
 
 export default function LandingPage() {
   const navigate = useNavigate()
@@ -61,7 +69,10 @@ export default function LandingPage() {
   const scrollTo = (id) => (e) => {
     e.preventDefault()
     setNavOpen(false)
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    const el = document.getElementById(id)
+    if (!el) return
+    const top = el.getBoundingClientRect().top + window.scrollY - HEADER_HEIGHT
+    window.scrollTo({ top, behavior: 'smooth' })
   }
 
   return (
@@ -73,12 +84,28 @@ export default function LandingPage() {
           .agb-pulse { animation: none !important; }
         }
         @keyframes agbPulse {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(46,125,50,0.4); }
-          50% { box-shadow: 0 0 0 6px rgba(46,125,50,0); }
+          0%, 100% { box-shadow: 0 0 0 0 rgba(37,107,61,0.45); }
+          70% { box-shadow: 0 0 0 7px rgba(37,107,61,0); }
         }
-        .agb-pulse { animation: agbPulse 2.4s ease-in-out infinite; }
-        .agb-feature-card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.12); }
-        .agb-nav-link:hover { opacity: 0.7; }
+        .agb-pulse { animation: agbPulse 2.6s ease-in-out infinite; }
+        .agb-navlink { position: relative; transition: color .15s ease; }
+        .agb-navlink::after {
+          content: ""; position: absolute; left: 0; right: 100%; bottom: -6px;
+          height: 2px; background: #256b3d; transition: right .22s ease;
+        }
+        .agb-navlink:hover::after { right: 0; }
+        .agb-card {
+          transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+        }
+        .agb-card:hover {
+          transform: translateY(-3px);
+          box-shadow: 0 14px 30px -14px rgba(20,48,28,0.28);
+          border-color: #cfe0d3;
+        }
+        .agb-btn { transition: transform .12s ease, background-color .15s ease, box-shadow .15s ease; }
+        .agb-btn:active { transform: translateY(1px); }
+        .agb-primary:hover { background-color: #1f5a34; box-shadow: 0 8px 20px -8px rgba(31,90,52,0.7); }
+        .agb-ghost:hover { background-color: rgba(255,255,255,0.16); }
       `}</style>
 
       {/* ---------------------------------------------------------------- Nav */}
@@ -92,20 +119,16 @@ export default function LandingPage() {
           {!isMobile && (
             <nav style={styles.navLinksDesktop}>
               {NAV_LINKS.map(l => (
-                <a key={l.href} href={l.href} onClick={scrollTo(l.href.slice(1))} className="agb-nav-link" style={styles.navLink}>
+                <a key={l.href} href={l.href} onClick={scrollTo(l.href.slice(1))} className="agb-navlink" style={styles.navLink}>
                   {l.label}
                 </a>
               ))}
-              <button style={styles.navLoginBtn} onClick={() => navigate('/login')}>Login</button>
+              <button className="agb-btn agb-primary" style={styles.navLoginBtn} onClick={() => navigate('/login')}>Login</button>
             </nav>
           )}
 
           {isMobile && (
-            <button
-              aria-label="Toggle navigation menu"
-              style={styles.navMenuBtn}
-              onClick={() => setNavOpen(v => !v)}
-            >
+            <button aria-label="Toggle navigation menu" style={styles.navMenuBtn} onClick={() => setNavOpen(v => !v)}>
               <IconMenu open={navOpen} />
             </button>
           )}
@@ -118,7 +141,7 @@ export default function LandingPage() {
                 {l.label}
               </a>
             ))}
-            <button style={{ ...styles.navLoginBtn, ...styles.navLoginBtnMobile }} onClick={() => navigate('/login')}>
+            <button className="agb-btn agb-primary" style={{ ...styles.navLoginBtn, ...styles.navLoginBtnMobile }} onClick={() => navigate('/login')}>
               Login
             </button>
           </div>
@@ -131,65 +154,79 @@ export default function LandingPage() {
         style={{
           ...styles.hero,
           ...(isMobile ? styles.heroMobile : {}),
-          backgroundImage: `linear-gradient(rgba(20,50,20,0.82), rgba(20,50,20,0.88)), url(${heroImage})`,
+          backgroundImage: `linear-gradient(100deg, rgba(15,38,22,0.9) 0%, rgba(15,38,22,0.72) 42%, rgba(15,38,22,0.28) 100%), linear-gradient(to top, rgba(15,38,22,0.55), rgba(15,38,22,0) 45%), url(${heroImage})`,
         }}
       >
         <div style={styles.heroInner}>
-          <span style={styles.heroEyebrow}>Municipality of San Jose, Batangas · Municipal Agriculture Office</span>
-          <h1 style={styles.heroTitle}>
-            Track the flock. Manage the waste.<br />Protect the watershed.
-          </h1>
-          <p style={styles.heroSubtitle}>
-            AgriBantay gives the Municipal Agriculture Office a live read on ammonia, manure
-            buildup, and flock conditions across San Jose — plus the inspection and veterinary
-            records to act on what the sensors find.
-          </p>
-
-          <div style={{ ...styles.heroActions, ...(isMobile ? styles.heroActionsMobile : {}) }}>
-            <button style={{ ...styles.ctaPrimary, ...(isMobile ? styles.btnFullMobile : {}) }} onClick={scrollTo('contact')}>
-              Register Your Farm
-            </button>
-            <button style={{ ...styles.ctaSecondary, ...(isMobile ? styles.btnFullMobile : {}) }} onClick={() => navigate('/login')}>
-              Login
-            </button>
-          </div>
-
-          <div style={styles.snapshotStrip}>
-            <div style={styles.snapshotLabel}>
-              <span className="agb-pulse" style={styles.snapshotDot} />
-              Live farm snapshot — sample reading
-            </div>
-            <div style={{ ...styles.snapshotRow, ...(isMobile ? styles.snapshotRowMobile : {}) }}>
-              {SNAPSHOT_READINGS.map((r, i) => (
-                <div
-                  key={r.key}
-                  style={{
-                    ...styles.snapshotItem,
-                    ...(i > 0 ? (isMobile ? styles.snapshotItemDividerMobile : styles.snapshotItemDivider) : {}),
-                  }}
-                >
-                  <div style={styles.snapshotItemTop}>
-                    <span style={{ color: statusColor[r.status] }}><SensorIcon name={r.icon} /></span>
-                    <span style={styles.snapshotItemLabel}>{r.label}</span>
-                  </div>
-                  <div style={styles.snapshotItemValue}>
-                    {r.value}<span style={styles.snapshotItemUnit}>{r.unit}</span>
-                  </div>
-                  <div style={styles.snapshotItemStatus}>
-                    <span style={{ ...styles.snapshotItemDot, backgroundColor: statusColor[r.status] }} />
-                    <span style={{ color: statusColor[r.status] }}>{r.status}</span>
-                  </div>
-                </div>
-              ))}
+          <div style={styles.heroCol}>
+            <span style={styles.heroEyebrow}>
+              <span style={styles.heroEyebrowDot} />
+              San Jose, Batangas · Municipal Agriculture Office
+            </span>
+            <h1 style={styles.heroTitle}>Smarter Farming. Healthier Flocks. Cleaner Environment.</h1>
+            <p style={styles.heroSubtitle}>
+              Real-time sensor monitoring, AI-powered guidance, and shared inspection and veterinary records — 
+              helping San Jose's farm owners and Municipal Agriculture Office farm smarter, 
+              keep flocks healthier, and protect the community's waterways.
+            </p>
+            <div style={{ ...styles.heroActions, ...(isMobile ? styles.heroActionsMobile : {}) }}>
+              <button
+                className="agb-btn agb-primary"
+                style={{ ...styles.ctaPrimary, ...(isMobile ? styles.btnFullMobile : {}) }}
+                onClick={scrollTo('contact')}
+              >
+                Register Your Farm
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 12h14" /><path d="M13 6l6 6-6 6" />
+                </svg>
+              </button>
+              <button
+                className="agb-btn agb-ghost"
+                style={{ ...styles.ctaSecondary, ...(isMobile ? styles.btnFullMobile : {}) }}
+                onClick={() => navigate('/login')}
+              >
+                Login
+              </button>
             </div>
           </div>
         </div>
       </section>
 
+      {/* -------------------------------------------- Live snapshot (overlaps) */}
+      <div style={styles.snapshotWrap}>
+        <div style={styles.snapshotStrip}>
+          <div style={styles.snapshotLabel}>
+            <span className="agb-pulse" style={styles.snapshotDot} />
+            <span style={styles.snapshotLabelStrong}>Live farm snapshot</span>
+            <span style={styles.snapshotLabelMuted}>— sample reading</span>
+          </div>
+          <div style={styles.snapshotGrid}>
+            {SNAPSHOT_READINGS.map(r => {
+              const warn = r.status !== 'Normal'
+              return (
+                <div key={r.key} style={{ ...styles.snapshotItem, ...(warn ? styles.snapshotItemWarn : {}) }}>
+                  <div style={styles.snapshotItemTop}>
+                    <span style={{ color: warn ? '#b45309' : '#2c8047', display: 'flex' }}><SensorIcon name={r.icon} /></span>
+                    <span style={styles.snapshotItemLabel}>{r.label}</span>
+                  </div>
+                  <div style={styles.snapshotItemValue}>
+                    {r.value}<span style={styles.snapshotItemUnit}>{r.unit}</span>
+                  </div>
+                  <div style={{ ...styles.snapshotItemStatus, color: statusColor[r.status] }}>
+                    <span style={{ ...styles.snapshotItemStatusDot, backgroundColor: statusColor[r.status] }} />
+                    {r.status}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
       {/* -------------------------------------------------------------- About */}
       <section id="about" style={styles.about}>
         <div style={styles.sectionInner}>
-          <div style={{ ...styles.aboutGrid, ...(isMobile ? styles.aboutGridMobile : {}) }}>
+          <div style={styles.aboutGrid}>
             <div>
               <span style={styles.sectionEyebrow}>About AgriBantay</span>
               <h2 style={styles.sectionTitle}>Built around how San Jose already inspects, treats, and tracks poultry farms</h2>
@@ -199,7 +236,7 @@ export default function LandingPage() {
                 work from the same records — sensor readings, vaccination requests, and inspection
                 history — instead of three separate ones.
               </p>
-              <p style={styles.bodyText}>
+              <p style={{ ...styles.bodyText, marginBottom: 0 }}>
                 Ammonia buildup and poor manure management are leading causes of respiratory illness
                 in layer flocks, and a source of runoff that can affect nearby waterways. Sensors
                 installed at each farm report conditions continuously, so a problem gets flagged the
@@ -207,9 +244,12 @@ export default function LandingPage() {
               </p>
             </div>
             <div style={styles.aboutStatsCol}>
-              <AboutStat value="4" label="Conditions tracked per farm, continuously" />
-              <AboutStat value="3" label="Roles sharing one inspection record" />
-              <AboutStat value="33" label="Barangays under one monitoring network" />
+              {ABOUT_STATS.map(s => (
+                <div key={s.label} style={styles.aboutStat}>
+                  <span style={styles.aboutStatValue}>{s.value}</span>
+                  <span style={styles.aboutStatLabel}>{s.label}</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -218,11 +258,13 @@ export default function LandingPage() {
       {/* ----------------------------------------------------------- Features */}
       <section id="features" style={styles.features}>
         <div style={styles.sectionInner}>
-          <span style={styles.sectionEyebrow}>What it does</span>
-          <h2 style={styles.sectionTitle}>Four systems, one dashboard</h2>
-          <div style={{ ...styles.featuresGrid, ...(isMobile ? styles.featuresGridMobile : {}) }}>
+          <div style={styles.featuresHead}>
+            <span style={styles.sectionEyebrow}>What it does</span>
+            <h2 style={{ ...styles.sectionTitle, margin: 0 }}>Four systems, one dashboard</h2>
+          </div>
+          <div style={styles.featuresGrid}>
             {FEATURES.map(f => (
-              <div key={f.title} className="agb-feature-card" style={styles.featureCard}>
+              <div key={f.title} className="agb-card" style={styles.featureCard}>
                 <div style={styles.featureIconWrap}><FeatureIcon name={f.icon} /></div>
                 <h3 style={styles.featureTitle}>{f.title}</h3>
                 <p style={styles.featureBody}>{f.body}</p>
@@ -235,18 +277,24 @@ export default function LandingPage() {
       {/* ------------------------------------------------------------ Contact */}
       <section id="contact" style={styles.contact}>
         <div style={styles.sectionInner}>
-          <span style={{ ...styles.sectionEyebrow, color: 'rgba(255,255,255,0.65)' }}>Get in touch</span>
-          <h2 style={{ ...styles.sectionTitle, color: '#fff' }}>Getting your farm on AgriBantay starts at the Agriculture Office</h2>
-          <p style={{ ...styles.bodyText, color: 'rgba(255,255,255,0.8)', maxWidth: '560px' }}>
-            Accounts aren't self-service — the office sets each one up directly, so a farm's sensor
-            and inspection history starts accurate from day one. Reach out using the details below.
-          </p>
-
-          <div style={{ ...styles.contactGrid, ...(isMobile ? styles.contactGridMobile : {}) }}>
-            <ContactCard icon="pin" label="Office Address" value="Dagatan, San Jose, Batangas" />
-            <ContactCard icon="phone" label="Contact Number" value="779-8550 to 779-8554 loc. 1005 / 2005" />
-            <ContactCard icon="mail" label="Email" value="agriculture@sanjosebatangas.gov.ph" />
-            <ContactCard icon="clock" label="Office Hours" value="Mon–Fri, 8AM–5PM" />
+          <div style={styles.contactHead}>
+            <span style={{ ...styles.sectionEyebrow, color: 'rgba(255,255,255,0.6)' }}>Get in touch</span>
+            <h2 style={{ ...styles.sectionTitle, color: '#fff', margin: '0 0 18px' }}>Getting your farm on AgriBantay starts at the Agriculture Office</h2>
+            <p style={{ ...styles.bodyText, color: 'rgba(255,255,255,0.78)', marginBottom: 0 }}>
+              Accounts aren't self-service — the office sets each one up directly, so a farm's sensor
+              and inspection history starts accurate from day one. Reach out using the details below.
+            </p>
+          </div>
+          <div style={styles.contactGrid}>
+            {CONTACT_CARDS.map(c => (
+              <div key={c.label} style={styles.contactCard}>
+                <div style={styles.contactCardIcon}><ContactIcon name={c.icon} /></div>
+                <div>
+                  <div style={styles.contactCardLabel}>{c.label}</div>
+                  <div style={styles.contactCardValue}>{c.value}</div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -260,35 +308,12 @@ export default function LandingPage() {
   )
 }
 
-function AboutStat({ value, label }) {
-  return (
-    <div style={styles.aboutStat}>
-      <div style={styles.aboutStatBadge}>
-        <span style={styles.aboutStatValue}>{value}</span>
-      </div>
-      <div style={styles.aboutStatLabel}>{label}</div>
-    </div>
-  )
-}
-
-function ContactCard({ icon, label, value }) {
-  return (
-    <div style={styles.contactCard}>
-      <div style={styles.contactCardIcon}><ContactIcon name={icon} /></div>
-      <div>
-        <div style={styles.contactCardLabel}>{label}</div>
-        <div style={styles.contactCardValue}>{value}</div>
-      </div>
-    </div>
-  )
-}
-
 /* ---------------------------------------------------------------- Icons */
 const iconBase = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' }
 
 function IconMenu({ open }) {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1a3c1a" strokeWidth="2" strokeLinecap="round">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1c2a20" strokeWidth="2" strokeLinecap="round">
       {open ? (
         <><path d="M6 6l12 12" /><path d="M18 6L6 18" /></>
       ) : (
@@ -305,7 +330,7 @@ function SensorIcon({ name }) {
     humidity: <path d="M7 16a4 4 0 0 1 .5-8 5 5 0 0 1 9.5 2 3.5 3.5 0 0 1-.5 7H7z" />,
     moisture: <path d="M4 20c8 0 12-6 12-14 0 0-10 0-12 8-1 4 0 6 0 6z" />,
   }
-  return <svg width="13" height="13" viewBox="0 0 24 24" {...iconBase}>{paths[name]}</svg>
+  return <svg width="15" height="15" viewBox="0 0 24 24" {...iconBase}>{paths[name]}</svg>
 }
 
 function FeatureIcon({ name }) {
@@ -325,170 +350,168 @@ function ContactIcon({ name }) {
     mail: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 7l9 6 9-6" /></>,
     clock: <><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></>,
   }
-  return <svg width="18" height="18" viewBox="0 0 24 24" {...iconBase}>{paths[name]}</svg>
+  return <svg width="19" height="19" viewBox="0 0 24 24" {...iconBase}>{paths[name]}</svg>
 }
 
 /* ---------------------------------------------------------------- Styles */
-// One font family throughout, matching the rest of the app.
-const SYSTEM_FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+// Load these two families once (e.g. in index.html <head>):
+//   Source Serif 4 (display headings) + Public Sans (UI / body)
+//   https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&family=Public+Sans:wght@400;500;600;700;800&display=swap
+const SERIF = "'Source Serif 4', Georgia, 'Times New Roman', serif"
+const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 const styles = {
-  page: { fontFamily: SYSTEM_FONT, color: '#1F2937', backgroundColor: '#ffffff', overflowX: 'hidden' },
+  page: { fontFamily: SANS, color: '#1c2a20', backgroundColor: '#ffffff', overflowX: 'hidden' },
 
   nav: {
     position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
-    backgroundColor: 'rgba(255,255,255,0.96)',
-    backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
-    borderBottom: '1px solid #d1d5db',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    backdropFilter: 'saturate(160%) blur(10px)', WebkitBackdropFilter: 'saturate(160%) blur(10px)',
+    borderBottom: '1px solid #e9e8e0',
   },
   navInner: {
-    maxWidth: '1180px', margin: '0 auto', padding: '12px 28px',
+    maxWidth: '1200px', margin: '0 auto', padding: '13px 28px',
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     minHeight: `${HEADER_HEIGHT}px`, boxSizing: 'border-box',
   },
-  navBrand: { display: 'flex', alignItems: 'center', gap: '10px', textDecoration: 'none' },
-  navLogoImg: { width: '36px', height: '36px', objectFit: 'contain', flexShrink: 0 },
-  navNameImg: { height: '18px', width: 'auto', maxWidth: '140px', objectFit: 'contain', display: 'block' },
-  navLinksDesktop: { display: 'flex', alignItems: 'center', gap: '30px' },
-  navLink: { fontSize: '14.5px', fontWeight: 600, color: '#2E7D32', textDecoration: 'none', transition: 'opacity 0.15s' },
+  navBrand: { display: 'flex', alignItems: 'center', gap: '11px', textDecoration: 'none' },
+  navLogoImg: { width: '40px', height: '40px', objectFit: 'contain', flexShrink: 0 },
+  navNameImg: { height: '20px', width: 'auto', maxWidth: '150px', objectFit: 'contain', display: 'block' },
+  navLinksDesktop: { display: 'flex', alignItems: 'center', gap: '34px' },
+  navLink: { fontSize: '14.5px', fontWeight: 600, color: '#33413a', textDecoration: 'none' },
   navLoginBtn: {
-    padding: '10px 20px', borderRadius: '8px', border: 'none', backgroundColor: '#2E7D32',
-    color: '#fff', fontSize: '14px', fontWeight: 700, cursor: 'pointer', fontFamily: SYSTEM_FONT,
+    padding: '10px 22px', borderRadius: '9px', border: 'none', backgroundColor: '#256b3d',
+    color: '#fff', fontSize: '14px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS, letterSpacing: '0.01em',
   },
-  navMenuBtn: { display: 'flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', padding: '4px' },
+  navMenuBtn: {
+    display: 'flex', alignItems: 'center', justifyContent: 'center', width: '42px', height: '42px',
+    background: 'none', border: '1px solid #e0dfd6', borderRadius: '10px', cursor: 'pointer',
+  },
   navMobileMenu: {
-    display: 'flex', flexDirection: 'column', padding: '8px 28px 20px', gap: '4px',
-    borderTop: '1px solid #d1d5db', backgroundColor: 'rgba(255,255,255,0.98)',
+    display: 'flex', flexDirection: 'column', padding: '6px 22px 20px', gap: '2px',
+    borderTop: '1px solid #e9e8e0', backgroundColor: 'rgba(255,255,255,0.98)',
   },
   navMobileLink: {
-    padding: '12px 4px', fontSize: '15.5px', fontWeight: 600, color: '#2E7D32',
-    textDecoration: 'none', borderBottom: '1px solid #d1d5db',
+    padding: '13px 6px', fontSize: '15.5px', fontWeight: 600, color: '#33413a',
+    textDecoration: 'none', borderBottom: '1px solid #f0efe8',
   },
   navLoginBtnMobile: { marginTop: '12px', textAlign: 'center', width: '100%', boxSizing: 'border-box' },
 
   hero: {
+    position: 'relative',
     backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat',
-    paddingTop: `${HEADER_HEIGHT + 56}px`, paddingBottom: '72px', paddingLeft: '28px', paddingRight: '28px',
-    textAlign: 'center',
+    minHeight: '660px', display: 'flex', alignItems: 'center',
+    padding: `${HEADER_HEIGHT + 72}px 28px 150px`,
   },
-  heroMobile: { paddingTop: `${HEADER_HEIGHT + 36}px`, paddingBottom: '48px', paddingLeft: '20px', paddingRight: '20px' },
-  heroInner: { maxWidth: '780px', margin: '0 auto' },
-  heroActionsMobile: { flexDirection: 'column', alignItems: 'stretch' },
-  btnFullMobile: { width: '100%', boxSizing: 'border-box' },
+  heroMobile: { minHeight: '560px', padding: `${HEADER_HEIGHT + 40}px 20px 130px` },
+  heroInner: { maxWidth: '1200px', margin: '0 auto', width: '100%' },
+  heroCol: { maxWidth: '640px' },
   heroEyebrow: {
-    display: 'inline-block', fontSize: '12px', fontWeight: 700,
-    letterSpacing: '0.04em', textTransform: 'uppercase', color: '#ffffff',
-    backgroundColor: 'rgba(255,255,255,0.14)', border: '1px solid rgba(255,255,255,0.3)',
-    padding: '6px 14px', borderRadius: '999px', marginBottom: '24px',
+    display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '11.5px', fontWeight: 700,
+    letterSpacing: '0.06em', textTransform: 'uppercase', color: '#dbeadf',
+    backgroundColor: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.22)',
+    padding: '7px 14px', borderRadius: '999px',
   },
+  heroEyebrowDot: { width: '5px', height: '5px', borderRadius: '50%', backgroundColor: '#7cc795' },
   heroTitle: {
-    fontWeight: 800, fontSize: 'clamp(28px, 4.6vw, 44px)',
-    lineHeight: 1.22, color: '#fff', margin: '0 0 20px', letterSpacing: '-0.01em',
+    fontFamily: SERIF, fontWeight: 600, fontSize: 'clamp(34px, 5vw, 56px)',
+    lineHeight: 1.08, letterSpacing: '-0.02em', color: '#fff', margin: '22px 0 20px',
   },
   heroSubtitle: {
-    fontSize: '16px', lineHeight: 1.65, color: 'rgba(255,255,255,0.88)', maxWidth: '580px',
-    margin: '0 auto 32px',
+    fontSize: '17px', lineHeight: 1.62, color: 'rgba(255,255,255,0.85)', maxWidth: '540px', margin: '0 0 32px',
   },
-  heroActions: { display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '48px' },
+  heroActions: { display: 'flex', gap: '13px', flexWrap: 'wrap' },
+  heroActionsMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  btnFullMobile: { width: '100%', boxSizing: 'border-box', justifyContent: 'center' },
   ctaPrimary: {
-    padding: '12px 26px', borderRadius: '8px', border: 'none', backgroundColor: '#2E7D32',
-    color: '#fff', fontSize: '14.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SYSTEM_FONT,
+    display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '14px 28px', borderRadius: '10px',
+    border: 'none', backgroundColor: '#2c8047', color: '#fff', fontSize: '15px', fontWeight: 700,
+    cursor: 'pointer', fontFamily: SANS,
   },
   ctaSecondary: {
-    padding: '12px 26px', borderRadius: '8px', border: '1.5px solid rgba(255,255,255,0.6)', backgroundColor: 'transparent',
-    color: '#fff', fontSize: '14.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SYSTEM_FONT,
+    display: 'inline-flex', alignItems: 'center', padding: '14px 28px', borderRadius: '10px',
+    border: '1.5px solid rgba(255,255,255,0.45)', backgroundColor: 'rgba(255,255,255,0.08)',
+    color: '#fff', fontSize: '15px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
   },
 
+  snapshotWrap: { maxWidth: '1120px', margin: '-84px auto 0', padding: '0 28px', position: 'relative', zIndex: 20 },
   snapshotStrip: {
-    backgroundColor: '#fff', border: '1px solid #d1d5db', borderRadius: '14px',
-    padding: '18px 20px 20px', textAlign: 'left', boxShadow: '0 12px 32px rgba(0,0,0,0.28)',
+    backgroundColor: '#fff', border: '1px solid #e9e8e0', borderRadius: '18px',
+    padding: '20px 22px 22px', boxShadow: '0 30px 60px -30px rgba(15,38,22,0.5)',
   },
-  snapshotLabel: {
-    display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11.5px',
-    color: '#9ca3af', marginBottom: '14px', fontWeight: 600,
-  },
-  snapshotDot: { width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#2E7D32', flexShrink: 0 },
-  snapshotRow: { display: 'flex', alignItems: 'stretch' },
-  snapshotRowMobile: { flexDirection: 'column', gap: '14px' },
-  snapshotItem: { flex: 1, padding: '0 16px', textAlign: 'left' },
-  snapshotItemDivider: { borderLeft: '1px solid #d1d5db' },
-  snapshotItemDividerMobile: { borderLeft: 'none', borderTop: '1px solid #d1d5db', paddingTop: '14px' },
-  snapshotItemTop: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' },
+  snapshotLabel: { display: 'flex', alignItems: 'center', gap: '9px', marginBottom: '16px' },
+  snapshotDot: { width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#2c8047', flexShrink: 0 },
+  snapshotLabelStrong: { fontSize: '12px', fontWeight: 700, letterSpacing: '0.02em', color: '#6a7a6f' },
+  snapshotLabelMuted: { fontSize: '12px', color: '#9aa79d' },
+  snapshotGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' },
+  snapshotItem: { border: '1px solid #ecebe3', borderRadius: '12px', padding: '15px 16px', backgroundColor: '#fbfbf8' },
+  snapshotItemWarn: { border: '1px solid #f0e2cf', backgroundColor: '#fdf8f0' },
+  snapshotItemTop: { display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '11px' },
   snapshotItemLabel: {
-    fontSize: '10.5px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.4px',
+    fontSize: '11px', fontWeight: 700, color: '#6a7a6f', textTransform: 'uppercase', letterSpacing: '0.05em',
   },
   snapshotItemValue: {
-    fontSize: '19px', fontWeight: 800, color: '#1a3c1a',
-    fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em',
+    fontSize: '26px', fontWeight: 800, color: '#14301c', fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em',
   },
-  snapshotItemUnit: { fontSize: '11px', color: '#9ca3af', marginLeft: '3px', fontWeight: 400 },
-  snapshotItemStatus: { display: 'flex', alignItems: 'center', gap: '5px', marginTop: '5px', fontSize: '11px', fontWeight: 700 },
-  snapshotItemDot: { width: '5px', height: '5px', borderRadius: '50%', flexShrink: 0 },
+  snapshotItemUnit: { fontSize: '13px', fontWeight: 500, color: '#9aa79d', marginLeft: '3px' },
+  snapshotItemStatus: { display: 'flex', alignItems: 'center', gap: '6px', marginTop: '7px', fontSize: '11.5px', fontWeight: 700 },
+  snapshotItemStatusDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
 
-  sectionInner: { maxWidth: '1100px', margin: '0 auto', padding: '0 28px' },
+  sectionInner: { maxWidth: '1120px', margin: '0 auto', padding: '0 28px' },
   sectionEyebrow: {
-    display: 'block', fontSize: '12px', fontWeight: 700, letterSpacing: '0.04em',
-    textTransform: 'uppercase', color: '#2E7D32', marginBottom: '12px',
+    display: 'block', fontSize: '12px', fontWeight: 700, letterSpacing: '0.06em',
+    textTransform: 'uppercase', color: '#2c8047', marginBottom: '14px',
   },
   sectionTitle: {
-    fontWeight: 800, fontSize: 'clamp(22px, 3vw, 30px)',
-    color: '#1a3c1a', lineHeight: 1.25, margin: '0 0 18px', maxWidth: '640px',
+    fontFamily: SERIF, fontWeight: 600, fontSize: 'clamp(26px, 3.2vw, 37px)',
+    lineHeight: 1.18, letterSpacing: '-0.015em', color: '#14301c', margin: '0 0 22px', maxWidth: '640px',
   },
-  bodyText: { fontSize: '14.5px', lineHeight: 1.7, color: '#4B5563', marginBottom: '14px' },
+  bodyText: { fontSize: '15.5px', lineHeight: 1.72, color: '#4b5a50', marginBottom: '16px' },
 
-  about: { padding: '64px 0' },
-  aboutGrid: { display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: '48px', alignItems: 'start' },
-  aboutGridMobile: { gridTemplateColumns: '1fr', gap: '28px' },
-  aboutStatsCol: { display: 'flex', flexDirection: 'column', gap: '14px', paddingTop: '4px' },
+  about: { padding: '92px 0 84px' },
+  aboutGrid: {
+    display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '56px', alignItems: 'start',
+  },
+  aboutStatsCol: { display: 'flex', flexDirection: 'column', gap: '14px' },
   aboutStat: {
-    backgroundColor: '#FFF7ED', border: '1px solid #d1d5db', borderLeft: '3px solid #D97706', borderRadius: '12px',
-    padding: '16px 18px', display: 'flex', alignItems: 'center', gap: '14px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+    display: 'flex', alignItems: 'center', gap: '18px', padding: '20px 22px',
+    backgroundColor: '#f6f5ef', border: '1px solid #ecebe3', borderRadius: '14px',
   },
-  aboutStatBadge: {
-    width: '52px', height: '52px', borderRadius: '10px', flexShrink: 0,
-    backgroundColor: '#D97706', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  },
-  aboutStatValue: { fontSize: '20px', fontWeight: 800, color: '#fff' },
-  aboutStatLabel: { fontSize: '12.5px', color: '#4B5563', lineHeight: 1.4 },
+  aboutStatValue: { fontFamily: SERIF, fontSize: '40px', fontWeight: 600, color: '#2c8047', lineHeight: 1, minWidth: '52px' },
+  aboutStatLabel: { fontSize: '14px', lineHeight: 1.4, color: '#4b5a50', fontWeight: 500 },
 
-  features: { padding: '64px 0', backgroundColor: '#f9fafb', borderTop: '1px solid #d1d5db', borderBottom: '1px solid #d1d5db' },
-  featuresGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginTop: '30px' },
-  featuresGridMobile: { gridTemplateColumns: '1fr' },
-  featureCard: {
-    backgroundColor: '#fff', border: '1px solid #d1d5db', borderRadius: '12px',
-    padding: '22px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-    transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-  },
+  features: { padding: '84px 0', backgroundColor: '#f6f5ef', borderTop: '1px solid #ecebe3', borderBottom: '1px solid #ecebe3' },
+  featuresHead: { maxWidth: '620px', marginBottom: '40px' },
+  featuresGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(248px, 1fr))', gap: '18px' },
+  featureCard: { backgroundColor: '#fff', border: '1px solid #e9e8e0', borderRadius: '14px', padding: '26px' },
   featureIconWrap: {
-  width: '42px', height: '42px', borderRadius: '10px', backgroundColor: 'rgba(202,138,4,0.1)',
-  color: '#CA8A04', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '14px',
-},
-  featureTitle: { fontSize: '16.5px', fontWeight: 700, color: '#1a3c1a', margin: '0 0 8px' },
-  featureBody: { fontSize: '13.5px', lineHeight: 1.6, color: '#6b7280', margin: 0 },
+    width: '46px', height: '46px', borderRadius: '12px', backgroundColor: '#eaf3ec', color: '#2c8047',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '18px',
+  },
+  featureTitle: { fontSize: '17px', fontWeight: 700, color: '#14301c', margin: '0 0 9px', letterSpacing: '-0.01em' },
+  featureBody: { fontSize: '14px', lineHeight: 1.62, color: '#647065', margin: 0 },
 
-  contact: { padding: '64px 0', backgroundImage: 'linear-gradient(135deg, #2E7D32 0%, #1a3c1a 100%)' },
-  contactGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '14px', marginTop: '32px' },
-  contactGridMobile: { gridTemplateColumns: '1fr' },
+  contact: { padding: '88px 0', backgroundImage: 'linear-gradient(160deg, #1f5a34 0%, #14301c 100%)' },
+  contactHead: { maxWidth: '620px' },
+  contactGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px', marginTop: '38px' },
   contactCard: {
     display: 'flex', gap: '14px', alignItems: 'flex-start', backgroundColor: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(255,255,255,0.14)', borderRadius: '12px', padding: '16px 18px',
+    border: '1px solid rgba(255,255,255,0.14)', borderRadius: '13px', padding: '18px 20px',
   },
   contactCardIcon: {
-    width: '34px', height: '34px', borderRadius: '8px', backgroundColor: 'rgba(255,255,255,0.16)',
-    color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+    width: '38px', height: '38px', borderRadius: '10px', backgroundColor: 'rgba(255,255,255,0.12)',
+    color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
   contactCardLabel: {
     fontSize: '10.5px', fontWeight: 700, color: 'rgba(255,255,255,0.55)',
-    textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: '4px',
+    textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '5px',
   },
-  contactCardValue: { fontSize: '14px', color: '#fff', fontWeight: 600, lineHeight: 1.4 },
+  contactCardValue: { fontSize: '14.5px', color: '#fff', fontWeight: 600, lineHeight: 1.4, wordBreak: 'break-word' },
 
   footer: {
-    padding: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px',
-    backgroundColor: '#1a3c1a',
+    padding: '30px 28px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
+    backgroundColor: '#101f14',
   },
-  footerNameImg: { height: '18px', width: 'auto', maxWidth: '150px', objectFit: 'contain' },
-  footerNote: { fontSize: '11.5px', color: 'rgba(255,255,255,0.5)' },
+  footerNameImg: { height: '20px', width: 'auto', maxWidth: '160px', objectFit: 'contain' },
+  footerNote: { fontSize: '12px', color: 'rgba(255,255,255,0.45)' },
 }
