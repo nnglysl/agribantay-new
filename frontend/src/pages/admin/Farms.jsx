@@ -25,13 +25,13 @@ const BARANGAYS = [
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
-// San Jose, Batangas municipal center — used as the map's fallback view
-// before a barangay is selected.
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+]
+
 const SAN_JOSE_CENTER = [13.8797, 121.0989]
 
-// Nominatim search biased to San Jose, Batangas — mirrors the viewbox +
-// bounded=1 fix already applied to the sensor/dashboard geocoding, so farm
-// addresses resolve to San Jose and don't drift into a neighboring province.
 const SAN_JOSE_VIEWBOX = '120.95,13.95,121.15,13.80' // left,top,right,bottom
 
 async function geocodeAddress(query) {
@@ -61,7 +61,6 @@ function emptyFarm() {
   }
 }
 
-// e.g. "Jul 15, 2026" — used for the Registration Date column.
 function formatRegistrationDate(value) {
   if (!value) return '—'
   const d = new Date(value)
@@ -74,6 +73,8 @@ export default function Farms() {
   const [barangayFilter, setBarangayFilter] = useState('')
   const [sizeFilter, setSizeFilter] = useState('')
   const [search, setSearch] = useState('')
+  const [filterMonth, setFilterMonth] = useState('') // '' = all, else '0'..'11'
+  const [filterYear, setFilterYear] = useState('')   // '' = all, else e.g. '2026'
   const [showRegisterModal, setShowRegisterModal] = useState(false)
   const [showAddFarmModal, setShowAddFarmModal] = useState(false)
   const [editFarm, setEditFarm] = useState(null)
@@ -97,10 +98,29 @@ export default function Farms() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [statusFilter, barangayFilter, sizeFilter, search, pageSize, sortField, sortDirection])
+  }, [statusFilter, barangayFilter, sizeFilter, search, pageSize, sortField, sortDirection, filterMonth, filterYear])
+
+  const availableYears = useMemo(() => {
+    const set = new Set()
+    allFarms.forEach(f => {
+      if (f.created_at) set.add(new Date(f.created_at).getFullYear())
+    })
+    return [...set].sort((a, b) => b - a)
+  }, [allFarms])
 
   const sortedFarms = useMemo(() => {
-    const list = [...allFarms]
+    let list = [...allFarms]
+
+    if (filterYear || filterMonth !== '') {
+      list = list.filter(f => {
+        if (!f.created_at) return false
+        const d = new Date(f.created_at)
+        if (filterYear && d.getFullYear() !== Number(filterYear)) return false
+        if (filterMonth !== '' && d.getMonth() !== Number(filterMonth)) return false
+        return true
+      })
+    }
+
     list.sort((a, b) => {
       let result
       if (sortField === 'created_at') {
@@ -111,7 +131,7 @@ export default function Farms() {
       return sortDirection === 'asc' ? result : -result
     })
     return list
-  }, [allFarms, sortField, sortDirection])
+  }, [allFarms, sortField, sortDirection, filterMonth, filterYear])
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -170,8 +190,9 @@ export default function Farms() {
     })
   }
 
-  const statusColor = { Normal: '#2E7D32', Warning: '#f59e0b', Critical: '#dc2626', Offline: '#9ca3af' }
-  const activeFilterCount = [barangayFilter, sizeFilter, statusFilter].filter(Boolean).length
+  const statusColor = { Normal: '#256b3d', Warning: '#b45309', Critical: '#b91c1c', Offline: '#6b7280' }
+  const statusBg = { Normal: '#eaf3ec', Warning: '#fbf1e2', Critical: '#fbeaea', Offline: '#eef1ea' }
+  const activeFilterCount = [barangayFilter, sizeFilter, statusFilter, filterMonth !== '' || filterYear].filter(Boolean).length
 
   return (
     <AdminLayout>
@@ -249,12 +270,32 @@ export default function Farms() {
               <option value="Active">Active</option>
               <option value="Deactivated">Deactivated</option>
             </select>
+            <select
+              value={filterMonth}
+              onChange={e => setFilterMonth(e.target.value)}
+              style={{ ...styles.select, ...(isMobile ? styles.selectMobile : {}) }}
+            >
+              <option value="">All Months</option>
+              {MONTHS.map((m, i) => (
+                <option key={m} value={i}>{m}</option>
+              ))}
+            </select>
+            <select
+              value={filterYear}
+              onChange={e => setFilterYear(e.target.value)}
+              style={{ ...styles.select, ...(isMobile ? styles.selectMobile : {}) }}
+            >
+              <option value="">All Years</option>
+              {availableYears.map(y => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
           </>
         )}
       </div>
 
       {loading && <p>Loading...</p>}
-      {error && <p style={{ color: '#dc2626' }}>{error}</p>}
+      {error && <p style={{ color: '#b91c1c' }}>{error}</p>}
 
       {!loading && !error && (
         <div style={styles.tableCard}>
@@ -276,27 +317,37 @@ export default function Farms() {
                     )}
                   </th>
                   <th style={styles.th}>Status</th>
-                  <th style={styles.th}>Actions</th>
+                  <th style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {paginatedFarms.map(f => (
-                  <tr key={f.id}>
+                  <tr key={f.id} style={styles.tr}>
                     <td style={styles.td}>
-                      <div style={{ fontWeight: 600 }}>{f.farm_name}</div>
-                      <div style={{ fontSize: '12px', color: '#6b7280' }}>{f.owner_name}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <span style={styles.avatar}>{getInitials(f.farm_name)}</span>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, color: '#16311d' }}>{f.farm_name}</div>
+                          <div style={{ fontSize: '12.5px', color: '#8a968d', marginTop: '1px' }}>{f.owner_name}</div>
+                        </div>
+                      </div>
                     </td>
                     <td style={styles.td}>{f.mobile_number}</td>
                     <td style={styles.td}>{f.barangay}</td>
                     <td style={styles.td}>{f.farm_size}</td>
                     <td style={styles.td}>{formatRegistrationDate(f.created_at)}</td>
                     <td style={styles.td}>
-                      <span style={{ ...styles.badge, backgroundColor: statusColor[f.sensor_status] || '#9ca3af' }}>
+                      <span style={{
+                        ...styles.badge,
+                        color: statusColor[f.sensor_status] || '#6b7280',
+                        backgroundColor: statusBg[f.sensor_status] || '#eef1ea',
+                      }}>
+                        <span style={{ ...styles.badgeDot, backgroundColor: statusColor[f.sensor_status] || '#6b7280' }} />
                         {f.sensor_status}
                       </span>
                     </td>
                     <td style={styles.td}>
-                      <div style={{ display: 'flex', gap: '8px' }}>
+                      <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
                         <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => setViewFarm(f)}>
                           View
                         </span>
@@ -387,7 +438,7 @@ export default function Farms() {
                 style={{
                   ...modalStyles.submitBtn,
                   ...(isMobile ? modalStyles.btnFull : {}),
-                  backgroundColor: confirmAction.danger ? '#dc2626' : '#2E7D32',
+                  backgroundColor: confirmAction.danger ? '#b91c1c' : '#2c8047',
                 }}
               >
                 {confirmAction.confirmLabel}
@@ -490,12 +541,6 @@ function Pagination({
     </div>
   )
 }
-
-/* ------------------------------------------------------------------ *
- *  Register flow — Step 1: Farm Owner (created once)
- *                  Step 2: one or more Farms under that owner,
- *                          each with its own pinned map location.
- * ------------------------------------------------------------------ */
 
 function RegisterModal({ onClose, onSuccess, isMobile }) {
   const [step, setStep] = useState('owner') // 'owner' | 'farms'
@@ -690,12 +735,6 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
   )
 }
 
-/* ------------------------------------------------------------------ *
- *  Add Farm to Existing Owner — search for an owner already in the
- *  system, then attach one or more new farms to them without
- *  re-registering the owner (mobile number stays unique).
- * ------------------------------------------------------------------ */
-
 function AddFarmModal({ onClose, onSuccess, isMobile }) {
   const [ownerQuery, setOwnerQuery] = useState('')
   const [ownerResults, setOwnerResults] = useState([])
@@ -885,7 +924,7 @@ function AddFarmModal({ onClose, onSuccess, isMobile }) {
 function StepPill({ number, label, active, done }) {
   return (
     <div style={{ ...modalStyles.stepPill, ...(active ? modalStyles.stepPillActive : {}), ...(done ? modalStyles.stepPillDone : {}) }}>
-      <span style={modalStyles.stepPillNum}>{done ? '✓' : number}</span>
+      <span style={{ ...modalStyles.stepPillNum, ...(active || done ? modalStyles.stepPillNumActive : {}) }}>{done ? '✓' : number}</span>
       <span>{label}</span>
     </div>
   )
@@ -898,19 +937,6 @@ function Label({ text, required }) {
     </label>
   )
 }
-
-/* ------------------------------------------------------------------ *
- *  FarmEntry — Google-Maps-style location picker.
- *
- *  1. Selecting a barangay flies the map to that barangay's approximate
- *     center (a Nominatim lookup, navigation only — no marker placed).
- *  2. The admin clicks anywhere on the map to drop a pin, or drags the
- *     pin to fine-tune it. That's the single source of truth for the
- *     farm's saved latitude/longitude.
- *  3. The address search box is an optional shortcut: picking a
- *     suggestion flies the map there and drops the pin at that point,
- *     but the pin remains freely draggable afterward for precision.
- * ------------------------------------------------------------------ */
 
 function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
   const [suggestions, setSuggestions] = useState([])
@@ -944,7 +970,6 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
     onChange('longitude', lng)
   }
 
-  // Initialize the map once on mount.
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return
 
@@ -964,8 +989,6 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
 
     if (hasExisting) addOrMoveMarker(farm.latitude, farm.longitude)
 
-    // Leaflet sometimes renders blank tiles if the container's size wasn't
-    // final at init time (e.g. inside a modal that's still animating in).
     setTimeout(() => map.invalidateSize(), 200)
 
     return () => {
@@ -976,8 +999,6 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Selecting a barangay navigates the map there — it does not place a
-  // pin, since the exact spot still needs a deliberate click.
   const handleBarangayChange = async (value) => {
     onChange('barangay', value)
     if (!value || !mapRef.current) return
@@ -1189,32 +1210,20 @@ function EditModal({ farm, onClose, onSuccess, isMobile }) {
   )
 }
 
-// sensorMonitoringPath: pass a real route (e.g. "/admin/farms/123/monitoring")
-// once that page exists in your router — the button stays hidden until then,
-// since linking to a route that doesn't exist yet would just 404.
 function ViewFarmModal({ farmId, onClose, isMobile, sensorMonitoringPath }) {
   const { data: farm, loading, error } = useCachedFetch(`/admin/farms/${farmId}`)
 
-  const statusColorMap = { Normal: '#2E7D32', Warning: '#B45309', Critical: '#B91C1C' }
+  const statusColorMap = { Normal: '#256b3d', Warning: '#B45309', Critical: '#B91C1C' }
   const reading = farm?.sensor_readings?.[0] ?? farm?.sensorReadings?.[0] ?? null
   const initials = farm ? getInitials(farm.owner_name) : ''
   const isActive = farm?.status === 'Active'
   const isSensorOnline = !!reading
   const riskLevel = farm?.current_status || (reading ? 'Normal' : null)
 
-  // AI-Assisted Insight — diagnosis + explanation only, no farmer-facing
-  // action tips (those are for the Farm Owner view, not Admin/Super
-  // Admin, since only the farm owner can actually carry them out). Skips
-  // the call entirely when there's no reading, since the endpoint would
-  // just 422 with nothing useful to show.
   const { data: insight, loading: insightLoading } = useCachedFetch(
     reading ? `/admin/farms/${farmId}/root-cause` : null
   )
 
-  // Inspection summary — expects the backend's show() endpoint to
-  // eager-load 'inspections' the same way it already loads poultryHouses
-  // and sensorReadings. If that hasn't been added yet, this section will
-  // just show empty dashes instead of breaking.
   const inspections = farm?.inspections ?? []
   const completedInspections = inspections
     .filter(i => i.status === 'Completed')
@@ -1232,7 +1241,7 @@ function ViewFarmModal({ farmId, onClose, isMobile, sensorMonitoringPath }) {
         <button style={profileStyles.closeBtn} onClick={onClose} aria-label="Close">×</button>
 
         {loading && <div style={profileStyles.stateMsg}>Loading farm profile…</div>}
-        {error && <div style={{ ...profileStyles.stateMsg, color: '#dc2626' }}>{error}</div>}
+        {error && <div style={{ ...profileStyles.stateMsg, color: '#b91c1c' }}>{error}</div>}
 
         {farm && (
           <>
@@ -1249,9 +1258,9 @@ function ViewFarmModal({ farmId, onClose, isMobile, sensorMonitoringPath }) {
               <span
                 style={{
                   ...profileStyles.statusPill,
-                  backgroundColor: isActive ? 'rgba(212,175,55,0.18)' : 'rgba(255,255,255,0.12)',
-                  color: isActive ? '#E8C766' : '#D7D2C4',
-                  border: `1px solid ${isActive ? 'rgba(212,175,55,0.5)' : 'rgba(255,255,255,0.25)'}`,
+                  backgroundColor: isActive ? 'rgba(124,199,149,0.18)' : 'rgba(255,255,255,0.12)',
+                  color: isActive ? '#a9e0ba' : '#D7D2C4',
+                  border: `1px solid ${isActive ? 'rgba(124,199,149,0.5)' : 'rgba(255,255,255,0.25)'}`,
                 }}
               >
                 {farm.status}
@@ -1260,7 +1269,6 @@ function ViewFarmModal({ farmId, onClose, isMobile, sensorMonitoringPath }) {
 
             <div style={profileStyles.body}>
               <div style={{ ...profileStyles.twoColSection, ...(isMobile ? profileStyles.twoColSectionMobile : {}) }}>
-                {/* --------------------------------------------------- Farm Information */}
                 <div style={profileStyles.section}>
                   <div style={profileStyles.sectionLabel}>
                     <IconHome size={13} /> Farm Information
@@ -1275,7 +1283,6 @@ function ViewFarmModal({ farmId, onClose, isMobile, sensorMonitoringPath }) {
                   </div>
                 </div>
 
-                {/* -------------------------------------------------- Sensor Information */}
                 <div style={profileStyles.section}>
                   <div style={profileStyles.sectionLabel}>
                     <IconCpu size={13} /> Sensor Information
@@ -1286,7 +1293,7 @@ function ViewFarmModal({ farmId, onClose, isMobile, sensorMonitoringPath }) {
                       icon={<IconSync />}
                       label="Sensor Status"
                       value={
-                        <span style={{ color: isSensorOnline ? '#2E7D32' : '#9ca3af', fontWeight: 700 }}>
+                        <span style={{ color: isSensorOnline ? '#256b3d' : '#9ca3af', fontWeight: 700 }}>
                           {isSensorOnline ? 'Online' : 'Offline'}
                         </span>
                       }
@@ -1305,7 +1312,6 @@ function ViewFarmModal({ farmId, onClose, isMobile, sensorMonitoringPath }) {
                 </div>
               </div>
 
-              {/* ------------------------------------------------- Latest Sensor Readings */}
               <div style={{ ...profileStyles.section, marginTop: '24px' }}>
                 <div style={profileStyles.sectionLabelRow}>
                   <div style={profileStyles.sectionLabel}>
@@ -1347,7 +1353,6 @@ function ViewFarmModal({ farmId, onClose, isMobile, sensorMonitoringPath }) {
                 )}
               </div>
 
-              {/* --------------------------------------------------------- AI Insight */}
               {reading && (
                 <div style={{ ...profileStyles.section, marginTop: '24px' }}>
                   <div style={profileStyles.sectionLabel}>
@@ -1386,7 +1391,6 @@ function ViewFarmModal({ farmId, onClose, isMobile, sensorMonitoringPath }) {
                 </div>
               )}
 
-             {/* ------------------------------------------------ Maintenance Status */}
               {farm.maintenance_status && (
                 <div style={{ ...profileStyles.section, marginTop: '24px' }}>
                   <div style={profileStyles.sectionLabelRow}>
@@ -1433,7 +1437,6 @@ function ViewFarmModal({ farmId, onClose, isMobile, sensorMonitoringPath }) {
                 </div>
               )}
 
-              {/* ------------------------------------------------ Manure Disposal Records */}
               <div style={{ ...profileStyles.section, marginTop: '24px' }}>
                 <div style={profileStyles.sectionLabel}>
                   <IconClipboard size={13} /> Manure Disposal Records
@@ -1456,7 +1459,7 @@ function ViewFarmModal({ farmId, onClose, isMobile, sensorMonitoringPath }) {
                   <div style={profileStyles.empty}>No disposal records logged for this farm yet.</div>
                 )}
               </div>
-              {/* ------------------------------------------------------ Inspection Summary */}
+
               <div style={{ ...profileStyles.section, marginTop: '24px' }}>
                 <div style={profileStyles.sectionLabel}>
                   <IconClipboard size={13} /> Inspection Summary
@@ -1491,34 +1494,27 @@ function ViewFarmModal({ farmId, onClose, isMobile, sensorMonitoringPath }) {
   )
 }
 
-// Maps a risk-level string coming back from the backend (Normal/Warning/
-// Critical today) to the badge color — keeps the badge readable even if
-// the exact wording differs from what you see here.
 function riskBadgeStyle(level) {
   const normalized = String(level).toLowerCase()
-  if (normalized.includes('critical')) return { backgroundColor: 'rgba(220,38,38,0.12)', color: '#B91C1C', border: '1px solid rgba(220,38,38,0.3)' }
-  if (normalized.includes('warn') || normalized.includes('moderate')) return { backgroundColor: 'rgba(180,101,29,0.12)', color: '#B45309', border: '1px solid rgba(180,101,29,0.3)' }
-  return { backgroundColor: 'rgba(46,125,50,0.12)', color: '#2E7D32', border: '1px solid rgba(46,125,50,0.3)' }
+  if (normalized.includes('critical')) return { backgroundColor: 'rgba(185,28,28,0.12)', color: '#B91C1C', border: '1px solid rgba(185,28,28,0.3)' }
+  if (normalized.includes('warn') || normalized.includes('moderate')) return { backgroundColor: 'rgba(180,83,9,0.12)', color: '#B45309', border: '1px solid rgba(180,83,9,0.3)' }
+  return { backgroundColor: 'rgba(37,107,61,0.12)', color: '#256b3d', border: '1px solid rgba(37,107,61,0.3)' }
 }
 
-// "Normal conditions" is always green regardless of confidence — any
-// other diagnosed cause scales amber->red by confidence, since higher
-// confidence in a real problem warrants more visual attention.
 function confidenceBadgeStyle(rootCause, confidence) {
   if (rootCause === 'Normal conditions') {
-    return { backgroundColor: 'rgba(46,125,50,0.12)', color: '#2E7D32', border: '1px solid rgba(46,125,50,0.3)' }
+    return { backgroundColor: 'rgba(37,107,61,0.12)', color: '#256b3d', border: '1px solid rgba(37,107,61,0.3)' }
   }
   if (confidence >= 30) {
-    return { backgroundColor: 'rgba(220,38,38,0.12)', color: '#B91C1C', border: '1px solid rgba(220,38,38,0.3)' }
+    return { backgroundColor: 'rgba(185,28,28,0.12)', color: '#B91C1C', border: '1px solid rgba(185,28,28,0.3)' }
   }
-  return { backgroundColor: 'rgba(180,101,29,0.12)', color: '#B45309', border: '1px solid rgba(180,101,29,0.3)' }
+  return { backgroundColor: 'rgba(180,83,9,0.12)', color: '#B45309', border: '1px solid rgba(180,83,9,0.3)' }
 }
 
-// Green for Up to date, amber for Due (the 30-day grace period), red for Overdue.
 function maintBadgeStyle(status) {
-  if (status === 'Overdue') return { backgroundColor: 'rgba(220,38,38,0.12)', color: '#B91C1C', border: '1px solid rgba(220,38,38,0.3)' }
-  if (status === 'Due') return { backgroundColor: 'rgba(180,101,29,0.12)', color: '#B45309', border: '1px solid rgba(180,101,29,0.3)' }
-  return { backgroundColor: 'rgba(46,125,50,0.12)', color: '#2E7D32', border: '1px solid rgba(46,125,50,0.3)' }
+  if (status === 'Overdue') return { backgroundColor: 'rgba(185,28,28,0.12)', color: '#B91C1C', border: '1px solid rgba(185,28,28,0.3)' }
+  if (status === 'Due') return { backgroundColor: 'rgba(180,83,9,0.12)', color: '#B45309', border: '1px solid rgba(180,83,9,0.3)' }
+  return { backgroundColor: 'rgba(37,107,61,0.12)', color: '#256b3d', border: '1px solid rgba(37,107,61,0.3)' }
 }
 
 function InfoCell({ icon, label, value, full }) {
@@ -1552,7 +1548,6 @@ function getInitials(name) {
   return name.split(' ').filter(Boolean).slice(0, 2).map(n => n[0].toUpperCase()).join('')
 }
 
-// --- Small inline icon set (no external dependency) ---
 const iconBase = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' }
 
 function IconFarm({ size = 15 }) {
@@ -1680,82 +1675,95 @@ function IconClipboard() {
 }
 
 const styles = {
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '14px', marginBottom: '20px' },
+  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '22px' },
   headerMobile: { flexDirection: 'column', gap: '14px' },
-  title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
-  titleMobile: { fontSize: '18px' },
-  subtitle: { fontSize: '13px', color: '#6b7280', marginTop: '4px' },
-  newBtn: { backgroundColor: '#2E7D32', color: 'white', border: 'none', borderRadius: '8px', padding: '10px 18px', fontSize: '14px', fontWeight: '600', cursor: 'pointer' },
-  secondaryBtn: { backgroundColor: 'white', color: '#2E7D32', border: '1px solid #2E7D32', borderRadius: '8px', padding: '10px 18px', fontSize: '14px', fontWeight: '600', cursor: 'pointer' },
-  btnFull: { width: '100%', boxSizing: 'border-box' },
+  title: { fontSize: '24px', fontWeight: 800, letterSpacing: '-0.015em', color: '#16311d', margin: 0 },
+  titleMobile: { fontSize: '20px' },
+  subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px' },
+  newBtn: { display: 'inline-flex', alignItems: 'center', gap: '7px', backgroundColor: '#2c8047', color: '#fff', border: 'none', borderRadius: '10px', padding: '10px 18px', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer' },
+  secondaryBtn: { display: 'inline-flex', alignItems: 'center', gap: '7px', backgroundColor: '#fff', color: '#2c8047', border: '1px solid #cfe0d3', borderRadius: '10px', padding: '10px 16px', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer' },
+  btnFull: { width: '100%', boxSizing: 'border-box', justifyContent: 'center' },
+
   filters: { display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' },
   filtersMobile: { flexDirection: 'column' },
-  searchInput: { flex: 1, padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', boxSizing: 'border-box', width: '100%' },
-  select: { padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px' },
+  searchInput: { flex: 1, padding: '11px 14px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', width: '100%', backgroundColor: '#fff', color: '#16311d' },
+  select: { padding: '11px 14px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '13.5px', color: '#33413a', backgroundColor: '#fff', cursor: 'pointer' },
   selectMobile: { width: '100%', boxSizing: 'border-box' },
   filterToggleBtn: {
     width: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: '8px',
-    padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: 'white',
-    fontSize: '14px', fontWeight: '600', color: '#374151', cursor: 'pointer',
+    padding: '11px 14px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
+    fontSize: '14px', fontWeight: 600, color: '#33413a', cursor: 'pointer',
   },
   filterBadge: {
-    backgroundColor: '#2E7D32', color: 'white', fontSize: '11px', fontWeight: '700',
+    backgroundColor: '#2c8047', color: '#fff', fontSize: '11px', fontWeight: 700,
     borderRadius: '999px', padding: '1px 7px', lineHeight: '16px',
   },
-  filterChevron: { marginLeft: 'auto', fontSize: '11px', color: '#9ca3af' },
-  tableCard: { backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', overflow: 'hidden', padding: 0 },
-  scrollHint: { fontSize: '11px', color: '#9ca3af', margin: '12px 16px 0' },
+  filterChevron: { marginLeft: 'auto', fontSize: '11px', color: '#9aa79d' },
+
+  tableCard: { backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden', padding: 0 },
+  scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0' },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
   tableMobile: { minWidth: '900px' },
-  th: { textAlign: 'left', padding: '14px 16px', fontSize: '12px', color: '#6b7280', borderBottom: '1px solid #e5e7eb', textTransform: 'uppercase', whiteSpace: 'nowrap' },
-  thSortable: { cursor: 'pointer', userSelect: 'none' },
-  sortArrow: { color: '#2E7D32', fontSize: '10px' },
-  td: { padding: '14px 16px', fontSize: '13px', color: '#374151', borderBottom: '1px solid #f3f4f6' },
-  badge: { padding: '3px 10px', borderRadius: '999px', color: 'white', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap' },
-  actionBtn: {
-    padding: '5px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600',
-    cursor: 'pointer', border: '1px solid transparent', whiteSpace: 'nowrap',
+  th: {
+    textAlign: 'left', padding: '13px 20px', fontSize: '11px', fontWeight: 700, color: '#8a968d',
+    borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em',
+    whiteSpace: 'nowrap', backgroundColor: '#fafbf8',
   },
-  editBtn: { color: '#2E7D32', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' },
-  viewBtn: { color: '#3b82f6', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe' },
-  deactivateBtn: { color: '#dc2626', backgroundColor: '#fef2f2', border: '1px solid #fecaca' },
-  activateBtn: { color: '#2E7D32', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' },
-  empty: { padding: '32px', textAlign: 'center', color: '#9ca3af', fontSize: '14px' },
+  thSortable: { cursor: 'pointer', userSelect: 'none' },
+  sortArrow: { color: '#2c8047', fontSize: '10px' },
+  tr: {},
+  td: { padding: '13px 20px', fontSize: '13px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle' },
+  avatar: {
+    width: '38px', height: '38px', borderRadius: '10px', backgroundColor: '#eaf3ec', color: '#2c8047',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 700,
+    flexShrink: 0, textTransform: 'uppercase',
+  },
+  badge: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 11px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap' },
+  badgeDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
+  actionBtn: {
+    padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600,
+    cursor: 'pointer', border: '1px solid #e3e6dd', backgroundColor: '#fff', whiteSpace: 'nowrap',
+  },
+  viewBtn: { color: '#4b5a50' },
+  editBtn: { color: '#2c8047' },
+  deactivateBtn: { color: '#b91c1c' },
+  activateBtn: { color: '#2c8047' },
+  empty: { padding: '32px', textAlign: 'center', color: '#9aa79d', fontSize: '14px' },
 }
 
 const paginationStyles = {
   wrap: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '14px 16px', borderTop: '1px solid #f3f4f6', flexWrap: 'wrap', gap: '10px',
+    padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px',
   },
   wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
-  info: { fontSize: '12.5px', color: '#6b7280', whiteSpace: 'nowrap' },
+  info: { fontSize: '12.5px', color: '#8a968d', whiteSpace: 'nowrap' },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },
   pageSizeSelect: {
-    padding: '6px 10px', borderRadius: '6px', border: '1px solid #d1d5db',
-    fontSize: '12.5px', color: '#374151', marginRight: '8px',
+    padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6',
+    fontSize: '12.5px', color: '#4b5a50', marginRight: '6px',
   },
   navBtn: {
-    minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '6px',
-    border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151',
+    minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px',
+    border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50',
     fontSize: '13px', cursor: 'pointer',
   },
   navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   pageBtn: {
-    minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '6px',
-    border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151',
-    fontSize: '12.5px', fontWeight: '600', cursor: 'pointer',
+    minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px',
+    border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50',
+    fontSize: '12.5px', fontWeight: 600, cursor: 'pointer',
   },
   pageBtnActive: {
-    backgroundColor: '#2E7D32', borderColor: '#2E7D32', color: 'white',
+    backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff',
   },
-  ellipsis: { padding: '0 4px', color: '#9ca3af', fontSize: '13px' },
+  ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
 }
 
 const modalStyles = {
-  overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 },
+  overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 },
   modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '480px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto' },
   modalWide: { width: '560px' },
   modalMobile: {
@@ -1764,100 +1772,99 @@ const modalStyles = {
     maxHeight: '85vh',
   },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' },
-  title: { fontSize: '17px', fontWeight: '700', color: '#111827', margin: 0 },
-  close: { fontSize: '22px', cursor: 'pointer', color: '#6b7280' },
-  instruction: { fontSize: '12.5px', color: '#6b7280', marginBottom: '16px', lineHeight: '1.5' },
-  requiredMark: { color: '#dc2626', fontWeight: '700' },
+  title: { fontSize: '17px', fontWeight: 800, color: '#16311d', margin: 0 },
+  close: { fontSize: '22px', cursor: 'pointer', color: '#8a968d' },
+  instruction: { fontSize: '12.5px', color: '#6b7770', marginBottom: '16px', lineHeight: '1.5' },
+  requiredMark: { color: '#b91c1c', fontWeight: 700 },
 
   stepper: { display: 'flex', alignItems: 'center', marginBottom: '20px' },
-  stepperLine: { flex: 1, height: '2px', backgroundColor: '#e5e7eb', margin: '0 8px' },
-  stepPill: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#9ca3af', fontWeight: '600' },
-  stepPillActive: { color: '#2E7D32' },
-  stepPillDone: { color: '#2E7D32' },
+  stepperLine: { flex: 1, height: '2px', backgroundColor: '#e7e8e0', margin: '0 8px' },
+  stepPill: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#9aa79d', fontWeight: 600 },
+  stepPillActive: { color: '#2c8047' },
+  stepPillDone: { color: '#2c8047' },
   stepPillNum: {
-    width: '22px', height: '22px', borderRadius: '50%', backgroundColor: '#f3f4f6',
-    color: '#9ca3af', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontSize: '11px', fontWeight: '700', flexShrink: 0,
+    width: '22px', height: '22px', borderRadius: '50%', backgroundColor: '#eef1ea',
+    color: '#9aa79d', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: '11px', fontWeight: 700, flexShrink: 0,
   },
+  stepPillNumActive: { backgroundColor: '#2c8047', color: '#fff' },
 
   ownerBanner: {
-    backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534',
-    padding: '8px 12px', borderRadius: '8px', fontSize: '12.5px', marginBottom: '16px',
+    backgroundColor: '#eaf3ec', border: '1px solid #cfe0d3', color: '#1f5a34',
+    padding: '8px 12px', borderRadius: '10px', fontSize: '12.5px', marginBottom: '16px',
   },
 
-  sectionLabel: { fontSize: '11px', fontWeight: '600', color: '#9ca3af', marginTop: '16px', marginBottom: '8px', letterSpacing: '0.5px' },
+  sectionLabel: { fontSize: '11px', fontWeight: 700, color: '#9aa79d', marginTop: '16px', marginBottom: '8px', letterSpacing: '0.5px' },
   row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' },
   rowMobile: { gridTemplateColumns: '1fr' },
   areaRow: { display: 'flex', gap: '10px', marginBottom: '10px' },
-  input: { padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', boxSizing: 'border-box', width: '100%' },
-  inputFull: { width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', boxSizing: 'border-box', marginBottom: '10px' },
-  inputDisabled: { backgroundColor: '#f9fafb', color: '#6b7280', cursor: 'not-allowed' },
-  label: { display: 'block', fontSize: '12.5px', fontWeight: '600', color: '#374151', marginBottom: '5px' },
-  errorBox: { backgroundColor: '#fef2f2', border: '1px solid #fca5a5', color: '#dc2626', padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '14px' },
-  warnBox: { backgroundColor: '#fffbeb', border: '1px solid #fcd34d', color: '#92400e', padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '14px' },
-  hint: { fontSize: '12px', color: '#6b7280', marginTop: '14px', lineHeight: '1.5' },
-  mapHint: { fontSize: '11.5px', color: '#9ca3af', margin: '-6px 0 8px', lineHeight: '1.4' },
-  mapContainer: { height: '260px', width: '100%', borderRadius: '10px', border: '1px solid #d1d5db', overflow: 'hidden' },
+  input: { padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', width: '100%' },
+  inputFull: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', marginBottom: '10px' },
+  inputDisabled: { backgroundColor: '#f6f7f2', color: '#6b7770', cursor: 'not-allowed' },
+  label: { display: 'block', fontSize: '12.5px', fontWeight: 600, color: '#33413a', marginBottom: '5px' },
+  errorBox: { backgroundColor: '#fbeaea', border: '1px solid #f0c9c9', color: '#b91c1c', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '14px' },
+  warnBox: { backgroundColor: '#fdf8f0', border: '1px solid #f0e2cf', color: '#92400e', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '14px' },
+  hint: { fontSize: '12px', color: '#6b7770', marginTop: '14px', lineHeight: '1.5' },
+  mapHint: { fontSize: '11.5px', color: '#9aa79d', margin: '-6px 0 8px', lineHeight: '1.4' },
+  mapContainer: { height: '260px', width: '100%', borderRadius: '10px', border: '1px solid #dcdfd6', overflow: 'hidden' },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' },
   actionsMobile: { flexDirection: 'column-reverse' },
   btnFull: { width: '100%', boxSizing: 'border-box' },
-  cancelBtn: { padding: '10px 18px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: 'white', fontSize: '14px', cursor: 'pointer' },
-  submitBtn: { padding: '10px 18px', borderRadius: '8px', border: 'none', backgroundColor: '#2E7D32', color: 'white', fontSize: '14px', fontWeight: '600', cursor: 'pointer' },
+  cancelBtn: { padding: '10px 18px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: 'white', fontSize: '14px', fontWeight: 600, color: '#33413a', cursor: 'pointer' },
+  submitBtn: { padding: '10px 18px', borderRadius: '10px', border: 'none', backgroundColor: '#2c8047', color: 'white', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
 
   farmBlock: {
-    border: '1px solid #e5e7eb', borderRadius: '12px', padding: '16px',
-    marginBottom: '14px', backgroundColor: '#fafaf8',
+    border: '1px solid #e7e8e0', borderRadius: '12px', padding: '16px',
+    marginBottom: '14px', backgroundColor: '#fafbf8',
   },
   farmBlockHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' },
-  farmBlockTitle: { fontSize: '13px', fontWeight: '700', color: '#2E7D32' },
-  removeFarmBtn: { fontSize: '12px', color: '#dc2626', fontWeight: '600', cursor: 'pointer' },
+  farmBlockTitle: { fontSize: '13px', fontWeight: 700, color: '#2c8047' },
+  removeFarmBtn: { fontSize: '12px', color: '#b91c1c', fontWeight: 600, cursor: 'pointer' },
   addFarmBtn: {
-    display: 'block', width: '100%', padding: '10px', borderRadius: '8px',
-    border: '1px dashed #2E7D32', backgroundColor: 'white', color: '#2E7D32',
-    fontSize: '13px', fontWeight: '600', cursor: 'pointer', marginBottom: '4px',
+    display: 'block', width: '100%', padding: '10px', borderRadius: '10px',
+    border: '1px dashed #2c8047', backgroundColor: 'white', color: '#2c8047',
+    fontSize: '13px', fontWeight: 600, cursor: 'pointer', marginBottom: '4px',
   },
 
   dropdownList: {
     position: 'absolute', top: '100%', left: 0, right: 0,
-    backgroundColor: 'white', border: '1px solid #d1d5db', borderRadius: '8px',
+    backgroundColor: 'white', border: '1px solid #dcdfd6', borderRadius: '10px',
     marginTop: '-6px', maxHeight: '180px', overflowY: 'auto', zIndex: 10,
-    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+    boxShadow: '0 4px 12px rgba(20,48,28,0.12)',
   },
-  dropdownItem: { padding: '10px 14px', fontSize: '13px', cursor: 'pointer', color: '#374151' },
-  geocodeSpinner: { position: 'absolute', right: '12px', top: '11px', fontSize: '11px', color: '#9ca3af' },
-  geocodeError: { fontSize: '12px', color: '#dc2626', marginTop: '-6px', marginBottom: '10px' },
-  geotagConfirmed: { fontSize: '12px', color: '#2E7D32', fontWeight: '600', marginTop: '2px' },
+  dropdownItem: { padding: '10px 14px', fontSize: '13px', cursor: 'pointer', color: '#33413a' },
+  geocodeSpinner: { position: 'absolute', right: '12px', top: '11px', fontSize: '11px', color: '#9aa79d' },
+  geocodeError: { fontSize: '12px', color: '#b91c1c', marginTop: '-6px', marginBottom: '10px' },
+  geotagConfirmed: { fontSize: '12px', color: '#2c8047', fontWeight: 600, marginTop: '2px' },
 
   ownerResultsList: {
-    border: '1px solid #d1d5db', borderRadius: '8px', marginTop: '-6px',
+    border: '1px solid #dcdfd6', borderRadius: '10px', marginTop: '-6px',
     marginBottom: '10px', maxHeight: '220px', overflowY: 'auto',
   },
   ownerResultItem: {
-    padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6',
+    padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #f2f3ed',
   },
-  ownerResultName: { fontSize: '13.5px', fontWeight: '700', color: '#111827' },
-  ownerResultMeta: { fontSize: '12px', color: '#6b7280', marginTop: '2px' },
-  ownerEmptyResult: { fontSize: '12.5px', color: '#9ca3af', padding: '10px 2px', marginTop: '-6px' },
-  changeOwnerLink: { color: '#2E7D32', fontWeight: '700', cursor: 'pointer', textDecoration: 'underline' },
+  ownerResultName: { fontSize: '13.5px', fontWeight: 700, color: '#16311d' },
+  ownerResultMeta: { fontSize: '12px', color: '#6b7770', marginTop: '2px' },
+  ownerEmptyResult: { fontSize: '12.5px', color: '#9aa79d', padding: '10px 2px', marginTop: '-6px' },
+  changeOwnerLink: { color: '#2c8047', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' },
 }
 
 const confirmStyles = {
   modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '400px', maxWidth: '90%' },
-  title: { fontSize: '17px', fontWeight: '700', color: '#111827', marginTop: 0, marginBottom: '10px' },
-  message: { fontSize: '14px', color: '#6b7280', lineHeight: '1.5', marginBottom: '4px' },
+  title: { fontSize: '17px', fontWeight: 800, color: '#16311d', marginTop: 0, marginBottom: '10px' },
+  message: { fontSize: '14px', color: '#6b7770', lineHeight: '1.5', marginBottom: '4px' },
 }
 
-// Farm Profile modal — dark forest green header, gold accents, beige body
-// (matches the AgriBantay dashboard theme rather than a generic white modal)
 const profileStyles = {
   overlay: {
-    position: 'fixed', inset: 0, backgroundColor: 'rgba(18,38,27,0.6)',
+    position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.6)',
     backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center',
     justifyContent: 'center', zIndex: 50, padding: '16px', boxSizing: 'border-box',
   },
   modal: {
-    backgroundColor: '#F7F2E7', borderRadius: '18px', width: '80%', maxWidth: '980px',
-    maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,0.35)',
+    backgroundColor: '#F7F5EE', borderRadius: '18px', width: '80%', maxWidth: '980px',
+    maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(15,38,22,0.35)',
     position: 'relative',
   },
   modalMobile: {
@@ -1869,30 +1876,30 @@ const profileStyles = {
     borderRadius: '50%', border: 'none', backgroundColor: 'rgba(255,255,255,0.16)',
     color: '#fff', fontSize: '18px', lineHeight: '26px', cursor: 'pointer', zIndex: 2,
   },
-  stateMsg: { padding: '40px 24px', textAlign: 'center', color: '#6b7280', fontSize: '14px' },
+  stateMsg: { padding: '40px 24px', textAlign: 'center', color: '#6b7770', fontSize: '14px' },
   header: {
-    backgroundImage: 'linear-gradient(135deg, #234A35 0%, #122A1E 100%)',
+    backgroundImage: 'linear-gradient(135deg, #1f5a34 0%, #14301c 100%)',
     borderRadius: '18px 18px 0 0', padding: '28px 48px 24px 28px',
     display: 'flex', alignItems: 'center', gap: '16px',
   },
   headerMobile: { padding: '22px 44px 18px 18px', gap: '12px' },
   avatar: {
-    width: '64px', height: '64px', borderRadius: '50%', backgroundColor: 'rgba(212,175,55,0.16)',
-    border: '2px solid #D4AF37', color: '#E8C766', display: 'flex', alignItems: 'center',
-    justifyContent: 'center', fontSize: '20px', fontWeight: '700', flexShrink: 0,
+    width: '64px', height: '64px', borderRadius: '50%', backgroundColor: 'rgba(124,199,149,0.18)',
+    border: '2px solid #7cc795', color: '#a9e0ba', display: 'flex', alignItems: 'center',
+    justifyContent: 'center', fontSize: '20px', fontWeight: 700, flexShrink: 0,
   },
   headerText: { flex: 1, minWidth: 0 },
   ownerNameLarge: {
-    color: '#fff', fontSize: '19px', fontWeight: '700', lineHeight: '1.3',
+    color: '#fff', fontSize: '19px', fontWeight: 700, lineHeight: '1.3',
     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
   },
   farmNameRow: {
-    display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(232,199,102,0.9)',
-    fontSize: '13px', fontWeight: '600', marginTop: '4px',
+    display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(169,224,186,0.95)',
+    fontSize: '13px', fontWeight: 600, marginTop: '4px',
   },
-  farmIdText: { color: 'rgba(247,242,231,0.5)', fontSize: '11px', marginTop: '4px' },
+  farmIdText: { color: 'rgba(247,245,238,0.5)', fontSize: '11px', marginTop: '4px' },
   statusPill: {
-    padding: '4px 12px', borderRadius: '999px', fontSize: '11px', fontWeight: '700',
+    padding: '4px 12px', borderRadius: '999px', fontSize: '11px', fontWeight: 700,
     letterSpacing: '0.3px', whiteSpace: 'nowrap', flexShrink: 0,
   },
   body: { padding: '26px 28px 8px' },
@@ -1901,11 +1908,11 @@ const profileStyles = {
   twoColSectionMobile: { gridTemplateColumns: '1fr', gap: '22px' },
   sectionLabelRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' },
   sectionLabel: {
-    display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', fontWeight: '700',
-    color: '#8A7A3E', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '12px',
+    display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', fontWeight: 700,
+    color: '#5f7867', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '12px',
   },
   riskBadge: {
-    padding: '4px 12px', borderRadius: '999px', fontSize: '11px', fontWeight: '700',
+    padding: '4px 12px', borderRadius: '999px', fontSize: '11px', fontWeight: 700,
     letterSpacing: '0.3px', whiteSpace: 'nowrap',
   },
   infoGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' },
@@ -1913,74 +1920,74 @@ const profileStyles = {
   inspectionGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' },
   inspectionGridMobile: { gridTemplateColumns: '1fr' },
   infoCell: {
-    display: 'flex', gap: '10px', backgroundColor: '#fff', border: '1px solid #E8E2D3',
+    display: 'flex', gap: '10px', backgroundColor: '#fff', border: '1px solid #e7e8e0',
     borderRadius: '10px', padding: '10px 12px', alignItems: 'flex-start',
   },
   infoCellFull: { gridColumn: '1 / -1' },
-  infoIcon: { color: '#234A35', opacity: 0.55, marginTop: '2px', flexShrink: 0 },
+  infoIcon: { color: '#1f5a34', opacity: 0.55, marginTop: '2px', flexShrink: 0 },
   infoLabel: {
-    fontSize: '10.5px', color: '#9ca3af', fontWeight: '600',
+    fontSize: '10.5px', color: '#9aa79d', fontWeight: 600,
     textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: '2px',
   },
-  infoValue: { fontSize: '13.5px', color: '#1F2937', fontWeight: '600', wordBreak: 'break-word' },
-  sensorCountNote: { fontSize: '11.5px', color: '#9ca3af', marginTop: '10px', fontStyle: 'italic' },
+  infoValue: { fontSize: '13.5px', color: '#16311d', fontWeight: 600, wordBreak: 'break-word' },
+  sensorCountNote: { fontSize: '11.5px', color: '#9aa79d', marginTop: '10px', fontStyle: 'italic' },
   monitoringLink: {
-    display: 'inline-block', marginTop: '14px', fontSize: '12.5px', fontWeight: '700',
-    color: '#2E7D32', textDecoration: 'none',
+    display: 'inline-block', marginTop: '14px', fontSize: '12.5px', fontWeight: 700,
+    color: '#2c8047', textDecoration: 'none',
   },
-  empty: { fontSize: '13px', color: '#9ca3af', padding: '4px 0' },
+  empty: { fontSize: '13px', color: '#9aa79d', padding: '4px 0' },
   insightCard: {
-    backgroundColor: '#fff', border: '1px solid #E8E2D3', borderRadius: '10px', padding: '16px',
+    backgroundColor: '#fff', border: '1px solid #e7e8e0', borderRadius: '10px', padding: '16px',
   },
   insightHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' },
-  insightRootCause: { fontSize: '14.5px', fontWeight: '700', color: '#122A1E' },
+  insightRootCause: { fontSize: '14.5px', fontWeight: 700, color: '#14301c' },
   insightExplanation: {
     fontSize: '13.5px', color: '#374151', lineHeight: '1.6', marginTop: '12px', marginBottom: 0,
-    paddingLeft: '12px', borderLeft: '3px solid #D4AF37',
+    paddingLeft: '12px', borderLeft: '3px solid #7cc795',
   },
   insightExplanationUnavailable: {
-    fontSize: '12.5px', color: '#9ca3af', fontStyle: 'italic', marginTop: '12px', marginBottom: 0,
+    fontSize: '12.5px', color: '#9aa79d', fontStyle: 'italic', marginTop: '12px', marginBottom: 0,
   },
   maintLogsList: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '14px' },
   maintLogRow: {
     display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: '#fff',
-    border: '1px solid #E8E2D3', borderRadius: '10px', padding: '10px 12px',
+    border: '1px solid #e7e8e0', borderRadius: '10px', padding: '10px 12px',
     textDecoration: 'none', cursor: 'pointer',
   },
   disposalRow: {
     display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: '#fff',
-    border: '1px solid #E8E2D3', borderRadius: '10px', padding: '10px 12px',
+    border: '1px solid #e7e8e0', borderRadius: '10px', padding: '10px 12px',
   },
   maintLogThumb: {
     width: '44px', height: '44px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0,
-    border: '1px solid #E8E2D3',
+    border: '1px solid #e7e8e0',
   },
-  maintLogDate: { fontSize: '13px', fontWeight: '700', color: '#1F2937' },
-  maintLogNote: { fontSize: '12px', color: '#6b7280', marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-    emptySensor: {
+  maintLogDate: { fontSize: '13px', fontWeight: 700, color: '#16311d' },
+  maintLogNote: { fontSize: '12px', color: '#6b7770', marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  emptySensor: {
     display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: '#fff',
-    border: '1px dashed #D8D0BC', borderRadius: '10px', padding: '16px',
+    border: '1px dashed #d8d0bc', borderRadius: '10px', padding: '16px',
   },
-  emptyTitle: { fontSize: '13px', fontWeight: '700', color: '#374151' },
-  emptySub: { fontSize: '12px', color: '#9ca3af', marginTop: '2px' },
+  emptyTitle: { fontSize: '13px', fontWeight: 700, color: '#374151' },
+  emptySub: { fontSize: '12px', color: '#9aa79d', marginTop: '2px' },
   sensorGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' },
   sensorGridMobile: { gridTemplateColumns: 'repeat(2, 1fr)' },
   sensorCard: {
-    backgroundColor: '#fff', border: '1px solid #E8E2D3', borderLeft: '3px solid',
+    backgroundColor: '#fff', border: '1px solid #e7e8e0', borderLeft: '3px solid',
     borderRadius: '10px', padding: '12px 10px', textAlign: 'left',
   },
   sensorIcon: { marginBottom: '6px' },
   sensorLabel: {
-    fontSize: '10.5px', color: '#6b7280', fontWeight: '600',
+    fontSize: '10.5px', color: '#6b7770', fontWeight: 600,
     textTransform: 'uppercase', letterSpacing: '0.3px',
   },
-  sensorValue: { fontSize: '15px', fontWeight: '700', marginTop: '3px' },
-  sensorStatus: { fontSize: '10.5px', fontWeight: '700', marginTop: '2px' },
-  timestamp: { fontSize: '11px', color: '#9ca3af', marginTop: '12px' },
+  sensorValue: { fontSize: '15px', fontWeight: 700, marginTop: '3px' },
+  sensorStatus: { fontSize: '10.5px', fontWeight: 700, marginTop: '2px' },
+  timestamp: { fontSize: '11px', color: '#9aa79d', marginTop: '12px' },
   footer: { padding: '18px 24px 22px', display: 'flex', justifyContent: 'flex-end' },
   closeFooterBtn: {
-    padding: '9px 20px', borderRadius: '8px', border: '1px solid #234A35',
-    backgroundColor: 'transparent', color: '#234A35', fontSize: '13.5px',
-    fontWeight: '600', cursor: 'pointer',
+    padding: '9px 20px', borderRadius: '10px', border: '1px solid #1f5a34',
+    backgroundColor: 'transparent', color: '#1f5a34', fontSize: '13.5px',
+    fontWeight: 600, cursor: 'pointer',
   },
 }
