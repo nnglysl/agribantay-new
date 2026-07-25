@@ -1,14 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { SAN_JOSE_CENTER, SAN_JOSE_BOUNDARY, WORLD_RING } from './FarmMap'
 
-// Same accent colors already used elsewhere on the vet dashboard — green
-// for Vaccine (brand color, matches the stat cards), blue for Blood Test
-// (matches the existing "Scheduled" badge color in Today's Schedule) —
-// rather than reusing Admin's Follow-up/General clay-gold pair, which
-// encodes a different distinction and would be confusing here.
+// Green for Vaccine (brand color, matches the stat cards), blue for Blood Test.
 const requestTypeColor = (type) => (type === 'Blood Test Request' ? '#3b82f6' : '#2E7D32')
 
 export default function VetScheduleMap({ requests = [] }) {
@@ -16,7 +12,6 @@ export default function VetScheduleMap({ requests = [] }) {
   const containerRef = useRef(null)
   const markersRef = useRef([])
   const isMobile = useIsMobile()
-  const [selected, setSelected] = useState(null)
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -89,68 +84,13 @@ export default function VetScheduleMap({ requests = [] }) {
           ${r.scheduled_at ? new Date(r.scheduled_at).toLocaleDateString() : ''}
         `)
 
-      marker.on('click', () => setSelected(r))
-
       markersRef.current.push(marker)
     })
   }, [requests])
 
-  const focusRequest = (r) => {
-    if (!mapRef.current) return
-    mapRef.current.flyTo([r.latitude, r.longitude], 16, { duration: 0.6 })
-    const marker = markersRef.current.find(m => {
-      const ll = m.getLatLng()
-      return ll.lat === r.latitude && ll.lng === r.longitude
-    })
-    if (marker) marker.openPopup()
-    setSelected(r)
-  }
-
-  const visibleItems = requests.slice(0, 3)
-
   return (
     <div style={styles.wrap}>
       <div ref={containerRef} style={{ height: isMobile ? '300px' : '420px', width: '100%' }} />
-
-      <div style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}) }}>
-        <div style={styles.panelHead}>
-          <span style={styles.panelTitle}>Scheduled visits</span>
-          <span style={styles.panelCount}>{requests.length}</span>
-        </div>
-
-        <div style={styles.panelList}>
-          {visibleItems.length === 0 && (
-            <div style={styles.empty}>No scheduled visits right now.</div>
-          )}
-
-          {visibleItems.map(r => {
-            const color = requestTypeColor(r.service_type)
-            const active = selected?.id === r.id
-            return (
-              <div
-                key={r.id}
-                style={{ ...styles.item, ...(active ? styles.itemActive : {}) }}
-                onClick={() => focusRequest(r)}
-              >
-                <span style={{ ...styles.itemDot, backgroundColor: color }} />
-                <div style={styles.itemText}>
-                  <div style={styles.itemName}>{r.farm_name}</div>
-                  <div style={styles.itemSub}>
-                    {r.scheduled_at ? new Date(r.scheduled_at).toLocaleDateString() : '—'}
-                  </div>
-                </div>
-                <span style={{ ...styles.itemStatus, color }}>
-                  {r.service_type.replace(' Request', '')}
-                </span>
-              </div>
-            )
-          })}
-        </div>
-
-        {requests.length > visibleItems.length && (
-          <div style={styles.moreHint}>+{requests.length - visibleItems.length} more on the map</div>
-        )}
-      </div>
 
       <div style={{ ...styles.legend, ...(isMobile ? styles.legendMobile : {}) }}>
         <div style={styles.legendTitle}>Request type</div>
@@ -172,49 +112,6 @@ function LegendRow({ color, label }) {
 
 const styles = {
   wrap: { position: 'relative', borderRadius: '12px', overflow: 'hidden', isolation: 'isolate' },
-
-  panel: {
-    position: 'absolute', right: '14px', top: '14px', zIndex: 1001,
-    width: '230px', maxHeight: 'calc(100% - 28px)',
-    background: 'rgba(24,46,34,0.7)',
-    backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)',
-    border: '1px solid rgba(255,255,255,0.18)', borderRadius: '14px',
-    boxShadow: '0 10px 28px rgba(0,0,0,0.28)',
-    display: 'flex', flexDirection: 'column', overflow: 'hidden',
-  },
-  panelMobile: { width: '170px', top: '10px', maxHeight: 'calc(100% - 20px)' },
-
-  panelHead: {
-    padding: '12px 14px 9px', borderBottom: '1px solid rgba(255,255,255,0.14)',
-    display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, gap: '8px',
-  },
-  panelTitle: { fontSize: '12px', fontWeight: '800', color: '#fff' },
-  panelCount: {
-    fontSize: '10.5px', fontWeight: '700', color: '#234A35', background: '#E8C766',
-    padding: '2px 8px', borderRadius: '999px', flexShrink: 0,
-  },
-
-  panelList: { overflowY: 'auto', padding: '8px' },
-  empty: { padding: '14px 8px', textAlign: 'center', fontSize: '11.5px', color: 'rgba(255,255,255,0.6)' },
-
-  item: {
-    display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 8px',
-    borderRadius: '9px', cursor: 'pointer', marginBottom: '2px',
-  },
-  itemActive: { backgroundColor: 'rgba(255,255,255,0.1)' },
-  itemDot: { width: '10px', height: '10px', borderRadius: '50%', flexShrink: 0, boxShadow: '0 0 0 2px rgba(255,255,255,0.25)' },
-  itemText: { minWidth: 0, flex: 1 },
-  itemName: {
-    fontSize: '12px', fontWeight: '700', color: '#fff',
-    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-  },
-  itemSub: { fontSize: '10px', color: 'rgba(255,255,255,0.6)', marginTop: '1px' },
-  itemStatus: { fontSize: '9.5px', fontWeight: '700', whiteSpace: 'nowrap', flexShrink: 0 },
-
-  moreHint: {
-    flexShrink: 0, borderTop: '1px solid rgba(255,255,255,0.14)',
-    color: 'rgba(255,255,255,0.6)', fontSize: '11px', padding: '9px 10px', textAlign: 'center',
-  },
 
   legend: {
     position: 'absolute', left: '14px', bottom: '14px', zIndex: 1001,
