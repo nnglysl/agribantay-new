@@ -11,7 +11,6 @@ import {
 import AdminLayout from '../../components/AdminLayout'
 import ReportLetterhead from '../../components/ReportLetterhead'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
-import { useIsMobile } from '../../hooks/useIsMobile'
 import { exportToCSV, exportPrintRefToPDF, todayStamp } from '../../utils/exportUtils'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip)
@@ -25,9 +24,6 @@ const RANGE_OPTIONS = [
   { value: 'custom', label: 'Custom range' },
 ]
 
-// Standardized CSV column set for this report — mirrors the on-screen and
-// printed table exactly, so CSV/PDF/screen never disagree on what a
-// "completed inspections" export contains.
 const CSV_COLUMNS = [
   { key: 'inspection_number', label: 'ID' },
   { key: 'farm_name', label: 'Farm' },
@@ -36,6 +32,8 @@ const CSV_COLUMNS = [
   { key: 'completed_at', label: 'Date' },
   { key: 'status', label: 'Status' },
 ]
+
+const PAGE_SIZE = 5
 
 function getRangeBounds(rangeKey, customFrom, customTo) {
   const now = new Date()
@@ -67,15 +65,50 @@ function getRangeBounds(rangeKey, customFrom, customTo) {
   }
 }
 
+/* ---- Small inline icons (stroke, currentColor) ---- */
+const IconPrint = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M6 9V3h12v6" /><rect x="4" y="9" width="16" height="8" rx="1.5" /><path d="M7 17h10v4H7z" /></svg>
+)
+const IconFile = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z" /><path d="M14 3v5h5" /></svg>
+)
+const IconClipboard = ({ color }) => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.7"><rect x="5" y="4" width="14" height="17" rx="1.5" /><path d="M9 9l1.7 1.7L14 7.5" /><path d="M9 14h6M9 17h4" /></svg>
+)
+const IconCheck = ({ color }) => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.7"><circle cx="12" cy="12" r="8.5" /><path d="M8.5 12l2.3 2.3L16 9" /></svg>
+)
+const IconCalendar = ({ color }) => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.7"><rect x="4" y="5" width="16" height="16" rx="2" /><path d="M4 9h16M8 3v4M16 3v4" /></svg>
+)
+const IconBell = ({ color }) => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.7"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" /></svg>
+)
+const IconAlert = ({ color }) => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.7"><path d="M12 3 2 20h20L12 3z" /><path d="M12 10v4" /><circle cx="12" cy="17" r="0.6" fill={color} stroke="none" /></svg>
+)
+
+function StatCard({ icon, iconBg, value, valueColor, label, labelColor, cardBg }) {
+  return (
+    <div style={{ ...styles.statCard, background: cardBg }}>
+      <div style={{ ...styles.statIcon, background: iconBg }}>{icon}</div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ ...styles.statValue, color: valueColor }}>{value}</div>
+        <div style={{ ...styles.statLabel, color: labelColor }}>{label}</div>
+      </div>
+    </div>
+  )
+}
+
 export default function Reports() {
   const { data, loading, error } = useCachedFetch('/admin/reports')
   const printRef = useRef(null)
   const [exportingPdf, setExportingPdf] = useState(false)
-  const isMobile = useIsMobile()
 
   const [range, setRange] = useState('month')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
+  const [page, setPage] = useState(1)
 
   const handlePrint = () => window.print()
 
@@ -126,11 +159,15 @@ export default function Reports() {
     return months
   }, [completedInspections])
 
-  const generatedAt = new Date().toLocaleString('en-PH', {
-    dateStyle: 'long',
-    timeStyle: 'short',
-  })
+  // Pagination — reset to page 1 whenever the filtered set changes.
+  const totalRows = completedInspections.length
+  const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE))
+  const safePage = Math.min(page, totalPages)
+  const pageStart = (safePage - 1) * PAGE_SIZE
+  const pageRows = completedInspections.slice(pageStart, pageStart + PAGE_SIZE)
+  const goToPage = (n) => setPage(Math.min(Math.max(1, n), totalPages))
 
+  const generatedAt = new Date().toLocaleString('en-PH', { dateStyle: 'long', timeStyle: 'short' })
   const selectedRangeLabel = RANGE_OPTIONS.find(o => o.value === range)?.label ?? ''
 
   if (loading) return <AdminLayout><p style={styles.stateText}>Loading...</p></AdminLayout>
@@ -140,133 +177,114 @@ export default function Reports() {
   return (
     <AdminLayout>
       <style>{`
+        /* Layout reacts to the report's own content width (container query),
+           so it works next to the sidebar at every size — no dead-zone. */
+        .rp { container-type: inline-size; max-width: 100%; }
+
+        .rp-header   { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+        .rp-titles   { min-width: 0; }
+        .rp-title    { font-size: 24px; font-weight: 800; letter-spacing: -0.015em; color: #16311d; margin: 0; }
+        .rp-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .rp-actions  { display: flex; gap: 10px; }
+
+        .rp-stats  { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+        .rp-two    { display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; margin-top: 20px; }
+        .rp-two > * { min-width: 0; }
+
+        .rp-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .rp-table        { width: 100%; border-collapse: collapse; margin-top: 8px; min-width: 560px; }
+        .rp-cards { display: none; flex-direction: column; gap: 12px; }
+
+        @container (max-width: 900px) {
+          .rp-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+          .rp-two   { grid-template-columns: 1fr; gap: 14px; }
+        }
+        @container (max-width: 680px) {
+          .rp-table-scroll { display: none; }
+          .rp-cards { display: flex; }
+        }
+        @container (max-width: 620px) {
+          .rp-range { width: 100%; }
+          .rp-actions { width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); }
+          .rp-actions > button { width: 100%; padding: 0 8px; }
+          .rp-title { font-size: 21px; }
+        }
+
         .print-view {
-          position: absolute;
-          left: -9999px;
-          top: 0;
-          width: 800px;
-          padding: 40px;
-          box-sizing: border-box;
-          display: block;
-          font-family: Georgia, 'Times New Roman', serif;
-          color: #000;
-          background: #fff;
+          position: absolute; left: -9999px; top: 0; width: 800px; padding: 40px;
+          box-sizing: border-box; display: block;
+          font-family: Georgia, 'Times New Roman', serif; color: #000; background: #fff;
         }
         .print-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
-        .print-table th, .print-table td {
-          border: 1px solid #000; padding: 6px 10px; text-align: left; font-size: 12px;
-        }
+        .print-table th, .print-table td { border: 1px solid #000; padding: 6px 10px; text-align: left; font-size: 12px; }
         .print-table th { background: #fff; font-weight: bold; }
-        .print-section-title {
-          font-size: 13px; font-weight: bold; text-transform: uppercase;
-          margin: 24px 0 8px; border-bottom: 1px solid #000; padding-bottom: 4px;
-        }
+        .print-section-title { font-size: 13px; font-weight: bold; text-transform: uppercase; margin: 24px 0 8px; border-bottom: 1px solid #000; padding-bottom: 4px; }
         @media print {
           .screen-view { display: none !important; }
-          .print-view {
-            position: static;
-            left: auto;
-          }
+          .print-view { position: static; left: auto; }
         }
       `}</style>
 
-      <div className="screen-view">
-        <div style={{ ...styles.header, ...(isMobile ? styles.headerMobile : {}) }}>
-          <div>
-            <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Reports</h1>
+      <div className="screen-view rp">
+        <div className="rp-header">
+          <div className="rp-titles">
+            <h1 className="rp-title">Reports</h1>
             <p style={styles.subtitle}>Municipality-wide analytics</p>
           </div>
-          <div style={{ ...styles.controlsRow, ...(isMobile ? styles.controlsRowMobile : {}) }}>
-            <select
-              value={range}
-              onChange={e => setRange(e.target.value)}
-              style={{ ...styles.select, ...(isMobile ? styles.controlFull : {}) }}
-            >
-              {RANGE_OPTIONS.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
+          <div className="rp-controls">
+            <select className="rp-range" value={range} onChange={e => { setRange(e.target.value); setPage(1) }} style={styles.select}>
+              {RANGE_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>
-            <button style={{ ...styles.secondaryBtn, ...(isMobile ? styles.controlFull : {}) }} onClick={handlePrint}>Print</button>
-            <button style={{ ...styles.secondaryBtn, ...(isMobile ? styles.controlFull : {}) }} onClick={handleExportCsv}>
-              Export CSV
-            </button>
-            <button
-              style={{ ...styles.primaryBtn, ...(isMobile ? styles.controlFull : {}), ...(exportingPdf ? styles.btnDisabled : {}) }}
-              onClick={handleExportPdf}
-              disabled={exportingPdf}
-            >
-              {exportingPdf ? 'Generating...' : 'Export PDF'}
-            </button>
+            <div className="rp-actions">
+              <button style={styles.secondaryBtn} onClick={handlePrint}><IconPrint />Print</button>
+              <button style={styles.secondaryBtn} onClick={handleExportCsv}><IconFile />Export CSV</button>
+              <button
+                style={{ ...styles.primaryBtn, ...(exportingPdf ? styles.btnDisabled : {}) }}
+                onClick={handleExportPdf}
+                disabled={exportingPdf}
+              >
+                <IconFile />{exportingPdf ? 'Generating...' : 'Export PDF'}
+              </button>
+            </div>
           </div>
         </div>
 
         {range === 'custom' && (
-          <div style={{ ...styles.customRow, ...(isMobile ? styles.customRowMobile : {}) }}>
+          <div style={styles.customRow}>
             <div style={styles.customField}>
               <label style={styles.customLabel}>From</label>
-              <input
-                type="date"
-                value={customFrom}
-                onChange={e => setCustomFrom(e.target.value)}
-                style={styles.customInput}
-              />
+              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} style={styles.customInput} />
             </div>
             <div style={styles.customField}>
               <label style={styles.customLabel}>To</label>
-              <input
-                type="date"
-                value={customTo}
-                onChange={e => setCustomTo(e.target.value)}
-                style={styles.customInput}
-              />
+              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} style={styles.customInput} />
             </div>
           </div>
         )}
 
-        <div style={{ ...styles.statsGrid, ...(isMobile ? styles.statsGridMobile : {}) }}>
-          <div style={styles.statCard}>
-            <div style={styles.statValue}>{data.inspection_summary.total}</div>
-            <div style={styles.statLabel}>Total inspections</div>
-          </div>
-          <div style={styles.statCard}>
-            <div style={{ ...styles.statValue, color: '#256b3d' }}>{data.inspection_summary.completed}</div>
-            <div style={styles.statLabel}>Completed</div>
-          </div>
-          <div style={styles.statCard}>
-            <div style={{ ...styles.statValue, color: '#b45309' }}>{data.inspection_summary.scheduled}</div>
-            <div style={styles.statLabel}>Scheduled</div>
-          </div>
-          <div style={styles.statCard}>
-            <div style={styles.statValue}>{data.alert_summary.total}</div>
-            <div style={styles.statLabel}>Alerts this month</div>
-          </div>
-          <div style={{ ...styles.statCard, backgroundColor: '#fdf2f2', borderColor: '#f3c9c9' }}>
-            <div style={{ ...styles.statValue, color: '#b91c1c' }}>{data.alert_summary.critical_alerts}</div>
-            <div style={{ ...styles.statLabel, color: '#8f2020' }}>Critical alerts</div>
-          </div>
+        <div className="rp-stats">
+          <StatCard icon={<IconClipboard color="#2c8047" />} iconBg="#eaf3ec" value={data.inspection_summary.total} valueColor="#1b6135" label="Total inspections" labelColor="#6b7770" cardBg="#fff" />
+          <StatCard icon={<IconCheck color="#256b3d" />} iconBg="#eaf3ec" value={data.inspection_summary.completed} valueColor="#256b3d" label="Completed" labelColor="#6b7770" cardBg="#fff" />
+          <StatCard icon={<IconCalendar color="#b45309" />} iconBg="#fdf3e6" value={data.inspection_summary.scheduled} valueColor="#b45309" label="Scheduled" labelColor="#6b7770" cardBg="#fff" />
+          <StatCard icon={<IconBell color="#2c8047" />} iconBg="#eaf3ec" value={data.alert_summary.total} valueColor="#1b6135" label="Alerts this month" labelColor="#6b7770" cardBg="#fff" />
+          <StatCard icon={<IconAlert color="#b91c1c" />} iconBg="#fbe3e3" value={data.alert_summary.critical_alerts} valueColor="#b91c1c" label="Critical alerts" labelColor="#8f2020" cardBg="#fff" />
         </div>
         <p style={styles.statsNote}>
-          Stat cards above show all-time totals. The chart and table below reflect: <strong>{selectedRangeLabel}</strong>.
+          Stat cards above show all-time totals. The chart and table below reflect: <strong style={{ color: '#6b7770' }}>{selectedRangeLabel}</strong>.
         </p>
 
-        <div style={{ ...styles.twoCol, ...(isMobile ? styles.twoColMobile : {}), marginTop: '20px' }}>
-          <div style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}) }}>
+        <div className="rp-two">
+          <div style={styles.panel}>
             <h3 style={styles.panelTitle}>Completed inspections per month</h3>
             <p style={styles.panelSubtitle}>Last 6 months</p>
             {monthlyTrend.every(m => m.count === 0) ? (
               <div style={styles.empty}>No inspection history yet.</div>
             ) : (
-              <div style={{ position: 'relative', height: isMobile ? '220px' : '200px' }}>
+              <div style={{ position: 'relative', height: '220px' }}>
                 <Line
                   data={{
                     labels: monthlyTrend.map(m => m.label),
-                    datasets: [{
-                      data: monthlyTrend.map(m => m.count),
-                      borderColor: '#2c8047',
-                      backgroundColor: '#2c8047',
-                      tension: 0.3,
-                      pointRadius: 4,
-                    }],
+                    datasets: [{ data: monthlyTrend.map(m => m.count), borderColor: '#2c8047', backgroundColor: '#2c8047', tension: 0.3, pointRadius: 4 }],
                   }}
                   options={{
                     responsive: true,
@@ -282,7 +300,7 @@ export default function Reports() {
             )}
           </div>
 
-          <div style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}) }}>
+          <div style={styles.panel}>
             <h3 style={styles.panelTitle}>Alert breakdown</h3>
             <StatRow label="Ammonia threshold breaches" value={data.alert_summary.ammonia_breaches} color="#b91c1c" />
             <StatRow label="Temperature anomalies" value={data.alert_summary.temp_anomalies} color="#b45309" />
@@ -291,16 +309,17 @@ export default function Reports() {
           </div>
         </div>
 
-        <div style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}), marginTop: '20px' }}>
+        <div style={{ ...styles.panel, marginTop: '20px' }}>
           <h3 style={styles.panelTitle}>Completed inspections</h3>
           <p style={styles.panelSubtitle}>{selectedRangeLabel}</p>
+
           {completedInspections.length === 0 ? (
             <div style={styles.empty}>No completed inspections in this range.</div>
           ) : (
             <>
-              {isMobile && <p style={styles.scrollHint}>Swipe left/right to see all columns →</p>}
-              <div style={isMobile ? styles.tableScroll : undefined}>
-                <table style={{ ...styles.table, ...(isMobile ? styles.tableMobile : {}) }}>
+              {/* Desktop / wide: table */}
+              <div className="rp-table-scroll">
+                <table className="rp-table">
                   <thead>
                     <tr>
                       <th style={styles.th}>ID</th>
@@ -312,23 +331,57 @@ export default function Reports() {
                     </tr>
                   </thead>
                   <tbody>
-                    {completedInspections.map(i => (
+                    {pageRows.map(i => (
                       <tr key={i.id}>
                         <td style={styles.td}>{i.inspection_number}</td>
                         <td style={{ ...styles.td, fontWeight: 600, color: '#16311d' }}>{i.farm_name}</td>
                         <td style={styles.td}>{i.owner_name}</td>
                         <td style={styles.td}>{i.inspection_type}</td>
-                        <td style={styles.td}>{i.completed_at}</td>
+                        <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>{i.completed_at}</td>
                         <td style={styles.td}>
-                          <span style={styles.badge}>
-                            <span style={styles.badgeDot} />
-                            {i.status}
-                          </span>
+                          <span style={styles.badge}><span style={styles.badgeDot} />{i.status}</span>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+              </div>
+
+              {/* Mobile: cards */}
+              <div className="rp-cards">
+                {pageRows.map(i => (
+                  <div key={i.id} style={styles.mCard}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={styles.mCardName}>{i.farm_name}</div>
+                      <div style={styles.mCardOwner}>{i.owner_name}</div>
+                      <div style={styles.mCardMeta}>{i.inspection_type} · {i.inspection_number}</div>
+                    </div>
+                    <div style={styles.mCardRight}>
+                      <span style={styles.mCardDate}>{i.completed_at}</span>
+                      <span style={styles.badge}><span style={styles.badgeDot} />{i.status}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Pagination */}
+              <div style={styles.pager}>
+                <span style={styles.pagerInfo}>
+                  Showing {pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, totalRows)} of {totalRows}
+                </span>
+                <div style={styles.pagerBtns}>
+                  <button style={styles.pageBtn} onClick={() => goToPage(safePage - 1)} disabled={safePage === 1}>Prev</button>
+                  {Array.from({ length: totalPages }, (_, idx) => idx + 1).map(n => (
+                    <button
+                      key={n}
+                      onClick={() => goToPage(n)}
+                      style={{ ...styles.pageBtn, ...(n === safePage ? styles.pageBtnActive : {}) }}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                  <button style={styles.pageBtn} onClick={() => goToPage(safePage + 1)} disabled={safePage === totalPages}>Next</button>
+                </div>
               </div>
             </>
           )}
@@ -337,7 +390,6 @@ export default function Reports() {
 
       <div className="print-view" ref={printRef}>
         <ReportLetterhead />
-
         <h1 style={{ fontSize: '18px', textAlign: 'center', margin: '16px 0 4px' }}>AgriBantay Municipal Report</h1>
         <p style={{ fontSize: '12px', textAlign: 'center', margin: '0 0 4px' }}>Poultry farm monitoring and service summary</p>
         <p style={{ fontSize: '11px', textAlign: 'center', margin: '0 0 4px' }}>Period: {selectedRangeLabel}</p>
@@ -371,24 +423,13 @@ export default function Reports() {
         ) : (
           <table className="print-table">
             <thead>
-              <tr>
-                <th>ID</th>
-                <th>Farm</th>
-                <th>Owner</th>
-                <th>Type</th>
-                <th>Date</th>
-                <th>Status</th>
-              </tr>
+              <tr><th>ID</th><th>Farm</th><th>Owner</th><th>Type</th><th>Date</th><th>Status</th></tr>
             </thead>
             <tbody>
               {completedInspections.map(i => (
                 <tr key={i.id}>
-                  <td>{i.inspection_number}</td>
-                  <td>{i.farm_name}</td>
-                  <td>{i.owner_name}</td>
-                  <td>{i.inspection_type}</td>
-                  <td>{i.completed_at}</td>
-                  <td>{i.status}</td>
+                  <td>{i.inspection_number}</td><td>{i.farm_name}</td><td>{i.owner_name}</td>
+                  <td>{i.inspection_type}</td><td>{i.completed_at}</td><td>{i.status}</td>
                 </tr>
               ))}
             </tbody>
@@ -396,12 +437,8 @@ export default function Reports() {
         )}
 
         <div style={{ marginTop: '40px', display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-          <div>
-            <div style={{ borderTop: '1px solid #000', width: '220px', paddingTop: '4px' }}>Prepared by</div>
-          </div>
-          <div>
-            <div style={{ borderTop: '1px solid #000', width: '220px', paddingTop: '4px' }}>Noted by, LGU Administrator</div>
-          </div>
+          <div><div style={{ borderTop: '1px solid #000', width: '220px', paddingTop: '4px' }}>Prepared by</div></div>
+          <div><div style={{ borderTop: '1px solid #000', width: '220px', paddingTop: '4px' }}>Noted by, LGU Administrator</div></div>
         </div>
       </div>
     </AdminLayout>
@@ -421,67 +458,46 @@ const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Sego
 
 const styles = {
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' },
-  headerMobile: { flexDirection: 'column', gap: '14px' },
-  title: { fontSize: '24px', fontWeight: 800, letterSpacing: '-0.015em', color: '#16311d', margin: 0 },
-  titleMobile: { fontSize: '20px' },
   subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px' },
-  controlsRow: { display: 'flex', gap: '10px', flexWrap: 'wrap' },
-  controlsRowMobile: { flexDirection: 'column', width: '100%' },
-  controlFull: { width: '100%', boxSizing: 'border-box' },
-  select: {
-    backgroundColor: '#fff', color: '#33413a', border: '1px solid #dcdfd6',
-    borderRadius: '10px', padding: '0 12px', fontSize: '14px', height: '40px', cursor: 'pointer',
-  },
-  primaryBtn: {
-    backgroundColor: '#2c8047', color: '#fff', border: 'none', borderRadius: '10px',
-    padding: '0 18px', height: '40px', fontSize: '14px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
-  },
-  secondaryBtn: {
-    backgroundColor: '#fff', color: '#2c8047', border: '1px solid #cfe0d3', borderRadius: '10px',
-    padding: '0 18px', height: '40px', fontSize: '14px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
-  },
+  select: { backgroundColor: '#fff', color: '#33413a', border: '1px solid #dcdfd6', borderRadius: '10px', padding: '0 12px', fontSize: '14px', height: '40px', cursor: 'pointer', fontFamily: SANS, minWidth: '150px' },
+  primaryBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '3px', backgroundColor: '#2c8047', color: '#fff', border: 'none', borderRadius: '10px', padding: '0 16px', height: '40px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS },
+  secondaryBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '3px', backgroundColor: '#fff', color: '#2c8047', border: '1px solid #cfe0d3', borderRadius: '10px', padding: '0 16px', height: '40px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS },
   btnDisabled: { opacity: 0.6, cursor: 'not-allowed' },
 
-  customRow: { display: 'flex', gap: '12px', marginBottom: '16px' },
-  customRowMobile: { flexDirection: 'column' },
-  customField: { display: 'flex', flexDirection: 'column', gap: '5px' },
+  customRow: { display: 'flex', gap: '12px', flexWrap: 'wrap', margin: '16px 0' },
+  customField: { display: 'flex', flexDirection: 'column', gap: '5px', flex: '1 1 180px' },
   customLabel: { fontSize: '12px', color: '#6b7770', fontWeight: 600 },
   customInput: { padding: '9px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', fontFamily: SANS },
 
-  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '14px' },
-  statsGridMobile: { gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' },
-  statCard: { backgroundColor: '#fff', borderRadius: '14px', padding: '20px', border: '1px solid #e7e8e0' },
+  statCard: { borderRadius: '16px', padding: '18px 20px', boxShadow: '0 2px 10px rgba(22,49,29,0.06)', display: 'flex', alignItems: 'flex-start', gap: '14px' },
+  statIcon: { width: '42px', height: '42px', borderRadius: '11px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   statValue: { fontSize: '26px', fontWeight: 800, letterSpacing: '-0.02em', color: '#16311d', lineHeight: 1 },
-  statLabel: { fontSize: '12px', color: '#6b7770', marginTop: '6px', fontWeight: 600 },
-  statsNote: { fontSize: '11.5px', color: '#9aa79d', marginTop: '10px', marginBottom: 0 },
+  statLabel: { fontSize: '12.5px', color: '#6b7770', marginTop: '6px', fontWeight: 600 },
+  statsNote: { fontSize: '11.5px', color: '#9aa79d', marginTop: '12px', marginBottom: 0, lineHeight: 1.5 },
 
-  twoCol: { display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '20px' },
-  twoColMobile: { gridTemplateColumns: '1fr', gap: '12px' },
-  panel: { backgroundColor: '#fff', borderRadius: '14px', padding: '24px', border: '1px solid #e7e8e0' },
-  panelMobile: { padding: '16px' },
+  panel: { backgroundColor: '#fff', borderRadius: '14px', padding: '24px', border: '1px solid #e7e8e0', minWidth: 0 },
   panelTitle: { fontSize: '15px', fontWeight: 700, color: '#16311d', marginTop: 0, marginBottom: '4px' },
   panelSubtitle: { fontSize: '12px', color: '#9aa79d', marginTop: 0, marginBottom: '16px' },
-  statRow: {
-    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-    padding: '11px 0', borderBottom: '1px solid #f2f3ed', fontSize: '14px',
-  },
+  statRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 0', borderBottom: '1px solid #f2f3ed', fontSize: '14px' },
   statRowLabel: { fontSize: '13.5px', color: '#4b5a50' },
   rowValue: { fontWeight: 800, fontSize: '16px', fontVariantNumeric: 'tabular-nums' },
   empty: { color: '#9aa79d', fontSize: '14px', padding: '16px 0' },
-  scrollHint: { fontSize: '11px', color: '#9aa79d', marginTop: 0, marginBottom: '8px' },
-  tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
-  table: { width: '100%', borderCollapse: 'collapse', marginTop: '8px' },
-  tableMobile: { minWidth: '640px' },
-  th: {
-    textAlign: 'left', padding: '12px 14px', fontSize: '11px', fontWeight: 700, color: '#8a968d',
-    borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
-    backgroundColor: '#fafbf8',
-  },
+
+  th: { textAlign: 'left', padding: '12px 14px', fontSize: '11px', fontWeight: 700, color: '#8a968d', borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', backgroundColor: '#fafbf8' },
   td: { padding: '12px 14px', fontSize: '13px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle' },
-  badge: {
-    display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: '#eaf3ec', color: '#256b3d',
-    padding: '4px 11px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
-  },
+  badge: { display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: '#eaf3ec', color: '#256b3d', padding: '4px 11px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap' },
   badgeDot: { width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#256b3d', flexShrink: 0 },
+
+  mCard: { border: '1px solid #eceee7', borderRadius: '12px', padding: '14px 16px', display: 'flex', justifyContent: 'space-between', gap: '12px', background: '#fcfdfb' },
+  mCardName: { fontSize: '14.5px', fontWeight: 700, color: '#16311d' },
+  mCardOwner: { fontSize: '13px', color: '#6b7770', marginTop: '3px' },
+  mCardMeta: { fontSize: '12.5px', color: '#9aa79d', marginTop: '2px' },
+  mCardRight: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px', flexShrink: 0 },
+  mCardDate: { fontSize: '12.5px', color: '#6b7770', whiteSpace: 'nowrap' },
+
+  pager: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginTop: '18px', flexWrap: 'wrap' },
+  pagerInfo: { fontSize: '12.5px', color: '#9aa79d' },
+  pagerBtns: { display: 'flex', alignItems: 'center', gap: '6px' },
+  pageBtn: { height: '36px', minWidth: '36px', padding: '0 12px', borderRadius: '9px', border: '1px solid #dcdfd6', background: '#fff', color: '#33413a', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS },
+  pageBtnActive: { background: '#2c8047', color: '#fff', borderColor: '#2c8047' },
 }

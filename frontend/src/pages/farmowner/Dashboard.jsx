@@ -16,18 +16,15 @@ function timeAgo(dateString) {
   return `${days} day${days === 1 ? '' : 's'} ago`
 }
 
-// Real CSS media queries instead of a JS width check — this guarantees the
-// layout collapses correctly on mobile regardless of how/when useIsMobile()
-// detects the viewport. All rules are scoped under the "fd-" prefix.
 const responsiveCss = `
   .fd-overview {
     display: grid;
-    grid-template-columns: minmax(180px, 260px) 1fr;
-    gap: 16px;
-    margin-bottom: 24px;
-    background: white;
-    border-radius: 16px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    grid-template-columns: minmax(190px, 260px) 1fr;
+    gap: 1px;
+    margin-bottom: 20px;
+    background: #e7e8e0;
+    border: 1px solid #e7e8e0;
+    border-radius: 14px;
     overflow: hidden;
   }
   .fd-score-panel {
@@ -42,24 +39,25 @@ const responsiveCss = `
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1px;
-    background: #f3f4f6;
+    background: #e7e8e0;
   }
   .fd-stat {
     background: white;
-    padding: 16px;
+    padding: 18px 16px;
     min-width: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     text-align: center;
+    gap: 6px;
   }
   @media (min-width: 640px) {
     .fd-stats-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   }
   @media (max-width: 640px) {
     .fd-overview { grid-template-columns: 1fr; }
-    .fd-score-panel { padding: 20px; }
+    .fd-score-panel { padding: 22px; }
   }
 
   .fd-two-col {
@@ -80,7 +78,7 @@ const responsiveCss = `
     max-width: 440px;
     max-height: 85vh;
     overflow-y: auto;
-    box-shadow: 0 12px 32px rgba(0,0,0,0.25);
+    box-shadow: 0 12px 32px rgba(15,38,22,0.22);
   }
   @media (max-width: 640px) {
     .fd-modal-card {
@@ -190,17 +188,15 @@ export default function FarmerDashboard() {
     return () => clearInterval(interval)
   }, [])
 
-  if (loading) return <FarmerLayout><p>Loading...</p></FarmerLayout>
-  if (error) return <FarmerLayout><p style={{ color: '#dc2626' }}>{error}</p></FarmerLayout>
+  if (loading) return <FarmerLayout><p style={styles.stateText}>Loading...</p></FarmerLayout>
+  if (error) return <FarmerLayout><p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p></FarmerLayout>
 
   const statusColor = {
-    Healthy: '#2E7D32',
-    Warning: '#f59e0b',
-    Critical: '#dc2626',
-  }[data.health_status] || '#6b7280'
+    Healthy: '#2c8047',
+    Warning: '#b45309',
+    Critical: '#b91c1c',
+  }[data.health_status] || '#6b7770'
 
-  // Used by the AI Insight's "Request X" buttons — navigates to Service
-  // Requests with the given type pre-selected, same pattern as before.
   const goToServiceRequest = (serviceType) => {
     navigate('/farmowner/service-requests', { state: { prefillService: serviceType } })
   }
@@ -502,9 +498,9 @@ export default function FarmerDashboard() {
 
 // Green for Up to date, amber for Due (the 30-day grace period), red for Overdue.
 function maintBadgeStyle(status) {
-  if (status === 'Overdue') return { backgroundColor: '#fef2f2', color: '#B91C1C' }
-  if (status === 'Due') return { backgroundColor: '#fffbeb', color: '#B45309' }
-  return { backgroundColor: '#f0fdf4', color: '#2E7D32' }
+  if (status === 'Overdue') return { backgroundColor: '#fbe3e3', color: '#b91c1c' }
+  if (status === 'Due') return { backgroundColor: '#fdf3e6', color: '#b45309' }
+  return { backgroundColor: '#eaf3ec', color: '#256b3d' }
 }
 
 function Modal({ title, onClose, children }) {
@@ -530,126 +526,127 @@ function CheckIcon() {
 }
 
 function SensorGauge({ label, value, status, unit }) {
-  const color = { Normal: '#2E7D32', Warning: '#f59e0b', Critical: '#dc2626' }[status] || '#6b7280'
+  const color = { Normal: '#2c8047', Warning: '#b45309', Critical: '#b91c1c' }[status] || '#6b7770'
+  const tint = { Normal: '#eaf3ec', Warning: '#fdf3e6', Critical: '#fbe3e3' }[status] || '#eef0ea'
   return (
     <div className="fd-stat">
       <div style={styles.cardLabel}>{label}</div>
-      <div style={{ ...styles.gaugeValue, color }}>{value ?? '—'} {unit}</div>
-      <div style={{ ...styles.gaugeStatus, color }}>{status ?? 'Offline'}</div>
+      <div style={{ ...styles.gaugeValue, color }}>{value ?? '—'} <span style={styles.gaugeUnit}>{unit}</span></div>
+      <span style={{ ...styles.gaugePill, backgroundColor: tint, color }}>{status ?? 'Offline'}</span>
     </div>
   )
 }
 
-const styles = {
-  title: { fontSize: '20px', fontWeight: '700', color: '#111827', margin: 0 },
-  subtitle: { fontSize: '13px', color: '#6B6B5F', marginTop: '4px', marginBottom: '20px' },
+const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
-  healthLabel: { fontSize: '12px', opacity: 0.9 },
-  healthScore: { fontSize: '34px', fontWeight: '700', lineHeight: 1.1 },
-  healthStatus: { fontSize: '12px', opacity: 0.9, marginTop: '2px' },
-  healthTimestamp: { fontSize: '10.5px', opacity: 0.7, marginTop: '6px' },
+const styles = {
+  stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
+
+  title: { fontSize: '24px', fontWeight: 800, letterSpacing: '-0.015em', color: '#16311d', margin: 0, fontFamily: SANS },
+  subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px', marginBottom: '20px' },
+
+  healthLabel: { fontSize: '12px', opacity: 0.92, fontWeight: 600 },
+  healthScore: { fontSize: '38px', fontWeight: 800, lineHeight: 1.1, letterSpacing: '-0.02em', marginTop: '2px' },
+  healthStatus: { fontSize: '12.5px', opacity: 0.95, marginTop: '2px', fontWeight: 600 },
+  healthTimestamp: { fontSize: '10.5px', opacity: 0.75, marginTop: '8px' },
+
+  cardLabel: { fontSize: '12px', color: '#6b7770', fontWeight: 600 },
+  gaugeValue: { fontSize: '26px', fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1 },
+  gaugeUnit: { fontSize: '14px', fontWeight: 700 },
+  gaugePill: { fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '999px' },
 
   insightCard: {
-    backgroundColor: 'white', borderRadius: '14px', padding: '18px 20px',
-    marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+    backgroundColor: 'white', borderRadius: '14px', padding: '20px 22px',
+    marginBottom: '20px', border: '1px solid #e7e8e0',
   },
   insightHeader: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' },
-  insightIconBadge: {
-    width: '34px', height: '34px', borderRadius: '10px', flexShrink: 0,
-    backgroundColor: '#F0EBDD', color: '#8A7A3E',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-  },
-  insightTitle: { fontSize: '15px', fontWeight: '700', color: '#122A1E' },
-  insightSubtitle: { fontSize: '12px', color: '#9ca3af', marginTop: '1px' },
+  insightTitle: { fontSize: '16px', fontWeight: 800, color: '#16311d', letterSpacing: '-0.01em' },
+  insightSubtitle: { fontSize: '12.5px', color: '#9aa79d', marginTop: '2px' },
   insightExplanationBlock: {
-    backgroundColor: '#FDFBF6', border: '1px solid #F0EBDD', borderLeft: '3px solid #D4AF37',
-    borderRadius: '8px', padding: '12px 14px',
+    backgroundColor: '#f7faf6', border: '1px solid #e2ebdf', borderLeft: '3px solid #2c8047',
+    borderRadius: '10px', padding: '13px 16px',
   },
-  insightExplanation: { fontSize: '13.5px', color: '#374151', lineHeight: '1.6', margin: 0 },
-  insightSection: { marginTop: '16px' },
+  insightExplanation: { fontSize: '13.5px', color: '#33413a', lineHeight: '1.6', margin: 0 },
+  insightSection: { marginTop: '18px' },
   insightSectionLabel: {
-    fontSize: '11px', fontWeight: '700', color: '#8A7A3E', textTransform: 'uppercase',
-    letterSpacing: '0.5px', marginBottom: '10px',
+    fontSize: '11px', fontWeight: 700, color: '#2c8047', textTransform: 'uppercase',
+    letterSpacing: '0.06em', marginBottom: '10px',
   },
   insightTipsList: { display: 'flex', flexDirection: 'column', gap: '9px' },
   insightTipRow: { display: 'flex', alignItems: 'flex-start', gap: '10px' },
   insightTipCheck: {
-    width: '18px', height: '18px', borderRadius: '50%', backgroundColor: '#F0FDF4',
-    color: '#2E7D32', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    width: '18px', height: '18px', borderRadius: '50%', backgroundColor: '#eaf3ec',
+    color: '#256b3d', display: 'flex', alignItems: 'center', justifyContent: 'center',
     flexShrink: 0, marginTop: '1px',
   },
-  insightTipText: { fontSize: '13px', color: '#4B5563', lineHeight: '1.55' },
+  insightTipText: { fontSize: '13px', color: '#4b5a50', lineHeight: '1.55' },
   serviceSuggestions: { display: 'flex', flexDirection: 'column', gap: '10px' },
   serviceSuggestionCard: {
-    backgroundColor: '#FAFAF8', border: '1px solid #ECE7DA', borderRadius: '10px',
+    backgroundColor: '#fafbf8', border: '1px solid #eceee7', borderRadius: '10px',
     padding: '12px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     gap: '14px', flexWrap: 'wrap',
   },
-  serviceSuggestionReason: { fontSize: '12.5px', color: '#6b7280', flex: 1, minWidth: '180px', lineHeight: '1.5' },
+  serviceSuggestionReason: { fontSize: '12.5px', color: '#6b7770', flex: 1, minWidth: '180px', lineHeight: '1.5' },
   serviceSuggestionBtn: {
-    backgroundColor: '#2E7D32', color: 'white', border: 'none', borderRadius: '8px',
-    padding: '9px 16px', fontSize: '12.5px', fontWeight: '600', cursor: 'pointer',
-    whiteSpace: 'nowrap', flexShrink: 0,
+    backgroundColor: '#2c8047', color: 'white', border: 'none', borderRadius: '9px',
+    padding: '9px 16px', fontSize: '12.5px', fontWeight: 700, cursor: 'pointer',
+    whiteSpace: 'nowrap', flexShrink: 0, fontFamily: SANS,
   },
 
   maintCard: {
     backgroundColor: 'white', borderRadius: '14px', padding: '18px 20px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+    border: '1px solid #e7e8e0',
   },
   maintHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' },
-  maintTitle: { fontSize: '14.5px', fontWeight: '600', color: '#111827', margin: 0 },
-  maintBadge: { padding: '4px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: '700' },
+  maintTitle: { fontSize: '15px', fontWeight: 700, color: '#16311d', margin: 0 },
+  maintBadge: { padding: '4px 12px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700 },
   maintStatRow: { display: 'flex', alignItems: 'baseline', gap: '6px', marginBottom: '2px' },
-  maintStatValue: { fontSize: '24px', fontWeight: '700', color: '#111827' },
-  maintStatLabel: { fontSize: '13px', color: '#6b7280' },
-  maintInterval: { fontSize: '12px', color: '#9ca3af', margin: '0 0 14px', lineHeight: '1.5' },
-  disposalSubtitle: { fontSize: '12px', color: '#9ca3af', margin: '0 0 14px', lineHeight: '1.5' },
+  maintStatValue: { fontSize: '26px', fontWeight: 800, letterSpacing: '-0.02em', color: '#16311d' },
+  maintStatLabel: { fontSize: '13px', color: '#6b7770' },
+  maintInterval: { fontSize: '12px', color: '#9aa79d', margin: '0 0 14px', lineHeight: '1.5' },
+  disposalSubtitle: { fontSize: '12px', color: '#9aa79d', margin: '0 0 14px', lineHeight: '1.5' },
 
   maintLogBtn: {
-    width: '100%', backgroundColor: '#2E7D32', color: 'white', border: 'none', borderRadius: '8px',
-    padding: '10px', fontSize: '13.5px', fontWeight: '600', cursor: 'pointer',
+    width: '100%', backgroundColor: '#2c8047', color: 'white', border: 'none', borderRadius: '10px',
+    padding: '11px', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
   },
   maintCancelBtn: {
-    padding: '11px 18px', borderRadius: '8px', border: '1px solid #d1d5db',
-    backgroundColor: 'white', fontSize: '14px', fontWeight: '600', color: '#374151', cursor: 'pointer',
+    padding: '11px 18px', borderRadius: '10px', border: '1px solid #d9dcd4',
+    backgroundColor: 'white', fontSize: '14px', fontWeight: 600, color: '#33413a', cursor: 'pointer', fontFamily: SANS,
   },
   maintForm: { display: 'flex', flexDirection: 'column', gap: '4px' },
   maintFormError: {
-    backgroundColor: '#fef2f2', border: '1px solid #fca5a5', color: '#dc2626',
-    padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '8px',
+    backgroundColor: '#fdf2f2', border: '1px solid #f3c9c9', color: '#b91c1c',
+    padding: '10px 14px', borderRadius: '9px', fontSize: '13px', marginBottom: '8px',
   },
-  maintFormLabel: { fontSize: '12.5px', fontWeight: '600', color: '#374151', marginTop: '10px', marginBottom: '4px' },
+  maintFormLabel: { fontSize: '12.5px', fontWeight: 600, color: '#33413a', marginTop: '10px', marginBottom: '4px' },
   maintFormInput: {
-    width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #d1d5db',
-    fontSize: '13.5px', boxSizing: 'border-box', fontFamily: 'inherit',
+    width: '100%', padding: '9px 12px', borderRadius: '10px', border: '1px solid #dcdfd6',
+    fontSize: '13.5px', boxSizing: 'border-box', fontFamily: SANS, color: '#16311d',
   },
   maintFormActions: { display: 'flex', gap: '10px', marginTop: '16px' },
-  maintHistory: { marginTop: '14px', paddingTop: '12px', borderTop: '1px solid #f3f4f6' },
-  maintHistoryLabel: { fontSize: '12px', color: '#6b7280', margin: '0 0 6px' },
+  maintHistory: { marginTop: '14px', paddingTop: '12px', borderTop: '1px solid #f2f3ed' },
+  maintHistoryLabel: { fontSize: '12px', color: '#6b7770', margin: '0 0 6px' },
   maintHistoryRow: {
-    display: 'flex', justifyContent: 'space-between', fontSize: '12.5px',
-    padding: '5px 0', borderTop: '1px solid #f9fafb', gap: '10px',
+    display: 'flex', justifyContent: 'space-between', fontSize: '12.5px', color: '#4b5a50',
+    padding: '5px 0', borderTop: '1px solid #f7f8f4', gap: '10px',
   },
-  maintHistoryNote: { color: '#9ca3af', textAlign: 'right' },
+  maintHistoryNote: { color: '#9aa79d', textAlign: 'right' },
 
   modalOverlay: {
-    position: 'fixed', inset: 0, backgroundColor: 'rgba(17, 24, 39, 0.45)',
+    position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.5)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     zIndex: 1000, padding: '16px',
   },
   modalHeader: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '16px 20px', borderBottom: '1px solid #f3f4f6', position: 'sticky', top: 0,
+    padding: '16px 20px', borderBottom: '1px solid #f2f3ed', position: 'sticky', top: 0,
     backgroundColor: 'white', borderRadius: '16px 16px 0 0',
   },
-  modalTitle: { fontSize: '15px', fontWeight: '700', color: '#111827', margin: 0 },
+  modalTitle: { fontSize: '16px', fontWeight: 800, color: '#16311d', margin: 0 },
   modalCloseBtn: {
-    background: 'none', border: 'none', fontSize: '22px', lineHeight: 1, color: '#9ca3af',
+    background: 'none', border: 'none', fontSize: '22px', lineHeight: 1, color: '#9aa79d',
     cursor: 'pointer', padding: '2px 6px',
   },
   modalBody: { padding: '18px 20px 20px' },
-
-  cardLabel: { fontSize: '12px', color: '#6b7280', marginBottom: '4px' },
-  gaugeValue: { fontSize: '28px', fontWeight: '700' },
-  gaugeStatus: { fontSize: '12px', fontWeight: '600', marginTop: '2px' },
 }

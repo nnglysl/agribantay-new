@@ -7,6 +7,17 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
+// Tinted status pill styling, consistent with Reports/Admin badges.
+function statusBadge(status) {
+  switch (status) {
+    case 'Pending':   return { backgroundColor: '#fdf3e6', color: '#b45309' }
+    case 'Scheduled': return { backgroundColor: '#e9eef6', color: '#2f5fa0' }
+    case 'Completed': return { backgroundColor: '#eaf3ec', color: '#256b3d' }
+    case 'Cancelled': return { backgroundColor: '#eef0ea', color: '#6b7770' }
+    default:          return { backgroundColor: '#eef0ea', color: '#6b7770' }
+  }
+}
+
 export default function ServiceRequests() {
   const [tab, setTab] = useState('active')
   const [currentPage, setCurrentPage] = useState(1)
@@ -50,19 +61,12 @@ export default function ServiceRequests() {
   const rangeStart = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1
   const rangeEnd = Math.min(currentPage * pageSize, totalItems)
 
-  const statusColor = {
-    Pending: '#f59e0b',
-    Scheduled: '#3b82f6',
-    Completed: '#2E7D32',
-    Cancelled: '#6b7280',
-  }
-
   return (
     <FarmerLayout>
       <div style={{ ...styles.header, ...(isMobile ? styles.headerMobile : {}) }}>
         <div>
           <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Service Requests</h1>
-          <p style={styles.subtitle}>My requests & history</p>
+          <p style={styles.subtitle}>My requests &amp; history</p>
         </div>
         <button
           style={{ ...styles.newBtn, ...(isMobile ? styles.newBtnMobile : {}) }}
@@ -87,8 +91,8 @@ export default function ServiceRequests() {
         </div>
       </div>
 
-      {loading && <p>Loading...</p>}
-      {error && <p style={{ color: '#dc2626' }}>{error}</p>}
+      {loading && <p style={styles.stateText}>Loading...</p>}
+      {error && <p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p>}
 
       {!loading && !error && (
         <div style={styles.listCard}>
@@ -96,27 +100,27 @@ export default function ServiceRequests() {
             <div style={styles.empty}>No {tab === 'active' ? 'active requests' : 'past records'} yet.</div>
           ) : (
             <div style={styles.list}>
-              {pagedList.map(r => (
-                <div key={r.id} style={{ ...styles.card, ...(isMobile ? styles.cardMobile : {}) }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={styles.cardTitle}>{r.service_type}</div>
-                    <div style={styles.cardMeta}>
-                      {r.assigned_to && <>{r.assigned_to} · </>}
-                      {r.scheduled_at
-                        ? new Date(r.scheduled_at).toLocaleDateString()
-                        : 'Awaiting review'}
+              {pagedList.map(r => {
+                const sb = statusBadge(r.status)
+                return (
+                  <div key={r.id} style={{ ...styles.card, ...(isMobile ? styles.cardMobile : {}) }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={styles.cardTitle}>{r.service_type}</div>
+                      <div style={styles.cardMeta}>
+                        {r.assigned_to && <>{r.assigned_to} · </>}
+                        {r.scheduled_at
+                          ? new Date(r.scheduled_at).toLocaleDateString()
+                          : 'Awaiting review'}
+                      </div>
+                      {r.notes && <div style={styles.cardNotes}>{r.notes}</div>}
                     </div>
-                    {r.notes && <div style={styles.cardNotes}>{r.notes}</div>}
+                    <div style={{ ...styles.badge, ...sb, ...(isMobile ? styles.badgeMobile : {}) }}>
+                      <span style={{ ...styles.badgeDot, backgroundColor: sb.color }} />
+                      {r.status}
+                    </div>
                   </div>
-                  <div style={{
-                    ...styles.badge,
-                    backgroundColor: statusColor[r.status] || '#6b7280',
-                    ...(isMobile ? styles.badgeMobile : {}),
-                  }}>
-                    {r.status}
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
 
@@ -312,7 +316,7 @@ function RequestModal({ onClose, onSuccess, isMobile, initialServiceType }) {
             <button
               type="submit"
               disabled={loading}
-              style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
+              style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}), ...(loading ? modalStyles.btnDisabled : {}) }}
             >
               {loading ? 'Submitting...' : 'Submit Request'}
             </button>
@@ -323,95 +327,106 @@ function RequestModal({ onClose, onSuccess, isMobile, initialServiceType }) {
   )
 }
 
+const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+
 const styles = {
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' },
+  stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
+
+  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', gap: '16px' },
   headerMobile: { flexDirection: 'column', gap: '14px' },
-  title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
-  titleMobile: { fontSize: '18px' },
-  subtitle: { fontSize: '13px', color: '#6b7280', marginTop: '4px' },
+  title: { fontSize: '24px', fontWeight: 800, letterSpacing: '-0.015em', color: '#16311d', margin: 0, fontFamily: SANS },
+  titleMobile: { fontSize: '21px' },
+  subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px' },
   newBtn: {
-    backgroundColor: '#2E7D32', color: 'white', border: 'none', borderRadius: '8px',
-    padding: '10px 18px', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
+    backgroundColor: '#2c8047', color: 'white', border: 'none', borderRadius: '10px',
+    padding: '0 18px', height: '40px', fontSize: '14px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
   },
   newBtnMobile: { width: '100%', boxSizing: 'border-box' },
-  tabs: { display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid #e5e7eb' },
-  tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7280', cursor: 'pointer', borderBottom: '2px solid transparent' },
-  tabActive: { color: '#2E7D32', fontWeight: '600', borderBottom: '2px solid #2E7D32' },
-  empty: { padding: '32px', textAlign: 'center', color: '#9ca3af', fontSize: '14px' },
-  listCard: { backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', overflow: 'hidden' },
+
+  tabs: { display: 'flex', gap: '4px', marginBottom: '18px', borderBottom: '1px solid #e7e8e0' },
+  tab: { padding: '10px 16px', fontSize: '14px', fontWeight: 600, color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent' },
+  tabActive: { color: '#2c8047', fontWeight: 700, borderBottom: '2px solid #2c8047' },
+
+  empty: { padding: '40px', textAlign: 'center', color: '#9aa79d', fontSize: '14px' },
+  listCard: { backgroundColor: 'white', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden' },
   list: { display: 'flex', flexDirection: 'column' },
   card: {
     padding: '16px 20px',
     display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-    borderBottom: '1px solid #f3f4f6', gap: '12px',
+    borderBottom: '1px solid #f2f3ed', gap: '12px',
   },
   cardMobile: { padding: '14px 16px' },
-  cardTitle: { fontSize: '15px', fontWeight: '600', color: '#111827' },
-  cardMeta: { fontSize: '13px', color: '#6b7280', marginTop: '4px' },
-  cardNotes: { fontSize: '13px', color: '#374151', marginTop: '6px' },
-  badge: { padding: '4px 12px', borderRadius: '999px', color: 'white', fontSize: '12px', fontWeight: '600', whiteSpace: 'nowrap' },
+  cardTitle: { fontSize: '15px', fontWeight: 700, color: '#16311d' },
+  cardMeta: { fontSize: '13px', color: '#6b7770', marginTop: '4px' },
+  cardNotes: { fontSize: '13px', color: '#4b5a50', marginTop: '6px', lineHeight: '1.5' },
+  badge: {
+    display: 'inline-flex', alignItems: 'center', gap: '6px',
+    padding: '4px 11px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
+  },
+  badgeDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
   badgeMobile: { flexShrink: 0 },
 }
 
 const paginationStyles = {
   wrap: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '14px 16px', borderTop: '1px solid #f3f4f6', flexWrap: 'wrap', gap: '10px',
+    padding: '14px 16px', borderTop: '1px solid #f2f3ed', flexWrap: 'wrap', gap: '10px',
   },
   wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
-  info: { fontSize: '12.5px', color: '#6b7280', whiteSpace: 'nowrap' },
+  info: { fontSize: '12.5px', color: '#9aa79d', whiteSpace: 'nowrap' },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },
   pageSizeSelect: {
-    padding: '6px 10px', borderRadius: '6px', border: '1px solid #d1d5db',
-    fontSize: '12.5px', color: '#374151', marginRight: '8px',
+    padding: '7px 10px', borderRadius: '9px', border: '1px solid #dcdfd6',
+    fontSize: '12.5px', color: '#33413a', marginRight: '8px', fontFamily: SANS, backgroundColor: '#fff', cursor: 'pointer',
   },
   navBtn: {
-    minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '6px',
-    border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151',
-    fontSize: '13px', cursor: 'pointer',
+    minWidth: '32px', height: '32px', padding: '0 6px', borderRadius: '9px',
+    border: '1px solid #dcdfd6', backgroundColor: 'white', color: '#33413a',
+    fontSize: '13px', cursor: 'pointer', fontFamily: SANS,
   },
   navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   pageBtn: {
-    minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '6px',
-    border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151',
-    fontSize: '12.5px', fontWeight: '600', cursor: 'pointer',
+    minWidth: '32px', height: '32px', padding: '0 6px', borderRadius: '9px',
+    border: '1px solid #dcdfd6', backgroundColor: 'white', color: '#33413a',
+    fontSize: '12.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
   },
   pageBtnActive: {
-    backgroundColor: '#2E7D32', borderColor: '#2E7D32', color: 'white',
+    backgroundColor: '#2c8047', borderColor: '#2c8047', color: 'white',
   },
-  ellipsis: { padding: '0 4px', color: '#9ca3af', fontSize: '13px' },
+  ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
 }
 
 const modalStyles = {
   overlay: {
-    position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50,
+    position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.5)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200,
   },
-  modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '420px', maxWidth: '90%' },
+  modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '420px', maxWidth: '90%', fontFamily: SANS },
   modalMobile: { width: '100%', maxWidth: '100%', borderRadius: '16px 16px 0 0', padding: '20px', margin: '0', position: 'fixed', bottom: 0, left: 0, maxHeight: '85vh', overflowY: 'auto' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' },
-  title: { fontSize: '18px', fontWeight: '700', color: '#111827', margin: 0 },
-  close: { fontSize: '22px', cursor: 'pointer', color: '#6b7280' },
+  title: { fontSize: '18px', fontWeight: 800, color: '#16311d', margin: 0 },
+  close: { fontSize: '22px', cursor: 'pointer', color: '#9aa79d' },
   errorBox: {
-    backgroundColor: '#fef2f2', border: '1px solid #fca5a5', color: '#dc2626',
-    padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '16px',
+    backgroundColor: '#fdf2f2', border: '1px solid #f3c9c9', color: '#b91c1c',
+    padding: '10px 14px', borderRadius: '9px', fontSize: '13px', marginBottom: '16px',
   },
-  label: { display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px', marginTop: '14px' },
+  label: { display: 'block', fontSize: '12.5px', fontWeight: 600, color: '#33413a', marginBottom: '6px', marginTop: '14px' },
   input: {
-    width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db',
-    fontSize: '14px', boxSizing: 'border-box', fontFamily: 'inherit',
+    width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6',
+    fontSize: '14px', boxSizing: 'border-box', fontFamily: SANS, color: '#16311d',
   },
-  hint: { fontSize: '12px', color: '#6b7280', marginTop: '14px', lineHeight: '1.5' },
+  hint: { fontSize: '12px', color: '#9aa79d', marginTop: '14px', lineHeight: '1.5' },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' },
   actionsMobile: { flexDirection: 'column-reverse' },
   btnFull: { width: '100%', boxSizing: 'border-box' },
   cancelBtn: {
-    padding: '10px 18px', borderRadius: '8px', border: '1px solid #d1d5db',
-    backgroundColor: 'white', fontSize: '14px', cursor: 'pointer',
+    padding: '11px 18px', borderRadius: '10px', border: '1px solid #d9dcd4',
+    backgroundColor: 'white', fontSize: '14px', fontWeight: 600, color: '#33413a', cursor: 'pointer', fontFamily: SANS,
   },
   submitBtn: {
-    padding: '10px 18px', borderRadius: '8px', border: 'none',
-    backgroundColor: '#2E7D32', color: 'white', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
+    padding: '11px 18px', borderRadius: '10px', border: 'none',
+    backgroundColor: '#2c8047', color: 'white', fontSize: '14px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
   },
+  btnDisabled: { opacity: 0.6, cursor: 'not-allowed' },
 }
