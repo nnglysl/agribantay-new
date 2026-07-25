@@ -21,7 +21,8 @@ export default function AlertHistory() {
   const { data: history, loading, error } = useCachedFetch('/admin/alert-history', params)
   const { data: farms } = useCachedFetch('/admin/farms')
 
-  const statusColor = { Warning: '#B45309', Critical: '#B91C1C' }
+  const statusColor = { Warning: '#b45309', Critical: '#b91c1c' }
+  const statusBg = { Warning: '#fbf1e2', Critical: '#fbeaea' }
   const sensorTypes = ['Ammonia', 'Temperature', 'Humidity', 'Moisture']
 
   const allHistory = history || []
@@ -54,7 +55,10 @@ export default function AlertHistory() {
           </p>
         </div>
         {totalOngoing > 0 && (
-          <span style={styles.ongoingBadge}>{totalOngoing} currently ongoing</span>
+          <span style={styles.ongoingBadge}>
+            <span style={styles.ongoingBadgeDot} />
+            {totalOngoing} currently ongoing
+          </span>
         )}
       </div>
 
@@ -86,8 +90,8 @@ export default function AlertHistory() {
         </div>
       </div>
 
-      {loading && <p>Loading...</p>}
-      {error && <p style={{ color: '#dc2626' }}>{error}</p>}
+      {loading && <p style={styles.stateText}>Loading...</p>}
+      {error && <p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p>}
 
       {!loading && !error && (
         <div style={styles.tableCard}>
@@ -107,26 +111,30 @@ export default function AlertHistory() {
                 </tr>
               </thead>
               <tbody>
-                {paginatedHistory.map(h => (
-                  <tr key={h.id}>
-                    <td style={styles.td}>{h.farm_name}</td>
-                    <td style={styles.td}>{h.sensor_type}</td>
-                    <td style={styles.td}>
-                      <span style={{ ...styles.badge, backgroundColor: statusColor[h.status] || '#6b7280' }}>
-                        {h.status}
-                      </span>
-                    </td>
-                    <td style={styles.td}>{h.value}</td>
-                    <td style={styles.td}>{h.triggered_at}</td>
-                    <td style={styles.td}>
-                      {h.is_ongoing ? (
-                        <span style={styles.ongoingDuration}>{h.duration} · ongoing</span>
-                      ) : (
-                        h.duration
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {paginatedHistory.map(h => {
+                  const c = statusColor[h.status] || '#6b7280'
+                  return (
+                    <tr key={h.id}>
+                      <td style={{ ...styles.td, fontWeight: 600, color: '#16311d' }}>{h.farm_name}</td>
+                      <td style={styles.td}>{h.sensor_type}</td>
+                      <td style={styles.td}>
+                        <span style={{ ...styles.badge, color: c, backgroundColor: statusBg[h.status] || '#eef1ea' }}>
+                          <span style={{ ...styles.badgeDot, backgroundColor: c }} />
+                          {h.status}
+                        </span>
+                      </td>
+                      <td style={{ ...styles.td, fontVariantNumeric: 'tabular-nums' }}>{h.value}</td>
+                      <td style={styles.td}>{h.triggered_at}</td>
+                      <td style={styles.td}>
+                        {h.is_ongoing ? (
+                          <span style={styles.ongoingDuration}>{h.duration} · ongoing</span>
+                        ) : (
+                          h.duration
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -171,17 +179,11 @@ function Pagination({
   return (
     <div style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
       <div style={paginationStyles.info}>
-        {totalItems === 0
-          ? 'No results'
-          : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
+        {totalItems === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
       </div>
 
       <div style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
-        <select
-          value={pageSize}
-          onChange={e => onPageSizeChange(Number(e.target.value))}
-          style={paginationStyles.pageSizeSelect}
-        >
+        <select value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
           {PAGE_SIZE_OPTIONS.map(size => (
             <option key={size} value={size}>{size} / page</option>
           ))}
@@ -189,20 +191,12 @@ function Pagination({
 
         <button
           style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(1)}
-          disabled={currentPage === 1}
-          aria-label="First page"
-        >
-          «
-        </button>
+          onClick={() => onPageChange(1)} disabled={currentPage === 1} aria-label="First page"
+        >«</button>
         <button
           style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(currentPage - 1)}
-          disabled={currentPage === 1}
-          aria-label="Previous page"
-        >
-          ‹
-        </button>
+          onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1} aria-label="Previous page"
+        >‹</button>
 
         {pageNumbers[0] > 1 && <span style={paginationStyles.ellipsis}>…</span>}
 
@@ -210,33 +204,20 @@ function Pagination({
           <button
             key={p}
             onClick={() => onPageChange(p)}
-            style={{
-              ...paginationStyles.pageBtn,
-              ...(p === currentPage ? paginationStyles.pageBtnActive : {}),
-            }}
-          >
-            {p}
-          </button>
+            style={{ ...paginationStyles.pageBtn, ...(p === currentPage ? paginationStyles.pageBtnActive : {}) }}
+          >{p}</button>
         ))}
 
         {pageNumbers[pageNumbers.length - 1] < totalPages && <span style={paginationStyles.ellipsis}>…</span>}
 
         <button
           style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(currentPage + 1)}
-          disabled={currentPage === totalPages}
-          aria-label="Next page"
-        >
-          ›
-        </button>
+          onClick={() => onPageChange(currentPage + 1)} disabled={currentPage === totalPages} aria-label="Next page"
+        >›</button>
         <button
           style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(totalPages)}
-          disabled={currentPage === totalPages}
-          aria-label="Last page"
-        >
-          »
-        </button>
+          onClick={() => onPageChange(totalPages)} disabled={currentPage === totalPages} aria-label="Last page"
+        >»</button>
       </div>
     </div>
   )
@@ -244,78 +225,73 @@ function Pagination({
 
 function FilterPill({ label, active, onClick }) {
   return (
-    <span
-      onClick={onClick}
-      style={{ ...styles.filterPill, ...(active ? styles.filterPillActive : {}) }}
-    >
+    <span onClick={onClick} style={{ ...styles.filterPill, ...(active ? styles.filterPillActive : {}) }}>
       {label}
     </span>
   )
 }
 
+const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+
 const styles = {
+  stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '20px' },
-  title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
-  titleMobile: { fontSize: '18px' },
-  subtitle: { fontSize: '13px', color: '#6b7280', marginTop: '4px' },
+  title: { fontSize: '24px', fontWeight: 800, letterSpacing: '-0.015em', color: '#16311d', margin: 0 },
+  titleMobile: { fontSize: '20px' },
+  subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px' },
   ongoingBadge: {
-    backgroundColor: '#fef2f2', color: '#B91C1C', border: '1px solid #fecaca',
-    padding: '6px 14px', borderRadius: '999px', fontSize: '12.5px', fontWeight: '700', whiteSpace: 'nowrap',
+    display: 'inline-flex', alignItems: 'center', gap: '7px',
+    backgroundColor: '#fbeaea', color: '#b91c1c', border: '1px solid #f0c9c9',
+    padding: '6px 14px', borderRadius: '999px', fontSize: '12.5px', fontWeight: 700, whiteSpace: 'nowrap',
   },
-  filters: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' },
+  ongoingBadgeDot: { width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#b91c1c' },
+
+  filters: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' },
   filtersMobile: { flexDirection: 'column', alignItems: 'stretch' },
   pillRow: { display: 'flex', gap: '8px', flexWrap: 'wrap' },
   filterPill: {
-    padding: '6px 14px', borderRadius: '999px', fontSize: '13px', fontWeight: '500',
-    color: '#374151', backgroundColor: 'white', border: '1px solid #d1d5db', cursor: 'pointer',
-    whiteSpace: 'nowrap',
+    padding: '7px 16px', borderRadius: '999px', fontSize: '13px', fontWeight: 600,
+    color: '#33413a', backgroundColor: '#fff', border: '1px solid #dcdfd6', cursor: 'pointer', whiteSpace: 'nowrap',
   },
-  filterPillActive: { backgroundColor: '#2E7D32', color: 'white', border: '1px solid #2E7D32' },
+  filterPillActive: { backgroundColor: '#2c8047', color: '#fff', border: '1px solid #2c8047' },
   dropdownGroup: { display: 'flex', gap: '10px' },
   dropdownGroupMobile: { flexDirection: 'column' },
-  select: {
-    padding: '8px 12px', borderRadius: '8px',
-    border: '1px solid #d1d5db', fontSize: '13px',
-  },
+  select: { padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '13.5px', color: '#33413a', backgroundColor: '#fff', cursor: 'pointer' },
   selectMobile: { width: '100%', boxSizing: 'border-box' },
-  tableCard: { backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', overflow: 'hidden' },
-  scrollHint: { fontSize: '11px', color: '#9ca3af', margin: '12px 16px 0' },
+
+  tableCard: { backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden' },
+  scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0' },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  tableMobile: { minWidth: '760px' },
-  th: { textAlign: 'left', padding: '14px 16px', fontSize: '12px', color: '#6b7280', borderBottom: '1px solid #e5e7eb', textTransform: 'uppercase', whiteSpace: 'nowrap' },
-  td: { padding: '14px 16px', fontSize: '13px', color: '#374151', borderBottom: '1px solid #f3f4f6' },
-  badge: { padding: '3px 10px', borderRadius: '999px', color: 'white', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap' },
-  ongoingDuration: { color: '#B91C1C', fontWeight: '700' },
-  empty: { padding: '32px', textAlign: 'center', color: '#9ca3af', fontSize: '14px' },
+  tableMobile: { minWidth: '820px' },
+  th: {
+    textAlign: 'left', padding: '13px 20px', fontSize: '11px', fontWeight: 700, color: '#8a968d',
+    borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
+    backgroundColor: '#fafbf8',
+  },
+  td: { padding: '13px 20px', fontSize: '13px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle' },
+  badge: {
+    display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 11px',
+    borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
+  },
+  badgeDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
+  ongoingDuration: { color: '#b91c1c', fontWeight: 700 },
+  empty: { padding: '32px', textAlign: 'center', color: '#9aa79d', fontSize: '14px' },
 }
 
 const paginationStyles = {
   wrap: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '14px 16px', borderTop: '1px solid #f3f4f6', flexWrap: 'wrap', gap: '10px',
+    padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px',
   },
   wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
-  info: { fontSize: '12.5px', color: '#6b7280', whiteSpace: 'nowrap' },
+  info: { fontSize: '12.5px', color: '#8a968d', whiteSpace: 'nowrap' },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },
-  pageSizeSelect: {
-    padding: '6px 10px', borderRadius: '6px', border: '1px solid #d1d5db',
-    fontSize: '12.5px', color: '#374151', marginRight: '8px',
-  },
-  navBtn: {
-    minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '6px',
-    border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151',
-    fontSize: '13px', cursor: 'pointer',
-  },
+  pageSizeSelect: { padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6', fontSize: '12.5px', color: '#4b5a50', marginRight: '6px' },
+  navBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '13px', cursor: 'pointer' },
   navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
-  pageBtn: {
-    minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '6px',
-    border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151',
-    fontSize: '12.5px', fontWeight: '600', cursor: 'pointer',
-  },
-  pageBtnActive: {
-    backgroundColor: '#2E7D32', borderColor: '#2E7D32', color: 'white',
-  },
-  ellipsis: { padding: '0 4px', color: '#9ca3af', fontSize: '13px' },
+  pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
+  pageBtnActive: { backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff' },
+  ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
 }

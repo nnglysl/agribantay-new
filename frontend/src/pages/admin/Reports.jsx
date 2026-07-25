@@ -133,9 +133,9 @@ export default function Reports() {
 
   const selectedRangeLabel = RANGE_OPTIONS.find(o => o.value === range)?.label ?? ''
 
-  if (loading) return <AdminLayout><p>Loading...</p></AdminLayout>
-  if (error) return <AdminLayout><p style={{ color: '#dc2626' }}>{error}</p></AdminLayout>
-  if (!data) return <AdminLayout><p>Loading...</p></AdminLayout>
+  if (loading) return <AdminLayout><p style={styles.stateText}>Loading...</p></AdminLayout>
+  if (error) return <AdminLayout><p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p></AdminLayout>
+  if (!data) return <AdminLayout><p style={styles.stateText}>Loading...</p></AdminLayout>
 
   return (
     <AdminLayout>
@@ -186,12 +186,12 @@ export default function Reports() {
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
-            <button style={{ ...styles.printBtn, ...(isMobile ? styles.controlFull : {}) }} onClick={handlePrint}>Print</button>
-            <button style={{ ...styles.csvBtn, ...(isMobile ? styles.controlFull : {}) }} onClick={handleExportCsv}>
+            <button style={{ ...styles.secondaryBtn, ...(isMobile ? styles.controlFull : {}) }} onClick={handlePrint}>Print</button>
+            <button style={{ ...styles.secondaryBtn, ...(isMobile ? styles.controlFull : {}) }} onClick={handleExportCsv}>
               Export CSV
             </button>
             <button
-              style={{ ...styles.exportBtn, ...(isMobile ? styles.controlFull : {}) }}
+              style={{ ...styles.primaryBtn, ...(isMobile ? styles.controlFull : {}), ...(exportingPdf ? styles.btnDisabled : {}) }}
               onClick={handleExportPdf}
               disabled={exportingPdf}
             >
@@ -229,20 +229,20 @@ export default function Reports() {
             <div style={styles.statLabel}>Total inspections</div>
           </div>
           <div style={styles.statCard}>
-            <div style={{ ...styles.statValue, color: '#2E7D32' }}>{data.inspection_summary.completed}</div>
+            <div style={{ ...styles.statValue, color: '#256b3d' }}>{data.inspection_summary.completed}</div>
             <div style={styles.statLabel}>Completed</div>
           </div>
           <div style={styles.statCard}>
-            <div style={{ ...styles.statValue, color: '#3b82f6' }}>{data.inspection_summary.scheduled}</div>
+            <div style={{ ...styles.statValue, color: '#b45309' }}>{data.inspection_summary.scheduled}</div>
             <div style={styles.statLabel}>Scheduled</div>
           </div>
           <div style={styles.statCard}>
             <div style={styles.statValue}>{data.alert_summary.total}</div>
             <div style={styles.statLabel}>Alerts this month</div>
           </div>
-          <div style={{ ...styles.statCard, backgroundColor: '#fef2f2' }}>
-            <div style={{ ...styles.statValue, color: '#dc2626' }}>{data.alert_summary.critical_alerts}</div>
-            <div style={{ ...styles.statLabel, color: '#991b1b' }}>Critical alerts</div>
+          <div style={{ ...styles.statCard, backgroundColor: '#fdf2f2', borderColor: '#f3c9c9' }}>
+            <div style={{ ...styles.statValue, color: '#b91c1c' }}>{data.alert_summary.critical_alerts}</div>
+            <div style={{ ...styles.statLabel, color: '#8f2020' }}>Critical alerts</div>
           </div>
         </div>
         <p style={styles.statsNote}>
@@ -262,8 +262,8 @@ export default function Reports() {
                     labels: monthlyTrend.map(m => m.label),
                     datasets: [{
                       data: monthlyTrend.map(m => m.count),
-                      borderColor: '#2E7D32',
-                      backgroundColor: '#2E7D32',
+                      borderColor: '#2c8047',
+                      backgroundColor: '#2c8047',
                       tension: 0.3,
                       pointRadius: 4,
                     }],
@@ -273,8 +273,8 @@ export default function Reports() {
                     maintainAspectRatio: false,
                     plugins: { legend: { display: false } },
                     scales: {
-                      y: { beginAtZero: true, ticks: { stepSize: 1, color: '#6b7280' }, grid: { color: '#f3f4f6' } },
-                      x: { ticks: { color: '#6b7280' }, grid: { display: false } },
+                      y: { beginAtZero: true, ticks: { stepSize: 1, color: '#8a968d' }, grid: { color: '#f2f3ed' } },
+                      x: { ticks: { color: '#8a968d' }, grid: { display: false } },
                     },
                   }}
                 />
@@ -284,10 +284,10 @@ export default function Reports() {
 
           <div style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}) }}>
             <h3 style={styles.panelTitle}>Alert breakdown</h3>
-            <StatRow label="Ammonia threshold breaches" value={data.alert_summary.ammonia_breaches} color="#dc2626" />
+            <StatRow label="Ammonia threshold breaches" value={data.alert_summary.ammonia_breaches} color="#b91c1c" />
             <StatRow label="Temperature anomalies" value={data.alert_summary.temp_anomalies} color="#b45309" />
             <StatRow label="Humidity anomalies" value={data.alert_summary.humidity_anomalies} color="#b45309" />
-            <StatRow label="Critical alerts" value={data.alert_summary.critical_alerts} color="#dc2626" />
+            <StatRow label="Critical alerts" value={data.alert_summary.critical_alerts} color="#b91c1c" />
           </div>
         </div>
 
@@ -315,12 +315,15 @@ export default function Reports() {
                     {completedInspections.map(i => (
                       <tr key={i.id}>
                         <td style={styles.td}>{i.inspection_number}</td>
-                        <td style={styles.td}>{i.farm_name}</td>
+                        <td style={{ ...styles.td, fontWeight: 600, color: '#16311d' }}>{i.farm_name}</td>
                         <td style={styles.td}>{i.owner_name}</td>
                         <td style={styles.td}>{i.inspection_type}</td>
                         <td style={styles.td}>{i.completed_at}</td>
                         <td style={styles.td}>
-                          <span style={styles.badge}>{i.status}</span>
+                          <span style={styles.badge}>
+                            <span style={styles.badgeDot} />
+                            {i.status}
+                          </span>
                         </td>
                       </tr>
                     ))}
@@ -408,79 +411,77 @@ export default function Reports() {
 function StatRow({ label, value, color }) {
   return (
     <div style={styles.statRow}>
-      <span style={styles.statLabel}>{label}</span>
-      <span style={{ ...styles.rowValue, color: color || '#111827' }}>{value}</span>
+      <span style={styles.statRowLabel}>{label}</span>
+      <span style={{ ...styles.rowValue, color: color || '#16311d' }}>{value}</span>
     </div>
   )
 }
 
+const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+
 const styles = {
+  stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' },
   headerMobile: { flexDirection: 'column', gap: '14px' },
-  title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
-  titleMobile: { fontSize: '18px' },
-  subtitle: { fontSize: '13px', color: '#6b7280', marginTop: '4px' },
+  title: { fontSize: '24px', fontWeight: 800, letterSpacing: '-0.015em', color: '#16311d', margin: 0 },
+  titleMobile: { fontSize: '20px' },
+  subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px' },
   controlsRow: { display: 'flex', gap: '10px', flexWrap: 'wrap' },
   controlsRowMobile: { flexDirection: 'column', width: '100%' },
   controlFull: { width: '100%', boxSizing: 'border-box' },
   select: {
-    backgroundColor: 'white', color: '#374151', border: '1px solid #d1d5db',
-    borderRadius: '8px', padding: '0 12px', fontSize: '14px', height: '38px',
+    backgroundColor: '#fff', color: '#33413a', border: '1px solid #dcdfd6',
+    borderRadius: '10px', padding: '0 12px', fontSize: '14px', height: '40px', cursor: 'pointer',
   },
-  printBtn: {
-      background: 'linear-gradient(135deg, #E8C766 0%, #D4AF37 55%, #B8912B 100%)', color: '#122A1E', border: 'none',
-      borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
-      boxShadow: '0 4px 12px rgba(212,175,55,0.28)',
-    },
-  csvBtn: {
-      background: 'linear-gradient(135deg, #D68A46 0%, #B5651D 100%)', color: 'white', border: 'none',
-      borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
-      boxShadow: '0 4px 12px rgba(181,101,29,0.28)',
+  primaryBtn: {
+    backgroundColor: '#2c8047', color: '#fff', border: 'none', borderRadius: '10px',
+    padding: '0 18px', height: '40px', fontSize: '14px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
   },
-  exportBtn: {
-      background: 'linear-gradient(135deg, #234A35 0%, #122A1E 100%)', color: 'white', border: 'none',
-      borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
-      boxShadow: '0 4px 12px rgba(18,42,30,0.28)',
+  secondaryBtn: {
+    backgroundColor: '#fff', color: '#2c8047', border: '1px solid #cfe0d3', borderRadius: '10px',
+    padding: '0 18px', height: '40px', fontSize: '14px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
   },
+  btnDisabled: { opacity: 0.6, cursor: 'not-allowed' },
+
   customRow: { display: 'flex', gap: '12px', marginBottom: '16px' },
   customRowMobile: { flexDirection: 'column' },
-  customField: { display: 'flex', flexDirection: 'column', gap: '4px' },
-  customLabel: { fontSize: '12px', color: '#6b7280', fontWeight: '500' },
-  customInput: {
-    padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px',
-  },
-  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '16px' },
+  customField: { display: 'flex', flexDirection: 'column', gap: '5px' },
+  customLabel: { fontSize: '12px', color: '#6b7770', fontWeight: 600 },
+  customInput: { padding: '9px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', fontFamily: SANS },
+
+  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '14px' },
   statsGridMobile: { gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' },
-  statCard: {
-    backgroundColor: 'white', borderRadius: '12px', padding: '20px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-  },
-  statValue: { fontSize: '24px', fontWeight: '700', color: '#111827' },
-  statLabel: { fontSize: '12px', color: '#6b7280', marginTop: '2px' },
-  statsNote: { fontSize: '11px', color: '#9ca3af', marginTop: '10px', marginBottom: 0 },
+  statCard: { backgroundColor: '#fff', borderRadius: '14px', padding: '20px', border: '1px solid #e7e8e0' },
+  statValue: { fontSize: '26px', fontWeight: 800, letterSpacing: '-0.02em', color: '#16311d', lineHeight: 1 },
+  statLabel: { fontSize: '12px', color: '#6b7770', marginTop: '6px', fontWeight: 600 },
+  statsNote: { fontSize: '11.5px', color: '#9aa79d', marginTop: '10px', marginBottom: 0 },
+
   twoCol: { display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '20px' },
   twoColMobile: { gridTemplateColumns: '1fr', gap: '12px' },
-  panel: {
-    backgroundColor: 'white', borderRadius: '12px', padding: '24px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-  },
+  panel: { backgroundColor: '#fff', borderRadius: '14px', padding: '24px', border: '1px solid #e7e8e0' },
   panelMobile: { padding: '16px' },
-  panelTitle: { fontSize: '15px', fontWeight: '700', color: '#111827', marginTop: 0, marginBottom: '4px' },
-  panelSubtitle: { fontSize: '12px', color: '#9ca3af', marginTop: 0, marginBottom: '16px' },
+  panelTitle: { fontSize: '15px', fontWeight: 700, color: '#16311d', marginTop: 0, marginBottom: '4px' },
+  panelSubtitle: { fontSize: '12px', color: '#9aa79d', marginTop: 0, marginBottom: '16px' },
   statRow: {
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-    padding: '10px 0', borderBottom: '1px solid #f3f4f6', fontSize: '14px',
+    padding: '11px 0', borderBottom: '1px solid #f2f3ed', fontSize: '14px',
   },
-  rowValue: { fontWeight: '700', fontSize: '16px' },
-  empty: { color: '#9ca3af', fontSize: '14px', padding: '16px 0' },
-  scrollHint: { fontSize: '11px', color: '#9ca3af', marginTop: 0, marginBottom: '8px' },
+  statRowLabel: { fontSize: '13.5px', color: '#4b5a50' },
+  rowValue: { fontWeight: 800, fontSize: '16px', fontVariantNumeric: 'tabular-nums' },
+  empty: { color: '#9aa79d', fontSize: '14px', padding: '16px 0' },
+  scrollHint: { fontSize: '11px', color: '#9aa79d', marginTop: 0, marginBottom: '8px' },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse', marginTop: '8px' },
-  tableMobile: { minWidth: '600px' },
-  th: { textAlign: 'left', padding: '10px 12px', fontSize: '11px', color: '#6b7280', borderBottom: '1px solid #e5e7eb', textTransform: 'uppercase', whiteSpace: 'nowrap' },
-  td: { padding: '10px 12px', fontSize: '13px', color: '#374151', borderBottom: '1px solid #f3f4f6' },
-  badge: {
-    backgroundColor: '#2E7D32', color: 'white', padding: '3px 10px',
-    borderRadius: '999px', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap',
+  tableMobile: { minWidth: '640px' },
+  th: {
+    textAlign: 'left', padding: '12px 14px', fontSize: '11px', fontWeight: 700, color: '#8a968d',
+    borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
+    backgroundColor: '#fafbf8',
   },
+  td: { padding: '12px 14px', fontSize: '13px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle' },
+  badge: {
+    display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: '#eaf3ec', color: '#256b3d',
+    padding: '4px 11px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
+  },
+  badgeDot: { width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#256b3d', flexShrink: 0 },
 }

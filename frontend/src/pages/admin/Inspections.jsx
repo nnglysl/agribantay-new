@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
@@ -9,14 +9,15 @@ import { useMonthFilter, filterByMonth } from '../../hooks/useMonthFilter'
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 const DAY_NAMES_SHORT = ['S','M','T','W','T','F','S']
+const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
-// Matches the summary card palette: General → clay, Follow-up → gold.
+// Calendar events keep the scannable convention: General → green, Follow-up → amber.
 function inspectionTypeStyle(type) {
   const isFollowUp = type === 'Follow-up'
   return {
     label: isFollowUp ? 'Follow-up Inspection' : 'General Inspection',
-    bg: isFollowUp ? '#D4AF37' : '#B5651D',
-    text: isFollowUp ? '#122A1E' : '#ffffff',
+    bg: isFollowUp ? '#b45309' : '#2c8047',
+    text: '#ffffff',
   }
 }
 
@@ -84,7 +85,7 @@ export default function Inspections() {
   const scheduled = inspections.filter(i => i.status === 'Scheduled')
   const completed = inspections.filter(i => i.status === 'Completed')
 
-  const statusColor = { Scheduled: '#3b82f6', Completed: '#2E7D32', Cancelled: '#6b7280' }
+  const statusColor = { Scheduled: '#b45309', Completed: '#256b3d', Cancelled: '#6b7280' }
 
   const monthInspections = filterByMonth(inspections, viewDate)
   const totalThisMonth = monthInspections.length
@@ -98,17 +99,12 @@ export default function Inspections() {
           <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Inspections</h1>
           <p style={styles.subtitle}>Farm inspection scheduling & records</p>
         </div>
-        <div style={styles.monthNav}>
-          <span style={styles.monthNavBtn} onClick={prevMonth} aria-label="Previous month">‹</span>
-          <span style={styles.monthNavLabel}>{monthLabel}</span>
-          <span style={styles.monthNavBtn} onClick={nextMonth} aria-label="Next month">›</span>
-        </div>
       </div>
 
       <div style={{ ...styles.summaryGrid, ...(isMobile ? styles.summaryGridMobile : {}) }}>
         <SummaryCard label="Total Inspections" value={totalThisMonth} sub={monthLabel} variant="green" isMobile={isMobile} />
-        <SummaryCard label="General Inspections" value={generalThisMonth} sub={monthLabel} variant="clay" isMobile={isMobile} />
-        <SummaryCard label="Follow-up Inspections" value={followUpThisMonth} sub={monthLabel} variant="gold" isMobile={isMobile} />
+        <SummaryCard label="General Inspections" value={generalThisMonth} sub={monthLabel} variant="orange" isMobile={isMobile} />
+        <SummaryCard label="Follow-up Inspections" value={followUpThisMonth} sub={monthLabel} variant="yellow" isMobile={isMobile} />
       </div>
 
       <div style={styles.tabs}>
@@ -123,8 +119,8 @@ export default function Inspections() {
         ))}
       </div>
 
-      {loading && <p>Loading...</p>}
-      {error && <p style={{ color: '#dc2626' }}>{error}</p>}
+      {loading && <p style={styles.stateText}>Loading...</p>}
+      {error && <p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p>}
 
       {!loading && !error && tab === 'schedule' && (
         <CalendarView
@@ -244,7 +240,7 @@ export default function Inspections() {
               </button>
               <button
                 onClick={confirmCancelAction}
-                style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}), backgroundColor: '#dc2626' }}
+                style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}), backgroundColor: '#b91c1c' }}
               >
                 Cancel Inspection
               </button>
@@ -257,85 +253,153 @@ export default function Inspections() {
 }
 
 function SummaryCard({ label, value, sub, variant, isMobile }) {
+  const themes = {
+    green:  { bg: 'linear-gradient(150deg, #1f5a34 0%, #14301c 100%)', fg: '#ffffff', sub: 'rgba(255,255,255,0.65)' },
+    orange: { bg: 'linear-gradient(150deg, #ea7a1c 0%, #c2410c 100%)', fg: '#ffffff', sub: 'rgba(255,255,255,0.8)' },
+    yellow: { bg: 'linear-gradient(150deg, #f2c744 0%, #d4a017 100%)', fg: '#14301c', sub: 'rgba(20,48,28,0.65)' },
+  }
+  const t = themes[variant] || themes.green
+  const shortLabel = variant === 'green' ? 'Total' : variant === 'yellow' ? 'Follow-up' : 'General'
+
+  if (isMobile) {
+    return (
+      <div style={{ ...styles.summaryCardPhone, background: t.bg, color: t.fg }}>
+        <div style={styles.summaryPhoneLabel}>{shortLabel}</div>
+        <div style={styles.summaryPhoneValue}>{value}</div>
+        <div style={{ ...styles.summaryPhoneSub, color: t.sub }}>{sub}</div>
+      </div>
+    )
+  }
+
   return (
-    <div style={{ ...styles.summaryCard, ...styles[`summaryCard_${variant}`], ...(isMobile ? styles.summaryCardMobile : {}) }}>
-      <div style={{ ...styles.summaryValue, ...(isMobile ? styles.summaryValueMobile : {}) }}>{value}</div>
+    <div style={{ ...styles.summaryCard, background: t.bg, color: t.fg }}>
+      <div style={styles.summaryValue}>{value}</div>
       <div style={styles.summaryLabel}>{label}</div>
-      <div style={styles.summarySub}>{sub}</div>
+      <div style={{ ...styles.summarySub, color: t.sub }}>{sub}</div>
     </div>
   )
 }
 
+// Soft tinted background for each status badge (matches the Farms page convention).
+function badgeBg(status) {
+  if (status === 'Completed') return '#eaf3ec'
+  if (status === 'Scheduled') return '#fbf1e2'
+  return '#eef1ea'
+}
+
 function InspectionList({ list, statusColor, onCancel, onComplete, onView, isMobile }) {
-  if (list.length === 0) return <div style={styles.empty}>No inspections here yet.</div>
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+
+  useEffect(() => { setCurrentPage(1) }, [list, pageSize])
+
+  if (list.length === 0) return <div style={styles.tableEmpty}>No inspections here yet.</div>
+
+  const totalItems = list.length
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
+  const start = (currentPage - 1) * pageSize
+  const paginated = list.slice(start, start + pageSize)
+  const rangeStart = totalItems === 0 ? 0 : start + 1
+  const rangeEnd = Math.min(currentPage * pageSize, totalItems)
+
+  const rowActions = (i) => (
+    <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+      {onView && (
+        <span style={{ ...styles.actionBtn, ...styles.viewLink }} onClick={() => onView(i)}>View</span>
+      )}
+      {i.status === 'Scheduled' && onComplete && (
+        <span style={{ ...styles.actionBtn, ...styles.completeLink }} onClick={() => onComplete(i)}>Complete</span>
+      )}
+      {i.status === 'Scheduled' && onCancel && (
+        <span style={{ ...styles.actionBtn, ...styles.cancelLink }} onClick={() => onCancel(i)}>Cancel</span>
+      )}
+    </div>
+  )
 
   return (
-    <div style={styles.list}>
-      {list.map(i => {
-        const badge = (
-          <span style={{ ...styles.badge, backgroundColor: statusColor[i.status] || '#6b7280' }}>
-            {i.status}
-          </span>
-        )
-        const actions = (
-          <div style={{ display: 'flex', gap: '8px', ...(isMobile ? { width: '100%' } : {}) }}>
-            {onView && (
-              <span
-                style={{ ...styles.actionBtn, ...styles.viewLink, ...(isMobile ? styles.actionBtnMobile : {}) }}
-                onClick={() => onView(i)}
-              >
-                View
-              </span>
-            )}
-            {i.status === 'Scheduled' && onComplete && (
-              <span
-                style={{ ...styles.actionBtn, ...styles.completeLink, ...(isMobile ? styles.actionBtnMobile : {}) }}
-                onClick={() => onComplete(i)}
-              >
-                Complete
-              </span>
-            )}
-            {i.status === 'Scheduled' && onCancel && (
-              <span
-                style={{ ...styles.actionBtn, ...styles.cancelLink, ...(isMobile ? styles.actionBtnMobile : {}) }}
-                onClick={() => onCancel(i)}
-              >
-                Cancel
-              </span>
-            )}
-          </div>
-        )
+    <div style={styles.tableCard}>
+      {isMobile && <p style={styles.scrollHint}>Swipe left/right to see all columns →</p>}
+      <div style={isMobile ? styles.tableScroll : undefined}>
+        <table style={{ ...styles.table, ...(isMobile ? styles.tableMobile : {}) }}>
+          <thead>
+            <tr>
+              <th style={styles.th}>Inspection / Farm</th>
+              <th style={styles.th}>Date</th>
+              <th style={styles.th}>Time</th>
+              <th style={styles.th}>Type</th>
+              <th style={styles.th}>Status</th>
+              <th style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {paginated.map(i => {
+              const barColor = statusColor[i.status] || '#6b7280'
+              return (
+                <tr key={i.id}>
+                  <td style={styles.td}>
+                    <div style={styles.rowTitle}>{i.inspection_number} — {i.farm_name}</div>
+                    {i.findings && <div style={styles.rowSub}>{i.findings}</div>}
+                  </td>
+                  <td style={styles.td}>{new Date(i.scheduled_at).toLocaleDateString()}</td>
+                  <td style={styles.td}>{new Date(i.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+                  <td style={styles.td}>{i.inspection_type}</td>
+                  <td style={styles.td}>
+                    <span style={{ ...styles.badge, color: barColor, backgroundColor: badgeBg(i.status) }}>
+                      <span style={{ ...styles.badgeDot, backgroundColor: barColor }} />
+                      {i.status}
+                    </span>
+                  </td>
+                  <td style={styles.td}>{rowActions(i)}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
 
-        return (
-          <div key={i.id} style={{ ...styles.card, ...(isMobile ? styles.cardMobile : {}) }}>
-            <div style={isMobile ? styles.cardTopRow : styles.cardTopRowDesktop}>
-              <div style={styles.cardBar} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={styles.cardTitle}>{i.inspection_number} — {i.farm_name}</div>
-                <div style={styles.cardMeta}>
-                  📅 {new Date(i.scheduled_at).toLocaleDateString()} ·{' '}
-                  🕐 {new Date(i.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ·{' '}
-                  {i.inspection_type}
-                </div>
-                {i.findings && <div style={styles.cardFindings}>{i.findings}</div>}
-              </div>
-              {!isMobile && (
-                <div style={styles.cardRight}>
-                  {badge}
-                  {actions}
-                </div>
-              )}
-            </div>
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        pageSize={pageSize}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={setPageSize}
+        rangeStart={rangeStart}
+        rangeEnd={rangeEnd}
+        totalItems={totalItems}
+        isMobile={isMobile}
+      />
+    </div>
+  )
+}
 
-            {isMobile && (
-              <div style={styles.cardBottomRow}>
-                {badge}
-                {actions}
-              </div>
-            )}
-          </div>
-        )
-      })}
+function Pagination({ currentPage, totalPages, pageSize, onPageChange, onPageSizeChange, rangeStart, rangeEnd, totalItems, isMobile }) {
+  const pageNumbers = useMemo(() => {
+    const maxButtons = isMobile ? 3 : 5
+    let start = Math.max(1, currentPage - Math.floor(maxButtons / 2))
+    let end = start + maxButtons - 1
+    if (end > totalPages) { end = totalPages; start = Math.max(1, end - maxButtons + 1) }
+    const pages = []
+    for (let p = start; p <= end; p++) pages.push(p)
+    return pages
+  }, [currentPage, totalPages, isMobile])
+
+  return (
+    <div style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+      <div style={paginationStyles.info}>
+        {totalItems === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
+      </div>
+      <div style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
+        <select value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
+          {PAGE_SIZE_OPTIONS.map(size => <option key={size} value={size}>{size} / page</option>)}
+        </select>
+        <button style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }} onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1} aria-label="Previous page">‹</button>
+        {pageNumbers[0] > 1 && <span style={paginationStyles.ellipsis}>…</span>}
+        {pageNumbers.map(p => (
+          <button key={p} onClick={() => onPageChange(p)} style={{ ...paginationStyles.pageBtn, ...(p === currentPage ? paginationStyles.pageBtnActive : {}) }}>{p}</button>
+        ))}
+        {pageNumbers[pageNumbers.length - 1] < totalPages && <span style={paginationStyles.ellipsis}>…</span>}
+        <button style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }} onClick={() => onPageChange(currentPage + 1)} disabled={currentPage === totalPages} aria-label="Next page">›</button>
+      </div>
     </div>
   )
 }
@@ -344,7 +408,7 @@ function CalendarView({ inspections, viewDate, setViewDate, onAddSchedule, onVie
   const year = viewDate.getFullYear()
   const month = viewDate.getMonth()
   const today = new Date()
-  const [dayPopup, setDayPopup] = useState(null)
+  const [selectedDate, setSelectedDate] = useState(new Date())
 
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const firstWeekday = new Date(year, month, 1).getDay()
@@ -365,6 +429,9 @@ function CalendarView({ inspections, viewDate, setViewDate, onAddSchedule, onVie
   const isToday = (day) =>
     day === today.getDate() && month === today.getMonth() && year === today.getFullYear()
 
+  const isSelected = (day) =>
+    day && selectedDate && sameDay(new Date(year, month, day), selectedDate)
+
   const goPrev = () => setViewDate(new Date(year, month - 1, 1))
   const goNext = () => setViewDate(new Date(year, month + 1, 1))
 
@@ -373,160 +440,162 @@ function CalendarView({ inspections, viewDate, setViewDate, onAddSchedule, onVie
     onViewEvent(insp)
   }
 
-  const openDayPopup = (e, date) => {
-    e.stopPropagation()
-    setDayPopup(date)
-  }
+  const selectDay = (date) => setSelectedDate(date)
 
-  const popupInspections = dayPopup
+  const panelInspections = selectedDate
     ? inspections
-        .filter(i => sameDay(new Date(i.scheduled_at), dayPopup))
+        .filter(i => sameDay(new Date(i.scheduled_at), selectedDate))
         .slice()
         .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
     : []
 
   return (
-    <div style={{ ...styles.calendarCard, ...(isMobile ? styles.calendarCardMobile : {}) }}>
-      <div style={styles.calendarHeader}>
-        <h3 style={{ ...styles.calendarMonth, ...(isMobile ? styles.calendarMonthMobile : {}) }}>
-          {isMobile ? `${MONTH_NAMES[month].slice(0, 3)} ${year}` : `${MONTH_NAMES[month]} ${year}`}
-        </h3>
-        <div style={styles.calendarNav}>
-          <span style={styles.navBtn} onClick={goPrev}>‹</span>
-          <span style={styles.navBtn} onClick={goNext}>›</span>
+    <div style={{ ...styles.calendarLayout, ...(isMobile ? styles.calendarLayoutMobile : {}) }}>
+      {/* -------------------------------------------------- Calendar */}
+      <div style={{ ...styles.calendarCard, ...(isMobile ? styles.calendarCardMobile : {}) }}>
+        <div style={styles.calendarHeader}>
+          <h3 style={{ ...styles.calendarMonth, ...(isMobile ? styles.calendarMonthMobile : {}) }}>
+            {isMobile ? `${MONTH_NAMES[month].slice(0, 3)} ${year}` : `${MONTH_NAMES[month]} ${year}`}
+          </h3>
+          <div style={styles.calendarNav}>
+            <span style={styles.navBtn} onClick={goPrev}>‹</span>
+            <span style={styles.navBtn} onClick={goNext}>›</span>
+          </div>
         </div>
-      </div>
 
-      <div style={styles.calendarGrid}>
-        {(isMobile ? DAY_NAMES_SHORT : DAY_NAMES).map((d, i) => (
-          <div key={i} style={styles.calendarDayName}>{d}</div>
-        ))}
+        <div style={styles.calendarGrid}>
+          {(isMobile ? DAY_NAMES_SHORT : DAY_NAMES).map((d, i) => (
+            <div key={i} style={styles.calendarDayName}>{d}</div>
+          ))}
 
-        {cells.map((day, idx) => {
-          const dayInspections = getInspectionsForDay(day)
-          const visibleEvents = dayInspections.slice(0, 2)
-          const hiddenCount = dayInspections.length - visibleEvents.length
-          const dateForDay = day ? new Date(year, month, day) : null
+          {cells.map((day, idx) => {
+            const dayInspections = getInspectionsForDay(day)
+            const visibleEvents = dayInspections.slice(0, 2)
+            const hiddenCount = dayInspections.length - visibleEvents.length
+            const dateForDay = day ? new Date(year, month, day) : null
+            const selected = isSelected(day)
 
-          return (
-            <div
-              key={idx}
-              style={{
-                ...styles.calendarCell,
-                ...(isMobile ? styles.calendarCellMobile : {}),
-                ...(day ? {} : styles.calendarCellEmpty),
-                ...(isToday(day) ? styles.calendarCellToday : {}),
-              }}
-              onClick={(e) => day && openDayPopup(e, dateForDay)}
-            >
-              {day && (
-                <>
-                  <div style={{ ...styles.calendarDayNum, ...(isMobile ? styles.calendarDayNumMobile : {}) }}>{day}</div>
+            return (
+              <div
+                key={idx}
+                style={{
+                  ...styles.calendarCell,
+                  ...(isMobile ? styles.calendarCellMobile : {}),
+                  ...(day ? {} : styles.calendarCellEmpty),
+                  ...(isToday(day) ? styles.calendarCellToday : {}),
+                  ...(selected ? styles.calendarCellSelected : {}),
+                }}
+                onClick={() => day && selectDay(dateForDay)}
+              >
+                {day && (
+                  <>
+                    <div style={{ ...styles.calendarDayNum, ...(isMobile ? styles.calendarDayNumMobile : {}), ...(isToday(day) || selected ? styles.calendarDayNumToday : {}) }}>{day}</div>
 
-                  {isMobile ? (
-                    visibleEvents.length > 0 && (
-                      <div style={styles.calendarEventsMobile}>
+                    {isMobile ? (
+                      visibleEvents.length > 0 && (
+                        <div style={styles.calendarEventsMobile}>
+                          {visibleEvents.map((insp, i) => {
+                            const t = inspectionTypeStyle(insp.inspection_type)
+                            return (
+                              <div
+                                key={i}
+                                style={{ ...styles.calendarEventMobile, backgroundColor: t.bg, color: t.text }}
+                                onClick={(e) => handleEventClick(e, insp)}
+                                title={`${t.label} — ${insp.farm_name}`}
+                              >
+                                {insp.farm_name}
+                              </div>
+                            )
+                          })}
+                          {hiddenCount > 0 && (
+                            <div style={styles.calendarMoreMobile} onClick={() => selectDay(dateForDay)}>
+                              +{hiddenCount} more
+                            </div>
+                          )}
+                        </div>
+                      )
+                    ) : (
+                      <>
                         {visibleEvents.map((insp, i) => {
                           const t = inspectionTypeStyle(insp.inspection_type)
                           return (
                             <div
                               key={i}
-                              style={{ ...styles.calendarEventMobile, backgroundColor: t.bg, color: t.text }}
+                              style={{ ...styles.calendarEvent, backgroundColor: t.bg, color: t.text }}
                               onClick={(e) => handleEventClick(e, insp)}
-                              title={`${t.label} — ${insp.farm_name}`}
                             >
-                              {insp.farm_name}
+                              <div style={styles.calendarEventType}>{t.label}</div>
+                              <div style={{ ...styles.calendarEventFarm, color: t.text }}>{insp.farm_name}</div>
+                              <div style={{ ...styles.calendarEventTime, color: t.text }}>
+                                {new Date(insp.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </div>
                             </div>
                           )
                         })}
                         {hiddenCount > 0 && (
-                          <div style={styles.calendarMoreMobile} onClick={(e) => openDayPopup(e, dateForDay)}>
+                          <div style={styles.calendarMoreDesktop} onClick={() => selectDay(dateForDay)}>
                             +{hiddenCount} more
                           </div>
                         )}
-                      </div>
-                    )
-                  ) : (
-                    <>
-                      {visibleEvents.map((insp, i) => {
-                        const t = inspectionTypeStyle(insp.inspection_type)
-                        return (
-                          <div
-                            key={i}
-                            style={{ ...styles.calendarEvent, backgroundColor: t.bg, color: t.text }}
-                            onClick={(e) => handleEventClick(e, insp)}
-                          >
-                            <div style={styles.calendarEventType}>{t.label}</div>
-                            <div style={{ ...styles.calendarEventFarm, color: t.text }}>{insp.farm_name}</div>
-                            <div style={{ ...styles.calendarEventTime, color: t.text }}>
-                              {new Date(insp.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </div>
-                          </div>
-                        )
-                      })}
-                      {hiddenCount > 0 && (
-                        <div style={styles.calendarMoreDesktop} onClick={(e) => openDayPopup(e, dateForDay)}>
-                          +{hiddenCount} more
-                        </div>
-                      )}
-                    </>
-                  )}
-                </>
-              )}
-            </div>
-          )
-        })}
-      </div>
-
-      <div style={{ ...styles.legend, ...(isMobile ? styles.legendMobile : {}) }}>
-        <span style={styles.legendItem}><span style={{ ...styles.legendDot, backgroundColor: '#B5651D' }} /> General Inspection</span>
-        <span style={styles.legendItem}><span style={{ ...styles.legendDot, backgroundColor: '#D4AF37' }} /> Follow-up Inspection</span>
-      </div>
-
-      {dayPopup && (
-        <div style={modalStyles.overlay} onClick={() => setDayPopup(null)}>
-          <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
-            <div style={modalStyles.header}>
-              <h3 style={modalStyles.title}>
-                {dayPopup.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-              </h3>
-              <span style={modalStyles.close} onClick={() => setDayPopup(null)}>×</span>
-            </div>
-
-            <button style={styles.addInspectionBtn} onClick={() => onAddSchedule(dayPopup)}>
-              + Add Inspection
-            </button>
-
-            <div style={styles.scheduledLabel}>
-              Scheduled Inspections{popupInspections.length > 0 ? ` (${popupInspections.length})` : ''}
-            </div>
-
-            {popupInspections.length === 0 ? (
-              <p style={styles.selectedEmpty}>No inspections scheduled for this date.</p>
-            ) : (
-              <div style={styles.selectedList}>
-                {popupInspections.map(insp => {
-                  const t = inspectionTypeStyle(insp.inspection_type)
-                  return (
-                    <div key={insp.id} style={styles.selectedItem} onClick={() => onViewEvent(insp)}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <span style={{ ...styles.selectedItemType, backgroundColor: t.bg, color: t.text }}>{t.label}</span>
-                        <div style={styles.selectedItemFarm}>{insp.farm_name}</div>
-                        <div style={styles.selectedItemTime}>
-                          {new Date(insp.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </div>
-                      </div>
-                      <span style={styles.selectedItemView} onClick={(e) => { e.stopPropagation(); onViewEvent(insp) }}>
-                        View
-                      </span>
-                    </div>
-                  )
-                })}
+                      </>
+                    )}
+                  </>
+                )}
               </div>
-            )}
+            )
+          })}
+        </div>
+
+        <div style={{ ...styles.legend, ...(isMobile ? styles.legendMobile : {}) }}>
+          <span style={styles.legendItem}><span style={{ ...styles.legendDot, backgroundColor: '#2c8047' }} /> General Inspection</span>
+          <span style={styles.legendItem}><span style={{ ...styles.legendDot, backgroundColor: '#b45309' }} /> Follow-up Inspection</span>
+        </div>
+      </div>
+
+      {/* --------------------------------------------- Side detail panel */}
+      <div style={{ ...styles.sidePanel, ...(isMobile ? styles.sidePanelMobile : {}) }}>
+        <div style={styles.sidePanelHead}>
+          <div style={styles.sidePanelKicker}>Selected date</div>
+          <div style={styles.sidePanelDate}>
+            {selectedDate
+              ? selectedDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+              : 'Pick a date'}
           </div>
         </div>
-      )}
+
+        {selectedDate && (
+          <div style={styles.sidePanelBtnWrap}>
+            <button style={styles.addInspectionBtn} onClick={() => onAddSchedule(selectedDate)}>
+              + Add Inspection
+            </button>
+          </div>
+        )}
+
+        <div style={styles.scheduledLabel}>
+          Scheduled Inspections{panelInspections.length > 0 ? ` (${panelInspections.length})` : ''}
+        </div>
+
+        <div style={styles.sidePanelList}>
+          {!selectedDate ? (
+            <p style={styles.selectedEmpty}>Select a date on the calendar to see its inspections.</p>
+          ) : panelInspections.length === 0 ? (
+            <p style={styles.selectedEmpty}>No inspections scheduled for this date.</p>
+          ) : (
+            panelInspections.map(insp => {
+              const t = inspectionTypeStyle(insp.inspection_type)
+              return (
+                <div key={insp.id} style={styles.selectedItem} onClick={() => onViewEvent(insp)}>
+                  <span style={{ ...styles.selectedItemType, backgroundColor: t.bg, color: t.text }}>{t.label}</span>
+                  <div style={styles.selectedItemFarm}>{insp.farm_name}</div>
+                  <div style={styles.selectedItemTime}>
+                    {new Date(insp.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -747,213 +816,197 @@ function CompleteModal({ inspection, onClose, onSuccess, isMobile }) {
   )
 }
 
+const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+
 const styles = {
-  headerRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '18px' },
+  stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
+  headerRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' },
   headerRowMobile: { flexDirection: 'column', gap: '12px' },
-  title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
-  titleMobile: { fontSize: '18px' },
-  subtitle: { fontSize: '13px', color: '#6b7280', marginTop: '4px' },
+  title: { fontSize: '24px', fontWeight: 800, letterSpacing: '-0.015em', color: '#16311d', margin: 0 },
+  titleMobile: { fontSize: '20px' },
+  subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px' },
 
-  monthNav: {
-    display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: 'white',
-    border: '1px solid #e5e7eb', borderRadius: '999px', padding: '6px 8px',
-  },
-  monthNavBtn: {
-    width: '26px', height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    borderRadius: '50%', cursor: 'pointer', fontSize: '15px', color: '#374151', backgroundColor: '#f3f4f6',
-  },
-  monthNavLabel: { fontSize: '13.5px', fontWeight: '700', color: '#111827', minWidth: '110px', textAlign: 'center' },
+  summaryGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px', marginBottom: '22px' },
+  summaryGridMobile: { gridTemplateColumns: 'repeat(3, 1fr)', gap: '11px' },
+  summaryCard: { borderRadius: '14px', padding: '20px 22px' },
+  summaryValue: { fontSize: '30px', fontWeight: 800, lineHeight: 1, letterSpacing: '-0.02em' },
+  summaryLabel: { fontSize: '12px', fontWeight: 700, marginTop: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' },
+  summarySub: { fontSize: '11.5px', marginTop: '3px' },
 
-  summaryGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px', marginBottom: '20px' },
-  summaryGridMobile: { gridTemplateColumns: '1fr', gap: '10px' },
-  summaryCard: {
-    borderRadius: '14px', padding: '16px 18px', color: 'white',
-    boxShadow: '0 6px 18px rgba(0,0,0,0.10)',
+  summaryCardPhone: {
+    position: 'relative', overflow: 'hidden', borderRadius: '16px',
+    padding: '16px 14px 18px', minHeight: '118px',
   },
-  summaryCard_green: { background: 'linear-gradient(135deg, #234A35 0%, #122A1E 100%)' },
-  summaryCard_clay: { background: 'linear-gradient(135deg, #D68A46 0%, #B5651D 100%)' },
-  summaryCard_gold: { background: 'linear-gradient(135deg, #E8C766 0%, #D4AF37 55%, #B8912B 100%)', color: '#122A1E' },
-  summaryCardMobile: { padding: '14px 16px' },
-  summaryValue: { fontSize: '26px', fontWeight: '800', lineHeight: 1 },
-  summaryValueMobile: { fontSize: '22px' },
-  summaryLabel: { fontSize: '12px', fontWeight: '700', marginTop: '6px', textTransform: 'uppercase', letterSpacing: '0.3px', opacity: 0.95 },
-  summarySub: { fontSize: '11px', marginTop: '4px', opacity: 0.8 },
+  summaryPhoneLabel: { fontSize: '13px', fontWeight: 700 },
+  summaryPhoneValue: { fontSize: '26px', fontWeight: 800, lineHeight: 1, letterSpacing: '-0.02em', marginTop: '10px' },
+  summaryPhoneSub: { fontSize: '10px', fontWeight: 600, marginTop: '6px' },
 
-  tabs: { display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid #e5e7eb', overflowX: 'auto' },
-  tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7280', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap' },
-  tabActive: { color: '#2E7D32', fontWeight: '600', borderBottom: '2px solid #2E7D32' },
-  empty: { color: '#9ca3af', fontSize: '14px', padding: '24px 0' },
-  list: { display: 'flex', flexDirection: 'column', gap: '12px' },
-  card: {
-    backgroundColor: 'white', borderRadius: '12px', padding: '16px 20px',
-    display: 'flex', alignItems: 'center', gap: '14px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+  tabs: { display: 'flex', gap: '4px', marginBottom: '20px', borderBottom: '1px solid #e7e8e0', overflowX: 'auto' },
+  tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap' },
+  tabActive: { color: '#2c8047', fontWeight: 700, borderBottom: '2px solid #2c8047' },
+
+  tableCard: { backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden' },
+  tableEmpty: { backgroundColor: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px', padding: '32px', textAlign: 'center', color: '#9aa79d', fontSize: '14px' },
+  scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0' },
+  tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
+  table: { width: '100%', borderCollapse: 'collapse' },
+  tableMobile: { minWidth: '820px' },
+  th: {
+    textAlign: 'left', padding: '13px 20px', fontSize: '11px', fontWeight: 700, color: '#8a968d',
+    borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em',
+    whiteSpace: 'nowrap', backgroundColor: '#fafbf8',
   },
-  cardMobile: { flexDirection: 'column', alignItems: 'stretch', padding: '14px 16px', gap: '12px' },
-  cardTopRow: { display: 'flex', alignItems: 'flex-start', gap: '12px' },
-  cardTopRowDesktop: { display: 'flex', alignItems: 'center', gap: '14px', width: '100%' },
-  cardRight: { display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 },
-  cardBottomRow: {
-    display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '10px',
-    borderTop: '1px solid #f3f4f6', paddingTop: '10px',
+  td: { padding: '13px 20px', fontSize: '13px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle' },
+  rowTitle: { fontSize: '14px', fontWeight: 700, color: '#16311d' },
+  rowSub: { fontSize: '12px', color: '#8a968d', marginTop: '3px', maxWidth: '420px' },
+
+  badge: {
+    display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 11px',
+    borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
   },
-  cardBar: { width: '4px', height: '36px', backgroundColor: '#3b82f6', borderRadius: '2px', flexShrink: 0 },
-  cardTitle: { fontSize: '14px', fontWeight: '600', color: '#111827' },
-  cardMeta: { fontSize: '12px', color: '#6b7280', marginTop: '4px' },
-  cardFindings: { fontSize: '13px', color: '#374151', marginTop: '6px' },
-  badge: { padding: '4px 12px', borderRadius: '999px', color: 'white', fontSize: '12px', fontWeight: '600', whiteSpace: 'nowrap' },
+  badgeDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
   actionBtn: {
-    padding: '5px 12px',
-    borderRadius: '6px',
-    fontSize: '12px',
-    fontWeight: '600',
-    cursor: 'pointer',
-    border: '1px solid transparent',
-    whiteSpace: 'nowrap',
+    padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600,
+    cursor: 'pointer', border: '1px solid #e3e6dd', backgroundColor: '#fff', whiteSpace: 'nowrap',
   },
-  actionBtnMobile: { flex: 1, textAlign: 'center', padding: '8px 12px' },
-  completeLink: {
-    color: '#2E7D32',
-    backgroundColor: '#f0fdf4',
-    border: '1px solid #bbf7d0',
-  },
-  cancelLink: {
-    color: '#dc2626',
-    backgroundColor: '#fef2f2',
-    border: '1px solid #fecaca',
-  },
-  viewLink: {
-    color: '#3b82f6',
-    backgroundColor: '#eff6ff',
-    border: '1px solid #bfdbfe',
-  },
+  completeLink: { color: '#2c8047' },
+  cancelLink: { color: '#b91c1c' },
+  viewLink: { color: '#4b5a50' },
 
-  calendarCard: { backgroundColor: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' },
+  calendarLayout: { display: 'flex', gap: '16px', alignItems: 'stretch' },
+  calendarLayoutMobile: { flexDirection: 'column' },
+  calendarCard: { flex: 1, minWidth: 0, backgroundColor: '#fff', borderRadius: '14px', padding: '22px', border: '1px solid #e7e8e0' },
   calendarCardMobile: { padding: '14px' },
   calendarHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
-  calendarMonth: { fontSize: '16px', fontWeight: '700', color: '#111827', margin: 0 },
+  calendarMonth: { fontSize: '16px', fontWeight: 700, color: '#16311d', margin: 0 },
   calendarMonthMobile: { fontSize: '14px' },
   calendarNav: { display: 'flex', gap: '8px' },
   navBtn: {
     width: '30px', height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    border: '1px solid #d1d5db', borderRadius: '6px', cursor: 'pointer', fontSize: '16px', color: '#374151',
+    border: '1px solid #dcdfd6', borderRadius: '8px', cursor: 'pointer', fontSize: '16px', color: '#33413a',
   },
 
-  calendarGrid: { display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: '4px' },
-  calendarDayName: { fontSize: '11px', fontWeight: '600', color: '#9ca3af', textAlign: 'center', padding: '6px 0' },
+  calendarGrid: { display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: '5px' },
+  calendarDayName: { fontSize: '11px', fontWeight: 700, color: '#9aa79d', textAlign: 'center', padding: '6px 0', textTransform: 'uppercase', letterSpacing: '0.03em' },
   calendarCell: {
-    minHeight: '108px', minWidth: 0, border: '1px solid #f3f4f6', borderRadius: '6px', padding: '6px',
-    cursor: 'pointer', fontSize: '12px', overflow: 'hidden',
+    minHeight: '104px', minWidth: 0, border: '1px solid #f2f3ed', borderRadius: '8px', padding: '7px',
+    cursor: 'pointer', fontSize: '12px', overflow: 'hidden', backgroundColor: '#fff',
   },
-  calendarCellMobile: { minHeight: '64px', padding: '3px', borderRadius: '4px' },
-  calendarCellEmpty: { cursor: 'default', backgroundColor: 'transparent', border: 'none' },
-  calendarCellToday: { backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' },
-  calendarDayNum: { fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '4px' },
+  calendarCellMobile: { minHeight: '64px', padding: '3px', borderRadius: '6px' },
+  calendarCellEmpty: { cursor: 'default', backgroundColor: 'transparent', border: '1px solid transparent' },
+  calendarCellToday: { backgroundColor: '#eef5ef', border: '1px solid #bcd8c4' },
+  calendarCellSelected: { backgroundColor: '#f4faf5', border: '1px solid #2c8047', boxShadow: '0 0 0 1px #2c8047 inset' },
+  calendarDayNum: { fontSize: '12.5px', fontWeight: 700, color: '#374151', marginBottom: '5px' },
   calendarDayNumMobile: { fontSize: '11px', marginBottom: '2px', textAlign: 'center' },
+  calendarDayNumToday: { color: '#1f5a34' },
 
-  calendarEvent: {
-    borderRadius: '5px', padding: '3px 5px', marginBottom: '3px',
-    cursor: 'pointer', lineHeight: '1.25',
-  },
-  calendarEventType: { fontSize: '9.5px', fontWeight: '700' },
-  calendarEventFarm: {
-    fontSize: '9px', fontWeight: '600', opacity: 0.95,
-    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-  },
+  calendarEvent: { borderRadius: '6px', padding: '4px 6px', marginBottom: '3px', cursor: 'pointer', lineHeight: '1.25' },
+  calendarEventType: { fontSize: '9.5px', fontWeight: 700 },
+  calendarEventFarm: { fontSize: '9px', fontWeight: 600, opacity: 0.95, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   calendarEventTime: { fontSize: '8.5px', opacity: 0.85 },
-  calendarMoreDesktop: { fontSize: '9.5px', color: '#6b7280', fontWeight: '600', marginTop: '1px', cursor: 'pointer' },
+  calendarMoreDesktop: { fontSize: '9.5px', color: '#6b7770', fontWeight: 600, marginTop: '1px', cursor: 'pointer' },
 
   calendarEventsMobile: { display: 'flex', flexDirection: 'column', gap: '2px' },
   calendarEventMobile: {
-    fontSize: '7.5px', fontWeight: '600', borderRadius: '3px',
-    padding: '1.5px 3px', overflow: 'hidden', textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap', cursor: 'pointer',
+    fontSize: '7.5px', fontWeight: 600, borderRadius: '3px', padding: '1.5px 3px',
+    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer',
   },
-  calendarMoreMobile: { fontSize: '7.5px', color: '#6b7280', fontWeight: '600', cursor: 'pointer' },
+  calendarMoreMobile: { fontSize: '7.5px', color: '#6b7770', fontWeight: 600, cursor: 'pointer' },
+
+  sidePanel: {
+    width: '320px', flexShrink: 0, display: 'flex', flexDirection: 'column',
+    backgroundColor: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px',
+    overflow: 'hidden', alignSelf: 'stretch',
+  },
+  sidePanelMobile: { width: '100%' },
+  sidePanelHead: { padding: '18px 18px 14px', borderBottom: '1px solid #eceee7' },
+  sidePanelKicker: { fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#8a968d' },
+  sidePanelDate: { fontSize: '16px', fontWeight: 800, color: '#16311d', marginTop: '4px' },
+  sidePanelBtnWrap: { padding: '14px 14px 4px' },
+  sidePanelList: { padding: '6px 12px 14px', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' },
 
   addInspectionBtn: {
-    width: '100%', boxSizing: 'border-box', padding: '11px', borderRadius: '8px', border: 'none',
-    backgroundColor: '#2E7D32', color: 'white', fontSize: '14px', fontWeight: '700', cursor: 'pointer',
-    marginTop: '14px', marginBottom: '18px',
+    width: '100%', boxSizing: 'border-box', padding: '11px', borderRadius: '10px', border: 'none',
+    backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer',
   },
   scheduledLabel: {
-    fontSize: '11px', fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase',
-    letterSpacing: '0.4px', marginBottom: '8px',
+    fontSize: '11px', fontWeight: 700, color: '#9aa79d', textTransform: 'uppercase',
+    letterSpacing: '0.04em', padding: '10px 14px 4px',
   },
-  selectedEmpty: { fontSize: '13.5px', color: '#9ca3af', padding: '8px 0' },
-  selectedList: { display: 'flex', flexDirection: 'column', maxHeight: '320px', overflowY: 'auto' },
-  selectedItem: {
-    display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 4px',
-    borderBottom: '1px solid #f3f4f6', cursor: 'pointer',
-  },
+  selectedEmpty: { fontSize: '13px', color: '#9aa79d', padding: '8px 2px', lineHeight: 1.5 },
+  selectedItem: { border: '1px solid #eceee7', borderRadius: '10px', padding: '12px', cursor: 'pointer' },
   selectedItemType: {
-    display: 'inline-block', fontSize: '10.5px', fontWeight: '700', padding: '2px 8px',
-    borderRadius: '999px', marginBottom: '5px',
+    display: 'inline-block', fontSize: '10.5px', fontWeight: 700, padding: '2px 9px',
+    borderRadius: '999px', marginBottom: '8px',
   },
-  selectedItemFarm: { fontSize: '14px', fontWeight: '600', color: '#111827' },
-  selectedItemTime: { fontSize: '12px', color: '#6b7280', marginTop: '2px' },
-  selectedItemView: {
-    flexShrink: 0, fontSize: '12px', fontWeight: '700', color: '#3b82f6',
-    backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px',
-    padding: '5px 12px', cursor: 'pointer',
-  },
+  selectedItemFarm: { fontSize: '14px', fontWeight: 700, color: '#16311d' },
+  selectedItemTime: { fontSize: '12px', color: '#8a968d', marginTop: '2px' },
 
-  legend: { display: 'flex', gap: '20px', marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #f3f4f6' },
+  legend: { display: 'flex', gap: '20px', marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #f2f3ed' },
   legendMobile: { gap: '12px', flexWrap: 'wrap' },
-  legendItem: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#6b7280' },
-  legendDot: { width: '8px', height: '8px', borderRadius: '50%' },
+  legendItem: { display: 'flex', alignItems: 'center', gap: '7px', fontSize: '12px', color: '#6b7770' },
+  legendDot: { width: '9px', height: '9px', borderRadius: '50%' },
+}
+
+const paginationStyles = {
+  wrap: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px' },
+  wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  info: { fontSize: '12.5px', color: '#8a968d', whiteSpace: 'nowrap' },
+  controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
+  controlsMobile: { justifyContent: 'space-between' },
+  pageSizeSelect: { padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6', fontSize: '12.5px', color: '#4b5a50', marginRight: '6px' },
+  navBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '13px', cursor: 'pointer' },
+  navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
+  pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
+  pageBtnActive: { backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff' },
+  ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
 }
 
 const modalStyles = {
-  overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 },
-  modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '440px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto' },
+  overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 },
+  modal: { backgroundColor: '#fff', borderRadius: '16px', padding: '28px', width: '440px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto' },
   modalMobile: {
     width: '100%', maxWidth: '100%', borderRadius: '16px 16px 0 0',
-    padding: '20px', margin: '0', position: 'fixed', bottom: 0, left: 0,
-    maxHeight: '85vh',
+    padding: '20px', margin: '0', position: 'fixed', bottom: 0, left: 0, maxHeight: '85vh',
   },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' },
-  title: { fontSize: '17px', fontWeight: '700', color: '#111827', margin: 0 },
-  close: { fontSize: '22px', cursor: 'pointer', color: '#6b7280' },
-  dateLabel: { fontSize: '13px', color: '#6b7280', marginBottom: '16px' },
+  title: { fontSize: '17px', fontWeight: 800, color: '#16311d', margin: 0 },
+  close: { fontSize: '22px', cursor: 'pointer', color: '#8a968d' },
+  dateLabel: { fontSize: '13px', color: '#6b7770', marginBottom: '16px' },
   prefillBanner: {
-    backgroundColor: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626',
-    padding: '8px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '600', marginBottom: '14px',
+    backgroundColor: '#fbeaea', border: '1px solid #f0c9c9', color: '#b91c1c',
+    padding: '8px 12px', borderRadius: '10px', fontSize: '12px', fontWeight: 600, marginBottom: '14px',
   },
-  label: { display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px', marginTop: '12px' },
-  input: { width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', boxSizing: 'border-box', fontFamily: 'inherit' },
+  label: { display: 'block', fontSize: '13px', fontWeight: 600, color: '#33413a', marginBottom: '6px', marginTop: '12px' },
+  input: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', fontFamily: 'inherit' },
   row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' },
   rowMobile: { gridTemplateColumns: '1fr' },
-  errorBox: { backgroundColor: '#fef2f2', border: '1px solid #fca5a5', color: '#dc2626', padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '14px' },
+  errorBox: { backgroundColor: '#fbeaea', border: '1px solid #f0c9c9', color: '#b91c1c', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '14px' },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' },
   actionsMobile: { flexDirection: 'column-reverse' },
   btnFull: { width: '100%', boxSizing: 'border-box' },
-  cancelBtn: { padding: '10px 18px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: 'white', fontSize: '14px', cursor: 'pointer' },
-  submitBtn: { padding: '10px 18px', borderRadius: '8px', border: 'none', backgroundColor: '#2E7D32', color: 'white', fontSize: '14px', fontWeight: '600', cursor: 'pointer' },
+  cancelBtn: { padding: '10px 18px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff', fontSize: '14px', fontWeight: 600, color: '#33413a', cursor: 'pointer' },
+  submitBtn: { padding: '10px 18px', borderRadius: '10px', border: 'none', backgroundColor: '#2c8047', color: '#fff', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
   dropdownList: {
     position: 'absolute', top: '100%', left: 0, right: 0,
-    backgroundColor: 'white', border: '1px solid #d1d5db', borderRadius: '8px',
+    backgroundColor: '#fff', border: '1px solid #dcdfd6', borderRadius: '10px',
     marginTop: '4px', maxHeight: '180px', overflowY: 'auto', zIndex: 10,
-    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+    boxShadow: '0 4px 12px rgba(20,48,28,0.12)',
   },
-  dropdownItem: {
-    padding: '10px 14px', fontSize: '14px', cursor: 'pointer', color: '#374151',
-  },
-  dropdownEmpty: {
-    padding: '10px 14px', fontSize: '13px', color: '#9ca3af',
-  },
+  dropdownItem: { padding: '10px 14px', fontSize: '14px', cursor: 'pointer', color: '#33413a' },
+  dropdownEmpty: { padding: '10px 14px', fontSize: '13px', color: '#9aa79d' },
 }
 
 const confirmStyles = {
-  modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '400px', maxWidth: '90%' },
-  title: { fontSize: '17px', fontWeight: '700', color: '#111827', marginTop: 0, marginBottom: '10px' },
-  message: { fontSize: '14px', color: '#6b7280', lineHeight: '1.5', marginBottom: '4px' },
+  modal: { backgroundColor: '#fff', borderRadius: '16px', padding: '28px', width: '400px', maxWidth: '90%' },
+  title: { fontSize: '17px', fontWeight: 800, color: '#16311d', marginTop: 0, marginBottom: '10px' },
+  message: { fontSize: '14px', color: '#6b7770', lineHeight: '1.5', marginBottom: '4px' },
 }
 
 const detailStyles = {
-  row: { display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f3f4f6' },
-  label: { fontSize: '13px', color: '#6b7280', fontWeight: '500' },
-  value: { fontSize: '13px', color: '#111827', fontWeight: '600' },
+  row: { display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f2f3ed' },
+  label: { fontSize: '13px', color: '#6b7770', fontWeight: 500 },
+  value: { fontSize: '13px', color: '#16311d', fontWeight: 600 },
   block: { marginTop: '14px' },
-  text: { fontSize: '13px', color: '#374151', lineHeight: '1.5', marginTop: '4px' },
+  text: { fontSize: '13px', color: '#4b5a50', lineHeight: '1.5', marginTop: '4px' },
 }
