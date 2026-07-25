@@ -28,10 +28,10 @@ export default function AdminDashboard() {
       <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Dashboard</h1>
       <p style={styles.subtitle}>Welcome back, Administrator</p>
 
-      <div style={{ ...styles.statsGrid, ...(isMobile ? styles.statsGridMobile : {}) }}>
-        <StatCard value={data.total_farms} label="Total Farms" foot="Registered in San Jose" tone="green" icon="farm" isMobile={isMobile} />
-        <StatCard value={data.active_requests} label="Active Requests" foot="Awaiting inspection" tone="amber" icon="clock" badge="Awaiting" isMobile={isMobile} />
-        <StatCard value={data.resolved_requests} label="Resolved Requests" foot="Closed recently" tone="green" icon="check" isMobile={isMobile} />
+       <div style={{ ...styles.statsGrid, ...(isMobile ? styles.statsGridMobile : {}) }}>
+        <StatCard value={data.total_farms} label="Total Farms" isMobile={isMobile} />
+        <StatCard value={data.active_requests} label="Active Requests" isMobile={isMobile} />
+        <StatCard value={data.resolved_requests} label="Resolved Requests" isMobile={isMobile} />
       </div>
 
       <h3 style={styles.mapTitle}>Farm monitoring map</h3>
@@ -105,25 +105,9 @@ function ListModal({ title, onClose, children, isMobile }) {
   )
 }
 
-const ICONS = {
-  farm: <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21V9l9-6 9 6v12h-6v-7H9v7H3z" /></svg>,
-  clock: <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></svg>,
-  check: <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>,
-}
-
-function StatCard({ value, label, foot, tone, icon, badge, isMobile }) {
-  const tones = {
-    green: { bg: '#eaf3ec', fg: '#2c8047' },
-    amber: { bg: '#fbf1e2', fg: '#b45309' },
-    neutral: { bg: '#eef1ea', fg: '#4b5a50' },
-  }
-  const t = tones[tone] || tones.green
+function StatCard({ value, label, foot, isMobile }) {
   return (
     <div style={{ ...styles.statCard, ...(isMobile ? styles.statCardMobile : {}) }}>
-      <div style={styles.statTop}>
-        <span style={{ ...styles.statIcon, background: t.bg, color: t.fg }}>{ICONS[icon]}</span>
-        {badge && <span style={{ ...styles.statBadge, color: t.fg, background: t.bg }}>{badge}</span>}
-      </div>
       <div style={{ ...styles.statValue, ...(isMobile ? styles.statValueMobile : {}) }}>{value}</div>
       <div style={styles.statLabel}>{label}</div>
       {foot && <div style={styles.statFoot}>{foot}</div>}
@@ -140,17 +124,14 @@ const styles = {
   subtitle: { fontFamily: SANS, fontSize: '13.5px', color: '#6b7770', marginTop: '5px', marginBottom: '24px' },
 
   statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '28px' },
-  statsGridMobile: { gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '20px' },
+  statsGridMobile: { gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '20px' },
 
-  statCard: { fontFamily: SANS, background: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px', padding: '20px 22px' },
+  statCard: { fontFamily: SANS, background: '#234A35', border: '1px solid #1c3c2b', borderRadius: '14px', padding: '20px 22px' },
   statCardMobile: { padding: '16px' },
-  statTop: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' },
-  statIcon: { width: '40px', height: '40px', borderRadius: '11px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  statBadge: { fontSize: '11px', fontWeight: 700, padding: '3px 9px', borderRadius: '999px' },
-  statValue: { fontSize: '30px', fontWeight: 800, letterSpacing: '-0.02em', color: '#14301c', lineHeight: 1 },
+  statValue: { fontSize: '30px', fontWeight: 800, letterSpacing: '-0.02em', color: '#ffffff', lineHeight: 1 },
   statValueMobile: { fontSize: '24px' },
-  statLabel: { fontSize: '13px', fontWeight: 700, color: '#33413a', marginTop: '8px' },
-  statFoot: { fontSize: '12px', color: '#8a968d', marginTop: '3px' },
+  statLabel: { fontSize: '13px', fontWeight: 700, color: '#eaf3ec', marginTop: '8px' },
+  statFoot: { fontSize: '12px', color: 'rgba(234,243,236,0.7)', marginTop: '3px' },
 
   mapTitle: { fontFamily: SANS, fontSize: '15px', fontWeight: 700, color: '#16311d', marginTop: '20px', marginBottom: '13px' },
   mapNote: { fontFamily: SANS, fontSize: '11.5px', color: '#9aa79d', marginTop: '12px', lineHeight: 1.5 },

@@ -28,7 +28,7 @@ const TYPE_FILTERS = [
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
-const requestTypeColor = (type) => (type === 'Blood Test Request' ? '#3b82f6' : '#2E7D32')
+const requestTypeColor = (type) => (type === 'Blood Test Request' ? '#2f6bb0' : '#2c8047')
 const requestTypeLabel = (type) => (type === 'Blood Test Request' ? 'Blood Test' : 'Vaccine')
 
 function getRangeBounds(rangeKey, customFrom, customTo) {
@@ -141,12 +141,12 @@ export default function VaccinationRequests() {
   const rangeStartIdx = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1
   const rangeEndIdx = Math.min(currentPage * pageSize, totalItems)
 
-  const statusColor = { Pending: '#f59e0b', Scheduled: '#3b82f6', Completed: '#2E7D32', Cancelled: '#6b7280' }
+  const statusColor = { Pending: '#b45309', Scheduled: '#2f6bb0', Completed: '#2c8047', Cancelled: '#8a968d' }
 
   return (
     <VetLayout>
-      <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Vaccination & Blood Test Requests</h1>
-      <p style={styles.subtitle}>Scheduling & records for both request types</p>
+      <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Vaccination &amp; Blood Test Requests</h1>
+      <p style={styles.subtitle}>Scheduling &amp; records for both request types</p>
 
       <div style={styles.tabs}>
         <div
@@ -197,8 +197,8 @@ export default function VaccinationRequests() {
         </div>
       )}
 
-      {loading && <p>Loading...</p>}
-      {error && <p style={{ color: '#dc2626' }}>{error}</p>}
+      {loading && <p style={styles.stateText}>Loading...</p>}
+      {error && <p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p>}
 
       {!loading && !error && (
         <div style={styles.tableCard}>
@@ -249,7 +249,7 @@ export default function VaccinationRequests() {
                           : '—'}
                       </td>
                       <td style={styles.td}>
-                        <span style={{ ...styles.badge, backgroundColor: statusColor[r.status] || '#6b7280' }}>
+                        <span style={{ ...styles.badge, backgroundColor: statusColor[r.status] || '#8a968d' }}>
                           {r.status}
                         </span>
                       </td>
@@ -359,7 +359,7 @@ export default function VaccinationRequests() {
             </p>
             <div style={modalStyles.actions}>
               <button onClick={() => setConfirmDecline(null)} style={modalStyles.cancelBtn}>Keep it</button>
-              <button onClick={handleDeclineAction} style={{ ...modalStyles.submitBtn, backgroundColor: '#dc2626' }}>
+              <button onClick={handleDeclineAction} style={{ ...modalStyles.submitBtn, backgroundColor: '#b91c1c' }}>
                 Decline
               </button>
             </div>
@@ -376,7 +376,7 @@ export default function VaccinationRequests() {
             </p>
             <div style={modalStyles.actions}>
               <button onClick={() => setConfirmComplete(null)} style={modalStyles.cancelBtn}>Cancel</button>
-              <button onClick={handleCompleteAction} style={{ ...modalStyles.submitBtn, backgroundColor: '#2E7D32' }}>
+              <button onClick={handleCompleteAction} style={{ ...modalStyles.submitBtn, backgroundColor: '#2c8047' }}>
                 Mark Completed
               </button>
             </div>
@@ -507,7 +507,7 @@ function AcceptModal({ request, onClose, onSuccess, isMobile }) {
     <div style={modalStyles.overlay} onClick={onClose}>
       <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
         <div style={modalStyles.header}>
-          <h3 style={modalStyles.title}>Accept & Schedule {requestTypeLabel(request.service_type)}</h3>
+          <h3 style={modalStyles.title}>Accept &amp; Schedule {requestTypeLabel(request.service_type)}</h3>
           <span style={modalStyles.close} onClick={onClose}>×</span>
         </div>
         <p style={modalStyles.dateLabel}>Farm: {request.farm_name} · Owner: {request.owner_name}</p>
@@ -608,7 +608,7 @@ function NoteModal({ request, onClose, onSuccess, isMobile }) {
 
 function FarmHistoryModal({ farm, allRequests, onClose, isMobile }) {
   const [expandedId, setExpandedId] = useState(null)
-  const statusColor = { Pending: '#f59e0b', Scheduled: '#3b82f6', Completed: '#2E7D32' }
+  const statusColor = { Pending: '#b45309', Scheduled: '#2f6bb0', Completed: '#2c8047' }
 
   const farmRecords = allRequests
     .filter(r => (farm.farm_id ? r.farm_id === farm.farm_id : r.farm_name === farm.farm_name && r.owner_name === farm.owner_name))
@@ -637,7 +637,7 @@ function FarmHistoryModal({ farm, allRequests, onClose, isMobile }) {
         </div>
 
         <div style={historyStyles.body}>
-          <div style={historyStyles.sectionLabel}>FARM & OWNER</div>
+          <div style={historyStyles.sectionLabel}>FARM &amp; OWNER</div>
           <div style={{ ...historyStyles.infoGrid, ...(isMobile ? historyStyles.infoGridMobile : {}) }}>
             <div style={historyStyles.infoCard}>
               <div>
@@ -674,17 +674,17 @@ function FarmHistoryModal({ farm, allRequests, onClose, isMobile }) {
 
           {farmRecords.length === 0 ? (
             <div style={historyStyles.emptyBox}>
-              <p style={{ fontSize: '13px', color: '#9ca3af', margin: 0 }}>No records found.</p>
+              <p style={{ fontSize: '13px', color: '#9aa79d', margin: 0 }}>No records found.</p>
             </div>
           ) : (
             <div style={historyStyles.recordList}>
               {farmRecords.map(r => {
                 const isExpanded = expandedId === r.id
-                const color = statusColor[r.status] || '#9ca3af'
+                const color = statusColor[r.status] || '#8a968d'
                 return (
                   <div
                     key={r.id}
-                    style={{ ...historyStyles.recordCard, borderColor: isExpanded ? color : '#e5e7eb' }}
+                    style={{ ...historyStyles.recordCard, borderColor: isExpanded ? color : '#e7e8e0' }}
                     onClick={() => toggleExpand(r.id)}
                   >
                     <div style={historyStyles.recordTop}>
@@ -751,148 +751,152 @@ function FarmHistoryModal({ farm, allRequests, onClose, isMobile }) {
   )
 }
 
+const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+
 const styles = {
-  title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
-  titleMobile: { fontSize: '18px' },
-  subtitle: { fontSize: '13px', color: '#6b7280', marginTop: '4px', marginBottom: '20px' },
-  tabs: { display: 'flex', gap: '8px', marginBottom: '16px', borderBottom: '1px solid #e5e7eb' },
-  tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7280', cursor: 'pointer', borderBottom: '2px solid transparent' },
-  tabActive: { color: '#2E7D32', fontWeight: '600', borderBottom: '2px solid #2E7D32' },
+  stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
+  title: { fontFamily: SANS, fontSize: '24px', fontWeight: 800, letterSpacing: '-0.015em', color: '#16311d', margin: 0 },
+  titleMobile: { fontSize: '20px' },
+  subtitle: { fontFamily: SANS, fontSize: '13.5px', color: '#6b7770', marginTop: '5px', marginBottom: '22px' },
+
+  tabs: { display: 'flex', gap: '24px', marginBottom: '18px', borderBottom: '1px solid #e7e8e0' },
+  tab: { fontFamily: SANS, padding: '10px 2px', fontSize: '14px', fontWeight: 600, color: '#8a968d', cursor: 'pointer', borderBottom: '2px solid transparent', marginBottom: '-1px' },
+  tabActive: { color: '#16311d', borderBottomColor: '#2c8047' },
 
   filterRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' },
   filterRowMobile: { flexDirection: 'column', alignItems: 'stretch' },
   pillRow: { display: 'flex', gap: '8px', flexWrap: 'wrap' },
   filterPill: {
-    padding: '6px 14px', borderRadius: '999px', fontSize: '13px', fontWeight: '500',
-    color: '#374151', backgroundColor: 'white', border: '1px solid #d1d5db', cursor: 'pointer', whiteSpace: 'nowrap',
+    fontFamily: SANS, padding: '7px 14px', borderRadius: '999px', fontSize: '12.5px', fontWeight: 600,
+    color: '#6b7770', backgroundColor: '#fff', border: '1px solid #e7e8e0', cursor: 'pointer', whiteSpace: 'nowrap',
   },
-  filterPillActive: { backgroundColor: '#2E7D32', color: 'white', border: '1px solid #2E7D32' },
-  filterSelect: { padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px', color: '#374151', backgroundColor: 'white' },
+  filterPillActive: { backgroundColor: '#2c8047', color: '#fff', border: '1px solid #2c8047' },
+  filterSelect: { fontFamily: SANS, padding: '8px 12px', borderRadius: '9px', border: '1px solid #e7e8e0', fontSize: '13px', color: '#33413a', backgroundColor: '#fff' },
   filterSelectMobile: { width: '100%', boxSizing: 'border-box' },
   customDates: { display: 'flex', alignItems: 'center', gap: '8px' },
   customDatesMobile: { width: '100%' },
-  customDatesSep: { fontSize: '13px', color: '#9ca3af' },
-  filterDateInput: { padding: '8px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '13px', color: '#374151' },
+  customDatesSep: { fontFamily: SANS, fontSize: '13px', color: '#9aa79d' },
+  filterDateInput: { fontFamily: SANS, padding: '8px 12px', borderRadius: '9px', border: '1px solid #e7e8e0', fontSize: '13px', color: '#33413a' },
 
-  tableCard: { backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', overflow: 'hidden' },
-  scrollHint: { fontSize: '11px', color: '#9ca3af', margin: '12px 16px 0' },
+  tableCard: { fontFamily: SANS, backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden' },
+  scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 18px 0' },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
   tableMobile: { minWidth: '760px' },
   th: {
-    textAlign: 'left', padding: '14px 16px', fontSize: '12px', color: '#6b7280',
-    borderBottom: '1px solid #e5e7eb', textTransform: 'uppercase', whiteSpace: 'nowrap',
+    textAlign: 'left', padding: '12px 18px', fontSize: '11.5px', fontWeight: 700, color: '#6b7770',
+    backgroundColor: '#f8f8f4', borderBottom: '1px solid #e7e8e0', textTransform: 'uppercase', letterSpacing: '0.4px', whiteSpace: 'nowrap',
   },
-  td: { padding: '14px 16px', fontSize: '13px', color: '#374151', borderBottom: '1px solid #f3f4f6', verticalAlign: 'top' },
-  farmName: { fontSize: '13.5px', fontWeight: '600', color: '#111827' },
-  farmMeta: { fontSize: '11.5px', color: '#9ca3af', marginTop: '2px' },
-  notes: { fontSize: '12px', color: '#6b7280', marginTop: '4px', maxWidth: '240px' },
+  td: { padding: '14px 18px', fontSize: '13px', color: '#33413a', borderBottom: '1px solid #f0efe8', verticalAlign: 'top' },
+  farmName: { fontSize: '13.5px', fontWeight: 600, color: '#16311d' },
+  farmMeta: { fontSize: '11.5px', color: '#8a968d', marginTop: '2px' },
+  notes: { fontSize: '12px', color: '#6b7770', marginTop: '4px', maxWidth: '240px' },
   typeTag: {
-    fontSize: '11px', fontWeight: '700', padding: '3px 10px', borderRadius: '999px',
+    fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '999px',
     border: '1px solid', whiteSpace: 'nowrap',
   },
-  badge: { padding: '3px 10px', borderRadius: '999px', color: 'white', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap' },
+  badge: { padding: '3px 10px', borderRadius: '999px', color: '#fff', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap' },
   actionGroup: { display: 'flex', gap: '8px', whiteSpace: 'nowrap' },
   actionBtn: {
-    padding: '5px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600',
+    padding: '5px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: 700,
     cursor: 'pointer', border: '1px solid transparent', whiteSpace: 'nowrap',
   },
-  acceptBtn: { color: '#2E7D32', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' },
-  declineBtn: { color: '#dc2626', backgroundColor: '#fef2f2', border: '1px solid #fecaca' },
-  noteBtn: { color: '#3b82f6', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe' },
-  completeBtn: { color: '#2E7D32', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' },
-  viewBtn: { color: '#3b82f6', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe' },
-  noAction: { color: '#d1d5db' },
-  empty: { padding: '32px', textAlign: 'center', color: '#9ca3af', fontSize: '14px' },
+  acceptBtn: { color: '#2c8047', backgroundColor: '#eaf3ec', border: '1px solid #cfe6d5' },
+  declineBtn: { color: '#b91c1c', backgroundColor: '#fbeceb', border: '1px solid #f3cfcb' },
+  noteBtn: { color: '#2f6bb0', backgroundColor: '#e8eff8', border: '1px solid #cfe0f2' },
+  completeBtn: { color: '#2c8047', backgroundColor: '#eaf3ec', border: '1px solid #cfe6d5' },
+  viewBtn: { color: '#2f6bb0', backgroundColor: '#e8eff8', border: '1px solid #cfe0f2' },
+  noAction: { color: '#c4ccc6' },
+  empty: { padding: '40px', textAlign: 'center', color: '#9aa79d', fontSize: '14px' },
 }
 
 const paginationStyles = {
   wrap: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '14px 16px', borderTop: '1px solid #f3f4f6', flexWrap: 'wrap', gap: '10px',
+    fontFamily: SANS, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '14px 18px', borderTop: '1px solid #f0efe8', flexWrap: 'wrap', gap: '10px',
   },
   wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
-  info: { fontSize: '12.5px', color: '#6b7280', whiteSpace: 'nowrap' },
+  info: { fontSize: '12.5px', color: '#6b7770', whiteSpace: 'nowrap' },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },
-  pageSizeSelect: { padding: '6px 10px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '12.5px', color: '#374151', marginRight: '8px' },
+  pageSizeSelect: { fontFamily: SANS, padding: '6px 10px', borderRadius: '8px', border: '1px solid #e7e8e0', fontSize: '12.5px', color: '#33413a', marginRight: '8px', backgroundColor: '#fff' },
   navBtn: {
-    minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '6px',
-    border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151', fontSize: '13px', cursor: 'pointer',
+    minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px',
+    border: '1px solid #e7e8e0', backgroundColor: '#fff', color: '#33413a', fontSize: '13px', cursor: 'pointer',
   },
   navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   pageBtn: {
-    minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '6px',
-    border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151', fontSize: '12.5px', fontWeight: '600', cursor: 'pointer',
+    minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px',
+    border: '1px solid #e7e8e0', backgroundColor: '#fff', color: '#33413a', fontSize: '12.5px', fontWeight: 700, cursor: 'pointer',
   },
-  pageBtnActive: { backgroundColor: '#2E7D32', borderColor: '#2E7D32', color: 'white' },
-  ellipsis: { padding: '0 4px', color: '#9ca3af', fontSize: '13px' },
+  pageBtnActive: { backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff' },
+  ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
 }
 
 const modalStyles = {
-  overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 },
-  modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '440px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto' },
+  overlay: { fontFamily: SANS, position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 },
+  modal: { fontFamily: SANS, backgroundColor: '#fff', borderRadius: '16px', padding: '28px', width: '440px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto' },
   modalMobile: { width: '100%', maxWidth: '100%', borderRadius: '16px 16px 0 0', padding: '20px', margin: '0', position: 'fixed', bottom: 0, left: 0, maxHeight: '85vh' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' },
-  title: { fontSize: '17px', fontWeight: '700', color: '#111827', margin: 0 },
-  close: { fontSize: '22px', cursor: 'pointer', color: '#6b7280' },
-  dateLabel: { fontSize: '13px', color: '#6b7280', marginBottom: '16px' },
-  label: { display: 'block', fontSize: '13px', fontWeight: '500', color: '#374151', marginBottom: '6px', marginTop: '12px' },
-  input: { width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', boxSizing: 'border-box', fontFamily: 'inherit' },
+  title: { fontSize: '17px', fontWeight: 800, color: '#16311d', margin: 0 },
+  close: { fontSize: '22px', cursor: 'pointer', color: '#8a968d', lineHeight: 1 },
+  dateLabel: { fontSize: '13px', color: '#6b7770', marginBottom: '16px' },
+  label: { display: 'block', fontSize: '13px', fontWeight: 600, color: '#33413a', marginBottom: '6px', marginTop: '12px' },
+  input: { width: '100%', padding: '10px 12px', borderRadius: '9px', border: '1px solid #e7e8e0', fontSize: '14px', boxSizing: 'border-box', fontFamily: 'inherit', color: '#16311d' },
   row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' },
   rowMobile: { gridTemplateColumns: '1fr' },
-  errorBox: { backgroundColor: '#fef2f2', border: '1px solid #fca5a5', color: '#dc2626', padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '14px' },
+  errorBox: { backgroundColor: '#fbeceb', border: '1px solid #f3cfcb', color: '#b91c1c', padding: '10px 14px', borderRadius: '9px', fontSize: '13px', marginBottom: '14px' },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' },
   actionsMobile: { flexDirection: 'column-reverse' },
   btnFull: { width: '100%', boxSizing: 'border-box' },
-  cancelBtn: { padding: '10px 18px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: 'white', fontSize: '14px', cursor: 'pointer' },
-  submitBtn: { padding: '10px 18px', borderRadius: '8px', border: 'none', backgroundColor: '#2E7D32', color: 'white', fontSize: '14px', fontWeight: '600', cursor: 'pointer' },
+  cancelBtn: { fontFamily: SANS, padding: '10px 18px', borderRadius: '9px', border: '1px solid #e7e8e0', backgroundColor: '#fff', color: '#33413a', fontSize: '14px', fontWeight: 600, cursor: 'pointer' },
+  submitBtn: { fontFamily: SANS, padding: '10px 18px', borderRadius: '9px', border: 'none', backgroundColor: '#2c8047', color: '#fff', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
 }
 
 const confirmStyles = {
-  modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '400px', maxWidth: '90%' },
-  title: { fontSize: '17px', fontWeight: '700', color: '#111827', marginTop: 0, marginBottom: '10px' },
-  message: { fontSize: '14px', color: '#6b7280', lineHeight: '1.5', marginBottom: '4px' },
+  modal: { fontFamily: SANS, backgroundColor: '#fff', borderRadius: '16px', padding: '28px', width: '400px', maxWidth: '90%' },
+  title: { fontSize: '17px', fontWeight: 800, color: '#16311d', marginTop: 0, marginBottom: '10px' },
+  message: { fontSize: '14px', color: '#6b7770', lineHeight: '1.5', marginBottom: '4px' },
 }
 
 const historyStyles = {
-  modal: { backgroundColor: '#F0EBDD', borderRadius: '20px', width: '560px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto', position: 'relative', padding: 0 },
+  modal: { fontFamily: SANS, backgroundColor: '#f4f3ee', borderRadius: '18px', width: '560px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto', position: 'relative', padding: 0 },
   close: {
-    position: 'absolute', top: '16px', right: '16px', fontSize: '16px', color: 'white', cursor: 'pointer',
+    position: 'absolute', top: '16px', right: '16px', fontSize: '16px', color: '#fff', cursor: 'pointer',
     lineHeight: 1, zIndex: 2, width: '28px', height: '28px', borderRadius: '50%',
     backgroundColor: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
-  heroHeader: { display: 'flex', alignItems: 'center', gap: '14px', padding: '24px 24px 20px', backgroundColor: '#1B4332', borderRadius: '20px 20px 0 0' },
+  heroHeader: { display: 'flex', alignItems: 'center', gap: '14px', padding: '24px 24px 20px', background: 'linear-gradient(135deg,#234A35 0%,#16311d 100%)', borderRadius: '18px 18px 0 0' },
   avatar: {
-    width: '52px', height: '52px', borderRadius: '50%', backgroundColor: '#1B4332', color: '#F2B84B',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', fontWeight: '700',
-    flexShrink: 0, border: '2px solid #F2B84B',
+    width: '52px', height: '52px', borderRadius: '50%', backgroundColor: '#16311d', color: '#f2c14e',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', fontWeight: 800,
+    flexShrink: 0, border: '2px solid #f2c14e',
   },
-  farmName: { fontSize: '18px', fontWeight: '700', color: 'white' },
-  ownerName: { fontSize: '13px', color: '#C9DDCE', marginTop: '2px' },
+  farmName: { fontSize: '18px', fontWeight: 800, color: '#fff' },
+  ownerName: { fontSize: '13px', color: '#c3d4c8', marginTop: '2px' },
   body: { padding: '20px 24px 24px' },
-  sectionLabel: { fontSize: '12px', fontWeight: '700', color: '#1B4332', textTransform: 'uppercase', letterSpacing: '0.4px', margin: '18px 0 10px' },
+  sectionLabel: { fontSize: '11.5px', fontWeight: 700, color: '#16311d', textTransform: 'uppercase', letterSpacing: '0.4px', margin: '18px 0 10px' },
   infoGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' },
   infoGridMobile: { gridTemplateColumns: '1fr' },
-  infoCard: { backgroundColor: 'white', borderRadius: '12px', padding: '12px 14px', display: 'flex', alignItems: 'center', gap: '10px', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' },
-  infoLabel: { fontSize: '10px', color: '#9ca3af', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.3px' },
-  infoValue: { fontSize: '14px', color: '#111827', fontWeight: '700', marginTop: '2px' },
-  infoValueSub: { fontSize: '11px', color: '#6b7280', fontWeight: '500' },
-  emptyBox: { backgroundColor: 'white', borderRadius: '12px', padding: '24px', textAlign: 'center' },
+  infoCard: { backgroundColor: '#fff', borderRadius: '12px', padding: '12px 14px', display: 'flex', alignItems: 'center', gap: '10px', border: '1px solid #e7e8e0' },
+  infoLabel: { fontSize: '10px', color: '#8a968d', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px' },
+  infoValue: { fontSize: '14px', color: '#16311d', fontWeight: 700, marginTop: '2px' },
+  infoValueSub: { fontSize: '11px', color: '#6b7770', fontWeight: 500 },
+  emptyBox: { backgroundColor: '#fff', borderRadius: '12px', padding: '24px', textAlign: 'center', border: '1px solid #e7e8e0' },
   recordList: { display: 'flex', flexDirection: 'column', gap: '10px' },
-  recordCard: { backgroundColor: 'white', borderRadius: '12px', padding: '12px 14px', border: '1.5px solid #e5e7eb', cursor: 'pointer', transition: 'border-color 0.15s ease' },
+  recordCard: { backgroundColor: '#fff', borderRadius: '12px', padding: '12px 14px', border: '1.5px solid #e7e8e0', cursor: 'pointer', transition: 'border-color 0.15s ease' },
   recordTop: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' },
-  recordBadge: { padding: '3px 10px', borderRadius: '999px', color: 'white', fontSize: '11px', fontWeight: '700', whiteSpace: 'nowrap' },
-  recordTypeTag: { fontSize: '10.5px', fontWeight: '700' },
+  recordBadge: { padding: '3px 10px', borderRadius: '999px', color: '#fff', fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap' },
+  recordTypeTag: { fontSize: '10.5px', fontWeight: 700 },
   recordDateRow: { display: 'flex', alignItems: 'center', gap: '6px' },
-  recordDate: { fontSize: '12px', color: '#6b7280' },
-  chevron: { fontSize: '12px', color: '#9ca3af', transition: 'transform 0.15s ease', display: 'inline-block' },
-  recordNotes: { fontSize: '13px', color: '#374151', marginTop: '8px', marginBottom: 0, lineHeight: '1.4' },
-  expandedBox: { backgroundColor: '#f9fafb', borderRadius: '10px', padding: '12px 14px', marginTop: '10px' },
+  recordDate: { fontSize: '12px', color: '#6b7770' },
+  chevron: { fontSize: '12px', color: '#9aa79d', transition: 'transform 0.15s ease', display: 'inline-block' },
+  recordNotes: { fontSize: '13px', color: '#33413a', marginTop: '8px', marginBottom: 0, lineHeight: '1.4' },
+  expandedBox: { backgroundColor: '#f8f8f4', borderRadius: '10px', padding: '12px 14px', marginTop: '10px' },
   expandedRow: { display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '12px' },
-  expandedLabel: { color: '#9ca3af', fontWeight: '600' },
-  expandedValue: { color: '#111827', fontWeight: '600' },
-  expandedNotes: { fontSize: '13px', color: '#374151', marginTop: '4px', marginBottom: 0, lineHeight: '1.4' },
+  expandedLabel: { color: '#8a968d', fontWeight: 600 },
+  expandedValue: { color: '#16311d', fontWeight: 600 },
+  expandedNotes: { fontSize: '13px', color: '#33413a', marginTop: '4px', marginBottom: 0, lineHeight: '1.4' },
   footer: { marginTop: '20px' },
-  closeBtn: { width: '100%', padding: '10px 18px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: 'white', fontSize: '14px', fontWeight: '600', cursor: 'pointer' },
+  closeBtn: { fontFamily: SANS, width: '100%', padding: '10px 18px', borderRadius: '9px', border: '1px solid #e7e8e0', backgroundColor: '#fff', color: '#33413a', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
 }
