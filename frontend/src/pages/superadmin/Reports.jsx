@@ -1,9 +1,11 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect, useMemo } from 'react'
 import AdminLayout from '../../components/AdminLayout'
 import ReportLetterhead from '../../components/ReportLetterhead'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { exportPrintRefToPDF, todayStamp } from '../../utils/exportUtils'
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
 export default function SuperAdminReports() {
   const { data: adminData, loading: adminLoading, error: adminError } = useCachedFetch('/admin/reports')
@@ -31,99 +33,108 @@ export default function SuperAdminReports() {
   const completedVetServices = vetData?.completed_services ?? []
   const completedAdminServices = adminData?.completed_services ?? []
 
-  const generatedAt = new Date().toLocaleString('en-PH', {
-    dateStyle: 'long',
-    timeStyle: 'short',
-  })
+  const generatedAt = new Date().toLocaleString('en-PH', { dateStyle: 'long', timeStyle: 'short' })
+
+  const handleExportCsv = () => {
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`
+    const lines = []
+    lines.push('AgriBantay Municipal Report')
+    lines.push(`Generated,${esc(generatedAt)}`)
+    lines.push('')
+    lines.push('Inspection Summary (all-time)')
+    lines.push(`Total,${adminData.inspection_summary.total}`)
+    lines.push(`Completed,${adminData.inspection_summary.completed}`)
+    lines.push(`Scheduled,${adminData.inspection_summary.scheduled}`)
+    lines.push('')
+    lines.push('Alert Summary (all-time)')
+    lines.push(`Critical alerts,${adminData.alert_summary.critical_alerts}`)
+    lines.push('')
+    lines.push('Service Requests — Odor & Fly Control (all-time)')
+    lines.push(`Total,${adminData.service_summary.total}`)
+    lines.push(`Completed,${adminData.service_summary.completed}`)
+    lines.push(`Pending,${adminData.service_summary.pending}`)
+    lines.push('')
+    lines.push('Completed Inspections')
+    lines.push(['ID', 'Farm', 'Owner', 'Type', 'Date', 'Status'].join(','))
+    completedInspections.forEach(i =>
+      lines.push([i.inspection_number, i.farm_name, i.owner_name, i.inspection_type, i.completed_at, i.status].map(esc).join(','))
+    )
+    lines.push('')
+    lines.push('Completed Service Requests (Odor & Fly Control)')
+    lines.push(['ID', 'Type', 'Farm', 'Owner', 'Barangay', 'Date', 'Status'].join(','))
+    completedAdminServices.forEach(s =>
+      lines.push([s.id, s.service_type, s.farm_name, s.owner_name, s.barangay, s.completed_at, s.status].map(esc).join(','))
+    )
+    lines.push('')
+    lines.push('Completed Vaccinations & Blood Tests')
+    lines.push(['ID', 'Type', 'Farm', 'Owner', 'Barangay', 'Veterinarian', 'Date', 'Status'].join(','))
+    completedVetServices.forEach(v =>
+      lines.push([v.id, v.service_type, v.farm_name, v.owner_name, v.barangay, v.vet_name || '', v.completed_at, v.status].map(esc).join(','))
+    )
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `AgriBantay_SuperAdmin_Report_${todayStamp()}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   const loading = adminLoading || vetLoading
 
-  if (loading) return <AdminLayout><p>Loading...</p></AdminLayout>
-  if (adminError) return <AdminLayout><p style={{ color: '#dc2626' }}>{adminError}</p></AdminLayout>
-  if (vetError) return <AdminLayout><p style={{ color: '#dc2626' }}>{vetError}</p></AdminLayout>
-  if (!adminData || !vetData) return <AdminLayout><p>Loading...</p></AdminLayout>
+  if (loading) return <AdminLayout><p style={styles.stateText}>Loading…</p></AdminLayout>
+  if (adminError) return <AdminLayout><p style={{ ...styles.stateText, color: '#b91c1c' }}>{adminError}</p></AdminLayout>
+  if (vetError) return <AdminLayout><p style={{ ...styles.stateText, color: '#b91c1c' }}>{vetError}</p></AdminLayout>
+  if (!adminData || !vetData) return <AdminLayout><p style={styles.stateText}>Loading…</p></AdminLayout>
 
   return (
     <AdminLayout>
       <style>{`
         .print-view {
-          position: absolute;
-          left: -9999px;
-          top: 0;
-          width: 800px;
-          padding: 40px;
-          box-sizing: border-box;
-          display: block;
-          font-family: Georgia, 'Times New Roman', serif;
-          color: #000;
-          background: #fff;
+          position: absolute; left: -9999px; top: 0; width: 800px; padding: 40px;
+          box-sizing: border-box; display: block; font-family: Georgia, 'Times New Roman', serif;
+          color: #000; background: #fff;
         }
         .print-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
-        .print-table th, .print-table td {
-          border: 1px solid #000; padding: 6px 10px; text-align: left; font-size: 12px;
-        }
+        .print-table th, .print-table td { border: 1px solid #000; padding: 6px 10px; text-align: left; font-size: 12px; }
         .print-table th { background: #fff; font-weight: bold; }
-        .print-section-title {
-          font-size: 13px; font-weight: bold; text-transform: uppercase;
-          margin: 24px 0 8px; border-bottom: 1px solid #000; padding-bottom: 4px;
-        }
+        .print-section-title { font-size: 13px; font-weight: bold; text-transform: uppercase; margin: 24px 0 8px; border-bottom: 1px solid #000; padding-bottom: 4px; }
         @media print {
           .screen-view { display: none !important; }
-          .print-view {
-            position: static;
-            left: auto;
-          }
+          .print-view { position: static; left: auto; }
         }
       `}</style>
 
-      <div className="screen-view">
+      <div className="screen-view" style={{ fontFamily: SANS }}>
         <div style={{ ...styles.header, ...(isMobile ? styles.headerMobile : {}) }}>
           <div>
             <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Reports</h1>
+            <p style={styles.subtitle}>Municipality-wide admin &amp; veterinary summary</p>
           </div>
           <div style={{ ...styles.controlsRow, ...(isMobile ? styles.controlsRowMobile : {}) }}>
-            <button style={{ ...styles.printBtn, ...(isMobile ? styles.controlFull : {}) }} onClick={handlePrint}>Print</button>
+            <button style={{ ...styles.btnOutline, ...(isMobile ? styles.controlFull : {}) }} onClick={handlePrint}>Print</button>
+            <button style={{ ...styles.btnOutline, ...(isMobile ? styles.controlFull : {}) }} onClick={handleExportCsv}>Export CSV</button>
             <button
-              style={{ ...styles.exportBtn, ...(isMobile ? styles.controlFull : {}) }}
+              style={{ ...styles.btnPrimary, ...(isMobile ? styles.controlFull : {}), ...(exportingPdf ? styles.btnDisabled : {}) }}
               onClick={handleExportPdf}
               disabled={exportingPdf}
             >
-              {exportingPdf ? 'Generating...' : 'Export PDF'}
+              {exportingPdf ? 'Generating…' : 'Export PDF'}
             </button>
           </div>
         </div>
 
         {/* ----------------------------------------------------- Admin section */}
-        <div style={styles.sectionLabel}>Admin — Inspections, Alerts & Service Requests</div>
+        <div style={styles.sectionLabel}>Admin — Inspections, Alerts &amp; Service Requests</div>
         <div style={{ ...styles.statsGrid, ...(isMobile ? styles.statsGridMobile : {}) }}>
-          <div style={styles.statCard}>
-            <div style={styles.statValue}>{adminData.inspection_summary.total}</div>
-            <div style={styles.statLabel}>Total inspections</div>
-          </div>
-          <div style={styles.statCard}>
-            <div style={{ ...styles.statValue, color: '#2E7D32' }}>{adminData.inspection_summary.completed}</div>
-            <div style={styles.statLabel}>Completed</div>
-          </div>
-          <div style={styles.statCard}>
-            <div style={{ ...styles.statValue, color: '#3b82f6' }}>{adminData.inspection_summary.scheduled}</div>
-            <div style={styles.statLabel}>Scheduled</div>
-          </div>
-          <div style={{ ...styles.statCard, backgroundColor: '#fef2f2' }}>
-            <div style={{ ...styles.statValue, color: '#dc2626' }}>{adminData.alert_summary.critical_alerts}</div>
-            <div style={{ ...styles.statLabel, color: '#991b1b' }}>Critical alerts</div>
-          </div>
-          <div style={styles.statCard}>
-            <div style={styles.statValue}>{adminData.service_summary.total}</div>
-            <div style={styles.statLabel}>Service requests (odor/fly control)</div>
-          </div>
-          <div style={styles.statCard}>
-            <div style={{ ...styles.statValue, color: '#2E7D32' }}>{adminData.service_summary.completed}</div>
-            <div style={styles.statLabel}>Completed</div>
-          </div>
-          <div style={styles.statCard}>
-            <div style={{ ...styles.statValue, color: '#B45309' }}>{adminData.service_summary.pending}</div>
-            <div style={styles.statLabel}>Pending</div>
-          </div>
+          <StatCard value={adminData.inspection_summary.total} label="Total inspections" />
+          <StatCard value={adminData.inspection_summary.completed} label="Completed" accent="#2c8047" />
+          <StatCard value={adminData.inspection_summary.scheduled} label="Scheduled" />
+          <StatCard value={adminData.alert_summary.critical_alerts} label="Critical alerts" accent="#b91c1c" />
+          <StatCard value={adminData.service_summary.total} label="Service requests (odor/fly control)" />
+          <StatCard value={adminData.service_summary.completed} label="Completed" accent="#2c8047" />
+          <StatCard value={adminData.service_summary.pending} label="Pending" accent="#b45309" />
         </div>
 
         <div style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}), marginTop: '16px' }}>
@@ -131,119 +142,80 @@ export default function SuperAdminReports() {
           {completedInspections.length === 0 ? (
             <div style={styles.empty}>No completed inspections yet.</div>
           ) : (
-            <div style={isMobile ? styles.tableScroll : undefined}>
-              <table style={{ ...styles.table, ...(isMobile ? styles.tableMobile : {}) }}>
-                <thead>
-                  <tr>
-                    <th style={styles.th}>ID</th>
-                    <th style={styles.th}>Farm</th>
-                    <th style={styles.th}>Owner</th>
-                    <th style={styles.th}>Type</th>
-                    <th style={styles.th}>Date</th>
-                    <th style={styles.th}>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {completedInspections.map(i => (
-                    <tr key={i.id}>
-                      <td style={styles.td}>{i.inspection_number}</td>
-                      <td style={styles.td}>{i.farm_name}</td>
-                      <td style={styles.td}>{i.owner_name}</td>
-                      <td style={styles.td}>{i.inspection_type}</td>
-                      <td style={styles.td}>{i.completed_at}</td>
-                      <td style={styles.td}><span style={styles.badge}>{i.status}</span></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <PaginatedTable
+              isMobile={isMobile}
+              minWidth="600px"
+              columns={['ID', 'Farm', 'Owner', 'Type', 'Date', 'Status']}
+              rows={completedInspections}
+              renderRow={i => (
+                <tr key={i.id}>
+                  <td style={styles.td}>{i.inspection_number}</td>
+                  <td style={styles.td}>{i.farm_name}</td>
+                  <td style={styles.td}>{i.owner_name}</td>
+                  <td style={styles.td}>{i.inspection_type}</td>
+                  <td style={styles.td}>{i.completed_at}</td>
+                  <td style={styles.td}><span style={styles.badge}><span style={styles.badgeDot} />{i.status}</span></td>
+                </tr>
+              )}
+            />
           )}
         </div>
 
         <div style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}), marginTop: '16px' }}>
-          <h3 style={styles.panelTitle}>Completed service requests (odor & fly control)</h3>
+          <h3 style={styles.panelTitle}>Completed service requests (odor &amp; fly control)</h3>
           {completedAdminServices.length === 0 ? (
             <div style={styles.empty}>No completed odor/fly control requests yet.</div>
           ) : (
-            <div style={isMobile ? styles.tableScroll : undefined}>
-              <table style={{ ...styles.table, ...(isMobile ? styles.tableMobile : {}) }}>
-                <thead>
-                  <tr>
-                    <th style={styles.th}>ID</th>
-                    <th style={styles.th}>Type</th>
-                    <th style={styles.th}>Farm</th>
-                    <th style={styles.th}>Owner</th>
-                    <th style={styles.th}>Barangay</th>
-                    <th style={styles.th}>Date</th>
-                    <th style={styles.th}>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {completedAdminServices.map(s => (
-                    <tr key={s.id}>
-                      <td style={styles.td}>{s.id}</td>
-                      <td style={styles.td}>{s.service_type}</td>
-                      <td style={styles.td}>{s.farm_name}</td>
-                      <td style={styles.td}>{s.owner_name}</td>
-                      <td style={styles.td}>{s.barangay}</td>
-                      <td style={styles.td}>{s.completed_at}</td>
-                      <td style={styles.td}><span style={styles.badge}>{s.status}</span></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <PaginatedTable
+              isMobile={isMobile}
+              minWidth="640px"
+              columns={['ID', 'Type', 'Farm', 'Owner', 'Barangay', 'Date', 'Status']}
+              rows={completedAdminServices}
+              renderRow={s => (
+                <tr key={s.id}>
+                  <td style={styles.td}>{s.id}</td>
+                  <td style={styles.td}>{s.service_type}</td>
+                  <td style={styles.td}>{s.farm_name}</td>
+                  <td style={styles.td}>{s.owner_name}</td>
+                  <td style={styles.td}>{s.barangay}</td>
+                  <td style={styles.td}>{s.completed_at}</td>
+                  <td style={styles.td}><span style={styles.badge}><span style={styles.badgeDot} />{s.status}</span></td>
+                </tr>
+              )}
+            />
           )}
         </div>
 
         {/* ---------------------------------------------------- Vet section */}
-        <div style={{ ...styles.sectionLabel, marginTop: '32px' }}>Veterinarian — Vaccinations & Blood Tests</div>
+        <div style={{ ...styles.sectionLabel, marginTop: '32px' }}>Veterinarian — Vaccinations &amp; Blood Tests</div>
         <div style={{ ...styles.statsGrid, ...(isMobile ? styles.statsGridMobile : {}) }}>
-          <div style={{ ...styles.statCard, backgroundColor: '#FDFBF6', border: '1px solid #E8E2D3' }}>
-            <div style={{ ...styles.statValue, color: '#B5651D' }}>{vetData.total_completed}</div>
-            <div style={styles.statLabel}>Total completed (vaccine + blood test)</div>
-          </div>
-          <div style={{ ...styles.statCard, backgroundColor: '#FDFBF6', border: '1px solid #E8E2D3' }}>
-            <div style={{ ...styles.statValue, color: '#B5651D' }}>{vetData.farms_covered}</div>
-            <div style={styles.statLabel}>Farms covered</div>
-          </div>
+          <StatCard value={vetData.total_completed} label="Total completed (vaccine + blood test)" accent="#2c8047" />
+          <StatCard value={vetData.farms_covered} label="Farms covered" accent="#2c8047" />
         </div>
 
         <div style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}), marginTop: '16px' }}>
-          <h3 style={styles.panelTitle}>Completed vaccinations & blood tests</h3>
+          <h3 style={styles.panelTitle}>Completed vaccinations &amp; blood tests</h3>
           {completedVetServices.length === 0 ? (
             <div style={styles.empty}>No completed vet services yet.</div>
           ) : (
-            <div style={isMobile ? styles.tableScroll : undefined}>
-              <table style={{ ...styles.table, ...(isMobile ? styles.tableMobile : {}) }}>
-                <thead>
-                  <tr>
-                    <th style={styles.th}>ID</th>
-                    <th style={styles.th}>Type</th>
-                    <th style={styles.th}>Farm</th>
-                    <th style={styles.th}>Owner</th>
-                    <th style={styles.th}>Barangay</th>
-                    <th style={styles.th}>Veterinarian</th>
-                    <th style={styles.th}>Date</th>
-                    <th style={styles.th}>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {completedVetServices.map(v => (
-                    <tr key={v.id}>
-                      <td style={styles.td}>{v.id}</td>
-                      <td style={styles.td}>{v.service_type}</td>
-                      <td style={styles.td}>{v.farm_name}</td>
-                      <td style={styles.td}>{v.owner_name}</td>
-                      <td style={styles.td}>{v.barangay}</td>
-                      <td style={styles.td}>{v.vet_name || '—'}</td>
-                      <td style={styles.td}>{v.completed_at}</td>
-                      <td style={styles.td}><span style={{ ...styles.badge, backgroundColor: '#B5651D' }}>{v.status}</span></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <PaginatedTable
+              isMobile={isMobile}
+              minWidth="720px"
+              columns={['ID', 'Type', 'Farm', 'Owner', 'Barangay', 'Veterinarian', 'Date', 'Status']}
+              rows={completedVetServices}
+              renderRow={v => (
+                <tr key={v.id}>
+                  <td style={styles.td}>{v.id}</td>
+                  <td style={styles.td}>{v.service_type}</td>
+                  <td style={styles.td}>{v.farm_name}</td>
+                  <td style={styles.td}>{v.owner_name}</td>
+                  <td style={styles.td}>{v.barangay}</td>
+                  <td style={styles.td}>{v.vet_name || '—'}</td>
+                  <td style={styles.td}>{v.completed_at}</td>
+                  <td style={styles.td}><span style={styles.badge}><span style={styles.badgeDot} />{v.status}</span></td>
+                </tr>
+              )}
+            />
           )}
         </div>
       </div>
@@ -252,7 +224,7 @@ export default function SuperAdminReports() {
         <ReportLetterhead />
 
         <h1 style={{ fontSize: '18px', textAlign: 'center', margin: '16px 0 4px' }}>AgriBantay Municipal Report</h1>
-        <p style={{ fontSize: '12px', textAlign: 'center', margin: '0 0 4px' }}>Combined Admin & Veterinary summary</p>
+        <p style={{ fontSize: '12px', textAlign: 'center', margin: '0 0 4px' }}>Combined Admin &amp; Veterinary summary</p>
         <p style={{ fontSize: '11px', textAlign: 'center', margin: '0 0 16px' }}>Generated {generatedAt}</p>
 
         <div className="print-section-title">Inspection summary (all-time)</div>
@@ -271,7 +243,7 @@ export default function SuperAdminReports() {
           </tbody>
         </table>
 
-        <div className="print-section-title">Service requests summary — odor & fly control (all-time)</div>
+        <div className="print-section-title">Service requests summary — odor &amp; fly control (all-time)</div>
         <table className="print-table">
           <tbody>
             <tr><th>Total requests</th><td>{adminData.service_summary.total}</td></tr>
@@ -280,7 +252,7 @@ export default function SuperAdminReports() {
           </tbody>
         </table>
 
-        <div className="print-section-title">Vaccination & blood test summary — all veterinarians (all-time)</div>
+        <div className="print-section-title">Vaccination &amp; blood test summary — all veterinarians (all-time)</div>
         <table className="print-table">
           <tbody>
             <tr><th>Total completed</th><td>{vetData.total_completed}</td></tr>
@@ -301,51 +273,148 @@ export default function SuperAdminReports() {
   )
 }
 
+function StatCard({ value, label, accent }) {
+  return (
+    <div style={styles.statCard}>
+      <div style={{ ...styles.statValue, ...(accent ? { color: accent } : {}) }}>{value}</div>
+      <div style={styles.statLabel}>{label}</div>
+    </div>
+  )
+}
+
+function PaginatedTable({ columns, rows, renderRow, isMobile, minWidth }) {
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+
+  useEffect(() => { setCurrentPage(1) }, [rows, pageSize])
+
+  const totalItems = rows.length
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
+  const start = (currentPage - 1) * pageSize
+  const paginated = rows.slice(start, start + pageSize)
+  const rangeStart = totalItems === 0 ? 0 : start + 1
+  const rangeEnd = Math.min(currentPage * pageSize, totalItems)
+
+  return (
+    <>
+      <div style={isMobile ? styles.tableScroll : undefined}>
+        <table style={{ ...styles.table, ...(isMobile ? { minWidth } : {}) }}>
+          <thead>
+            <tr>{columns.map((c, idx) => <th key={idx} style={styles.th}>{c}</th>)}</tr>
+          </thead>
+          <tbody>{paginated.map(renderRow)}</tbody>
+        </table>
+      </div>
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        pageSize={pageSize}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={setPageSize}
+        rangeStart={rangeStart}
+        rangeEnd={rangeEnd}
+        totalItems={totalItems}
+        isMobile={isMobile}
+      />
+    </>
+  )
+}
+
+function Pagination({ currentPage, totalPages, pageSize, onPageChange, onPageSizeChange, rangeStart, rangeEnd, totalItems, isMobile }) {
+  const pageNumbers = useMemo(() => {
+    const maxButtons = isMobile ? 3 : 5
+    let start = Math.max(1, currentPage - Math.floor(maxButtons / 2))
+    let end = start + maxButtons - 1
+    if (end > totalPages) { end = totalPages; start = Math.max(1, end - maxButtons + 1) }
+    const pages = []
+    for (let p = start; p <= end; p++) pages.push(p)
+    return pages
+  }, [currentPage, totalPages, isMobile])
+
+  return (
+    <div style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+      <div style={paginationStyles.info}>
+        {totalItems === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
+      </div>
+      <div style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
+        <select value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
+          {PAGE_SIZE_OPTIONS.map(size => <option key={size} value={size}>{size} / page</option>)}
+        </select>
+        <button style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }} onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1} aria-label="Previous page">‹</button>
+        {pageNumbers[0] > 1 && <span style={paginationStyles.ellipsis}>…</span>}
+        {pageNumbers.map(p => (
+          <button key={p} onClick={() => onPageChange(p)} style={{ ...paginationStyles.pageBtn, ...(p === currentPage ? paginationStyles.pageBtnActive : {}) }}>{p}</button>
+        ))}
+        {pageNumbers[pageNumbers.length - 1] < totalPages && <span style={paginationStyles.ellipsis}>…</span>}
+        <button style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }} onClick={() => onPageChange(currentPage + 1)} disabled={currentPage === totalPages} aria-label="Next page">›</button>
+      </div>
+    </div>
+  )
+}
+
+const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+
 const styles = {
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' },
+  stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
+
+  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' },
   headerMobile: { flexDirection: 'column', gap: '14px' },
-  title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
-  titleMobile: { fontSize: '18px' },
-  subtitle: { fontSize: '13px', color: '#6b7280', marginTop: '4px' },
+  title: { fontSize: '24px', fontWeight: 800, letterSpacing: '-0.015em', color: '#16311d', margin: 0 },
+  titleMobile: { fontSize: '20px' },
+  subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px' },
+
   controlsRow: { display: 'flex', gap: '10px', flexWrap: 'wrap' },
   controlsRowMobile: { flexDirection: 'column', width: '100%' },
   controlFull: { width: '100%', boxSizing: 'border-box' },
-  printBtn: {
-    background: 'linear-gradient(135deg, #E8C766 0%, #D4AF37 55%, #B8912B 100%)', color: '#122A1E', border: 'none',
-    borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
-    boxShadow: '0 4px 12px rgba(212,175,55,0.28)',
+  btnOutline: {
+    backgroundColor: '#fff', color: '#2c8047', border: '1px solid #dfe6de', borderRadius: '10px',
+    padding: '10px 18px', fontSize: '14px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
   },
-  exportBtn: {
-    background: 'linear-gradient(135deg, #234A35 0%, #122A1E 100%)', color: 'white', border: 'none',
-    borderRadius: '8px', padding: '10px 16px', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
-    boxShadow: '0 4px 12px rgba(18,42,30,0.28)',
+  btnPrimary: {
+    backgroundColor: '#2c8047', color: '#fff', border: '1px solid #2c8047', borderRadius: '10px',
+    padding: '10px 18px', fontSize: '14px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
   },
-  sectionLabel: {
-    fontSize: '11px', fontWeight: '700', color: '#8A7A3E', textTransform: 'uppercase',
-    letterSpacing: '0.6px', marginBottom: '12px',
-  },
+  btnDisabled: { opacity: 0.6, cursor: 'not-allowed' },
+
+  sectionLabel: { fontSize: '13px', fontWeight: 700, color: '#8a968d', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '12px' },
+
   statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '16px' },
   statsGridMobile: { gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' },
-  statCard: {
-    backgroundColor: 'white', borderRadius: '12px', padding: '20px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-  },
-  statValue: { fontSize: '24px', fontWeight: '700', color: '#111827' },
-  statLabel: { fontSize: '12px', color: '#6b7280', marginTop: '2px' },
-  panel: {
-    backgroundColor: 'white', borderRadius: '12px', padding: '24px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-  },
-  panelMobile: { padding: '16px' },
-  panelTitle: { fontSize: '15px', fontWeight: '700', color: '#111827', marginTop: 0, marginBottom: '14px' },
-  empty: { color: '#9ca3af', fontSize: '14px', padding: '16px 0' },
+  statCard: { backgroundColor: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px', padding: '18px 20px' },
+  statValue: { fontSize: '28px', fontWeight: 800, letterSpacing: '-0.02em', color: '#14301c', lineHeight: 1 },
+  statLabel: { fontSize: '12px', color: '#8a968d', marginTop: '8px', fontWeight: 600 },
+
+  panel: { backgroundColor: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px', overflow: 'hidden' },
+  panelMobile: {},
+  panelTitle: { fontSize: '15px', fontWeight: 700, color: '#16311d', margin: 0, padding: '16px 20px 14px', borderBottom: '1px solid #f0efe8' },
+  empty: { color: '#9aa79d', fontSize: '14px', padding: '28px 20px', textAlign: 'center' },
+
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  tableMobile: { minWidth: '600px' },
-  th: { textAlign: 'left', padding: '10px 12px', fontSize: '11px', color: '#6b7280', borderBottom: '1px solid #e5e7eb', textTransform: 'uppercase', whiteSpace: 'nowrap' },
-  td: { padding: '10px 12px', fontSize: '13px', color: '#374151', borderBottom: '1px solid #f3f4f6' },
-  badge: {
-    backgroundColor: '#2E7D32', color: 'white', padding: '3px 10px',
-    borderRadius: '999px', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap',
+  th: {
+    textAlign: 'left', padding: '13px 20px', fontSize: '11px', fontWeight: 700, color: '#8a968d',
+    borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em',
+    whiteSpace: 'nowrap', backgroundColor: '#fafbf8',
   },
+  td: { padding: '13px 20px', fontSize: '13px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle' },
+  badge: {
+    display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 11px',
+    borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
+    color: '#2c8047', backgroundColor: '#eaf3ec',
+  },
+  badgeDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0, backgroundColor: '#2c8047' },
+}
+
+const paginationStyles = {
+  wrap: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px' },
+  wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  info: { fontSize: '12.5px', color: '#8a968d', whiteSpace: 'nowrap' },
+  controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
+  controlsMobile: { justifyContent: 'space-between' },
+  pageSizeSelect: { padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6', fontSize: '12.5px', color: '#4b5a50', marginRight: '6px' },
+  navBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '13px', cursor: 'pointer' },
+  navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
+  pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
+  pageBtnActive: { backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff' },
+  ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
 }

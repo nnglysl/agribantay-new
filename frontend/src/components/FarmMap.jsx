@@ -214,14 +214,20 @@ const statusColor = {
   Critical: '#c0392b',
 }
 
+const REQUEST_COLORS = { odor: '#2c8047', fly: '#d9880f', none: '#d4d8cf' }
+
+function requestTypeColor(type = '') {
+  return /fly/i.test(type) ? REQUEST_COLORS.fly : REQUEST_COLORS.odor
+}
+
 // General = green, Follow-up = amber. (The stored value is "General
 // Inspection", not "General", so this is a function rather than a lookup.)
 function inspectionTypeColor(type) {
   return type === 'Follow-up' ? '#d9880f' : '#2c8047'
 }
 
-// Matches an alert/inspection record back to its farm on the map — tries
-// farm_id first (if the API ever adds it), then falls back to farm_name.
+// Matches an alert/inspection/request record back to its farm on the map —
+// tries farm_id first (if the API ever adds it), then falls back to farm_name.
 function findFarm(item, farms) {
   if (item.farm_id) {
     const byId = farms.find(f => f.id === item.farm_id)
@@ -230,7 +236,7 @@ function findFarm(item, farms) {
   return farms.find(f => f.farm_name === item.farm_name)
 }
 
-export default function FarmMap({ farms = [], alerts = [], inspections = [], onSeeAllAlerts, onSeeAllInspections, monthLabel, onPrevMonth, onNextMonth }) {
+export default function FarmMap({ farms = [], alerts = [], inspections = [], serviceRequests = [], onSeeAllAlerts, onSeeAllInspections, onSeeAllServiceRequests, monthLabel, onPrevMonth, onNextMonth }) {
   const mapRef = useRef(null)
   const containerRef = useRef(null)
   const markersRef = useRef([])
@@ -295,16 +301,24 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], onS
       let color
       let tooltip
       let inspection
+      let request
 
       if (mode === 'alerts') {
         color = statusColor[farm.current_status] || '#9ca3af'
         tooltip = `${farm.farm_name} — ${farm.current_status || 'Unknown'}`
-      } else {
+      } else if (mode === 'inspection') {
         inspection = inspections.find(i => findFarm(i, farms)?.id === farm.id)
         color = inspection ? inspectionTypeColor(inspection.inspection_type) : '#d4d8cf'
         tooltip = inspection
           ? `${farm.farm_name} — ${inspection.inspection_type}`
           : `${farm.farm_name} — No inspection scheduled`
+      } else {
+        request = serviceRequests.find(r => findFarm(r, farms)?.id === farm.id)
+        const rType = request && (request.request_type || request.type)
+        color = request ? requestTypeColor(rType) : REQUEST_COLORS.none
+        tooltip = request
+          ? `${farm.farm_name} — ${rType || 'Service request'}`
+          : `${farm.farm_name} — No service request`
       }
 
       const icon = L.divIcon({
@@ -328,15 +342,18 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], onS
           navigate(`/admin/inspections?farmId=${farm.id}`)
         })
       } else {
-        const statusLine = mode === 'alerts'
-          ? `Status: ${farm.current_status || 'Unknown'}`
-          : (inspection ? `Inspection: ${inspection.inspection_type}` : 'No inspection scheduled')
+        const statusLine =
+          mode === 'alerts'
+            ? `Status: ${farm.current_status || 'Unknown'}`
+            : mode === 'inspection'
+              ? (inspection ? `Inspection: ${inspection.inspection_type}` : 'No inspection scheduled')
+              : (request ? `Request: ${request.request_type || request.type || 'Service request'} (${request.status || 'Pending'})` : 'No service request')
         marker.bindPopup(`<strong>${farm.farm_name}</strong><br/>${farm.owner_name}<br/>${statusLine}`)
       }
 
       markersRef.current.push(marker)
     })
-  }, [farms, inspections, mode, navigate])
+  }, [farms, inspections, serviceRequests, mode, navigate])
 
   const focusFarm = (farm) => {
     if (!mapRef.current || !farm || farm.latitude == null || farm.longitude == null) return
@@ -358,25 +375,43 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], onS
     [inspections]
   )
 
-  const listItems = mode === 'alerts' ? alertItems : inspectionItems
+  const serviceRequestItems = useMemo(
+    () => [...serviceRequests].sort(
+      (a, b) => new Date(b.created_at || b.requested_at || 0) - new Date(a.created_at || a.requested_at || 0)
+    ),
+    [serviceRequests]
+  )
+
+  const listItems = mode === 'alerts' ? alertItems : mode === 'inspection' ? inspectionItems : serviceRequestItems
   const visibleItems = listItems.slice(0, 3)
+
+  const odorCount = serviceRequestItems.filter(r => /odor/i.test(r.request_type || r.type || '')).length
+  const flyCount = serviceRequestItems.filter(r => /fly/i.test(r.request_type || r.type || '')).length
 
   return (
     <div style={{ ...styles.layout, ...(isMobile ? styles.layoutMobile : {}) }}>
       <div style={styles.mapCol}>
         <div ref={containerRef} style={{ height: isMobile ? '320px' : '520px', width: '100%' }} />
         <div style={{ ...styles.legend, ...(isMobile ? styles.legendMobile : {}) }}>
-          <div style={styles.legendTitle}>{mode === 'alerts' ? 'Alert status' : 'Inspection type'}</div>
-          {mode === 'alerts' ? (
+          <div style={styles.legendTitle}>{mode === 'alerts' ? 'Alert status' : mode === 'inspection' ? 'Inspection type' : 'Service request'}</div>
+          {mode === 'alerts' && (
             <>
               <LegendRow color={statusColor.Safe} label="Normal" />
               <LegendRow color={statusColor.Moderate} label="Warning" />
               <LegendRow color={statusColor.Critical} label="Critical" />
             </>
-          ) : (
+          )}
+          {mode === 'inspection' && (
             <>
               <LegendRow color={inspectionTypeColor('Follow-up')} label="Follow-up Inspection" />
               <LegendRow color={inspectionTypeColor('General')} label="General Inspection" />
+            </>
+          )}
+          {mode === 'requests' && (
+            <>
+              <LegendRow color={REQUEST_COLORS.odor} label="Odor Control" />
+              <LegendRow color={REQUEST_COLORS.fly} label="Fly Control" />
+              <LegendRow color={REQUEST_COLORS.none} label="No Request" />
             </>
           )}
         </div>
@@ -387,12 +422,13 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], onS
           <div style={styles.sideTabs}>
             <button onClick={() => setMode('alerts')} style={{ ...styles.sideTab, ...(mode === 'alerts' ? styles.sideTabActive : {}) }}>Alerts</button>
             <button onClick={() => setMode('inspection')} style={{ ...styles.sideTab, ...(mode === 'inspection' ? styles.sideTabActive : {}) }}>Inspections</button>
+            <button onClick={() => setMode('requests')} style={{ ...styles.sideTab, ...(mode === 'requests' ? styles.sideTabActive : {}) }}>Requests</button>
           </div>
         </div>
 
         <div style={styles.sideHead}>
           <div style={styles.sideHeadLeft}>
-            <span style={styles.sideTitle}>{mode === 'alerts' ? 'Critical Alerts' : 'Upcoming Inspections'}</span>
+            <span style={styles.sideTitle}>{mode === 'alerts' ? 'Critical Alerts' : mode === 'inspection' ? 'Upcoming Inspections' : 'Service Requests'}</span>
             {mode === 'inspection' && monthLabel && (
               <div style={styles.monthRow}>
                 <span style={styles.monthBtn} onClick={onPrevMonth} aria-label="Previous month">‹</span>
@@ -401,9 +437,8 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], onS
               </div>
             )}
           </div>
-          {mode === 'alerts' ? (
-            <span style={styles.countAlert}>{listItems.length}</span>
-          ) : (
+          {mode === 'alerts' && <span style={styles.countAlert}>{listItems.length}</span>}
+          {mode === 'inspection' && (
             <div style={styles.countGroup}>
               <div style={styles.countPill}>
                 <span style={styles.countValue}>{listItems.length}</span>
@@ -415,11 +450,27 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], onS
               </div>
             </div>
           )}
+          {mode === 'requests' && (
+            <div style={styles.countGroup}>
+              <div style={styles.countPill}>
+                <span style={styles.countValue}>{listItems.length}</span>
+                <span style={styles.countLabel}>Total</span>
+              </div>
+              <div style={{ ...styles.countPill, ...styles.countPillGreen }}>
+                <span style={styles.countValue}>{odorCount}</span>
+                <span style={styles.countLabel}>Odor</span>
+              </div>
+              <div style={{ ...styles.countPill, ...styles.countPillAmber }}>
+                <span style={styles.countValue}>{flyCount}</span>
+                <span style={styles.countLabel}>Fly</span>
+              </div>
+            </div>
+          )}
         </div>
 
         <div style={styles.sideList}>
           {visibleItems.length === 0 && (
-            <div style={styles.empty}>{mode === 'alerts' ? 'No critical alerts right now.' : 'No upcoming inspections.'}</div>
+            <div style={styles.empty}>{mode === 'alerts' ? 'No critical alerts right now.' : mode === 'inspection' ? 'No upcoming inspections.' : 'No pending service requests.'}</div>
           )}
 
           {mode === 'alerts' && visibleItems.map(f => {
@@ -451,10 +502,27 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], onS
               </div>
             )
           })}
+
+          {mode === 'requests' && visibleItems.map(r => {
+            const farm = findFarm(r, farms)
+            const type = r.request_type || r.type || 'Service request'
+            const status = r.status || 'Pending'
+            const color = requestTypeColor(type)
+            return (
+              <div key={r.id ?? r.farm_name} style={styles.item} onClick={() => focusFarm(farm)}>
+                <span style={{ ...styles.itemDot, backgroundColor: color }} />
+                <div style={styles.itemText}>
+                  <div style={styles.itemName}>{r.farm_name}</div>
+                  <div style={styles.itemSub}>{type} · {status}</div>
+                </div>
+                <span style={{ ...styles.itemStatus, color }}>{type}</span>
+              </div>
+            )
+          })}
         </div>
 
         {listItems.length > visibleItems.length && (
-          <button style={styles.seeAll} onClick={() => (mode === 'alerts' ? onSeeAllAlerts?.() : onSeeAllInspections?.())}>
+          <button style={styles.seeAll} onClick={() => (mode === 'alerts' ? onSeeAllAlerts?.() : mode === 'inspection' ? onSeeAllInspections?.() : onSeeAllServiceRequests?.())}>
             See all ({listItems.length - visibleItems.length} more)
           </button>
         )}
@@ -497,6 +565,7 @@ const styles = {
   countGroup: { display: 'flex', gap: '6px', flexShrink: 0 },
   countPill: { display: 'flex', flexDirection: 'column', alignItems: 'center', backgroundColor: '#f3f4ef', borderRadius: '8px', padding: '3px 9px', minWidth: '40px' },
   countPillAmber: { backgroundColor: '#fbf1e2' },
+  countPillGreen: { backgroundColor: '#eaf3ec' },
   countValue: { fontSize: '14px', fontWeight: 800, color: '#16311d', lineHeight: 1.1 },
   countLabel: { fontSize: '8px', fontWeight: 700, color: '#8a968d', textTransform: 'uppercase' },
 

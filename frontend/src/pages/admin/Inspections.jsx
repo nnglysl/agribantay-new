@@ -253,29 +253,23 @@ export default function Inspections() {
 }
 
 function SummaryCard({ label, value, sub, variant, isMobile }) {
-  const themes = {
-    green:  { bg: 'linear-gradient(150deg, #1f5a34 0%, #14301c 100%)', fg: '#ffffff', sub: 'rgba(255,255,255,0.65)' },
-    orange: { bg: 'linear-gradient(150deg, #ea7a1c 0%, #c2410c 100%)', fg: '#ffffff', sub: 'rgba(255,255,255,0.8)' },
-    yellow: { bg: 'linear-gradient(150deg, #f2c744 0%, #d4a017 100%)', fg: '#14301c', sub: 'rgba(20,48,28,0.65)' },
-  }
-  const t = themes[variant] || themes.green
   const shortLabel = variant === 'green' ? 'Total' : variant === 'yellow' ? 'Follow-up' : 'General'
 
   if (isMobile) {
     return (
-      <div style={{ ...styles.summaryCardPhone, background: t.bg, color: t.fg }}>
+      <div style={styles.summaryCardPhone}>
         <div style={styles.summaryPhoneLabel}>{shortLabel}</div>
         <div style={styles.summaryPhoneValue}>{value}</div>
-        <div style={{ ...styles.summaryPhoneSub, color: t.sub }}>{sub}</div>
+        <div style={styles.summaryPhoneSub}>{sub}</div>
       </div>
     )
   }
 
   return (
-    <div style={{ ...styles.summaryCard, background: t.bg, color: t.fg }}>
+    <div style={styles.summaryCard}>
       <div style={styles.summaryValue}>{value}</div>
       <div style={styles.summaryLabel}>{label}</div>
-      <div style={{ ...styles.summarySub, color: t.sub }}>{sub}</div>
+      <div style={styles.summarySub}>{sub}</div>
     </div>
   )
 }
@@ -828,19 +822,18 @@ const styles = {
 
   summaryGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px', marginBottom: '22px' },
   summaryGridMobile: { gridTemplateColumns: 'repeat(3, 1fr)', gap: '11px' },
-  summaryCard: { borderRadius: '14px', padding: '20px 22px' },
-  summaryValue: { fontSize: '30px', fontWeight: 800, lineHeight: 1, letterSpacing: '-0.02em' },
-  summaryLabel: { fontSize: '12px', fontWeight: 700, marginTop: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' },
-  summarySub: { fontSize: '11.5px', marginTop: '3px' },
+  summaryCard: { backgroundColor: '#234A35', border: '1px solid #1b3a29', borderRadius: '14px', padding: '20px 22px' },
+  summaryValue: { fontSize: '30px', fontWeight: 800, lineHeight: 1, letterSpacing: '-0.02em', color: '#ffffff' },
+  summaryLabel: { fontSize: '12px', fontWeight: 700, marginTop: '8px', textTransform: 'uppercase', letterSpacing: '0.04em', color: '#eaf3ec' },
+  summarySub: { fontSize: '11.5px', marginTop: '3px', color: '#a9c6b3' },
 
   summaryCardPhone: {
-    position: 'relative', overflow: 'hidden', borderRadius: '16px',
-    padding: '16px 14px 18px', minHeight: '118px',
+    position: 'relative', overflow: 'hidden', backgroundColor: '#234A35', border: '1px solid #1b3a29',
+    borderRadius: '14px', padding: '16px 14px 18px', minHeight: '118px',
   },
-  summaryPhoneLabel: { fontSize: '13px', fontWeight: 700 },
-  summaryPhoneValue: { fontSize: '26px', fontWeight: 800, lineHeight: 1, letterSpacing: '-0.02em', marginTop: '10px' },
-  summaryPhoneSub: { fontSize: '10px', fontWeight: 600, marginTop: '6px' },
-
+  summaryPhoneLabel: { fontSize: '13px', fontWeight: 700, color: '#eaf3ec' },
+  summaryPhoneValue: { fontSize: '26px', fontWeight: 800, lineHeight: 1, letterSpacing: '-0.02em', marginTop: '10px', color: '#ffffff' },
+  summaryPhoneSub: { fontSize: '10px', fontWeight: 600, marginTop: '6px', color: '#a9c6b3' },
   tabs: { display: 'flex', gap: '4px', marginBottom: '20px', borderBottom: '1px solid #e7e8e0', overflowX: 'auto' },
   tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap' },
   tabActive: { color: '#2c8047', fontWeight: 700, borderBottom: '2px solid #2c8047' },
