@@ -10,7 +10,7 @@ export default function Settings() {
   const [profile, setProfile] = useState(null)
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
-  const [mobileNumber, setMobileNumber] = useState('')
+  const [contact, setContact] = useState('')
   const [isEditing, setIsEditing] = useState(false)
   const [profileError, setProfileError] = useState('')
   const [profileSuccess, setProfileSuccess] = useState('')
@@ -37,7 +37,9 @@ export default function Settings() {
       setProfile(data)
       setFirstName(data.first_name)
       setLastName(data.last_name)
-      setMobileNumber(data.mobile_number)
+      // Prefer whichever contact method is currently on file — mobile
+      // first since that's the more common case, falling back to email.
+      setContact(data.mobile_number || data.email || '')
     })
   }, [])
 
@@ -51,13 +53,20 @@ export default function Settings() {
       await api.put('/settings/profile', {
         first_name: firstName,
         last_name: lastName,
-        mobile_number: mobileNumber,
+        contact,
       })
 
       const user = getUser()
       setAuth(getToken(), { ...user, first_name: firstName, last_name: lastName })
 
-      setProfile({ ...profile, first_name: firstName, last_name: lastName, mobile_number: mobileNumber })
+      const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.trim())
+      setProfile({
+        ...profile,
+        first_name: firstName,
+        last_name: lastName,
+        email: isEmail ? contact : profile.email,
+        mobile_number: isEmail ? profile.mobile_number : contact,
+      })
       setProfileSuccess('Profile updated successfully.')
       setIsEditing(false)
     } catch (err) {
@@ -70,7 +79,7 @@ export default function Settings() {
   const handleCancelEdit = () => {
     setFirstName(profile.first_name)
     setLastName(profile.last_name)
-    setMobileNumber(profile.mobile_number)
+    setContact(profile.mobile_number || profile.email || '')
     setIsEditing(false)
     setProfileError('')
   }
@@ -161,10 +170,10 @@ export default function Settings() {
           </div>
 
           <div style={styles.fieldGroup}>
-            <label style={styles.label}>Mobile Number</label>
+            <label style={styles.label}>Email or Mobile Number</label>
             <input
-              value={mobileNumber}
-              onChange={e => setMobileNumber(e.target.value)}
+              value={contact}
+              onChange={e => setContact(e.target.value)}
               disabled={!isEditing}
               style={{ ...styles.input, ...(!isEditing ? styles.inputDisabled : {}) }}
             />

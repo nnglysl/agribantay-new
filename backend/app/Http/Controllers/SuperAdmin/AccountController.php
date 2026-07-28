@@ -5,25 +5,17 @@ namespace App\Http\Controllers\SuperAdmin;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\ActivityLog;
+use App\Services\SmsService;
+use App\Mail\TempPasswordMail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Mail;
 
 class AccountController extends Controller
 {
-    // Deliberately excludes 'super_admin' and 'farm_owner' — this
-    // controller only ever touches Admin/Vet accounts, matching the
-    // spec exactly ("Create, edit, activate/deactivate, and reset
-    // passwords for Admin and Veterinarian accounts"). Farm owners stay
-    // with regular Admin's existing Register Farm Owner flow, and
-    // creating another Super Admin isn't exposed through this endpoint.
     private const MANAGEABLE_ROLES = ['admin', 'vet'];
 
-    /**
-     * Defense in depth: even if route-level protection is ever
-     * misconfigured, every method here re-checks the caller is actually
-     * a Super Admin before touching anything.
-     */
     private function guardSuperAdmin(): ?\Illuminate\Http\JsonResponse
     {
         if (Auth::user()?->role !== 'super_admin') {
@@ -35,10 +27,6 @@ class AccountController extends Controller
         return null;
     }
 
-    /**
-     * Lists Admin and Vet accounts together, optionally filtered by
-     * role and/or search text.
-     */
     public function index(Request $request)
     {
         if ($blocked = $this->guardSuperAdmin()) return $blocked;
@@ -77,32 +65,73 @@ class AccountController extends Controller
         return response()->json(['success' => true, 'data' => $accounts]);
     }
 
+    /**
+     * Accepts a single 'contact' field — either an email or a mobile
+     * number — same pattern as Login and Farm Owner registration.
+     * Super Admin no longer types a password directly; a temporary
+     * password is generated and delivered via email or SMS depending
+     * on the detected contact type.
+     */
     public function store(Request $request)
     {
         if ($blocked = $this->guardSuperAdmin()) return $blocked;
 
         $request->validate([
-            'full_name'      => 'required|string|max:255',
-            'email'          => 'required|email|unique:users,email',
-            'contact_number' => 'required|string',
-            'username'       => 'required|string|min:4|unique:users,username',
-            'password'       => 'required|string|min:8|confirmed',
-            'role'           => 'required|in:admin,vet',
+            'full_name' => 'required|string|max:255',
+            'contact'   => 'required|string',
+            'username'  => 'required|string|min:4|unique:users,username',
+            'role'      => 'required|in:admin,vet',
         ]);
 
+        $isEmail = filter_var($request->contact, FILTER_VALIDATE_EMAIL);
+
+        $exists = $isEmail
+            ? User::where('email', $request->contact)->exists()
+            : User::where('mobile_number', $request->contact)->exists();
+
+        if ($exists) {
+            return response()->json([
+                'success' => false,
+                'message' => $isEmail
+                    ? 'An account with this email already exists.'
+                    : 'An account with this mobile number already exists.',
+            ], 422);
+        }
+
         [$firstName, $lastName] = $this->splitFullName($request->full_name);
+        $tempPassword = Str::random(10);
 
         $account = User::create([
             'first_name'           => $firstName,
             'last_name'            => $lastName,
-            'email'                => $request->email,
-            'mobile_number'        => $request->contact_number,
+            'email'                => $isEmail ? $request->contact : null,
+            'mobile_number'        => $isEmail ? null : $request->contact,
             'username'             => $request->username,
-            'password'             => bcrypt($request->password),
+            'password'             => bcrypt($tempPassword),
             'role'                 => $request->role,
             'status'               => 'active',
-            'must_change_password' => false,
+            'must_change_password' => true,
         ]);
+
+        $delivered = false;
+
+        if ($isEmail) {
+            try {
+                Mail::to($account->email)->send(new TempPasswordMail($account, $tempPassword, 'welcome'));
+                $delivered = true;
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        } else {
+            $smsMessage = "Welcome to AgriBantay, {$firstName}! Your {$request->role} account is ready. Temporary password: {$tempPassword}. You will be asked to set a new password on your first login.";
+
+            $delivered = app(SmsService::class)->send(
+                $request->contact,
+                $smsMessage,
+                'Account Creation',
+                $account->id
+            );
+        }
 
         ActivityLog::create([
             'user_id' => Auth::id(),
@@ -113,9 +142,10 @@ class AccountController extends Controller
         ]);
 
         return response()->json([
-            'success' => true,
-            'message' => ucfirst($request->role) . ' account created successfully.',
-            'data'    => $account,
+            'success'   => true,
+            'message'   => ucfirst($request->role) . ' account created successfully.',
+            'delivered' => $delivered,
+            'data'      => $account,
         ]);
     }
 

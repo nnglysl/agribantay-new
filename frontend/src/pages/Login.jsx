@@ -8,6 +8,15 @@ import agribantayLogo from '../assets/agribantay_logo.png'
 import agribantayName from '../assets/agribantay_name.png'
 import sanjoseBg from '../assets/sanjosebg.png'
 
+// Same detection Login and Forgot Password both rely on: if it has an "@"
+// and looks like an email, treat it as one; otherwise treat it as a phone
+// number. Backend should apply the same rule so the two stay in sync.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+function detectLoginType(value) {
+  return EMAIL_RE.test(value.trim()) ? 'email' : 'phone'
+}
+
 export default function Login() {
   const [login, setLogin] = useState('')
   const [password, setPassword] = useState('')
@@ -16,6 +25,8 @@ export default function Login() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [showForgotModal, setShowForgotModal] = useState(false)
+  const [showTermsModal, setShowTermsModal] = useState(false)
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false)
   const navigate = useNavigate()
   const isMobile = useIsMobile()
 
@@ -24,9 +35,17 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      const res = await api.post('/login', { login, password })
+      // login_type is sent alongside the raw value so the backend doesn't
+      // have to re-guess — it can validate against the right column
+      // (email vs mobile_number) directly.
+      const res = await api.post('/login', {
+        login,
+        password,
+        login_type: detectLoginType(login),
+        remember,
+      })
       const { token, user } = res.data
-      setAuth(token, user)
+      setAuth(token, user, remember)
       if (user.must_change_password) { navigate('/change-password'); return }
       if (user.role === 'super_admin') navigate('/superadmin/dashboard')
       else if (user.role === 'admin') navigate('/admin/dashboard')
@@ -57,7 +76,6 @@ export default function Login() {
       </button>
 
       <div style={{ ...styles.card, flexDirection: isMobile ? 'column' : 'row', maxWidth: isMobile ? '440px' : '920px', minHeight: isMobile ? 'auto' : '600px' }}>
-        {/* Illustration cell — desktop only */}
         {!isMobile && (
           <div style={{ ...styles.imgCell, flex: '0 0 45%', order: 1 }}>
             <div style={{ ...styles.imgCurve, clipPath: CLIP }} />
@@ -67,7 +85,6 @@ export default function Login() {
           </div>
         )}
 
-        {/* Form cell */}
         <div style={{ ...styles.formCell, order: 2, padding: isMobile ? '34px 26px 30px' : '48px 56px' }}>
           <div style={styles.formInner}>
             <div style={styles.logoRow}>
@@ -118,7 +135,10 @@ export default function Login() {
               </button>
 
               <p style={styles.legal}>
-                By continuing, you agree to our <span style={styles.legalLink}>Terms of Service</span> and <span style={styles.legalLink}>Privacy Policy</span>.
+                By continuing, you agree to our{' '}
+                <span style={styles.legalLink} onClick={() => setShowTermsModal(true)}>Terms of Service</span>{' '}
+                and{' '}
+                <span style={styles.legalLink} onClick={() => setShowPrivacyModal(true)}>Privacy Policy</span>.
               </p>
             </form>
           </div>
@@ -126,12 +146,14 @@ export default function Login() {
       </div>
 
       {showForgotModal && <ForgotPasswordModal onClose={() => setShowForgotModal(false)} />}
+      {showTermsModal && <LegalModal title="Terms of Service" onClose={() => setShowTermsModal(false)}><TermsContent /></LegalModal>}
+      {showPrivacyModal && <LegalModal title="Privacy Policy" onClose={() => setShowPrivacyModal(false)}><PrivacyContent /></LegalModal>}
     </div>
   )
 }
 
 function ForgotPasswordModal({ onClose }) {
-  const [mobileNumber, setMobileNumber] = useState('')
+  const [contact, setContact] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState('')
@@ -141,7 +163,12 @@ function ForgotPasswordModal({ onClose }) {
     setError('')
     setSubmitting(true)
     try {
-      await api.post('/forgot-password', { mobile_number: mobileNumber })
+      // Backend picks email vs SMS delivery based on login_type, same rule
+      // as the login form uses.
+      await api.post('/forgot-password', {
+        login: contact,
+        login_type: detectLoginType(contact),
+      })
       setSubmitted(true)
     } catch (err) {
       setError(err.response?.data?.message || 'Something went wrong. Please try again.')
@@ -150,15 +177,18 @@ function ForgotPasswordModal({ onClose }) {
     }
   }
 
+  const willUseEmail = contact.trim().length > 0 && detectLoginType(contact) === 'email'
+
   return (
     <div style={modalStyles.overlay} onClick={onClose}>
       <div style={modalStyles.modal} onClick={e => e.stopPropagation()}>
         {submitted ? (
           <>
-            <h3 style={modalStyles.title}>Check your phone</h3>
+            <h3 style={modalStyles.title}>Check your {willUseEmail ? 'email' : 'phone'}</h3>
             <p style={modalStyles.message}>
-              If an account exists for that mobile number, a temporary password has been sent via SMS.
-              Use it to log in, and you'll be asked to set a new password.
+              If an account exists for that {willUseEmail ? 'email address' : 'mobile number'}, a temporary
+              password has been sent{willUseEmail ? '' : ' via SMS'}. Use it to log in, and you'll be asked
+              to set a new password.
             </p>
             <div style={modalStyles.actions}>
               <button onClick={onClose} className="agb-btn agb-primary" style={modalStyles.confirmBtn}>Back to login</button>
@@ -168,12 +198,12 @@ function ForgotPasswordModal({ onClose }) {
           <>
             <h3 style={modalStyles.title}>Forgot password</h3>
             <p style={modalStyles.message}>
-              Enter the mobile number linked to your account. We'll send a temporary password by SMS.
+              Enter the email or mobile number linked to your account. We'll send a temporary password.
             </p>
             <form onSubmit={handleSubmit}>
               {error && <div style={modalStyles.errorBox}>{error}</div>}
-              <input className="agb-input" type="text" placeholder="Mobile number" value={mobileNumber}
-                onChange={e => setMobileNumber(e.target.value)} style={modalStyles.input} required autoFocus />
+              <input className="agb-input" type="text" placeholder="Email or mobile number" value={contact}
+                onChange={e => setContact(e.target.value)} style={modalStyles.input} required autoFocus />
               <div style={modalStyles.actions}>
                 <button type="button" onClick={onClose} className="agb-btn" style={modalStyles.cancelBtn} disabled={submitting}>Cancel</button>
                 <button type="submit" className="agb-btn agb-primary"
@@ -187,6 +217,67 @@ function ForgotPasswordModal({ onClose }) {
         )}
       </div>
     </div>
+  )
+}
+
+function LegalModal({ title, onClose, children }) {
+  return (
+    <div style={modalStyles.overlay} onClick={onClose}>
+      <div style={modalStyles.legalModal} onClick={e => e.stopPropagation()}>
+        <div style={modalStyles.legalHeader}>
+          <h3 style={modalStyles.title}>{title}</h3>
+          <span style={modalStyles.legalClose} onClick={onClose}>×</span>
+        </div>
+        <div style={modalStyles.legalBody}>{children}</div>
+        <div style={modalStyles.actions}>
+          <button onClick={onClose} className="agb-btn agb-primary" style={modalStyles.confirmBtn}>Close</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TermsContent() {
+  return (
+    <>
+      <p style={modalStyles.legalP}>
+        AgriBantay is a poultry manure monitoring and environmental service management system provided
+        for use by the Municipal Agriculture Office of San Jose, Batangas, and its registered farm owners,
+        veterinarians, and administrators.
+      </p>
+      <p style={modalStyles.legalP}>
+        By logging in, you agree to use the system only for its intended purpose — monitoring farm
+        conditions, submitting or managing service requests, and coordinating environmental compliance.
+        Sensor data, service records, and account information are provided to support these functions
+        and should not be misrepresented or tampered with.
+      </p>
+      <p style={modalStyles.legalP}>
+        Accounts are issued per user role (Admin, Farm Owner, or Veterinarian) and must not be shared.
+        You are responsible for keeping your login credentials confidential.
+      </p>
+    </>
+  )
+}
+
+function PrivacyContent() {
+  return (
+    <>
+      <p style={modalStyles.legalP}>
+        AgriBantay collects farm profile information, sensor readings, service request details, and
+        basic account information (name, email or mobile number) solely to operate the monitoring and
+        service management system for the Municipal Agriculture Office of San Jose, Batangas.
+      </p>
+      <p style={modalStyles.legalP}>
+        Your contact information is used only for account access (login, password recovery) and for
+        SMS or email notifications related to your farm's status or service requests. It is not sold
+        or shared with third parties outside the Municipal Agriculture Office's operational use.
+      </p>
+      <p style={modalStyles.legalP}>
+        Sensor and inspection data collected through the system remain associated with your registered
+        farm and are used to generate alerts, reports, and recommendations relevant to environmental
+        compliance monitoring.
+      </p>
+    </>
   )
 }
 
@@ -259,7 +350,8 @@ const styles = {
   rememberBtn: { display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: '13px', color: '#4b5a50', fontFamily: SANS },
   checkbox: { width: '17px', height: '17px', borderRadius: '5px', border: '1.5px solid #c4cabd', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   forgotLinkBtn: { fontSize: '13px', fontWeight: 600, color: '#2c8047', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: SANS },
-  loginBtn: { marginTop: '4px', background: '#2c8047', color: '#fff', border: 'none', borderRadius: '10px', padding: '13px', fontSize: '15px', fontWeight: 700, fontFamily: SANS, width: '100%' },  legal: { textAlign: 'center', fontSize: '12.5px', lineHeight: 1.6, color: '#8a968d', margin: '10px 0 0' },
+  loginBtn: { marginTop: '4px', background: '#2c8047', color: '#fff', border: 'none', borderRadius: '10px', padding: '13px', fontSize: '15px', fontWeight: 700, fontFamily: SANS, width: '100%' },
+  legal: { textAlign: 'center', fontSize: '12.5px', lineHeight: 1.6, color: '#8a968d', margin: '10px 0 0' },
   legalLink: { color: '#2c8047', fontWeight: 600, cursor: 'pointer' },
 }
 
@@ -273,4 +365,10 @@ const modalStyles = {
   actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px' },
   cancelBtn: { padding: '11px 18px', borderRadius: '10px', border: '1px solid #d9dcd4', background: '#fff', fontSize: '14px', fontWeight: 600, color: '#33413a', cursor: 'pointer' },
   confirmBtn: { padding: '11px 18px', borderRadius: '10px', border: 'none', background: '#2c8047 ', color: '#fff', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
+
+  legalModal: { background: '#fff', border: '1px solid #e9e8e0', borderRadius: '16px', padding: '28px', width: '520px', maxWidth: '100%', maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 30px 70px -20px rgba(15,38,22,0.5)' },
+  legalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' },
+  legalClose: { fontSize: '22px', cursor: 'pointer', color: '#9aa79d', lineHeight: 1 },
+  legalBody: { overflowY: 'auto', paddingRight: '4px', marginBottom: '18px' },
+  legalP: { fontSize: '13.5px', color: '#4b5a50', lineHeight: 1.65, margin: '0 0 14px' },
 }

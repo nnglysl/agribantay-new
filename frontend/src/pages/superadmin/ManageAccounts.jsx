@@ -215,7 +215,7 @@ export default function ManageAccounts() {
 function RegisterModal({ onClose, onSuccess, isMobile }) {
   const [form, setForm] = useState({
     role: 'admin',
-    full_name: '', email: '', contact_number: '', username: '', password: '', password_confirmation: '',
+    full_name: '', contact: '', username: '',
   })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -256,25 +256,15 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
           <label style={modalStyles.label}>Full Name *</label>
           <input placeholder="Full Name" value={form.full_name} onChange={update('full_name')} style={modalStyles.inputFull} required />
 
-          <label style={modalStyles.label}>Email *</label>
-          <input type="email" placeholder="Email" value={form.email} onChange={update('email')} style={modalStyles.inputFull} required />
-
-          <label style={modalStyles.label}>Contact Number *</label>
-          <input placeholder="Contact Number" value={form.contact_number} onChange={update('contact_number')} style={modalStyles.inputFull} required />
+          <label style={modalStyles.label}>Email or Contact Number *</label>
+          <input placeholder="Email address or mobile number" value={form.contact} onChange={update('contact')} style={modalStyles.inputFull} required />
 
           <label style={modalStyles.label}>Username *</label>
           <input placeholder="Username" value={form.username} onChange={update('username')} style={modalStyles.inputFull} required />
 
-          <div style={{ ...modalStyles.row, ...(isMobile ? modalStyles.rowMobile : {}) }}>
-            <div>
-              <label style={modalStyles.label}>Password *</label>
-              <input type="password" placeholder="Password" value={form.password} onChange={update('password')} style={modalStyles.input} required />
-            </div>
-            <div>
-              <label style={modalStyles.label}>Confirm Password *</label>
-              <input type="password" placeholder="Confirm Password" value={form.password_confirmation} onChange={update('password_confirmation')} style={modalStyles.input} required />
-            </div>
-          </div>
+          <p style={modalStyles.hint || { fontSize: '12px', color: '#6b7280', marginTop: '10px', lineHeight: '1.5' }}>
+            A temporary password will be generated automatically and sent via email or SMS, depending on what was entered above. The account holder must change it on their first login.
+          </p>
 
           <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
             <button type="button" onClick={onClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>

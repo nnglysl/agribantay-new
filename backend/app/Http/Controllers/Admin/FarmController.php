@@ -57,6 +57,7 @@ class FarmController extends Controller
                 'farm_name'   => $farm->farm_name,
                 'owner_name'  => $farm->owner_name,
                 'mobile_number' => $farm->mobile_number,
+                'email'       => $farm->user?->email,
                 'barangay'    => $farm->barangay,
                 'address'     => $farm->address,
                 'num_birds'   => $farm->num_birds,

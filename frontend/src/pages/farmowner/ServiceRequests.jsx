@@ -18,6 +18,15 @@ function statusBadge(status) {
   }
 }
 
+// Shared date formatting so Request Date / Scheduled Date render identically
+// across the table and the mobile card fallback.
+function formatDate(value, fallback = '—') {
+  if (!value) return fallback
+  return new Date(value).toLocaleDateString('en-PH', {
+    year: 'numeric', month: 'short', day: 'numeric',
+  })
+}
+
 export default function ServiceRequests() {
   const [tab, setTab] = useState('active')
   const [currentPage, setCurrentPage] = useState(1)
@@ -98,29 +107,78 @@ export default function ServiceRequests() {
         <div style={styles.listCard}>
           {list.length === 0 ? (
             <div style={styles.empty}>No {tab === 'active' ? 'active requests' : 'past records'} yet.</div>
-          ) : (
+          ) : isMobile ? (
+            // Mobile stays a card list — table columns collapse into labeled
+            // rows inside each card so nothing gets cramped on small screens.
             <div style={styles.list}>
               {pagedList.map(r => {
                 const sb = statusBadge(r.status)
                 return (
-                  <div key={r.id} style={{ ...styles.card, ...(isMobile ? styles.cardMobile : {}) }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={styles.cardTitle}>{r.service_type}</div>
-                      <div style={styles.cardMeta}>
-                        {r.assigned_to && <>{r.assigned_to} · </>}
-                        {r.scheduled_at
-                          ? new Date(r.scheduled_at).toLocaleDateString()
-                          : 'Awaiting review'}
+                  <div key={r.id} style={styles.cardMobile}>
+                    <div style={styles.cardMobileTop}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={styles.cardTitle}>{r.service_type}</div>
+                        {r.assigned_to && <div style={styles.cardMeta}>{r.assigned_to}</div>}
                       </div>
-                      {r.notes && <div style={styles.cardNotes}>{r.notes}</div>}
+                      <div style={{ ...styles.badge, ...sb, ...styles.badgeMobile }}>
+                        <span style={{ ...styles.badgeDot, backgroundColor: sb.color }} />
+                        {r.status}
+                      </div>
                     </div>
-                    <div style={{ ...styles.badge, ...sb, ...(isMobile ? styles.badgeMobile : {}) }}>
-                      <span style={{ ...styles.badgeDot, backgroundColor: sb.color }} />
-                      {r.status}
+
+                    <div style={styles.cardMobileGrid}>
+                      <div>
+                        <div style={styles.cardMobileLabel}>Request Date</div>
+                        <div style={styles.cardMobileValue}>{formatDate(r.created_at)}</div>
+                      </div>
+                      <div>
+                        <div style={styles.cardMobileLabel}>Scheduled Date</div>
+                        <div style={styles.cardMobileValue}>{formatDate(r.scheduled_at, 'Awaiting review')}</div>
+                      </div>
                     </div>
+
+                    {r.notes && <div style={styles.cardNotes}>{r.notes}</div>}
                   </div>
                 )
               })}
+            </div>
+          ) : (
+            // Desktop: proper table, matching the Vet/Admin table conversions.
+            <div style={styles.tableWrap}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Request Type</th>
+                    <th style={styles.th}>Request Date</th>
+                    <th style={styles.th}>Scheduled Date</th>
+                    <th style={styles.th}>Notes</th>
+                    <th style={{ ...styles.th, textAlign: 'right' }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedList.map(r => {
+                    const sb = statusBadge(r.status)
+                    return (
+                      <tr key={r.id} style={styles.tr}>
+                        <td style={styles.td}>
+                          <div style={styles.cardTitle}>{r.service_type}</div>
+                        </td>
+                        <td style={styles.td}>{formatDate(r.created_at)}</td>
+                        <td style={styles.td}>{formatDate(r.scheduled_at, 'Awaiting review')}</td>
+                        <td style={{ ...styles.td, ...styles.tdNotes }} title={r.notes || ''}>
+                          {r.notes || '—'}
+                        </td>
+                        <td style={{ ...styles.td, textAlign: 'right' }}>
+                          <div style={{ ...styles.badge, ...sb }}>
+                            <span style={{ ...styles.badgeDot, backgroundColor: sb.color }} />
+                            {r.status}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
 
@@ -350,15 +408,36 @@ const styles = {
   empty: { padding: '40px', textAlign: 'center', color: '#9aa79d', fontSize: '14px' },
   listCard: { backgroundColor: 'white', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden' },
   list: { display: 'flex', flexDirection: 'column' },
-  card: {
-    padding: '16px 20px',
-    display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-    borderBottom: '1px solid #f2f3ed', gap: '12px',
+
+  // --- Desktop table ---
+  tableWrap: { overflowX: 'auto' },
+  table: { width: '100%', borderCollapse: 'collapse', fontFamily: SANS },
+  th: {
+    textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#6b7770',
+    textTransform: 'uppercase', letterSpacing: '0.03em',
+    padding: '12px 20px', borderBottom: '1px solid #e7e8e0', backgroundColor: '#fafaf7', whiteSpace: 'nowrap',
   },
-  cardMobile: { padding: '14px 16px' },
+  tr: { borderBottom: '1px solid #f2f3ed' },
+  td: {
+    padding: '14px 20px', fontSize: '13.5px', color: '#33413a', verticalAlign: 'middle', whiteSpace: 'nowrap',
+  },
+  tdNotes: {
+    maxWidth: '260px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#4b5a50',
+  },
+
+  // --- Mobile cards ---
+  cardMobile: { padding: '14px 16px', borderBottom: '1px solid #f2f3ed' },
+  cardMobileTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' },
+  cardMobileGrid: {
+    display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px',
+    marginTop: '12px', padding: '10px 12px', backgroundColor: '#fafaf7', borderRadius: '9px',
+  },
+  cardMobileLabel: { fontSize: '10.5px', fontWeight: 700, color: '#9aa79d', textTransform: 'uppercase', letterSpacing: '0.03em' },
+  cardMobileValue: { fontSize: '13px', fontWeight: 600, color: '#33413a', marginTop: '3px' },
+
   cardTitle: { fontSize: '15px', fontWeight: 700, color: '#16311d' },
   cardMeta: { fontSize: '13px', color: '#6b7770', marginTop: '4px' },
-  cardNotes: { fontSize: '13px', color: '#4b5a50', marginTop: '6px', lineHeight: '1.5' },
+  cardNotes: { fontSize: '13px', color: '#4b5a50', marginTop: '10px', lineHeight: '1.5' },
   badge: {
     display: 'inline-flex', alignItems: 'center', gap: '6px',
     padding: '4px 11px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',

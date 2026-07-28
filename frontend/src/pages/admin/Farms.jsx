@@ -332,7 +332,7 @@ export default function Farms() {
                         </div>
                       </div>
                     </td>
-                    <td style={styles.td}>{f.mobile_number}</td>
+                    <td style={styles.td}>{f.mobile_number || f.email}</td>
                     <td style={styles.td}>{f.barangay}</td>
                     <td style={styles.td}>{f.farm_size}</td>
                     <td style={styles.td}>{formatRegistrationDate(f.created_at)}</td>
@@ -546,7 +546,7 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
   const [step, setStep] = useState('owner') // 'owner' | 'farms'
 
   const [ownerForm, setOwnerForm] = useState({
-    first_name: '', last_name: '', mobile_number: '', address: '',
+    first_name: '', last_name: '', contact: '', address: '',
   })
   const [ownerId, setOwnerId] = useState(null)
   const [ownerError, setOwnerError] = useState('')
@@ -566,8 +566,8 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
     try {
       const res = await api.post('/admin/farm-owners', ownerForm)
       setOwnerId(res.data.id)
-      if (res.data.sms_sent === false) {
-        setSmsWarning('Owner account created, but the SMS with the temporary password failed to send.')
+      if (res.data.delivered === false) {
+        setSmsWarning('Owner account created, but the temporary password could not be delivered. Please contact the owner directly.')
       }
       setStep('farms')
     } catch (err) {
@@ -658,14 +658,14 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
               </div>
             </div>
 
-            <Label text="Mobile Number (used for login)" required />
-            <input placeholder="e.g. 0917 123 4567" value={ownerForm.mobile_number} onChange={updateOwner('mobile_number')} style={modalStyles.inputFull} required />
+            <Label text="Email or Mobile Number (used for login)" required />
+            <input placeholder="Email address or e.g. 0917 123 4567" value={ownerForm.contact} onChange={updateOwner('contact')} style={modalStyles.inputFull} required />
 
             <Label text="Owner Address" required />
             <input placeholder="House/Lot No., Street, Barangay" value={ownerForm.address} onChange={updateOwner('address')} style={modalStyles.inputFull} required />
 
             <p style={modalStyles.hint}>
-              A temporary password will be generated and sent to the owner's mobile number via SMS. The owner must change it on their first login. The owner is registered once — you'll add their farm(s) in the next step.
+              A temporary password will be generated and sent to the owner's email or mobile number, depending on what was entered above. The owner must change it on their first login. The owner is registered once — you'll add their farm(s) in the next step.
             </p>
 
             <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
@@ -844,7 +844,7 @@ function AddFarmModal({ onClose, onSuccess, isMobile }) {
                   <div key={o.id} style={modalStyles.ownerResultItem} onClick={() => setSelectedOwner(o)}>
                     <div style={modalStyles.ownerResultName}>{o.first_name} {o.last_name}</div>
                     <div style={modalStyles.ownerResultMeta}>
-                      {o.mobile_number} · {o.farm_count} farm{o.farm_count === 1 ? '' : 's'} registered
+                      {o.mobile_number || o.email} · {o.farm_count} farm{o.farm_count === 1 ? '' : 's'} registered
                     </div>
                   </div>
                 ))}
@@ -870,7 +870,7 @@ function AddFarmModal({ onClose, onSuccess, isMobile }) {
         {selectedOwner && (
           <form onSubmit={handleSubmit}>
             <div style={modalStyles.ownerBanner}>
-              Adding farm(s) for <strong>{selectedOwner.first_name} {selectedOwner.last_name}</strong> ({selectedOwner.mobile_number})
+              Adding farm(s) for <strong>{selectedOwner.first_name} {selectedOwner.last_name}</strong> ({selectedOwner.mobile_number || selectedOwner.email})
               {' — '}
               <span
                 style={modalStyles.changeOwnerLink}

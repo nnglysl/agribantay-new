@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api/axios'
-import { getUser, setAuth, getToken } from '../utils/auth'
+import { getUser, setAuth, getToken, isRemembered } from '../utils/auth'
 import { validatePassword } from '../utils/passwordValidation'
 import PasswordStrengthIndicator from '../components/PasswordStrengthIndicator'
 
@@ -42,7 +42,7 @@ export default function ChangePassword() {
 
       const user = getUser()
       const updatedUser = { ...user, must_change_password: false }
-      setAuth(getToken(), updatedUser)
+      setAuth(getToken(), updatedUser, isRemembered())
 
       if (user.role === 'admin') navigate('/admin/dashboard')
       else if (user.role === 'farm_owner') navigate('/farmowner/dashboard')
