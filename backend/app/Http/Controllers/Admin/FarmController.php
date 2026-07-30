@@ -16,6 +16,7 @@ use App\Services\RecommendationExplanationService;
 use App\Services\MaintenanceStatusService;
 use App\Models\MaintenanceLog;
 use App\Models\ManureDisposalRecord;
+use App\Models\Inspection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Auth;
@@ -25,7 +26,7 @@ class FarmController extends Controller
     public function index(Request $request)
     {
         $query = Farm::with(['user', 'sensorReadings' => function ($q) {
-            $q->latest()->limit(1);
+            $q->latest()->limit(1)->with('sensor');
         }]);
 
         if ($request->status) {
@@ -50,8 +51,18 @@ class FarmController extends Controller
             app(FarmStatusService::class)->syncStatus($farm);
         }
 
+        if ($request->monitoring_status) {
+            $farms = $farms->filter(fn($f) => $f->current_status === $request->monitoring_status)->values();
+        }
+
+        if ($request->farm_size) {
+            $farms = $farms->filter(fn($f) => $f->farm_size === $request->farm_size)->values();
+        }
+
         $farms = $farms->map(function ($farm) {
             $latestReading = $farm->sensorReadings->first();
+            $sensor = $latestReading?->sensor;
+
             return [
                 'id'          => $farm->id,
                 'farm_name'   => $farm->farm_name,
@@ -67,9 +78,10 @@ class FarmController extends Controller
                 'farm_area_unit' => $farm->farm_area_unit,
                 'status'      => $farm->status,
                 'current_status' => $farm->current_status,
+                'device_name' => $sensor?->label ?? $sensor?->sensor_code ?? null,
                 'ammonia'     => $latestReading?->ammonia,
                 'ammonia_status' => $latestReading?->ammonia_status,
-                'sensor_status'  => $latestReading?->ammonia_status ?? 'Offline',
+                'sensor_status'  => $farm->current_status ?? 'Offline',
                 'created_at'  => $farm->created_at,
             ];
         });
@@ -102,13 +114,6 @@ class FarmController extends Controller
         return response()->json(['success' => true, 'data' => $farms]);
     }
 
-    /**
-     * Geocode an address, falling back to barangay-only if the full
-     * address fails to resolve (common for sparse rural addresses).
-     * Only used when the frontend didn't already supply lat/lng itself
-     * (the new farm-registration flow geotags client-side via Nominatim
-     * autocomplete and sends coordinates directly).
-     */
     private function geocodeWithFallback(?string $lotNumber, ?string $street, string $barangay): ?array
     {
         $fullAddress = implode(', ', array_filter([
@@ -136,19 +141,6 @@ class FarmController extends Controller
         return $coordinates;
     }
 
-    /**
-     * Creates a farm. Supports two flows:
-     *
-     *  - New flow: `farm_owner_id` is provided (owner was already created
-     *    via POST /admin/farm-owners in a previous request). No new User
-     *    is created here, no SMS is sent — this call just attaches a farm
-     *    to that existing owner. Latitude/longitude, when provided, are
-     *    used as-is (already geotagged client-side).
-     *
-     *  - Legacy flow: no `farm_owner_id` — first_name/last_name/mobile_number
-     *    are required and a new owner + farm are created together in one
-     *    call, exactly as before. Kept for backward compatibility.
-     */
     public function store(Request $request)
     {
         $request->validate([
@@ -175,12 +167,10 @@ class FarmController extends Controller
         $smsSent = null;
 
         if ($request->farm_owner_id) {
-            // New flow — owner already exists.
             $user = User::where('id', $request->farm_owner_id)
                 ->where('role', 'farm_owner')
                 ->firstOrFail();
         } else {
-            // Legacy flow — create the owner inline, same as before.
             $tempPassword = Str::random(10);
 
             $user = User::create([
@@ -203,9 +193,6 @@ class FarmController extends Controller
             );
         }
 
-        // Location: prefer coordinates the frontend already resolved via
-        // its own address-autocomplete geotagging; otherwise fall back to
-        // server-side geocoding from barangay/lot/street (legacy path).
         if ($request->filled('latitude') && $request->filled('longitude')) {
             $latitude  = $request->latitude;
             $longitude = $request->longitude;
@@ -259,7 +246,7 @@ class FarmController extends Controller
         return response()->json([
             'success'  => true,
             'message'  => 'Farm registered successfully.',
-            'sms_sent' => $smsSent, // null when reusing an existing owner (no SMS sent this call)
+            'sms_sent' => $smsSent,
             'data'     => ['user' => $user, 'farm' => $farm],
         ]);
     }
@@ -306,9 +293,6 @@ class FarmController extends Controller
             },
         ])->findOrFail($id);
 
-        // Objective 3.2 — same computed status the Farm Owner sees,
-        // shown here read-only for oversight. No new logic — reuses
-        // the exact same service, just a different consumer.
         $farm->maintenance_status = app(MaintenanceStatusService::class)->getStatus($farm);
         $farm->maintenance_logs = MaintenanceLog::where('farm_id', $farm->id)
             ->latest('performed_at')
@@ -321,10 +305,6 @@ class FarmController extends Controller
                 'photo_url'    => asset('storage/' . $log->photo_path),
             ]);
 
-        // Objective 3.3 — read-only for Admin/Super Admin. Compliance
-        // visibility into how each farm actually handles its manure,
-        // not a service the LGU performs (farmers sell/compost their
-        // own manure; there's no municipal pickup for it).
         $farm->disposal_records = ManureDisposalRecord::where('farm_id', $farm->id)
             ->latest('disposal_date')
             ->limit(5)
@@ -338,30 +318,111 @@ class FarmController extends Controller
                 'notes'           => $r->notes,
             ]);
 
+        $farm->owner_profile_photo_url = $farm->user?->profile_photo_path
+            ? asset('storage/' . $farm->user->profile_photo_path)
+            : null;
+
         return response()->json(['success' => true, 'data' => $farm]);
     }
 
     /**
-     * Trend Analysis — AI-Assisted Insight Layer, step 1. Returns
-     * direction/rate/projected-time-to-critical for each sensor type,
-     * computed by TrendAnalysisService from this farm's recent readings.
-     * Root Cause and Recommendation Explanation (steps 2-3) build on
-     * top of this endpoint's output rather than duplicating the math.
+     * Paginated clean-out history — powers the Manure Clean-out tab's
+     * pagination directly (no separate "view all" modal anymore).
      */
-    public function trend(int $id)
+    public function maintenanceLogs(Request $request, int $id)
     {
-        Farm::findOrFail($id); // 404s cleanly if the farm doesn't exist
+        Farm::findOrFail($id);
 
-        $trend = app(TrendAnalysisService::class)->analyzeFarm($id);
+        $perPage = min((int) $request->input('per_page', 10), 50);
 
-        return response()->json(['success' => true, 'data' => $trend]);
+        $logs = MaintenanceLog::where('farm_id', $id)
+            ->orderByDesc('performed_at')
+            ->paginate($perPage);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'logs' => $logs->getCollection()->map(fn($log) => [
+                    'id'           => $log->id,
+                    'performed_at' => $log->performed_at->format('M d, Y'),
+                    'notes'        => $log->notes,
+                    'photo_url'    => asset('storage/' . $log->photo_path),
+                ]),
+                'current_page' => $logs->currentPage(),
+                'last_page'    => $logs->lastPage(),
+                'total'        => $logs->total(),
+            ],
+        ]);
     }
 
     /**
-     * AI-Assisted Insight Layer, step 2. Combines Trend Analysis with
-     * RootCauseService's fuzzy diagnosis in one response — kept separate
-     * from trend() so that already-working endpoint stays untouched.
+     * Paginated disposal records — powers the Manure Disposal tab.
      */
+    public function disposalRecords(Request $request, int $id)
+    {
+        Farm::findOrFail($id);
+
+        $perPage = min((int) $request->input('per_page', 10), 50);
+
+        $records = ManureDisposalRecord::where('farm_id', $id)
+            ->orderByDesc('disposal_date')
+            ->paginate($perPage);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'records' => $records->getCollection()->map(fn($r) => [
+                    'id'              => $r->id,
+                    'disposal_method' => $r->disposal_method,
+                    'quantity'        => $r->quantity,
+                    'buyer_name'      => $r->buyer_name,
+                    'disposal_date'   => $r->disposal_date->format('M d, Y'),
+                    'notes'           => $r->notes,
+                ]),
+                'current_page' => $records->currentPage(),
+                'last_page'    => $records->lastPage(),
+                'total'        => $records->total(),
+            ],
+        ]);
+    }
+
+    /**
+     * Paginated inspection records — powers the Inspections tab.
+     */
+    public function inspectionRecords(Request $request, int $id)
+    {
+        Farm::findOrFail($id);
+
+        $perPage = min((int) $request->input('per_page', 10), 50);
+
+        $inspections = Inspection::where('farm_id', $id)
+            ->orderByDesc('scheduled_at')
+            ->paginate($perPage);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'inspections' => $inspections->getCollection()->map(fn($i) => [
+                    'id'              => $i->id,
+                    'inspection_type' => $i->inspection_type,
+                    'status'          => $i->status,
+                    'scheduled_at'    => $i->scheduled_at?->format('M d, Y'),
+                    'completed_at'    => $i->completed_at?->format('M d, Y'),
+                ]),
+                'current_page' => $inspections->currentPage(),
+                'last_page'    => $inspections->lastPage(),
+                'total'        => $inspections->total(),
+            ],
+        ]);
+    }
+
+    public function trend(int $id)
+    {
+        Farm::findOrFail($id);
+        $trend = app(TrendAnalysisService::class)->analyzeFarm($id);
+        return response()->json(['success' => true, 'data' => $trend]);
+    }
+
     public function rootCause(int $id)
     {
         $farm = Farm::with(['sensorReadings' => function ($q) {
@@ -391,11 +452,6 @@ class FarmController extends Controller
             $diagnosis['root_cause']
         );
 
-        // AI-Assisted Insight Layer, step 4. Gemini only ever writes
-        // prose for the diagnosis already decided above — it never
-        // determines the root cause or the action itself. Returns null
-        // (not an error) if the API call fails for any reason, so the
-        // deterministic diagnosis/actions above still work on their own.
         $explanation = app(RecommendationExplanationService::class)->explain([
             'farm_name'           => $farm->farm_name,
             'root_cause'          => $diagnosis['root_cause'],
@@ -416,18 +472,20 @@ class FarmController extends Controller
 
     public function update(Request $request, int $id)
     {
-        $farm = Farm::findOrFail($id);
+        $farm = Farm::with('user')->findOrFail($id);
 
         $request->validate([
             'first_name'    => 'sometimes|string',
             'last_name'     => 'sometimes|string',
             'mobile_number' => 'sometimes|string',
+            'email'         => 'nullable|email|unique:users,email,' . $farm->user_id,
             'farm_name'     => 'sometimes|string',
             'barangay'      => 'sometimes|string',
             'lot_number'    => 'nullable|string',
             'street'        => 'nullable|string',
             'landmark'      => 'nullable|string',
             'farm_size'     => 'sometimes|in:Small,Medium,Large',
+            'profile_photo' => 'nullable|image|max:5120',
         ]);
 
         $farm->update($request->only([
@@ -458,12 +516,18 @@ class FarmController extends Controller
             ]);
         }
 
-        if ($request->first_name || $request->last_name) {
+        if ($request->first_name || $request->last_name || $request->filled('email')) {
             $farm->user->update([
                 'first_name'    => $request->first_name ?? $farm->user->first_name,
                 'last_name'     => $request->last_name ?? $farm->user->last_name,
                 'mobile_number' => $request->mobile_number ?? $farm->user->mobile_number,
+                'email'         => $request->filled('email') ? $request->email : $farm->user->email,
             ]);
+        }
+
+        if ($request->hasFile('profile_photo')) {
+            $path = $request->file('profile_photo')->store('profile-photos', 'public');
+            $farm->user->update(['profile_photo_path' => $path]);
         }
 
         ActivityLog::create([
@@ -494,10 +558,7 @@ class FarmController extends Controller
             'type'    => 'Farm',
         ]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Farm deactivated.',
-        ]);
+        return response()->json(['success' => true, 'message' => 'Farm deactivated.']);
     }
 
     public function activate(int $id)
@@ -505,9 +566,6 @@ class FarmController extends Controller
         $farm = Farm::findOrFail($id);
         $farm->update(['status' => 'Active']);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Farm activated.',
-        ]);
+        return response()->json(['success' => true, 'message' => 'Farm activated.']);
     }
 }

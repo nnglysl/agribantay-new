@@ -1,7 +1,8 @@
 import { useNavigate, useLocation } from 'react-router-dom'
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { getUser, clearAuth } from '../utils/auth'
 import { useIsMobile } from '../hooks/useIsMobile'
+import api from '../api/axios'
 import agribantayLogo from '../assets/agribantay_logo.png'
 import agribantayName from '../assets/agribantay_name.png'
 import agriLogoName from '../assets/agri_logo_name.png'
@@ -48,6 +49,190 @@ const iconMap = {
   serviceRequests: IconServiceRequests, requests: IconRequests, vaccination: IconVaccination,
   accounts: IconAccounts, activity: IconActivity, overdue: IconOverdue,
   reports: IconReports, settings: IconSettings,
+}
+
+function timeAgo(dateStr) {
+  const diffMs = Date.now() - new Date(dateStr).getTime()
+  const mins = Math.floor(diffMs / 60000)
+  if (mins < 1) return 'Just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
+}
+
+function groupByRecency(notifications) {
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const startOfWeek = new Date(startOfToday)
+  startOfWeek.setDate(startOfWeek.getDate() - 7)
+
+  const groups = { Today: [], 'This Week': [], Earlier: [] }
+
+  notifications.forEach(n => {
+    const created = new Date(n.created_at)
+    if (created >= startOfToday) groups.Today.push(n)
+    else if (created >= startOfWeek) groups['This Week'].push(n)
+    else groups.Earlier.push(n)
+  })
+
+  return groups
+}
+
+// Icon per notification type — matches the existing 'type' enum values
+// (Sensor Alert, Request Update, Vet Assigned, Inspection Completed,
+// System) plus the new 'maintenance_overdue' type from the compliance
+// system, so the icon gives an at-a-glance sense of category.
+function NotificationIcon({ type }) {
+  const common = { width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: '#2c8047', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round' }
+  switch (type) {
+    case 'Sensor Alert':
+      return <svg {...common}><path d="M12 3s6 7 6 11a6 6 0 1 1-12 0c0-4 6-11 6-11z" /></svg>
+    case 'Request Update':
+      return <svg {...common}><rect x="5" y="4" width="14" height="17" rx="1.5" /><path d="M9 9h6M9 13h6M9 17h3" /></svg>
+    case 'Vet Assigned':
+      return <svg {...common}><path d="M18.5 8.5l-3 3M14 6l4 4M8 12l4 4M5 15l-1.5 4.5L8 18l7-7-3-3-7 7z" /></svg>
+    case 'Inspection Completed':
+      return <svg {...common}><rect x="5" y="4" width="14" height="17" rx="1.5" /><path d="M9 9l1.7 1.7L14 7.5" /></svg>
+    case 'maintenance_overdue':
+      return <svg {...common}><path d="M12 3 2 20h20L12 3z" /><path d="M12 10v4" /><circle cx="12" cy="17" r="0.6" fill="#2c8047" stroke="none" /></svg>
+    default:
+      return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M19.4 13a7.7 7.7 0 0 0 0-2l1.9-1.5-2-3.4-2.3.9a7.6 7.6 0 0 0-1.7-1l-.4-2.4h-4l-.4 2.4a7.6 7.6 0 0 0-1.7 1l-2.3-.9-2 3.4L6.6 11a7.7 7.7 0 0 0 0 2l-1.9 1.5 2 3.4 2.3-.9a7.6 7.6 0 0 0 1.7 1l.4 2.4h4l.4-2.4a7.6 7.6 0 0 0 1.7-1l2.3.9 2-3.4z" /></svg>
+  }
+}
+
+function NotificationBell() {
+  const [open, setOpen] = useState(false)
+  const [notifications, setNotifications] = useState([])
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState('Today')
+  const wrapRef = useRef(null)
+
+  const fetchNotifications = async () => {
+    setLoading(true)
+    try {
+      const res = await api.get('/notifications')
+      setNotifications(res.data.data || [])
+      setUnreadCount(res.data.unread_count || 0)
+    } catch {
+      // Silent — notification bell shouldn't visibly break the whole layout
+      // if this one call fails.
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchNotifications()
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    const handleClickOutside = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [open])
+
+  const toggleOpen = () => {
+    if (!open) fetchNotifications()
+    setOpen(v => !v)
+  }
+
+  const handleMarkRead = async (id) => {
+    try {
+      await api.patch(`/notifications/${id}/read`)
+      setNotifications(list => list.map(n => (n.id === id ? { ...n, is_read: true } : n)))
+      setUnreadCount(c => Math.max(0, c - 1))
+    } catch {
+      // no-op
+    }
+  }
+
+  const handleMarkAllRead = async () => {
+    try {
+      await api.patch('/notifications/read-all')
+      setNotifications(list => list.map(n => ({ ...n, is_read: true })))
+      setUnreadCount(0)
+    } catch {
+      // no-op
+    }
+  }
+
+  const grouped = groupByRecency(notifications)
+  const tabs = ['Today', 'This Week', 'Earlier']
+  const visibleItems = grouped[activeTab] || []
+
+  return (
+    <div ref={wrapRef} style={bellStyles.wrap}>
+      <button type="button" onClick={toggleOpen} style={bellStyles.btn} aria-label="Notifications">
+        <span
+          className="material-symbols-outlined"
+          style={{
+            ...bellStyles.icon,
+            fontVariationSettings: "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24",
+          }}
+        >
+          notifications
+        </span>
+        {unreadCount > 0 && (
+          <span style={bellStyles.badge}>{unreadCount > 9 ? '9+' : unreadCount}</span>
+        )}
+      </button>
+
+      {open && (
+        <div style={bellStyles.dropdown}>
+          <div style={bellStyles.dropdownHeader}>
+            <span style={bellStyles.dropdownTitle}>Notifications</span>
+            {unreadCount > 0 && (
+              <span style={bellStyles.markAllBtn} onClick={handleMarkAllRead}>Mark all as read</span>
+            )}
+          </div>
+
+          <div style={bellStyles.tabsRow}>
+            {tabs.map(tab => (
+              <span
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                style={{ ...bellStyles.tab, ...(activeTab === tab ? bellStyles.tabActive : {}) }}
+              >
+                {tab}
+              </span>
+            ))}
+          </div>
+
+          <div style={bellStyles.dropdownList}>
+            {loading && <div style={bellStyles.empty}>Loading...</div>}
+            {!loading && visibleItems.length === 0 && (
+              <div style={bellStyles.empty}>Nothing here yet.</div>
+            )}
+            {!loading && visibleItems.map(n => (
+              <div
+                key={n.id}
+                style={{ ...bellStyles.item, ...(n.is_read ? {} : bellStyles.itemUnread) }}
+                onClick={() => !n.is_read && handleMarkRead(n.id)}
+              >
+                <span style={bellStyles.itemIconWrap}>
+                  <NotificationIcon type={n.type} />
+                </span>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={bellStyles.itemTitleRow}>
+                    <span style={bellStyles.itemTitle}>{n.title}</span>
+                    {!n.is_read && <span style={bellStyles.itemDot} />}
+                  </div>
+                  <div style={bellStyles.itemMessage}>{n.message}</div>
+                  <div style={bellStyles.itemTime}>{timeAgo(n.created_at)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 /**
@@ -152,15 +337,21 @@ export default function DashboardLayout({ children, navItems = [], roleLabel = '
           {isMobile ? (
             <>
               <img src={agriLogoName} alt="AgriBantay" style={styles.mobileTopbarLogoImg} />
-              <button type="button" onClick={() => setSidebarOpen(true)} style={styles.menuBtn}>
-                <IconMenu color="#14301c" />
-              </button>
+              <div style={styles.mobileTopbarRight}>
+                <NotificationBell />
+                <button type="button" onClick={() => setSidebarOpen(true)} style={styles.menuBtn}>
+                  <IconMenu color="#14301c" />
+                </button>
+              </div>
             </>
           ) : (
-            <div>
-              <div style={styles.userName}>{user.first_name} {user.last_name}</div>
-              <div style={styles.userRole}>{roleLabel}</div>
-            </div>
+            <>
+              <NotificationBell />
+              <div>
+                <div style={styles.userName}>{user.first_name} {user.last_name}</div>
+                <div style={styles.userRole}>{roleLabel}</div>
+              </div>
+            </>
           )}
         </div>
         <div style={{ ...styles.content, ...(isMobile ? styles.contentMobile : {}) }}>{children}</div>
@@ -216,14 +407,65 @@ const styles = {
   main: { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, marginLeft: '250px' },
   mainMobile: { marginLeft: 0 },
 
-  topbar: { backgroundColor: '#ffffff', borderBottom: '1px solid #e7e8e0', padding: '15px 32px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '12px' },
+  topbar: { backgroundColor: '#ffffff', borderBottom: '1px solid #e7e8e0', padding: '15px 32px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '16px' },
   topbarMobile: { padding: '13px 16px', justifyContent: 'space-between' },
   mobileTopbarLogoImg: { height: '38px', width: 'auto', objectFit: 'contain' },
+  mobileTopbarRight: { display: 'flex', alignItems: 'center', gap: '10px' },
   menuBtn: { background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px' },
   userName: { fontSize: '14px', fontWeight: 700, color: '#16311d', textAlign: 'right' },
   userRole: { fontSize: '12px', color: '#6b7770', textAlign: 'right' },
   content: { padding: '30px 32px', flex: 1 },
   contentMobile: { padding: '16px' },
+}
+
+const bellStyles = {
+  wrap: { position: 'relative' },
+  btn: {
+    background: 'none', border: 'none', cursor: 'pointer', padding: '6px',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative',
+  },
+  icon: { fontSize: '24px', color: '#2c8047' },
+  badge: {
+    position: 'absolute', top: '2px', right: '2px', minWidth: '16px', height: '16px',
+    borderRadius: '999px', backgroundColor: '#dc2626', color: '#fff', fontSize: '9.5px',
+    fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center',
+    padding: '0 3px', fontFamily: SANS, lineHeight: 1,
+  },
+  dropdown: {
+    position: 'absolute', top: 'calc(100% + 10px)', right: 0, width: '360px', maxWidth: '90vw',
+    backgroundColor: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px',
+    boxShadow: '0 12px 32px rgba(20,48,28,0.16)', zIndex: 300, overflow: 'hidden',
+  },
+  dropdownHeader: {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    padding: '14px 16px 10px',
+  },
+  dropdownTitle: { fontSize: '14px', fontWeight: 800, color: '#16311d', fontFamily: SANS },
+  markAllBtn: { fontSize: '11.5px', fontWeight: 700, color: '#2c8047', cursor: 'pointer', fontFamily: SANS },
+
+  tabsRow: { display: 'flex', gap: '4px', padding: '0 12px 12px', borderBottom: '1px solid #eceee7' },
+  tab: {
+    fontSize: '12px', fontWeight: 700, color: '#9aa79d', cursor: 'pointer',
+    padding: '6px 10px', borderRadius: '999px', fontFamily: SANS,
+  },
+  tabActive: { color: '#14301c', backgroundColor: '#eaf3ec' },
+
+  dropdownList: { maxHeight: '360px', overflowY: 'auto' },
+  empty: { padding: '28px 16px', textAlign: 'center', fontSize: '12.5px', color: '#9aa79d', fontFamily: SANS },
+  item: {
+    display: 'flex', gap: '11px', padding: '13px 16px', borderBottom: '1px solid #f2f3ed',
+    cursor: 'pointer', alignItems: 'flex-start',
+  },
+  itemUnread: { backgroundColor: '#f4faf6' },
+  itemIconWrap: {
+    width: '30px', height: '30px', borderRadius: '9px', backgroundColor: '#eaf3ec',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '1px',
+  },
+  itemTitleRow: { display: 'flex', alignItems: 'center', gap: '6px' },
+  itemDot: { width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#2c8047', flexShrink: 0 },
+  itemTitle: { fontSize: '12.5px', fontWeight: 700, color: '#16311d', fontFamily: SANS },
+  itemMessage: { fontSize: '11.5px', color: '#4b5a50', marginTop: '3px', lineHeight: 1.4, fontFamily: SANS },
+  itemTime: { fontSize: '10.5px', color: '#9aa79d', marginTop: '5px', fontFamily: SANS },
 }
 
 const confirmStyles = {

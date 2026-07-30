@@ -6,15 +6,10 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 import { useMonthFilter, filterByMonth } from '../../hooks/useMonthFilter'
 
 export default function SuperAdminDashboard() {
-  // Reused as-is from the Admin dashboard — Critical Alerts and the
-  // Farm Monitoring Map genuinely are system-wide oversight info, not
-  // day-to-day operational busywork, so they stay here unchanged.
   const { data, loading, error } = useCachedFetch('/admin/dashboard')
   const { data: mapFarms } = useCachedFetch('/admin/farms-map')
   const { data: inspectionsData } = useCachedFetch('/admin/inspections')
 
-  // New for Super Admin — account counts and cross-role pending totals,
-  // none of which the Admin dashboard shows.
   const { data: accounts } = useCachedFetch('/superadmin/accounts')
   const { data: adminReportData } = useCachedFetch('/admin/reports')
   const { data: vetReportData } = useCachedFetch('/vet/reports')
@@ -44,21 +39,9 @@ export default function SuperAdminDashboard() {
       <p style={styles.subtitle}>Welcome back, Super Administrator</p>
 
       <div style={{ ...styles.statsGrid, ...(isMobile ? styles.statsGridMobile : {}) }}>
-        <StatCard
-          value={totalAdmins}
-          label="Admin Accounts"
-          isMobile={isMobile}
-        />
-        <StatCard
-          value={totalVets}
-          label="Veterinarian Accounts"
-          isMobile={isMobile}
-        />
-        <StatCard
-          value={data.total_farms}
-          label="Total Farms"
-          isMobile={isMobile}
-        />
+        <StatCard value={totalAdmins} label="Admin Accounts" isMobile={isMobile} />
+        <StatCard value={totalVets} label="Veterinarian Accounts" isMobile={isMobile} />
+        <StatCard value={data.total_farms} label="Total Farms" isMobile={isMobile} />
       </div>
 
       <h3 style={styles.mapTitle}>Farm monitoring map</h3>
@@ -91,12 +74,21 @@ export default function SuperAdminDashboard() {
             <div key={f.farm_id} style={styles.alertRow}>
               <div style={styles.alertBar} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={styles.alertFarm}>{f.farm_name}</div>
-                <div style={styles.alertDetail}>Ammonia {f.ammonia} ppm</div>
+                <div style={styles.alertTopRow}>
+                  <span style={styles.alertFarm}>{f.farm_name}</span>
+                  <span style={styles.critBadge}>{f.critical_count} Critical</span>
+                </div>
+                <div style={styles.sensorTableRow}>
+                  {(f.all_sensors || []).map(s => (
+                    <div key={s.type} style={styles.sensorCell}>
+                      <span style={styles.sensorCellLabel}>{s.type}</span>
+                      <span style={{ ...styles.sensorCellValue, ...(s.critical ? styles.sensorCellValueCritical : {}) }}>
+                        {s.value ?? '—'}{s.unit}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <span style={styles.critBadge}>
-                {f.ammonia_status}
-              </span>
             </div>
           ))}
         </ListModal>
@@ -187,14 +179,21 @@ const styles = {
 
   emptyText: { fontSize: '13px', color: '#9aa79d' },
   alertRow: {
-    display: 'flex', alignItems: 'center', gap: '12px',
+    display: 'flex', alignItems: 'flex-start', gap: '12px',
     padding: '13px 0', borderBottom: '1px solid #f0efe8',
   },
+  alertTopRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' },
   alertBar: { width: '4px', height: '34px', backgroundColor: '#dc2626', borderRadius: '2px', flexShrink: 0 },
   alertFarm: { fontSize: '14px', fontWeight: 700, color: '#16311d' },
   alertDetail: { fontSize: '12px', color: '#6b7770', marginTop: '2px' },
   critBadge: { padding: '4px 10px', borderRadius: '999px', color: '#dc2626', backgroundColor: '#fbeaea', fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 },
   softBadge: { padding: '4px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 },
+
+  sensorTableRow: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginTop: '8px' },
+  sensorCell: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start' },
+  sensorCellLabel: { fontSize: '9.5px', fontWeight: 700, color: '#9aa79d', textTransform: 'uppercase', letterSpacing: '0.02em' },
+  sensorCellValue: { fontSize: '12px', fontWeight: 700, color: '#4b5a50', marginTop: '2px' },
+  sensorCellValueCritical: { color: '#dc2626' },
 }
 
 const modalStyles = {

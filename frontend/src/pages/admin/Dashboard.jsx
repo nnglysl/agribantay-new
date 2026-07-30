@@ -56,10 +56,21 @@ export default function AdminDashboard() {
             <div key={f.farm_id} style={styles.alertRow}>
               <div style={styles.alertBar} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={styles.alertFarm}>{f.farm_name}</div>
-                <div style={styles.alertDetail}>Ammonia {f.ammonia} ppm</div>
+                <div style={styles.alertTopRow}>
+                  <span style={styles.alertFarm}>{f.farm_name}</span>
+                  <span style={{ ...styles.badge, backgroundColor: '#c0392b' }}>{f.critical_count} Critical</span>
+                </div>
+                <div style={styles.sensorTableRow}>
+                  {(f.all_sensors || []).map(s => (
+                    <div key={s.type} style={styles.sensorCell}>
+                      <span style={styles.sensorCellLabel}>{s.type}</span>
+                      <span style={{ ...styles.sensorCellValue, ...(s.critical ? styles.sensorCellValueCritical : {}) }}>
+                        {s.value ?? '—'}{s.unit}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <span style={{ ...styles.badge, backgroundColor: '#c0392b' }}>{f.ammonia_status}</span>
             </div>
           ))}
         </ListModal>
@@ -137,11 +148,18 @@ const styles = {
   mapNote: { fontFamily: SANS, fontSize: '11.5px', color: '#9aa79d', marginTop: '12px', lineHeight: 1.5 },
 
   emptyText: { fontFamily: SANS, fontSize: '13px', color: '#9aa79d' },
-  alertRow: { display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 0', borderBottom: '1px solid #f0efe8' },
+  alertRow: { display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '12px 0', borderBottom: '1px solid #f0efe8' },
+  alertTopRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' },
   alertBar: { width: '4px', height: '32px', backgroundColor: '#c0392b', borderRadius: '2px', flexShrink: 0 },
   alertFarm: { fontSize: '14px', fontWeight: 600, color: '#16311d' },
   alertDetail: { fontSize: '12px', color: '#6b7770', marginTop: '2px' },
   badge: { padding: '4px 10px', borderRadius: '999px', color: 'white', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 },
+
+  sensorTableRow: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginTop: '8px' },
+  sensorCell: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start' },
+  sensorCellLabel: { fontSize: '9.5px', fontWeight: 700, color: '#9aa79d', textTransform: 'uppercase', letterSpacing: '0.02em' },
+  sensorCellValue: { fontSize: '12px', fontWeight: 700, color: '#4b5a50', marginTop: '2px' },
+  sensorCellValueCritical: { color: '#dc2626' },
 }
 
 const modalStyles = {

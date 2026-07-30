@@ -43,7 +43,7 @@ class AccountController extends Controller
                 $q->where('first_name', 'like', "%{$s}%")
                   ->orWhere('last_name', 'like', "%{$s}%")
                   ->orWhere('email', 'like', "%{$s}%")
-                  ->orWhere('username', 'like', "%{$s}%");
+                  ->orWhere('mobile_number', 'like', "%{$s}%");
             });
         }
 
@@ -57,7 +57,6 @@ class AccountController extends Controller
             'last_name'     => $u->last_name,
             'email'         => $u->email,
             'mobile_number' => $u->mobile_number,
-            'username'      => $u->username,
             'role'          => $u->role,
             'status'        => $u->status,
         ]);
@@ -79,7 +78,6 @@ class AccountController extends Controller
         $request->validate([
             'full_name' => 'required|string|max:255',
             'contact'   => 'required|string',
-            'username'  => 'required|string|min:4|unique:users,username',
             'role'      => 'required|in:admin,vet',
         ]);
 
@@ -106,7 +104,6 @@ class AccountController extends Controller
             'last_name'            => $lastName,
             'email'                => $isEmail ? $request->contact : null,
             'mobile_number'        => $isEmail ? null : $request->contact,
-            'username'             => $request->username,
             'password'             => bcrypt($tempPassword),
             'role'                 => $request->role,
             'status'               => 'active',
@@ -137,7 +134,7 @@ class AccountController extends Controller
             'user_id' => Auth::id(),
             'role'    => 'super_admin',
             'action'  => 'Created ' . ucfirst($request->role) . ' Account',
-            'details' => "Created {$request->role} account for {$account->first_name} {$account->last_name} ({$account->username})",
+            'details' => "Created {$request->role} account for {$account->first_name} {$account->last_name}",
             'type'    => 'Account',
         ]);
 
@@ -159,7 +156,6 @@ class AccountController extends Controller
             'full_name'      => 'required|string|max:255',
             'email'          => 'required|email|unique:users,email,' . $account->id,
             'contact_number' => 'required|string',
-            'username'       => 'required|string|min:4|unique:users,username,' . $account->id,
         ]);
 
         [$firstName, $lastName] = $this->splitFullName($request->full_name);
@@ -169,7 +165,6 @@ class AccountController extends Controller
             'last_name'     => $lastName,
             'email'         => $request->email,
             'mobile_number' => $request->contact_number,
-            'username'      => $request->username,
         ]);
 
         ActivityLog::create([

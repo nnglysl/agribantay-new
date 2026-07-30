@@ -30,9 +30,10 @@ const MONTHS = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ]
 
-const SAN_JOSE_CENTER = [13.8797, 121.0989]
+const MONITORING_STATUSES = ['Normal', 'Warning', 'Critical', 'Offline']
 
-const SAN_JOSE_VIEWBOX = '120.95,13.95,121.15,13.80' // left,top,right,bottom
+const SAN_JOSE_CENTER = [13.8797, 121.0989]
+const SAN_JOSE_VIEWBOX = '120.95,13.95,121.15,13.80'
 
 async function geocodeAddress(query) {
   if (!query || query.trim().length < 3) return []
@@ -61,6 +62,14 @@ function emptyFarm() {
   }
 }
 
+function emptyTabState() {
+  return {
+    search: '', barangayFilter: '', sizeFilter: '', monitoringFilter: '',
+    filterMonth: '', filterYear: '', currentPage: 1, pageSize: 10,
+    sortField: 'created_at', sortDirection: 'desc',
+  }
+}
+
 function formatRegistrationDate(value) {
   if (!value) return '—'
   const d = new Date(value)
@@ -68,37 +77,37 @@ function formatRegistrationDate(value) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+function getInitials(name) {
+  if (!name) return ''
+  return name.split(' ').filter(Boolean).slice(0, 2).map(n => n[0].toUpperCase()).join('')
+}
+
 export default function Farms() {
-  const [statusFilter, setStatusFilter] = useState('')
-  const [barangayFilter, setBarangayFilter] = useState('')
-  const [sizeFilter, setSizeFilter] = useState('')
-  const [search, setSearch] = useState('')
-  const [filterMonth, setFilterMonth] = useState('') // '' = all, else '0'..'11'
-  const [filterYear, setFilterYear] = useState('')   // '' = all, else e.g. '2026'
+  const [statusTab, setStatusTab] = useState('active')
+  const [tabState, setTabState] = useState({
+    active: emptyTabState(),
+    deactivated: emptyTabState(),
+  })
+
   const [showRegisterModal, setShowRegisterModal] = useState(false)
   const [showAddFarmModal, setShowAddFarmModal] = useState(false)
   const [editFarm, setEditFarm] = useState(null)
   const [viewFarm, setViewFarm] = useState(null)
   const [confirmAction, setConfirmAction] = useState(null)
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(10)
   const [showMobileFilters, setShowMobileFilters] = useState(false)
-  const [sortField, setSortField] = useState('created_at')
-  const [sortDirection, setSortDirection] = useState('desc') // newest registrations first by default
   const isMobile = useIsMobile()
 
-  const params = {}
-  if (statusFilter) params.status = statusFilter
-  if (barangayFilter) params.barangay = barangayFilter
-  if (sizeFilter) params.farm_size = sizeFilter
-  if (search) params.search = search
+  const current = tabState[statusTab]
+  const updateCurrent = (patch) => {
+    setTabState(prev => ({ ...prev, [statusTab]: { ...prev[statusTab], ...patch } }))
+  }
+
+  const params = { status: statusTab === 'active' ? 'Active' : 'Deactivated' }
+  if (current.barangayFilter) params.barangay = current.barangayFilter
+  if (current.search) params.search = current.search
 
   const { data: farms, loading, error, refetch } = useCachedFetch('/admin/farms', params)
   const allFarms = farms || []
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [statusFilter, barangayFilter, sizeFilter, search, pageSize, sortField, sortDirection, filterMonth, filterYear])
 
   const availableYears = useMemo(() => {
     const set = new Set()
@@ -111,56 +120,50 @@ export default function Farms() {
   const sortedFarms = useMemo(() => {
     let list = [...allFarms]
 
-    if (filterYear || filterMonth !== '') {
+    if (current.sizeFilter) list = list.filter(f => f.farm_size === current.sizeFilter)
+    if (current.monitoringFilter) list = list.filter(f => f.current_status === current.monitoringFilter)
+
+    if (current.filterYear || current.filterMonth !== '') {
       list = list.filter(f => {
         if (!f.created_at) return false
         const d = new Date(f.created_at)
-        if (filterYear && d.getFullYear() !== Number(filterYear)) return false
-        if (filterMonth !== '' && d.getMonth() !== Number(filterMonth)) return false
+        if (current.filterYear && d.getFullYear() !== Number(current.filterYear)) return false
+        if (current.filterMonth !== '' && d.getMonth() !== Number(current.filterMonth)) return false
         return true
       })
     }
 
     list.sort((a, b) => {
       let result
-      if (sortField === 'created_at') {
+      if (current.sortField === 'created_at') {
         result = new Date(a.created_at ?? 0) - new Date(b.created_at ?? 0)
       } else {
-        result = String(a[sortField] ?? '').localeCompare(String(b[sortField] ?? ''))
+        result = String(a[current.sortField] ?? '').localeCompare(String(b[current.sortField] ?? ''))
       }
-      return sortDirection === 'asc' ? result : -result
+      return current.sortDirection === 'asc' ? result : -result
     })
     return list
-  }, [allFarms, sortField, sortDirection, filterMonth, filterYear])
+  }, [allFarms, current.sizeFilter, current.monitoringFilter, current.filterMonth, current.filterYear, current.sortField, current.sortDirection])
 
   const handleSort = (field) => {
-    if (sortField === field) {
-      setSortDirection(d => (d === 'asc' ? 'desc' : 'asc'))
+    if (current.sortField === field) {
+      updateCurrent({ sortDirection: current.sortDirection === 'asc' ? 'desc' : 'asc' })
     } else {
-      setSortField(field)
-      setSortDirection('asc')
+      updateCurrent({ sortField: field, sortDirection: 'asc' })
     }
   }
 
   const totalItems = sortedFarms.length
-  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
-
-  useEffect(() => {
-    if (currentPage > totalPages) setCurrentPage(totalPages)
-  }, [totalPages, currentPage])
+  const totalPages = Math.max(1, Math.ceil(totalItems / current.pageSize))
+  const safePage = Math.min(current.currentPage, totalPages)
 
   const paginatedFarms = useMemo(() => {
-    const start = (currentPage - 1) * pageSize
-    return sortedFarms.slice(start, start + pageSize)
-  }, [sortedFarms, currentPage, pageSize])
+    const start = (safePage - 1) * current.pageSize
+    return sortedFarms.slice(start, start + current.pageSize)
+  }, [sortedFarms, safePage, current.pageSize])
 
-  const rangeStart = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1
-  const rangeEnd = Math.min(currentPage * pageSize, totalItems)
-
-  const handleSearch = (e) => {
-    e.preventDefault()
-    refetch()
-  }
+  const rangeStart = totalItems === 0 ? 0 : (safePage - 1) * current.pageSize + 1
+  const rangeEnd = Math.min(safePage * current.pageSize, totalItems)
 
   const handleDeactivate = (farm) => {
     setConfirmAction({
@@ -190,9 +193,9 @@ export default function Farms() {
     })
   }
 
-  const statusColor = { Normal: '#256b3d', Warning: '#b45309', Critical: '#b91c1c', Offline: '#6b7280' }
-  const statusBg = { Normal: '#eaf3ec', Warning: '#fbf1e2', Critical: '#fbeaea', Offline: '#eef1ea' }
-  const activeFilterCount = [barangayFilter, sizeFilter, statusFilter, filterMonth !== '' || filterYear].filter(Boolean).length
+  const monitoringColor = { Normal: '#256b3d', Warning: '#b45309', Critical: '#b91c1c', Offline: '#6b7280' }
+  const monitoringBg = { Normal: '#eaf3ec', Warning: '#fbf1e2', Critical: '#fbeaea', Offline: '#eef1ea' }
+  const activeFilterCount = [current.barangayFilter, current.sizeFilter, current.monitoringFilter, current.filterMonth !== '' || current.filterYear].filter(Boolean).length
 
   return (
     <AdminLayout>
@@ -202,37 +205,34 @@ export default function Farms() {
           <p style={styles.subtitle}>All registered farm owners & farms</p>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', ...(isMobile ? { flexDirection: 'column', width: '100%' } : {}) }}>
-          <button
-            style={{ ...styles.secondaryBtn, ...(isMobile ? styles.btnFull : {}) }}
-            onClick={() => setShowAddFarmModal(true)}
-          >
+          <button style={{ ...styles.secondaryBtn, ...(isMobile ? styles.btnFull : {}) }} onClick={() => setShowAddFarmModal(true)}>
             + Add Farm to Existing Owner
           </button>
-          <button
-            style={{ ...styles.newBtn, ...(isMobile ? styles.btnFull : {}) }}
-            onClick={() => setShowRegisterModal(true)}
-          >
+          <button style={{ ...styles.newBtn, ...(isMobile ? styles.btnFull : {}) }} onClick={() => setShowRegisterModal(true)}>
             + Register Farm Owner
           </button>
         </div>
       </div>
 
+      <div style={styles.statusTabs}>
+        <div style={{ ...styles.statusTab, ...(statusTab === 'active' ? styles.statusTabActive : {}) }} onClick={() => setStatusTab('active')}>
+          Active Farms
+        </div>
+        <div style={{ ...styles.statusTab, ...(statusTab === 'deactivated' ? styles.statusTabActive : {}) }} onClick={() => setStatusTab('deactivated')}>
+          Deactivated Farms
+        </div>
+      </div>
+
       <div style={{ ...styles.filters, ...(isMobile ? styles.filtersMobile : {}) }}>
-        <form onSubmit={handleSearch} style={{ flex: 1, minWidth: '220px', display: 'flex', gap: '8px' }}>
-          <input
-            placeholder="Search farm or owner..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            style={styles.searchInput}
-          />
-        </form>
+        <input
+          placeholder="Search farm or owner..."
+          value={current.search}
+          onChange={e => updateCurrent({ search: e.target.value, currentPage: 1 })}
+          style={styles.searchInput}
+        />
 
         {isMobile && (
-          <button
-            type="button"
-            onClick={() => setShowMobileFilters(v => !v)}
-            style={styles.filterToggleBtn}
-          >
+          <button type="button" onClick={() => setShowMobileFilters(v => !v)} style={styles.filterToggleBtn}>
             <span>Filters</span>
             {activeFilterCount > 0 && <span style={styles.filterBadge}>{activeFilterCount}</span>}
             <span style={styles.filterChevron}>{showMobileFilters ? '▲' : '▼'}</span>
@@ -241,54 +241,27 @@ export default function Farms() {
 
         {(!isMobile || showMobileFilters) && (
           <>
-            <select
-              value={barangayFilter}
-              onChange={e => setBarangayFilter(e.target.value)}
-              style={{ ...styles.select, ...(isMobile ? styles.selectMobile : {}) }}
-            >
+            <select value={current.barangayFilter} onChange={e => updateCurrent({ barangayFilter: e.target.value, currentPage: 1 })} style={{ ...styles.select, ...(isMobile ? styles.selectMobile : {}) }}>
               <option value="">All Barangays</option>
-              {BARANGAYS.map(b => (
-                <option key={b} value={b}>Brgy. {b}</option>
-              ))}
+              {BARANGAYS.map(b => <option key={b} value={b}>Brgy. {b}</option>)}
             </select>
-            <select
-              value={sizeFilter}
-              onChange={e => setSizeFilter(e.target.value)}
-              style={{ ...styles.select, ...(isMobile ? styles.selectMobile : {}) }}
-            >
+            <select value={current.sizeFilter} onChange={e => updateCurrent({ sizeFilter: e.target.value, currentPage: 1 })} style={{ ...styles.select, ...(isMobile ? styles.selectMobile : {}) }}>
               <option value="">All Sizes</option>
               <option value="Small">Small</option>
               <option value="Medium">Medium</option>
               <option value="Large">Large</option>
             </select>
-            <select
-              value={statusFilter}
-              onChange={e => setStatusFilter(e.target.value)}
-              style={{ ...styles.select, ...(isMobile ? styles.selectMobile : {}) }}
-            >
-              <option value="">All Status</option>
-              <option value="Active">Active</option>
-              <option value="Deactivated">Deactivated</option>
+            <select value={current.monitoringFilter} onChange={e => updateCurrent({ monitoringFilter: e.target.value, currentPage: 1 })} style={{ ...styles.select, ...(isMobile ? styles.selectMobile : {}) }}>
+              <option value="">All Monitoring Status</option>
+              {MONITORING_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
-            <select
-              value={filterMonth}
-              onChange={e => setFilterMonth(e.target.value)}
-              style={{ ...styles.select, ...(isMobile ? styles.selectMobile : {}) }}
-            >
+            <select value={current.filterMonth} onChange={e => updateCurrent({ filterMonth: e.target.value, currentPage: 1 })} style={{ ...styles.select, ...(isMobile ? styles.selectMobile : {}) }}>
               <option value="">All Months</option>
-              {MONTHS.map((m, i) => (
-                <option key={m} value={i}>{m}</option>
-              ))}
+              {MONTHS.map((m, i) => <option key={m} value={i}>{m}</option>)}
             </select>
-            <select
-              value={filterYear}
-              onChange={e => setFilterYear(e.target.value)}
-              style={{ ...styles.select, ...(isMobile ? styles.selectMobile : {}) }}
-            >
+            <select value={current.filterYear} onChange={e => updateCurrent({ filterYear: e.target.value, currentPage: 1 })} style={{ ...styles.select, ...(isMobile ? styles.selectMobile : {}) }}>
               <option value="">All Years</option>
-              {availableYears.map(y => (
-                <option key={y} value={y}>{y}</option>
-              ))}
+              {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
             </select>
           </>
         )}
@@ -310,13 +283,12 @@ export default function Farms() {
                   <th style={styles.th}>Mobile</th>
                   <th style={styles.th}>Barangay</th>
                   <th style={styles.th}>Farm Size</th>
+                  <th style={styles.th}>Device Name</th>
                   <th style={{ ...styles.th, ...styles.thSortable }} onClick={() => handleSort('created_at')}>
                     Registration Date
-                    {sortField === 'created_at' && (
-                      <span style={styles.sortArrow}>{sortDirection === 'asc' ? ' ▲' : ' ▼'}</span>
-                    )}
+                    {current.sortField === 'created_at' && <span style={styles.sortArrow}>{current.sortDirection === 'asc' ? ' ▲' : ' ▼'}</span>}
                   </th>
-                  <th style={styles.th}>Status</th>
+                  <th style={styles.th}>Monitoring Status</th>
                   <th style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
@@ -332,36 +304,25 @@ export default function Farms() {
                         </div>
                       </div>
                     </td>
-                    <td style={styles.td}>{f.mobile_number || f.email}</td>
+                    <td style={styles.td}>{f.mobile_number || f.email || '—'}</td>
                     <td style={styles.td}>{f.barangay}</td>
                     <td style={styles.td}>{f.farm_size}</td>
+                    <td style={styles.td}>{f.device_name || '—'}</td>
                     <td style={styles.td}>{formatRegistrationDate(f.created_at)}</td>
                     <td style={styles.td}>
-                      <span style={{
-                        ...styles.badge,
-                        color: statusColor[f.sensor_status] || '#6b7280',
-                        backgroundColor: statusBg[f.sensor_status] || '#eef1ea',
-                      }}>
-                        <span style={{ ...styles.badgeDot, backgroundColor: statusColor[f.sensor_status] || '#6b7280' }} />
-                        {f.sensor_status}
+                      <span style={{ ...styles.badge, color: monitoringColor[f.current_status] || '#6b7280', backgroundColor: monitoringBg[f.current_status] || '#eef1ea' }}>
+                        <span style={{ ...styles.badgeDot, backgroundColor: monitoringColor[f.current_status] || '#6b7280' }} />
+                        {f.current_status || 'Offline'}
                       </span>
                     </td>
                     <td style={styles.td}>
                       <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
-                        <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => setViewFarm(f)}>
-                          View
-                        </span>
-                        <span style={{ ...styles.actionBtn, ...styles.editBtn }} onClick={() => setEditFarm(f)}>
-                          Edit
-                        </span>
-                        {f.status === 'Active' ? (
-                          <span style={{ ...styles.actionBtn, ...styles.deactivateBtn }} onClick={() => handleDeactivate(f)}>
-                            Deactivate
-                          </span>
+                        <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => setViewFarm(f)}>View</span>
+                        <span style={{ ...styles.actionBtn, ...styles.editBtn }} onClick={() => setEditFarm(f)}>Edit</span>
+                        {statusTab === 'active' ? (
+                          <span style={{ ...styles.actionBtn, ...styles.deactivateBtn }} onClick={() => handleDeactivate(f)}>Deactivate</span>
                         ) : (
-                          <span style={{ ...styles.actionBtn, ...styles.activateBtn }} onClick={() => handleActivate(f)}>
-                            Activate
-                          </span>
+                          <span style={{ ...styles.actionBtn, ...styles.activateBtn }} onClick={() => handleActivate(f)}>Activate</span>
                         )}
                       </div>
                     </td>
@@ -370,15 +331,15 @@ export default function Farms() {
               </tbody>
             </table>
           </div>
-          {allFarms.length === 0 && <div style={styles.empty}>No farms found.</div>}
+          {allFarms.length === 0 && <div style={styles.empty}>No {statusTab === 'active' ? 'active' : 'deactivated'} farms found.</div>}
 
           {allFarms.length > 0 && (
             <Pagination
-              currentPage={currentPage}
+              currentPage={safePage}
               totalPages={totalPages}
-              pageSize={pageSize}
-              onPageChange={setCurrentPage}
-              onPageSizeChange={setPageSize}
+              pageSize={current.pageSize}
+              onPageChange={(p) => updateCurrent({ currentPage: p })}
+              onPageSizeChange={(s) => updateCurrent({ pageSize: s, currentPage: 1 })}
               rangeStart={rangeStart}
               rangeEnd={rangeEnd}
               totalItems={totalItems}
@@ -388,37 +349,18 @@ export default function Farms() {
         </div>
       )}
 
-      {viewFarm && (
-        <ViewFarmModal
-          farmId={viewFarm.id}
-          isMobile={isMobile}
-          onClose={() => setViewFarm(null)}
-        />
-      )}
+      {viewFarm && <ViewFarmModal farmId={viewFarm.id} isMobile={isMobile} onClose={() => setViewFarm(null)} />}
 
       {showRegisterModal && (
-        <RegisterModal
-          isMobile={isMobile}
-          onClose={() => setShowRegisterModal(false)}
-          onSuccess={() => { setShowRegisterModal(false); refetch() }}
-        />
+        <RegisterModal isMobile={isMobile} onClose={() => setShowRegisterModal(false)} onSuccess={() => { setShowRegisterModal(false); refetch() }} />
       )}
 
       {showAddFarmModal && (
-        <AddFarmModal
-          isMobile={isMobile}
-          onClose={() => setShowAddFarmModal(false)}
-          onSuccess={() => { setShowAddFarmModal(false); refetch() }}
-        />
+        <AddFarmModal isMobile={isMobile} onClose={() => setShowAddFarmModal(false)} onSuccess={() => { setShowAddFarmModal(false); refetch() }} />
       )}
 
       {editFarm && (
-        <EditModal
-          farm={editFarm}
-          isMobile={isMobile}
-          onClose={() => setEditFarm(null)}
-          onSuccess={() => { setEditFarm(null); refetch() }}
-        />
+        <EditModal farm={editFarm} isMobile={isMobile} onClose={() => setEditFarm(null)} onSuccess={() => { setEditFarm(null); refetch() }} />
       )}
 
       {confirmAction && (
@@ -427,19 +369,10 @@ export default function Farms() {
             <h3 style={confirmStyles.title}>{confirmAction.title}</h3>
             <p style={confirmStyles.message}>{confirmAction.message}</p>
             <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
-              <button
-                onClick={() => setConfirmAction(null)}
-                style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
-              >
-                Cancel
-              </button>
+              <button onClick={() => setConfirmAction(null)} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>Cancel</button>
               <button
                 onClick={confirmAction.onConfirm}
-                style={{
-                  ...modalStyles.submitBtn,
-                  ...(isMobile ? modalStyles.btnFull : {}),
-                  backgroundColor: confirmAction.danger ? '#b91c1c' : '#2c8047',
-                }}
+                style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}), backgroundColor: confirmAction.danger ? '#b91c1c' : '#2c8047' }}
               >
                 {confirmAction.confirmLabel}
               </button>
@@ -451,18 +384,12 @@ export default function Farms() {
   )
 }
 
-function Pagination({
-  currentPage, totalPages, pageSize, onPageChange, onPageSizeChange,
-  rangeStart, rangeEnd, totalItems, isMobile,
-}) {
+function Pagination({ currentPage, totalPages, pageSize, onPageChange, onPageSizeChange, rangeStart, rangeEnd, totalItems, isMobile }) {
   const pageNumbers = useMemo(() => {
     const maxButtons = isMobile ? 3 : 5
     let start = Math.max(1, currentPage - Math.floor(maxButtons / 2))
     let end = start + maxButtons - 1
-    if (end > totalPages) {
-      end = totalPages
-      start = Math.max(1, end - maxButtons + 1)
-    }
+    if (end > totalPages) { end = totalPages; start = Math.max(1, end - maxButtons + 1) }
     const pages = []
     for (let p = start; p <= end; p++) pages.push(p)
     return pages
@@ -470,84 +397,86 @@ function Pagination({
 
   return (
     <div style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
-      <div style={paginationStyles.info}>
-        {totalItems === 0
-          ? 'No results'
-          : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
-      </div>
-
+      <div style={paginationStyles.info}>{totalItems === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}</div>
       <div style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
-        <select
-          value={pageSize}
-          onChange={e => onPageSizeChange(Number(e.target.value))}
-          style={paginationStyles.pageSizeSelect}
-        >
-          {PAGE_SIZE_OPTIONS.map(size => (
-            <option key={size} value={size}>{size} / page</option>
-          ))}
+        <select value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
+          {PAGE_SIZE_OPTIONS.map(size => <option key={size} value={size}>{size} / page</option>)}
         </select>
-
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(1)}
-          disabled={currentPage === 1}
-          aria-label="First page"
-        >
-          «
-        </button>
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(currentPage - 1)}
-          disabled={currentPage === 1}
-          aria-label="Previous page"
-        >
-          ‹
-        </button>
-
+        <button style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }} onClick={() => onPageChange(1)} disabled={currentPage === 1}>«</button>
+        <button style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }} onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1}>‹</button>
         {pageNumbers[0] > 1 && <span style={paginationStyles.ellipsis}>…</span>}
-
         {pageNumbers.map(p => (
-          <button
-            key={p}
-            onClick={() => onPageChange(p)}
-            style={{
-              ...paginationStyles.pageBtn,
-              ...(p === currentPage ? paginationStyles.pageBtnActive : {}),
-            }}
-          >
-            {p}
-          </button>
+          <button key={p} onClick={() => onPageChange(p)} style={{ ...paginationStyles.pageBtn, ...(p === currentPage ? paginationStyles.pageBtnActive : {}) }}>{p}</button>
         ))}
-
         {pageNumbers[pageNumbers.length - 1] < totalPages && <span style={paginationStyles.ellipsis}>…</span>}
-
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(currentPage + 1)}
-          disabled={currentPage === totalPages}
-          aria-label="Next page"
-        >
-          ›
-        </button>
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(totalPages)}
-          disabled={currentPage === totalPages}
-          aria-label="Last page"
-        >
-          »
-        </button>
+        <button style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }} onClick={() => onPageChange(currentPage + 1)} disabled={currentPage === totalPages}>›</button>
+        <button style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }} onClick={() => onPageChange(totalPages)} disabled={currentPage === totalPages}>»</button>
       </div>
     </div>
   )
 }
 
+function TabPagination({ currentPage, lastPage, onPageChange }) {
+  if (lastPage <= 1) return null
+  return (
+    <div style={profileStyles.tabPager}>
+      <button
+        style={{ ...profileStyles.tabPagerBtn, ...(currentPage === 1 ? profileStyles.tabPagerBtnDisabled : {}) }}
+        onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+        disabled={currentPage === 1}
+      >
+        ‹ Previous
+      </button>
+      <span style={profileStyles.tabPagerInfo}>Page {currentPage} of {lastPage}</span>
+      <button
+        style={{ ...profileStyles.tabPagerBtn, ...(currentPage === lastPage ? profileStyles.tabPagerBtnDisabled : {}) }}
+        onClick={() => onPageChange(Math.min(lastPage, currentPage + 1))}
+        disabled={currentPage === lastPage}
+      >
+        Next ›
+      </button>
+    </div>
+  )
+}
+
+function ProfilePhotoUpload({ file, setFile, existingUrl }) {
+  const inputRef = useRef(null)
+  const previewUrl = file ? URL.createObjectURL(file) : existingUrl
+
+  return (
+    <div style={modalStyles.photoUploadWrap}>
+      <div style={modalStyles.photoPreview} onClick={() => inputRef.current?.click()}>
+        {previewUrl ? (
+          <img src={previewUrl} alt="Profile preview" style={modalStyles.photoPreviewImg} />
+        ) : (
+          <span style={modalStyles.photoPlaceholder}>+</span>
+        )}
+      </div>
+      <div>
+        <div style={modalStyles.photoUploadLabel}>Owner Profile Photo</div>
+        <div style={modalStyles.photoUploadHint}>Optional. JPG or PNG, up to 5MB.</div>
+        <span style={modalStyles.photoUploadBtn} onClick={() => inputRef.current?.click()}>
+          {previewUrl ? 'Change photo' : 'Upload photo'}
+        </span>
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={e => setFile(e.target.files?.[0] || null)}
+      />
+    </div>
+  )
+}
+
 function RegisterModal({ onClose, onSuccess, isMobile }) {
-  const [step, setStep] = useState('owner') // 'owner' | 'farms'
+  const [step, setStep] = useState('owner')
 
   const [ownerForm, setOwnerForm] = useState({
-    first_name: '', last_name: '', contact: '', address: '',
+    first_name: '', last_name: '', mobile_number: '', email: '', address: '',
   })
+  const [profilePhoto, setProfilePhoto] = useState(null)
   const [ownerId, setOwnerId] = useState(null)
   const [ownerError, setOwnerError] = useState('')
   const [ownerLoading, setOwnerLoading] = useState(false)
@@ -564,10 +493,20 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
     setOwnerError('')
     setOwnerLoading(true)
     try {
-      const res = await api.post('/admin/farm-owners', ownerForm)
+      const formData = new FormData()
+      formData.append('first_name', ownerForm.first_name)
+      formData.append('last_name', ownerForm.last_name)
+      formData.append('mobile_number', ownerForm.mobile_number)
+      if (ownerForm.email) formData.append('email', ownerForm.email)
+      if (ownerForm.address) formData.append('address', ownerForm.address)
+      if (profilePhoto) formData.append('profile_photo', profilePhoto)
+
+      const res = await api.post('/admin/farm-owners', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
       setOwnerId(res.data.id)
       if (res.data.delivered === false) {
-        setSmsWarning('Owner account created, but the temporary password could not be delivered. Please contact the owner directly.')
+        setSmsWarning('Owner account created, but the SMS with the temporary password failed to send.')
       }
       setStep('farms')
     } catch (err) {
@@ -580,9 +519,7 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
   const updateFarm = (localId, field, value) => {
     setFarmsList(list => list.map(f => (f.localId === localId ? { ...f, [field]: value } : f)))
   }
-
   const addFarm = () => setFarmsList(list => [...list, emptyFarm()])
-
   const removeFarm = (localId) => setFarmsList(list => list.filter(f => f.localId !== localId))
 
   const handleFarmsSubmit = async (e) => {
@@ -647,6 +584,9 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
             {ownerError && <div style={modalStyles.errorBox}>{ownerError}</div>}
 
             <div style={modalStyles.sectionLabel}>OWNER ACCOUNT DETAILS</div>
+
+            <ProfilePhotoUpload file={profilePhoto} setFile={setProfilePhoto} />
+
             <div style={{ ...modalStyles.row, ...(isMobile ? modalStyles.rowMobile : {}) }}>
               <div>
                 <Label text="First Name" required />
@@ -658,29 +598,23 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
               </div>
             </div>
 
-            <Label text="Email or Mobile Number (used for login)" required />
-            <input placeholder="Email address or e.g. 0917 123 4567" value={ownerForm.contact} onChange={updateOwner('contact')} style={modalStyles.inputFull} required />
+            <Label text="Mobile Number" required />
+            <input placeholder="e.g. 0917 123 4567" value={ownerForm.mobile_number} onChange={updateOwner('mobile_number')} style={modalStyles.inputFull} required />
+
+            <Label text="Email Address" />
+            <input type="email" placeholder="Optional" value={ownerForm.email} onChange={updateOwner('email')} style={modalStyles.inputFull} />
+            <p style={modalStyles.mapHint}>Both mobile number and email (if provided) can be used to log in.</p>
 
             <Label text="Owner Address" required />
             <input placeholder="House/Lot No., Street, Barangay" value={ownerForm.address} onChange={updateOwner('address')} style={modalStyles.inputFull} required />
 
             <p style={modalStyles.hint}>
-              A temporary password will be generated and sent to the owner's email or mobile number, depending on what was entered above. The owner must change it on their first login. The owner is registered once — you'll add their farm(s) in the next step.
+              A temporary password will be generated and sent to the owner's mobile number via SMS. The owner must change it on their first login, and can log in afterward using either their mobile number or email (if provided). The owner is registered once — you'll add their farm(s) in the next step.
             </p>
 
             <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
-              <button
-                type="button"
-                onClick={onClose}
-                style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={ownerLoading}
-                style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
-              >
+              <button type="button" onClick={onClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>Cancel</button>
+              <button type="submit" disabled={ownerLoading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
                 {ownerLoading ? 'Creating Owner...' : 'Next: Add Farm(s) →'}
               </button>
             </div>
@@ -708,23 +642,11 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
               />
             ))}
 
-            <button type="button" onClick={addFarm} style={modalStyles.addFarmBtn}>
-              + Add Another Farm
-            </button>
+            <button type="button" onClick={addFarm} style={modalStyles.addFarmBtn}>+ Add Another Farm</button>
 
             <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
-              <button
-                type="button"
-                onClick={onClose}
-                style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={farmsLoading}
-                style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
-              >
+              <button type="button" onClick={onClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>Cancel</button>
+              <button type="submit" disabled={farmsLoading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
                 {farmsLoading ? 'Saving Farm(s)...' : `Save ${farmsList.length > 1 ? `${farmsList.length} Farms` : 'Farm'}`}
               </button>
             </div>
@@ -749,10 +671,7 @@ function AddFarmModal({ onClose, onSuccess, isMobile }) {
   const handleOwnerQueryChange = (value) => {
     setOwnerQuery(value)
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    if (value.trim().length < 2) {
-      setOwnerResults([])
-      return
-    }
+    if (value.trim().length < 2) { setOwnerResults([]); return }
     debounceRef.current = setTimeout(async () => {
       setSearching(true)
       try {
@@ -856,13 +775,7 @@ function AddFarmModal({ onClose, onSuccess, isMobile }) {
             )}
 
             <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
-              <button
-                type="button"
-                onClick={onClose}
-                style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
-              >
-                Cancel
-              </button>
+              <button type="button" onClick={onClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>Cancel</button>
             </div>
           </>
         )}
@@ -872,12 +785,7 @@ function AddFarmModal({ onClose, onSuccess, isMobile }) {
             <div style={modalStyles.ownerBanner}>
               Adding farm(s) for <strong>{selectedOwner.first_name} {selectedOwner.last_name}</strong> ({selectedOwner.mobile_number || selectedOwner.email})
               {' — '}
-              <span
-                style={modalStyles.changeOwnerLink}
-                onClick={() => { setSelectedOwner(null); setOwnerResults([]); setOwnerQuery('') }}
-              >
-                Change owner
-              </span>
+              <span style={modalStyles.changeOwnerLink} onClick={() => { setSelectedOwner(null); setOwnerResults([]); setOwnerQuery('') }}>Change owner</span>
             </div>
 
             {farmsError && <div style={modalStyles.errorBox}>{farmsError}</div>}
@@ -894,23 +802,11 @@ function AddFarmModal({ onClose, onSuccess, isMobile }) {
               />
             ))}
 
-            <button type="button" onClick={addFarm} style={modalStyles.addFarmBtn}>
-              + Add Another Farm
-            </button>
+            <button type="button" onClick={addFarm} style={modalStyles.addFarmBtn}>+ Add Another Farm</button>
 
             <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
-              <button
-                type="button"
-                onClick={onClose}
-                style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={farmsLoading}
-                style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
-              >
+              <button type="button" onClick={onClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>Cancel</button>
+              <button type="submit" disabled={farmsLoading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
                 {farmsLoading ? 'Saving Farm(s)...' : `Save ${farmsList.length > 1 ? `${farmsList.length} Farms` : 'Farm'}`}
               </button>
             </div>
@@ -931,11 +827,7 @@ function StepPill({ number, label, active, done }) {
 }
 
 function Label({ text, required }) {
-  return (
-    <label style={modalStyles.label}>
-      {text} {required && <span style={modalStyles.requiredMark}>*</span>}
-    </label>
-  )
+  return <label style={modalStyles.label}>{text} {required && <span style={modalStyles.requiredMark}>*</span>}</label>
 }
 
 function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
@@ -1007,9 +899,7 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
       if (results[0]) {
         mapRef.current.flyTo([parseFloat(results[0].lat), parseFloat(results[0].lon)], 15, { duration: 0.6 })
       }
-    } catch {
-      // Silent — this is just map navigation convenience, not a hard requirement.
-    }
+    } catch { /* silent */ }
   }
 
   const handleAddressChange = (value) => {
@@ -1018,10 +908,7 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
 
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(async () => {
-      if (value.trim().length < 3) {
-        setSuggestions([])
-        return
-      }
+      if (value.trim().length < 3) { setSuggestions([]); return }
       setGeocodeLoading(true)
       try {
         const results = await geocodeAddress(value)
@@ -1051,19 +938,11 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
     <div style={modalStyles.farmBlock}>
       <div style={modalStyles.farmBlockHeader}>
         <span style={modalStyles.farmBlockTitle}>Farm {index + 1}</span>
-        {canRemove && (
-          <span style={modalStyles.removeFarmBtn} onClick={onRemove}>Remove</span>
-        )}
+        {canRemove && <span style={modalStyles.removeFarmBtn} onClick={onRemove}>Remove</span>}
       </div>
 
       <Label text="Farm Name" required />
-      <input
-        placeholder="Farm Name"
-        value={farm.farm_name}
-        onChange={e => onChange('farm_name', e.target.value)}
-        style={modalStyles.inputFull}
-        required
-      />
+      <input placeholder="Farm Name" value={farm.farm_name} onChange={e => onChange('farm_name', e.target.value)} style={modalStyles.inputFull} required />
 
       <Label text="Farm Size" required />
       <select value={farm.farm_size} onChange={e => onChange('farm_size', e.target.value)} style={modalStyles.inputFull} required>
@@ -1081,12 +960,7 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
       <p style={modalStyles.mapHint}>Selecting a barangay moves the map below to that area.</p>
 
       <Label text="Landmark (optional)" />
-      <input
-        placeholder="Landmark (optional)"
-        value={farm.landmark}
-        onChange={e => onChange('landmark', e.target.value)}
-        style={modalStyles.inputFull}
-      />
+      <input placeholder="Landmark (optional)" value={farm.landmark} onChange={e => onChange('landmark', e.target.value)} style={modalStyles.inputFull} />
 
       <Label text="Search Address (optional)" />
       <div style={{ position: 'relative' }}>
@@ -1101,9 +975,7 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
         {showSuggestions && suggestions.length > 0 && (
           <div style={modalStyles.dropdownList}>
             {suggestions.map((s, i) => (
-              <div key={i} style={modalStyles.dropdownItem} onClick={() => selectSuggestion(s)}>
-                {s.display_name}
-              </div>
+              <div key={i} style={modalStyles.dropdownItem} onClick={() => selectSuggestion(s)}>{s.display_name}</div>
             ))}
           </div>
         )}
@@ -1128,9 +1000,11 @@ function EditModal({ farm, onClose, onSuccess, isMobile }) {
     street: '',
     barangay: farm.barangay,
     landmark: '',
-    mobile_number: farm.mobile_number,
+    mobile_number: farm.mobile_number || '',
+    email: farm.email || '',
     farm_size: farm.farm_size,
   })
+  const [profilePhoto, setProfilePhoto] = useState(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -1141,7 +1015,16 @@ function EditModal({ farm, onClose, onSuccess, isMobile }) {
     setError('')
     setLoading(true)
     try {
-      await api.put(`/admin/farms/${farm.id}`, form)
+      const formData = new FormData()
+      formData.append('_method', 'PUT')
+      Object.entries(form).forEach(([key, value]) => {
+        if (value !== '' && value != null) formData.append(key, value)
+      })
+      if (profilePhoto) formData.append('profile_photo', profilePhoto)
+
+      await api.post(`/admin/farms/${farm.id}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
       onSuccess()
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to update farm.')
@@ -1161,6 +1044,8 @@ function EditModal({ farm, onClose, onSuccess, isMobile }) {
         <form onSubmit={handleSubmit}>
           {error && <div style={modalStyles.errorBox}>{error}</div>}
 
+          <ProfilePhotoUpload file={profilePhoto} setFile={setProfilePhoto} existingUrl={farm.profile_photo_url} />
+
           <Label text="Farm Name" required />
           <input placeholder="Farm Name" value={form.farm_name} onChange={update('farm_name')} style={modalStyles.inputFull} required />
 
@@ -1171,9 +1056,7 @@ function EditModal({ farm, onClose, onSuccess, isMobile }) {
 
           <Label text="Barangay" required />
           <select value={form.barangay} onChange={update('barangay')} style={modalStyles.inputFull} required>
-            {BARANGAYS.map(b => (
-              <option key={b} value={b}>Brgy. {b}</option>
-            ))}
+            {BARANGAYS.map(b => <option key={b} value={b}>Brgy. {b}</option>)}
           </select>
 
           <input placeholder="Landmark (optional)" value={form.landmark} onChange={update('landmark')} style={modalStyles.inputFull} />
@@ -1188,19 +1071,12 @@ function EditModal({ farm, onClose, onSuccess, isMobile }) {
           <Label text="Mobile Number" required />
           <input placeholder="Mobile Number" value={form.mobile_number} onChange={update('mobile_number')} style={modalStyles.inputFull} required />
 
+          <Label text="Email Address" />
+          <input type="email" placeholder="Optional" value={form.email} onChange={update('email')} style={modalStyles.inputFull} />
+
           <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
-            <button
-              type="button"
-              onClick={onClose}
-              style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
-            >
+            <button type="button" onClick={onClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>Cancel</button>
+            <button type="submit" disabled={loading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
               {loading ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
@@ -1210,10 +1086,44 @@ function EditModal({ farm, onClose, onSuccess, isMobile }) {
   )
 }
 
-function ViewFarmModal({ farmId, onClose, isMobile, sensorMonitoringPath }) {
-  const { data: farm, loading, error } = useCachedFetch(`/admin/farms/${farmId}`)
+function Lightbox({ src, alt, onClose }) {
+  const handleOverlayClick = (e) => {
+    e.stopPropagation()
+    onClose()
+  }
 
-  const statusColorMap = { Normal: '#256b3d', Warning: '#B45309', Critical: '#B91C1C' }
+  const handleCloseClick = (e) => {
+    e.stopPropagation()
+    onClose()
+  }
+
+  return (
+    <div style={lightboxStyles.overlay} onClick={handleOverlayClick}>
+      <button style={lightboxStyles.closeBtn} onClick={handleCloseClick} aria-label="Close preview">×</button>
+      <img src={src} alt={alt} style={lightboxStyles.image} onClick={e => e.stopPropagation()} />
+    </div>
+  )
+}
+
+function ViewFarmModal({ farmId, onClose, isMobile }) {
+  const { data: farm, loading, error } = useCachedFetch(`/admin/farms/${farmId}`)
+  const [lightboxImage, setLightboxImage] = useState(null)
+  const [activeTab, setActiveTab] = useState('info')
+
+  const [cleanoutPage, setCleanoutPage] = useState(1)
+  const [disposalPage, setDisposalPage] = useState(1)
+  const [inspectionPage, setInspectionPage] = useState(1)
+
+  const { data: cleanoutData, loading: cleanoutLoading } = useCachedFetch(
+    activeTab === 'cleanout' ? `/admin/farms/${farmId}/maintenance-logs` : null, { page: cleanoutPage }
+  )
+  const { data: disposalData, loading: disposalLoading } = useCachedFetch(
+    activeTab === 'disposal' ? `/admin/farms/${farmId}/disposal-records` : null, { page: disposalPage }
+  )
+  const { data: inspectionData, loading: inspectionLoading } = useCachedFetch(
+    activeTab === 'inspections' ? `/admin/farms/${farmId}/inspection-records` : null, { page: inspectionPage }
+  )
+
   const reading = farm?.sensor_readings?.[0] ?? farm?.sensorReadings?.[0] ?? null
   const initials = farm ? getInitials(farm.owner_name) : ''
   const isActive = farm?.status === 'Active'
@@ -1224,16 +1134,14 @@ function ViewFarmModal({ farmId, onClose, isMobile, sensorMonitoringPath }) {
     reading ? `/admin/farms/${farmId}/root-cause` : null
   )
 
-  const inspections = farm?.inspections ?? []
-  const completedInspections = inspections
-    .filter(i => i.status === 'Completed')
-    .sort((a, b) => new Date(b.completed_at) - new Date(a.completed_at))
-  const upcomingInspections = inspections
-    .filter(i => i.status === 'Scheduled')
-    .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
-  const lastInspection = completedInspections[0]
-  const nextInspection = upcomingInspections[0]
-  const latestInspection = [...inspections].sort((a, b) => new Date(b.scheduled_at) - new Date(a.scheduled_at))[0]
+  const statusColor = { Normal: '#256b3d', Warning: '#b45309', Critical: '#b91c1c', Offline: '#6b7280' }
+
+  const tabs = [
+    { key: 'info', label: 'Farm Information' },
+    { key: 'cleanout', label: 'Manure Clean-out' },
+    { key: 'disposal', label: 'Manure Disposal' },
+    { key: 'inspections', label: 'Inspections' },
+  ]
 
   return (
     <div style={profileStyles.overlay} onClick={onClose}>
@@ -1246,242 +1154,176 @@ function ViewFarmModal({ farmId, onClose, isMobile, sensorMonitoringPath }) {
         {farm && (
           <>
             <div style={{ ...profileStyles.header, ...(isMobile ? profileStyles.headerMobile : {}) }}>
-              <div style={profileStyles.avatar}>{initials || <IconFarm size={22} />}</div>
+              <div style={profileStyles.avatarWrap}>
+                {farm.owner_profile_photo_url ? (
+                  <img src={farm.owner_profile_photo_url} alt={farm.owner_name} style={profileStyles.avatarImg} />
+                ) : (
+                  <div style={profileStyles.avatar}>{initials || '—'}</div>
+                )}
+              </div>
               <div style={profileStyles.headerText}>
                 <div style={profileStyles.ownerNameLarge}>{farm.owner_name}</div>
-                <div style={profileStyles.farmNameRow}>
-                  <IconFarm size={13} />
-                  <span>{farm.farm_name}</span>
-                </div>
-                <div style={profileStyles.farmIdText}>Farm ID #{farm.id}</div>
+                <div style={profileStyles.farmNameRow}>{farm.farm_name} · Farm #{farm.id}</div>
               </div>
-              <span
-                style={{
-                  ...profileStyles.statusPill,
-                  backgroundColor: isActive ? 'rgba(124,199,149,0.18)' : 'rgba(255,255,255,0.12)',
-                  color: isActive ? '#a9e0ba' : '#D7D2C4',
-                  border: `1px solid ${isActive ? 'rgba(124,199,149,0.5)' : 'rgba(255,255,255,0.25)'}`,
-                }}
-              >
+              <span style={{ ...profileStyles.statusPill, color: isActive ? '#2c8047' : '#6b7280', backgroundColor: isActive ? '#eaf3ec' : '#f0f1ec' }}>
                 {farm.status}
               </span>
             </div>
 
+            <div style={profileStyles.tabsRow}>
+              {tabs.map(t => (
+                <span
+                  key={t.key}
+                  style={{ ...profileStyles.tab, ...(activeTab === t.key ? profileStyles.tabActive : {}) }}
+                  onClick={() => setActiveTab(t.key)}
+                >
+                  {t.label}
+                </span>
+              ))}
+            </div>
+
             <div style={profileStyles.body}>
-              <div style={{ ...profileStyles.twoColSection, ...(isMobile ? profileStyles.twoColSectionMobile : {}) }}>
-                <div style={profileStyles.section}>
-                  <div style={profileStyles.sectionLabel}>
-                    <IconHome size={13} /> Farm Information
-                  </div>
-                  <div style={profileStyles.infoGrid}>
-                    <InfoCell icon={<IconHome />} label="Address" value={farm.address} full />
-                    <InfoCell icon={<IconMapPin />} label="Barangay" value={farm.barangay} />
-                    <InfoCell icon={<IconPhone />} label="Contact Number" value={farm.mobile_number} />
-                    <InfoCell icon={<IconScale />} label="Farm Size" value={farm.farm_size} />
-                    <InfoCell icon={<IconFarm size={15} />} label="Number of Poultry" value={farm.num_birds ? Number(farm.num_birds).toLocaleString() : null} />
-                    <InfoCell icon={<IconCalendar />} label="Date Registered" value={formatRegistrationDate(farm.created_at)} />
-                  </div>
-                </div>
 
-                <div style={profileStyles.section}>
-                  <div style={profileStyles.sectionLabel}>
-                    <IconCpu size={13} /> Sensor Information
-                  </div>
-                  <div style={profileStyles.infoGrid}>
-                    <InfoCell icon={<IconHash />} label="Sensor ID" value={reading?.sensor?.sensor_code} full />
-                    <InfoCell
-                      icon={<IconSync />}
-                      label="Sensor Status"
-                      value={
-                        <span style={{ color: isSensorOnline ? '#256b3d' : '#9ca3af', fontWeight: 700 }}>
-                          {isSensorOnline ? 'Online' : 'Offline'}
-                        </span>
-                      }
-                    />
-                    <InfoCell
-                      icon={<IconSync />}
-                      label="Last Synchronization"
-                      value={reading?.created_at ? new Date(reading.created_at).toLocaleString() : null}
-                    />
-                  </div>
-                  {farm.sensors?.length > 1 && (
-                    <div style={profileStyles.sensorCountNote}>
-                      Showing the sensor for the latest reading — {farm.sensors.length} sensors registered to this farm in total.
+              {activeTab === 'info' && (
+                <>
+                  <Section title="Farm Information">
+                    <div style={profileStyles.infoGrid}>
+                      <InfoCell label="Address" value={farm.address} full />
+                      <InfoCell label="Barangay" value={farm.barangay} />
+                      <InfoCell label="Contact Number" value={farm.mobile_number} />
+                      <InfoCell label="Email" value={farm.user?.email} />
+                      <InfoCell label="Farm Size" value={farm.farm_size} />
+                      <InfoCell label="Date Registered" value={formatRegistrationDate(farm.created_at)} />
                     </div>
-                  )}
-                </div>
-              </div>
+                  </Section>
 
-              <div style={{ ...profileStyles.section, marginTop: '24px' }}>
-                <div style={profileStyles.sectionLabelRow}>
-                  <div style={profileStyles.sectionLabel}>
-                    <IconGauge size={13} /> Latest Sensor Readings
-                  </div>
-                  {riskLevel && (
-                    <span style={{ ...profileStyles.riskBadge, ...riskBadgeStyle(riskLevel) }}>
-                      {riskLevel}
-                    </span>
-                  )}
-                </div>
-
-                {!reading ? (
-                  <div style={profileStyles.emptySensor}>
-                    <IconOffline />
-                    <div>
-                      <div style={profileStyles.emptyTitle}>No sensor connected to this farm yet.</div>
-                      <div style={profileStyles.emptySub}>Readings will appear here once hardware is installed.</div>
+                  <Section title="Sensor & Monitoring">
+                    <div style={profileStyles.infoGrid}>
+                      <InfoCell label="Device Name" value={reading?.sensor?.label || reading?.sensor?.sensor_code} />
+                      <InfoCell
+                        label="Sensor Status"
+                        value={<span style={{ color: isSensorOnline ? '#2c8047' : '#9ca3af', fontWeight: 700 }}>{isSensorOnline ? 'Online' : 'Offline'}</span>}
+                      />
+                      <InfoCell label="Last Synchronization" value={reading?.created_at ? new Date(reading.created_at).toLocaleString() : null} full />
                     </div>
-                  </div>
-                ) : (
-                  <>
-                    <div style={{ ...profileStyles.sensorGrid, ...(isMobile ? profileStyles.sensorGridMobile : {}) }}>
-                      <SensorStat icon={<IconAmmonia />} label="Ammonia" value={reading.ammonia} unit="ppm" status={reading.ammonia_status} colorMap={statusColorMap} />
-                      <SensorStat icon={<IconTemp />} label="Temperature" value={reading.temperature} unit="°C" status={reading.temperature_status} colorMap={statusColorMap} />
-                      <SensorStat icon={<IconHumidity />} label="Humidity" value={reading.humidity} unit="%" status={reading.humidity_status} colorMap={statusColorMap} />
-                      <SensorStat icon={<IconMoisture />} label="Moisture" value={reading.moisture} unit="%" status={reading.moisture_status} colorMap={statusColorMap} />
-                    </div>
-                    {reading?.created_at && (
-                      <div style={profileStyles.timestamp}>Last updated {new Date(reading.created_at).toLocaleString()}</div>
-                    )}
-                  </>
-                )}
 
-                {sensorMonitoringPath && (
-                  <a href={sensorMonitoringPath} style={profileStyles.monitoringLink}>
-                    View Sensor Monitoring →
-                  </a>
-                )}
-              </div>
-
-              {reading && (
-                <div style={{ ...profileStyles.section, marginTop: '24px' }}>
-                  <div style={profileStyles.sectionLabel}>
-                    <IconSparkle size={13} /> AI Insight
-                  </div>
-
-                  {insightLoading && (
-                    <div style={profileStyles.empty}>Analyzing sensor data…</div>
-                  )}
-
-                  {!insightLoading && insight && (
-                    <div style={profileStyles.insightCard}>
-                      <div style={profileStyles.insightHeader}>
-                        <span style={profileStyles.insightRootCause}>{insight.diagnosis.root_cause}</span>
-                        <span style={{
-                          ...profileStyles.riskBadge,
-                          ...confidenceBadgeStyle(insight.diagnosis.root_cause, insight.diagnosis.confidence),
-                        }}>
-                          {insight.diagnosis.confidence}% confidence
-                        </span>
-                      </div>
-
-                      {insight.explanation ? (
-                        <p style={profileStyles.insightExplanation}>{insight.explanation}</p>
-                      ) : (
-                        <p style={profileStyles.insightExplanationUnavailable}>
-                          Explanation unavailable right now — the diagnosis above is still accurate.
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {!insightLoading && !insight && (
-                    <div style={profileStyles.empty}>Insight unavailable for this farm right now.</div>
-                  )}
-                </div>
-              )}
-
-              {farm.maintenance_status && (
-                <div style={{ ...profileStyles.section, marginTop: '24px' }}>
-                  <div style={profileStyles.sectionLabelRow}>
-                    <div style={profileStyles.sectionLabel}>
-                      <IconClipboard size={13} /> Manure Clean-out Status
-                    </div>
-                    <span style={{ ...profileStyles.riskBadge, ...maintBadgeStyle(farm.maintenance_status.status) }}>
-                      {farm.maintenance_status.status}
-                    </span>
-                  </div>
-
-                  <div style={profileStyles.infoGrid}>
-                    <InfoCell
-                      icon={<IconCalendar />}
-                      label="Last Logged"
-                      value={farm.maintenance_status.last_performed_at || 'No clean-out logged yet'}
-                    />
-                    <InfoCell
-                      icon={<IconClipboard />}
-                      label="Days Since"
-                      value={`${farm.maintenance_status.days_since} of ~${farm.maintenance_status.expected_interval_days} expected`}
-                    />
-                  </div>
-
-                  {farm.maintenance_logs?.length > 0 && (
-                    <div style={profileStyles.maintLogsList}>
-                      {farm.maintenance_logs.map(log => (
-                        <a
-                          key={log.id}
-                          href={log.photo_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={profileStyles.maintLogRow}
-                        >
-                          <img src={log.photo_url} alt="Clean-out proof" style={profileStyles.maintLogThumb} />
-                          <div style={{ minWidth: 0 }}>
-                            <div style={profileStyles.maintLogDate}>{log.performed_at}</div>
-                            <div style={profileStyles.maintLogNote}>{log.notes || 'No notes provided'}</div>
-                          </div>
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div style={{ ...profileStyles.section, marginTop: '24px' }}>
-                <div style={profileStyles.sectionLabel}>
-                  <IconClipboard size={13} /> Manure Disposal Records
-                </div>
-
-                {farm.disposal_records?.length > 0 ? (
-                  <div style={profileStyles.maintLogsList}>
-                    {farm.disposal_records.map(r => (
-                      <div key={r.id} style={profileStyles.disposalRow}>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={profileStyles.maintLogDate}>{r.disposal_date} — {r.disposal_method}</div>
-                          <div style={profileStyles.maintLogNote}>
-                            {r.quantity} kg{r.buyer_name ? ` · ${r.buyer_name}` : ''}{r.notes ? ` · ${r.notes}` : ''}
-                          </div>
+                    {reading ? (
+                      <>
+                        <div style={{ ...profileStyles.sensorGrid, ...(isMobile ? profileStyles.sensorGridMobile : {}) }}>
+                          <SensorStat label="Ammonia" value={reading.ammonia} unit="ppm" status={reading.ammonia_status} colorMap={statusColor} />
+                          <SensorStat label="Temperature" value={reading.temperature} unit="°C" status={reading.temperature_status} colorMap={statusColor} />
+                          <SensorStat label="Humidity" value={reading.humidity} unit="%" status={reading.humidity_status} colorMap={statusColor} />
+                          <SensorStat label="Moisture" value={reading.moisture} unit="%" status={reading.moisture_status} colorMap={statusColor} />
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div style={profileStyles.empty}>No disposal records logged for this farm yet.</div>
-                )}
-              </div>
+                        {riskLevel && (
+                          <div style={{ ...profileStyles.riskNote, color: statusColor[riskLevel] || '#6b7280' }}>Overall status: {riskLevel}</div>
+                        )}
+                      </>
+                    ) : (
+                      <div style={profileStyles.empty}>No sensor connected to this farm yet.</div>
+                    )}
+                  </Section>
 
-              <div style={{ ...profileStyles.section, marginTop: '24px' }}>
-                <div style={profileStyles.sectionLabel}>
-                  <IconClipboard size={13} /> Inspection Summary
-                </div>
-                <div style={{ ...profileStyles.inspectionGrid, ...(isMobile ? profileStyles.inspectionGridMobile : {}) }}>
-                  <InfoCell
-                    icon={<IconCalendar />}
-                    label="Last Inspection Date"
-                    value={lastInspection ? new Date(lastInspection.completed_at).toLocaleDateString() : null}
-                  />
-                  <InfoCell
-                    icon={<IconCalendar />}
-                    label="Next Scheduled Inspection"
-                    value={nextInspection ? new Date(nextInspection.scheduled_at).toLocaleDateString() : null}
-                  />
-                  <InfoCell
-                    icon={<IconClipboard />}
-                    label="Latest Inspection Status"
-                    value={latestInspection?.status}
-                  />
-                </div>
-              </div>
+                  {reading && (
+                    <Section title="AI Insight">
+                      {insightLoading && <div style={profileStyles.empty}>Analyzing sensor data…</div>}
+                      {!insightLoading && insight && (
+                        <div style={profileStyles.insightBlock}>
+                          <div style={profileStyles.insightHeader}>
+                            <span style={profileStyles.insightRootCause}>{insight.diagnosis.root_cause}</span>
+                            <span style={{ ...profileStyles.confidenceTag, color: statusColor[riskLevel] || '#6b7280' }}>{insight.diagnosis.confidence}% confidence</span>
+                          </div>
+                          {insight.explanation ? (
+                            <p style={profileStyles.insightExplanation}>{insight.explanation}</p>
+                          ) : (
+                            <p style={profileStyles.insightExplanationUnavailable}>Explanation unavailable right now — the diagnosis above is still accurate.</p>
+                          )}
+                        </div>
+                      )}
+                      {!insightLoading && !insight && <div style={profileStyles.empty}>Insight unavailable for this farm right now.</div>}
+                    </Section>
+                  )}
+                </>
+              )}
+
+              {activeTab === 'cleanout' && (
+                <Section title="Manure Clean-out" badge={farm.maintenance_status?.status} badgeColor={maintBadgeColor(farm.maintenance_status?.status)}>
+                  <div style={profileStyles.infoGrid}>
+                    <InfoCell label="Last Logged" value={farm.maintenance_status?.last_performed_at || 'No clean-out logged yet'} />
+                    <InfoCell label="Days Since" value={farm.maintenance_status ? `${farm.maintenance_status.days_since} of ~${farm.maintenance_status.expected_interval_days} expected` : null} />
+                  </div>
+
+                  {cleanoutLoading && <div style={profileStyles.empty}>Loading…</div>}
+                  {!cleanoutLoading && (cleanoutData?.logs?.length ?? 0) === 0 && (
+                    <div style={profileStyles.empty}>No clean-out records logged for this farm yet.</div>
+                  )}
+                  {!cleanoutLoading && cleanoutData?.logs?.length > 0 && (
+                    <>
+                      <div style={profileStyles.logsList}>
+                        {cleanoutData.logs.map(log => (
+                          <div key={log.id} style={profileStyles.logRow}>
+                            <img src={log.photo_url} alt="Clean-out proof" style={profileStyles.logThumb} onClick={() => setLightboxImage(log.photo_url)} />
+                            <div style={{ minWidth: 0 }}>
+                              <div style={profileStyles.logDate}>{log.performed_at}</div>
+                              <div style={profileStyles.logNote}>{log.notes || 'No notes provided'}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <TabPagination currentPage={cleanoutData.current_page} lastPage={cleanoutData.last_page} onPageChange={setCleanoutPage} />
+                    </>
+                  )}
+                </Section>
+              )}
+
+              {activeTab === 'disposal' && (
+                <Section title="Manure Disposal Records">
+                  {disposalLoading && <div style={profileStyles.empty}>Loading…</div>}
+                  {!disposalLoading && (disposalData?.records?.length ?? 0) === 0 && (
+                    <div style={profileStyles.empty}>No disposal records logged for this farm yet.</div>
+                  )}
+                  {!disposalLoading && disposalData?.records?.length > 0 && (
+                    <>
+                      <div style={profileStyles.logsList}>
+                        {disposalData.records.map(r => (
+                          <div key={r.id} style={profileStyles.textRow}>
+                            <div style={profileStyles.logDate}>{r.disposal_date} — {r.disposal_method}</div>
+                            <div style={profileStyles.logNote}>
+                              {r.quantity} kg{r.buyer_name ? ` · ${r.buyer_name}` : ''}{r.notes ? ` · ${r.notes}` : ''}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <TabPagination currentPage={disposalData.current_page} lastPage={disposalData.last_page} onPageChange={setDisposalPage} />
+                    </>
+                  )}
+                </Section>
+              )}
+
+              {activeTab === 'inspections' && (
+                <Section title="Inspection Summary">
+                  {inspectionLoading && <div style={profileStyles.empty}>Loading…</div>}
+                  {!inspectionLoading && (inspectionData?.inspections?.length ?? 0) === 0 && (
+                    <div style={profileStyles.empty}>No inspections recorded for this farm yet.</div>
+                  )}
+                  {!inspectionLoading && inspectionData?.inspections?.length > 0 && (
+                    <>
+                      <div style={profileStyles.logsList}>
+                        {inspectionData.inspections.map(i => (
+                          <div key={i.id} style={profileStyles.textRow}>
+                            <div style={profileStyles.logDate}>{i.inspection_type} — {i.status}</div>
+                            <div style={profileStyles.logNote}>
+                              {i.status === 'Completed' ? `Completed ${i.completed_at}` : `Scheduled ${i.scheduled_at}`}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <TabPagination currentPage={inspectionData.current_page} lastPage={inspectionData.last_page} onPageChange={setInspectionPage} />
+                    </>
+                  )}
+                </Section>
+              )}
+
             </div>
 
             <div style={profileStyles.footer}>
@@ -1490,187 +1332,49 @@ function ViewFarmModal({ farmId, onClose, isMobile, sensorMonitoringPath }) {
           </>
         )}
       </div>
+
+      {lightboxImage && <Lightbox src={lightboxImage} alt="Clean-out proof" onClose={() => setLightboxImage(null)} />}
     </div>
   )
 }
 
-function riskBadgeStyle(level) {
-  const normalized = String(level).toLowerCase()
-  if (normalized.includes('critical')) return { backgroundColor: 'rgba(185,28,28,0.12)', color: '#B91C1C', border: '1px solid rgba(185,28,28,0.3)' }
-  if (normalized.includes('warn') || normalized.includes('moderate')) return { backgroundColor: 'rgba(180,83,9,0.12)', color: '#B45309', border: '1px solid rgba(180,83,9,0.3)' }
-  return { backgroundColor: 'rgba(37,107,61,0.12)', color: '#256b3d', border: '1px solid rgba(37,107,61,0.3)' }
+function Section({ title, children, badge, badgeColor }) {
+  return (
+    <div style={profileStyles.section}>
+      <div style={profileStyles.sectionHeader}>
+        <span style={profileStyles.sectionTitle}>{title}</span>
+        {badge && (
+          <span style={{ ...profileStyles.sectionBadge, color: badgeColor, backgroundColor: `${badgeColor}18` }}>{badge}</span>
+        )}
+      </div>
+      {children}
+    </div>
+  )
 }
 
-function confidenceBadgeStyle(rootCause, confidence) {
-  if (rootCause === 'Normal conditions') {
-    return { backgroundColor: 'rgba(37,107,61,0.12)', color: '#256b3d', border: '1px solid rgba(37,107,61,0.3)' }
-  }
-  if (confidence >= 30) {
-    return { backgroundColor: 'rgba(185,28,28,0.12)', color: '#B91C1C', border: '1px solid rgba(185,28,28,0.3)' }
-  }
-  return { backgroundColor: 'rgba(180,83,9,0.12)', color: '#B45309', border: '1px solid rgba(180,83,9,0.3)' }
+function maintBadgeColor(status) {
+  if (status === 'Overdue') return '#b91c1c'
+  if (status === 'Due') return '#b45309'
+  return '#2c8047'
 }
 
-function maintBadgeStyle(status) {
-  if (status === 'Overdue') return { backgroundColor: 'rgba(185,28,28,0.12)', color: '#B91C1C', border: '1px solid rgba(185,28,28,0.3)' }
-  if (status === 'Due') return { backgroundColor: 'rgba(180,83,9,0.12)', color: '#B45309', border: '1px solid rgba(180,83,9,0.3)' }
-  return { backgroundColor: 'rgba(37,107,61,0.12)', color: '#256b3d', border: '1px solid rgba(37,107,61,0.3)' }
-}
-
-function InfoCell({ icon, label, value, full }) {
+function InfoCell({ label, value, full }) {
   return (
     <div style={{ ...profileStyles.infoCell, ...(full ? profileStyles.infoCellFull : {}) }}>
-      <div style={profileStyles.infoIcon}>{icon}</div>
-      <div style={{ minWidth: 0 }}>
-        <div style={profileStyles.infoLabel}>{label}</div>
-        <div style={profileStyles.infoValue}>{value || value === 0 ? value : '—'}</div>
-      </div>
+      <div style={profileStyles.infoLabel}>{label}</div>
+      <div style={profileStyles.infoValue}>{value || value === 0 ? value : '—'}</div>
     </div>
   )
 }
 
-function SensorStat({ icon, label, value, unit, status, colorMap }) {
+function SensorStat({ label, value, unit, status, colorMap }) {
   const color = colorMap[status] || '#6b7280'
   return (
-    <div style={{ ...profileStyles.sensorCard, borderLeftColor: color }}>
-      <div style={{ ...profileStyles.sensorIcon, color }}>{icon}</div>
+    <div style={profileStyles.sensorCard}>
       <div style={profileStyles.sensorLabel}>{label}</div>
-      <div style={{ ...profileStyles.sensorValue, color }}>
-        {value !== null && value !== undefined ? `${value} ${unit}` : '—'}
-      </div>
+      <div style={{ ...profileStyles.sensorValue, color }}>{value !== null && value !== undefined ? `${value} ${unit}` : '—'}</div>
       {status && <div style={{ ...profileStyles.sensorStatus, color }}>{status}</div>}
     </div>
-  )
-}
-
-function getInitials(name) {
-  if (!name) return ''
-  return name.split(' ').filter(Boolean).slice(0, 2).map(n => n[0].toUpperCase()).join('')
-}
-
-const iconBase = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' }
-
-function IconFarm({ size = 15 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" {...iconBase}>
-      <path d="M3 21h18" /><path d="M5 21V9l7-5 7 5v12" /><path d="M9 21v-6h6v6" />
-    </svg>
-  )
-}
-function IconPhone() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" {...iconBase}>
-      <path d="M6 3h4l1 5-2.5 1.5a11 11 0 0 0 5 5L15 12l5 1v4a2 2 0 0 1-2 2A16 16 0 0 1 4 5a2 2 0 0 1 2-2z" />
-    </svg>
-  )
-}
-function IconMapPin() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" {...iconBase}>
-      <path d="M12 21s7-6.5 7-11a7 7 0 1 0-14 0c0 4.5 7 11 7 11z" /><circle cx="12" cy="10" r="2.5" />
-    </svg>
-  )
-}
-function IconHome() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" {...iconBase}>
-      <path d="M4 11.5 12 4l8 7.5" /><path d="M6 10v9h5v-5h2v5h5v-9" />
-    </svg>
-  )
-}
-function IconScale() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" {...iconBase}>
-      <path d="M12 3v18" /><path d="M5 7h14" /><path d="M5 7l-3 6a3 3 0 0 0 6 0l-3-6z" /><path d="M19 7l-3 6a3 3 0 0 0 6 0l-3-6z" />
-    </svg>
-  )
-}
-function IconGauge({ size = 15 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" {...iconBase}>
-      <circle cx="12" cy="13" r="8" /><path d="M12 13l3-4" /><path d="M9 5.5 10 4" />
-    </svg>
-  )
-}
-function IconOffline() {
-  return (
-    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#C9B98A" strokeWidth="1.6" strokeLinecap="round">
-      <circle cx="12" cy="12" r="9" /><path d="M9 9l6 6M15 9l-6 6" />
-    </svg>
-  )
-}
-function IconAmmonia() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" {...iconBase}>
-      <path d="M12 3s6 7 6 11a6 6 0 1 1-12 0c0-4 6-11 6-11z" />
-    </svg>
-  )
-}
-function IconTemp() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" {...iconBase}>
-      <path d="M12 14V5a2 2 0 1 0-4 0v9a4 4 0 1 0 4 0z" />
-    </svg>
-  )
-}
-function IconHumidity() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" {...iconBase}>
-      <path d="M7 16a4 4 0 0 1 .5-8 5 5 0 0 1 9.5 2 3.5 3.5 0 0 1-.5 7H7z" />
-    </svg>
-  )
-}
-function IconMoisture() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" {...iconBase}>
-      <path d="M4 20c8 0 12-6 12-14 0 0-10 0-12 8-1 4 0 6 0 6z" />
-    </svg>
-  )
-}
-function IconCalendar() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" {...iconBase}>
-      <rect x="4" y="5" width="16" height="16" rx="2" /><path d="M8 3v4M16 3v4M4 10h16" />
-    </svg>
-  )
-}
-function IconCpu() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" {...iconBase}>
-      <rect x="7" y="7" width="10" height="10" rx="1.5" />
-      <path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3" />
-    </svg>
-  )
-}
-function IconHash() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" {...iconBase}>
-      <path d="M5 9h14M5 15h14M10 4L8 20M16 4l-2 16" />
-    </svg>
-  )
-}
-function IconSparkle({ size = 15 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" {...iconBase}>
-      <path d="M12 3v4M12 17v4M3 12h4M17 12h4M6.3 6.3l2.1 2.1M15.6 15.6l2.1 2.1M17.7 6.3l-2.1 2.1M8.4 15.6l-2.1 2.1" />
-      <circle cx="12" cy="12" r="2.5" />
-    </svg>
-  )
-}
-function IconSync() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" {...iconBase}>
-      <path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3" />
-      <path d="M18 3v4h-4M6 21v-4h4" />
-    </svg>
-  )
-}
-function IconClipboard() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" {...iconBase}>
-      <rect x="5" y="4" width="14" height="17" rx="1.5" />
-      <path d="M9 4V3h6v1M9 10h6M9 14h4" />
-    </svg>
   )
 }
 
@@ -1684,6 +1388,10 @@ const styles = {
   secondaryBtn: { display: 'inline-flex', alignItems: 'center', gap: '7px', backgroundColor: '#fff', color: '#2c8047', border: '1px solid #cfe0d3', borderRadius: '10px', padding: '10px 16px', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer' },
   btnFull: { width: '100%', boxSizing: 'border-box', justifyContent: 'center' },
 
+  statusTabs: { display: 'flex', gap: '4px', marginBottom: '18px', borderBottom: '1px solid #e7e8e0' },
+  statusTab: { padding: '10px 18px', fontSize: '14px', fontWeight: 700, color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent' },
+  statusTabActive: { color: '#2c8047', borderBottom: '2px solid #2c8047' },
+
   filters: { display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' },
   filtersMobile: { flexDirection: 'column' },
   searchInput: { flex: 1, padding: '11px 14px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', width: '100%', backgroundColor: '#fff', color: '#16311d' },
@@ -1694,37 +1402,23 @@ const styles = {
     padding: '11px 14px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
     fontSize: '14px', fontWeight: 600, color: '#33413a', cursor: 'pointer',
   },
-  filterBadge: {
-    backgroundColor: '#2c8047', color: '#fff', fontSize: '11px', fontWeight: 700,
-    borderRadius: '999px', padding: '1px 7px', lineHeight: '16px',
-  },
+  filterBadge: { backgroundColor: '#2c8047', color: '#fff', fontSize: '11px', fontWeight: 700, borderRadius: '999px', padding: '1px 7px', lineHeight: '16px' },
   filterChevron: { marginLeft: 'auto', fontSize: '11px', color: '#9aa79d' },
 
   tableCard: { backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden', padding: 0 },
   scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0' },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  tableMobile: { minWidth: '900px' },
-  th: {
-    textAlign: 'left', padding: '13px 20px', fontSize: '11px', fontWeight: 700, color: '#8a968d',
-    borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em',
-    whiteSpace: 'nowrap', backgroundColor: '#fafbf8',
-  },
+  tableMobile: { minWidth: '1000px' },
+  th: { textAlign: 'left', padding: '13px 20px', fontSize: '11px', fontWeight: 700, color: '#8a968d', borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', backgroundColor: '#fafbf8' },
   thSortable: { cursor: 'pointer', userSelect: 'none' },
   sortArrow: { color: '#2c8047', fontSize: '10px' },
   tr: {},
   td: { padding: '13px 20px', fontSize: '13px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle' },
-  avatar: {
-    width: '38px', height: '38px', borderRadius: '10px', backgroundColor: '#eaf3ec', color: '#2c8047',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 700,
-    flexShrink: 0, textTransform: 'uppercase',
-  },
+  avatar: { width: '38px', height: '38px', borderRadius: '10px', backgroundColor: '#eaf3ec', color: '#2c8047', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 700, flexShrink: 0, textTransform: 'uppercase' },
   badge: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 11px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap' },
   badgeDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
-  actionBtn: {
-    padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600,
-    cursor: 'pointer', border: '1px solid #e3e6dd', backgroundColor: '#fff', whiteSpace: 'nowrap',
-  },
+  actionBtn: { padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer', border: '1px solid #e3e6dd', backgroundColor: '#fff', whiteSpace: 'nowrap' },
   viewBtn: { color: '#4b5a50' },
   editBtn: { color: '#2c8047' },
   deactivateBtn: { color: '#b91c1c' },
@@ -1733,32 +1427,16 @@ const styles = {
 }
 
 const paginationStyles = {
-  wrap: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px',
-  },
+  wrap: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px' },
   wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
   info: { fontSize: '12.5px', color: '#8a968d', whiteSpace: 'nowrap' },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },
-  pageSizeSelect: {
-    padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6',
-    fontSize: '12.5px', color: '#4b5a50', marginRight: '6px',
-  },
-  navBtn: {
-    minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px',
-    border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50',
-    fontSize: '13px', cursor: 'pointer',
-  },
+  pageSizeSelect: { padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6', fontSize: '12.5px', color: '#4b5a50', marginRight: '6px' },
+  navBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '13px', cursor: 'pointer' },
   navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
-  pageBtn: {
-    minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px',
-    border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50',
-    fontSize: '12.5px', fontWeight: 600, cursor: 'pointer',
-  },
-  pageBtnActive: {
-    backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff',
-  },
+  pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
+  pageBtnActive: { backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff' },
   ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
 }
 
@@ -1766,11 +1444,7 @@ const modalStyles = {
   overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 },
   modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '480px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto' },
   modalWide: { width: '560px' },
-  modalMobile: {
-    width: '100%', maxWidth: '100%', borderRadius: '16px 16px 0 0',
-    padding: '20px', margin: '0', position: 'fixed', bottom: 0, left: 0,
-    maxHeight: '85vh',
-  },
+  modalMobile: { width: '100%', maxWidth: '100%', borderRadius: '16px 16px 0 0', padding: '20px', margin: '0', position: 'fixed', bottom: 0, left: 0, maxHeight: '85vh' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' },
   title: { fontSize: '17px', fontWeight: 800, color: '#16311d', margin: 0 },
   close: { fontSize: '22px', cursor: 'pointer', color: '#8a968d' },
@@ -1782,25 +1456,16 @@ const modalStyles = {
   stepPill: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#9aa79d', fontWeight: 600 },
   stepPillActive: { color: '#2c8047' },
   stepPillDone: { color: '#2c8047' },
-  stepPillNum: {
-    width: '22px', height: '22px', borderRadius: '50%', backgroundColor: '#eef1ea',
-    color: '#9aa79d', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontSize: '11px', fontWeight: 700, flexShrink: 0,
-  },
+  stepPillNum: { width: '22px', height: '22px', borderRadius: '50%', backgroundColor: '#eef1ea', color: '#9aa79d', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, flexShrink: 0 },
   stepPillNumActive: { backgroundColor: '#2c8047', color: '#fff' },
 
-  ownerBanner: {
-    backgroundColor: '#eaf3ec', border: '1px solid #cfe0d3', color: '#1f5a34',
-    padding: '8px 12px', borderRadius: '10px', fontSize: '12.5px', marginBottom: '16px',
-  },
+  ownerBanner: { backgroundColor: '#eaf3ec', border: '1px solid #cfe0d3', color: '#1f5a34', padding: '8px 12px', borderRadius: '10px', fontSize: '12.5px', marginBottom: '16px' },
 
   sectionLabel: { fontSize: '11px', fontWeight: 700, color: '#9aa79d', marginTop: '16px', marginBottom: '8px', letterSpacing: '0.5px' },
   row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' },
   rowMobile: { gridTemplateColumns: '1fr' },
-  areaRow: { display: 'flex', gap: '10px', marginBottom: '10px' },
   input: { padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', width: '100%' },
   inputFull: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', marginBottom: '10px' },
-  inputDisabled: { backgroundColor: '#f6f7f2', color: '#6b7770', cursor: 'not-allowed' },
   label: { display: 'block', fontSize: '12.5px', fontWeight: 600, color: '#33413a', marginBottom: '5px' },
   errorBox: { backgroundColor: '#fbeaea', border: '1px solid #f0c9c9', color: '#b91c1c', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '14px' },
   warnBox: { backgroundColor: '#fdf8f0', border: '1px solid #f0e2cf', color: '#92400e', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '14px' },
@@ -1813,41 +1478,32 @@ const modalStyles = {
   cancelBtn: { padding: '10px 18px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: 'white', fontSize: '14px', fontWeight: 600, color: '#33413a', cursor: 'pointer' },
   submitBtn: { padding: '10px 18px', borderRadius: '10px', border: 'none', backgroundColor: '#2c8047', color: 'white', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
 
-  farmBlock: {
-    border: '1px solid #e7e8e0', borderRadius: '12px', padding: '16px',
-    marginBottom: '14px', backgroundColor: '#fafbf8',
-  },
+  farmBlock: { border: '1px solid #e7e8e0', borderRadius: '12px', padding: '16px', marginBottom: '14px', backgroundColor: '#fafbf8' },
   farmBlockHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' },
   farmBlockTitle: { fontSize: '13px', fontWeight: 700, color: '#2c8047' },
   removeFarmBtn: { fontSize: '12px', color: '#b91c1c', fontWeight: 600, cursor: 'pointer' },
-  addFarmBtn: {
-    display: 'block', width: '100%', padding: '10px', borderRadius: '10px',
-    border: '1px dashed #2c8047', backgroundColor: 'white', color: '#2c8047',
-    fontSize: '13px', fontWeight: 600, cursor: 'pointer', marginBottom: '4px',
-  },
+  addFarmBtn: { display: 'block', width: '100%', padding: '10px', borderRadius: '10px', border: '1px dashed #2c8047', backgroundColor: 'white', color: '#2c8047', fontSize: '13px', fontWeight: 600, cursor: 'pointer', marginBottom: '4px' },
 
-  dropdownList: {
-    position: 'absolute', top: '100%', left: 0, right: 0,
-    backgroundColor: 'white', border: '1px solid #dcdfd6', borderRadius: '10px',
-    marginTop: '-6px', maxHeight: '180px', overflowY: 'auto', zIndex: 10,
-    boxShadow: '0 4px 12px rgba(20,48,28,0.12)',
-  },
+  dropdownList: { position: 'absolute', top: '100%', left: 0, right: 0, backgroundColor: 'white', border: '1px solid #dcdfd6', borderRadius: '10px', marginTop: '-6px', maxHeight: '180px', overflowY: 'auto', zIndex: 10, boxShadow: '0 4px 12px rgba(20,48,28,0.12)' },
   dropdownItem: { padding: '10px 14px', fontSize: '13px', cursor: 'pointer', color: '#33413a' },
   geocodeSpinner: { position: 'absolute', right: '12px', top: '11px', fontSize: '11px', color: '#9aa79d' },
   geocodeError: { fontSize: '12px', color: '#b91c1c', marginTop: '-6px', marginBottom: '10px' },
   geotagConfirmed: { fontSize: '12px', color: '#2c8047', fontWeight: 600, marginTop: '2px' },
 
-  ownerResultsList: {
-    border: '1px solid #dcdfd6', borderRadius: '10px', marginTop: '-6px',
-    marginBottom: '10px', maxHeight: '220px', overflowY: 'auto',
-  },
-  ownerResultItem: {
-    padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #f2f3ed',
-  },
+  ownerResultsList: { border: '1px solid #dcdfd6', borderRadius: '10px', marginTop: '-6px', marginBottom: '10px', maxHeight: '220px', overflowY: 'auto' },
+  ownerResultItem: { padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #f2f3ed' },
   ownerResultName: { fontSize: '13.5px', fontWeight: 700, color: '#16311d' },
   ownerResultMeta: { fontSize: '12px', color: '#6b7770', marginTop: '2px' },
   ownerEmptyResult: { fontSize: '12.5px', color: '#9aa79d', padding: '10px 2px', marginTop: '-6px' },
   changeOwnerLink: { color: '#2c8047', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' },
+
+  photoUploadWrap: { display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '16px', padding: '12px', backgroundColor: '#fafbf8', borderRadius: '12px', border: '1px solid #eceee7' },
+  photoPreview: { width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#eaf3ec', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, overflow: 'hidden', border: '2px dashed #cfe0d3' },
+  photoPreviewImg: { width: '100%', height: '100%', objectFit: 'cover' },
+  photoPlaceholder: { fontSize: '22px', color: '#2c8047', fontWeight: 700 },
+  photoUploadLabel: { fontSize: '13px', fontWeight: 700, color: '#16311d' },
+  photoUploadHint: { fontSize: '11.5px', color: '#9aa79d', marginTop: '2px' },
+  photoUploadBtn: { fontSize: '12px', fontWeight: 700, color: '#2c8047', cursor: 'pointer', marginTop: '4px', display: 'inline-block' },
 }
 
 const confirmStyles = {
@@ -1857,137 +1513,77 @@ const confirmStyles = {
 }
 
 const profileStyles = {
-  overlay: {
-    position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.6)',
-    backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center',
-    justifyContent: 'center', zIndex: 50, padding: '16px', boxSizing: 'border-box',
-  },
-  modal: {
-    backgroundColor: '#F7F5EE', borderRadius: '18px', width: '80%', maxWidth: '980px',
-    maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(15,38,22,0.35)',
-    position: 'relative',
-  },
-  modalMobile: {
-    width: '100%', maxWidth: '100%', borderRadius: '18px 18px 0 0', position: 'fixed',
-    bottom: 0, left: 0, maxHeight: '92vh',
-  },
-  closeBtn: {
-    position: 'absolute', top: '14px', right: '14px', width: '28px', height: '28px',
-    borderRadius: '50%', border: 'none', backgroundColor: 'rgba(255,255,255,0.16)',
-    color: '#fff', fontSize: '18px', lineHeight: '26px', cursor: 'pointer', zIndex: 2,
-  },
+  overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '16px', boxSizing: 'border-box' },
+  modal: { backgroundColor: '#fff', borderRadius: '16px', width: '760px', maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(15,38,22,0.3)', position: 'relative' },
+  modalMobile: { width: '100%', maxWidth: '100%', borderRadius: '16px 16px 0 0', position: 'fixed', bottom: 0, left: 0, maxHeight: '92vh' },
+  closeBtn: { position: 'absolute', top: '16px', right: '16px', width: '26px', height: '26px', borderRadius: '50%', border: 'none', backgroundColor: 'rgba(255,255,255,0.18)', color: '#fff', fontSize: '17px', lineHeight: '24px', cursor: 'pointer', zIndex: 2 },
   stateMsg: { padding: '40px 24px', textAlign: 'center', color: '#6b7770', fontSize: '14px' },
-  header: {
-    backgroundImage: 'linear-gradient(135deg, #1f5a34 0%, #14301c 100%)',
-    borderRadius: '18px 18px 0 0', padding: '28px 48px 24px 28px',
-    display: 'flex', alignItems: 'center', gap: '16px',
-  },
-  headerMobile: { padding: '22px 44px 18px 18px', gap: '12px' },
-  avatar: {
-    width: '64px', height: '64px', borderRadius: '50%', backgroundColor: 'rgba(124,199,149,0.18)',
-    border: '2px solid #7cc795', color: '#a9e0ba', display: 'flex', alignItems: 'center',
-    justifyContent: 'center', fontSize: '20px', fontWeight: 700, flexShrink: 0,
-  },
+
+  header: { backgroundColor: '#1f5a34', borderRadius: '16px 16px 0 0', padding: '22px 24px', display: 'flex', alignItems: 'center', gap: '14px' },
+  headerMobile: { padding: '18px 40px 18px 18px', gap: '11px' },
+  avatarWrap: { width: '52px', height: '52px', borderRadius: '50%', flexShrink: 0, overflow: 'hidden' },
+  avatarImg: { width: '100%', height: '100%', objectFit: 'cover' },
+  avatar: { width: '52px', height: '52px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.15)', color: '#eaf3ec', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '17px', fontWeight: 700 },
   headerText: { flex: 1, minWidth: 0 },
-  ownerNameLarge: {
-    color: '#fff', fontSize: '19px', fontWeight: 700, lineHeight: '1.3',
-    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-  },
-  farmNameRow: {
-    display: 'flex', alignItems: 'center', gap: '6px', color: 'rgba(169,224,186,0.95)',
-    fontSize: '13px', fontWeight: 600, marginTop: '4px',
-  },
-  farmIdText: { color: 'rgba(247,245,238,0.5)', fontSize: '11px', marginTop: '4px' },
-  statusPill: {
-    padding: '4px 12px', borderRadius: '999px', fontSize: '11px', fontWeight: 700,
-    letterSpacing: '0.3px', whiteSpace: 'nowrap', flexShrink: 0,
-  },
-  body: { padding: '26px 28px 8px' },
-  section: {},
-  twoColSection: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' },
-  twoColSectionMobile: { gridTemplateColumns: '1fr', gap: '22px' },
-  sectionLabelRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' },
-  sectionLabel: {
-    display: 'flex', alignItems: 'center', gap: '7px', fontSize: '11px', fontWeight: 700,
-    color: '#5f7867', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '12px',
-  },
-  riskBadge: {
-    padding: '4px 12px', borderRadius: '999px', fontSize: '11px', fontWeight: 700,
-    letterSpacing: '0.3px', whiteSpace: 'nowrap',
-  },
-  infoGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' },
+  ownerNameLarge: { color: '#fff', fontSize: '16px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  farmNameRow: { color: 'rgba(234,243,236,0.75)', fontSize: '12.5px', marginTop: '3px' },
+  statusPill: { padding: '4px 11px', borderRadius: '999px', fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 },
+
+  tabsRow: { display: 'flex', gap: '4px', padding: '14px 24px 0', borderBottom: '1px solid #f0efe8', overflowX: 'auto' },
+  tab: { padding: '8px 4px', fontSize: '12.5px', fontWeight: 700, color: '#9aa79d', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap', marginRight: '18px' },
+  tabActive: { color: '#2c8047', borderBottom: '2px solid #2c8047' },
+
+  body: { padding: '4px 24px 8px' },
+
+  section: { padding: '18px 0', borderBottom: '1px solid #f0efe8' },
+  sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' },
+  sectionTitle: { fontSize: '12px', fontWeight: 700, color: '#16311d', textTransform: 'uppercase', letterSpacing: '0.04em' },
+  sectionBadge: { padding: '3px 10px', borderRadius: '999px', fontSize: '10.5px', fontWeight: 700 },
+
+  infoGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 20px' },
   infoGridMobile: { gridTemplateColumns: '1fr' },
-  inspectionGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' },
-  inspectionGridMobile: { gridTemplateColumns: '1fr' },
-  infoCell: {
-    display: 'flex', gap: '10px', backgroundColor: '#fff', border: '1px solid #e7e8e0',
-    borderRadius: '10px', padding: '10px 12px', alignItems: 'flex-start',
-  },
+  inspectionGrid: { gridTemplateColumns: 'repeat(3, 1fr)' },
+  infoCell: {},
   infoCellFull: { gridColumn: '1 / -1' },
-  infoIcon: { color: '#1f5a34', opacity: 0.55, marginTop: '2px', flexShrink: 0 },
-  infoLabel: {
-    fontSize: '10.5px', color: '#9aa79d', fontWeight: 600,
-    textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: '2px',
-  },
+  infoLabel: { fontSize: '10.5px', color: '#9aa79d', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '3px' },
   infoValue: { fontSize: '13.5px', color: '#16311d', fontWeight: 600, wordBreak: 'break-word' },
-  sensorCountNote: { fontSize: '11.5px', color: '#9aa79d', marginTop: '10px', fontStyle: 'italic' },
-  monitoringLink: {
-    display: 'inline-block', marginTop: '14px', fontSize: '12.5px', fontWeight: 700,
-    color: '#2c8047', textDecoration: 'none',
-  },
-  empty: { fontSize: '13px', color: '#9aa79d', padding: '4px 0' },
-  insightCard: {
-    backgroundColor: '#fff', border: '1px solid #e7e8e0', borderRadius: '10px', padding: '16px',
-  },
-  insightHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' },
-  insightRootCause: { fontSize: '14.5px', fontWeight: 700, color: '#14301c' },
-  insightExplanation: {
-    fontSize: '13.5px', color: '#374151', lineHeight: '1.6', marginTop: '12px', marginBottom: 0,
-    paddingLeft: '12px', borderLeft: '3px solid #7cc795',
-  },
-  insightExplanationUnavailable: {
-    fontSize: '12.5px', color: '#9aa79d', fontStyle: 'italic', marginTop: '12px', marginBottom: 0,
-  },
-  maintLogsList: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '14px' },
-  maintLogRow: {
-    display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: '#fff',
-    border: '1px solid #e7e8e0', borderRadius: '10px', padding: '10px 12px',
-    textDecoration: 'none', cursor: 'pointer',
-  },
-  disposalRow: {
-    display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: '#fff',
-    border: '1px solid #e7e8e0', borderRadius: '10px', padding: '10px 12px',
-  },
-  maintLogThumb: {
-    width: '44px', height: '44px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0,
-    border: '1px solid #e7e8e0',
-  },
-  maintLogDate: { fontSize: '13px', fontWeight: 700, color: '#16311d' },
-  maintLogNote: { fontSize: '12px', color: '#6b7770', marginTop: '1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  emptySensor: {
-    display: 'flex', alignItems: 'center', gap: '12px', backgroundColor: '#fff',
-    border: '1px dashed #d8d0bc', borderRadius: '10px', padding: '16px',
-  },
-  emptyTitle: { fontSize: '13px', fontWeight: 700, color: '#374151' },
-  emptySub: { fontSize: '12px', color: '#9aa79d', marginTop: '2px' },
-  sensorGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' },
+
+  sensorGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px', marginTop: '14px' },
   sensorGridMobile: { gridTemplateColumns: 'repeat(2, 1fr)' },
-  sensorCard: {
-    backgroundColor: '#fff', border: '1px solid #e7e8e0', borderLeft: '3px solid',
-    borderRadius: '10px', padding: '12px 10px', textAlign: 'left',
-  },
-  sensorIcon: { marginBottom: '6px' },
-  sensorLabel: {
-    fontSize: '10.5px', color: '#6b7770', fontWeight: 600,
-    textTransform: 'uppercase', letterSpacing: '0.3px',
-  },
-  sensorValue: { fontSize: '15px', fontWeight: 700, marginTop: '3px' },
-  sensorStatus: { fontSize: '10.5px', fontWeight: 700, marginTop: '2px' },
-  timestamp: { fontSize: '11px', color: '#9aa79d', marginTop: '12px' },
-  footer: { padding: '18px 24px 22px', display: 'flex', justifyContent: 'flex-end' },
-  closeFooterBtn: {
-    padding: '9px 20px', borderRadius: '10px', border: '1px solid #1f5a34',
-    backgroundColor: 'transparent', color: '#1f5a34', fontSize: '13.5px',
-    fontWeight: 600, cursor: 'pointer',
-  },
+  sensorCard: { backgroundColor: '#fafbf8', borderRadius: '10px', padding: '10px 12px' },
+  sensorLabel: { fontSize: '10px', color: '#8a968d', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em' },
+  sensorValue: { fontSize: '14.5px', fontWeight: 700, marginTop: '4px' },
+  sensorStatus: { fontSize: '10px', fontWeight: 700, marginTop: '2px' },
+  riskNote: { fontSize: '11.5px', fontWeight: 600, marginTop: '10px' },
+
+  empty: { fontSize: '13px', color: '#9aa79d' },
+
+  insightBlock: { backgroundColor: '#fafbf8', borderRadius: '10px', padding: '14px' },
+  insightHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' },
+  insightRootCause: { fontSize: '13.5px', fontWeight: 700, color: '#16311d' },
+  confidenceTag: { fontSize: '11px', fontWeight: 700 },
+  insightExplanation: { fontSize: '13px', color: '#4b5a50', lineHeight: '1.6', marginTop: '10px', marginBottom: 0 },
+  insightExplanationUnavailable: { fontSize: '12px', color: '#9aa79d', fontStyle: 'italic', marginTop: '10px', marginBottom: 0 },
+
+  logsList: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '14px' },
+  logRow: { display: 'flex', alignItems: 'center', gap: '11px' },
+  textRow: { paddingBottom: '2px' },
+  logThumb: { width: '40px', height: '40px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0, cursor: 'pointer' },
+  logDate: { fontSize: '12.5px', fontWeight: 700, color: '#16311d' },
+  logNote: { fontSize: '11.5px', color: '#6b7770', marginTop: '2px' },
+
+  viewAllLink: { display: 'inline-block', fontSize: '12px', fontWeight: 700, color: '#2c8047', cursor: 'pointer', marginTop: '12px' },
+  tabPager: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '16px', paddingTop: '14px', borderTop: '1px solid #f0efe8' },
+  tabPagerBtn: { padding: '6px 12px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#33413a', fontSize: '12px', fontWeight: 600, cursor: 'pointer' },
+  tabPagerBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
+  tabPagerInfo: { fontSize: '11.5px', color: '#8a968d' },
+
+  footer: { padding: '16px 24px 20px', display: 'flex', justifyContent: 'flex-end' },
+  closeFooterBtn: { padding: '9px 20px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#33413a', fontSize: '13px', fontWeight: 600, cursor: 'pointer' },
+}
+
+const lightboxStyles = {
+  overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(10,20,14,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '24px', cursor: 'zoom-out' },
+  closeBtn: { position: 'absolute', top: '20px', right: '24px', width: '36px', height: '36px', borderRadius: '50%', border: 'none', backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff', fontSize: '20px', cursor: 'pointer', zIndex: 2 },
+  image: { maxWidth: '90vw', maxHeight: '88vh', borderRadius: '10px', boxShadow: '0 20px 60px rgba(0,0,0,0.5)', cursor: 'default' },
 }

@@ -203,9 +203,6 @@ export const SAN_JOSE_BOUNDARY = [
   [13.8585181, 121.0497665], [13.8584399, 121.0495573],
 ]
 
-// Rectangle that covers the whole world; combined with the boundary as a
-// hole, this grays out everything outside San Jose while leaving the
-// municipality itself in full color.
 export const WORLD_RING = [[85, -180], [85, 180], [-85, 180], [-85, -180]]
 
 const statusColor = {
@@ -220,14 +217,10 @@ function requestTypeColor(type = '') {
   return /fly/i.test(type) ? REQUEST_COLORS.fly : REQUEST_COLORS.odor
 }
 
-// General = green, Follow-up = amber. (The stored value is "General
-// Inspection", not "General", so this is a function rather than a lookup.)
 function inspectionTypeColor(type) {
   return type === 'Follow-up' ? '#d9880f' : '#2c8047'
 }
 
-// Matches an alert/inspection/request record back to its farm on the map —
-// tries farm_id first (if the API ever adds it), then falls back to farm_name.
 function findFarm(item, farms) {
   if (item.farm_id) {
     const byId = farms.find(f => f.id === item.farm_id)
@@ -254,8 +247,6 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], ser
       maxZoom: 18,
     }).addTo(map)
 
-    // Gray mask over everything outside San Jose (the boundary is punched
-    // out as a hole, so it stays in full color while the rest is muted)
     L.polygon([WORLD_RING, SAN_JOSE_BOUNDARY], {
       stroke: false,
       fillColor: '#7C8577',
@@ -278,9 +269,6 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], ser
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Leaflet caches its container size on init — if the container's size
-  // changes after mount (rotating a phone, sidebar toggling), tell Leaflet
-  // to recalculate so tiles don't render blank/cut off.
   useEffect(() => {
     if (!mapRef.current) return
     const timeout = setTimeout(() => {
@@ -366,7 +354,7 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], ser
   }
 
   const alertItems = useMemo(
-    () => [...alerts].sort((a, b) => (b.ammonia ?? 0) - (a.ammonia ?? 0)),
+    () => [...alerts].sort((a, b) => (b.critical_count ?? 0) - (a.critical_count ?? 0)),
     [alerts]
   )
 
@@ -475,15 +463,27 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], ser
 
           {mode === 'alerts' && visibleItems.map(f => {
             const farm = findFarm(f, farms)
-            const color = statusColor[f.ammonia_status] || '#c0392b'
+            const sensors = f.all_sensors || []
+            const color = '#c0392b'
             return (
               <div key={f.farm_id ?? f.farm_name} style={styles.item} onClick={() => focusFarm(farm)}>
                 <span style={{ ...styles.itemDot, backgroundColor: color }} />
                 <div style={styles.itemText}>
-                  <div style={styles.itemName}>{f.farm_name}</div>
-                  <div style={styles.itemSub}>Ammonia {f.ammonia} ppm</div>
+                  <div style={styles.itemTopRow}>
+                    <span style={styles.itemName}>{f.farm_name}</span>
+                    <span style={{ ...styles.itemStatus, color }}>{f.critical_count} Critical</span>
+                  </div>
+                  <div style={styles.sensorTableRow}>
+                    {sensors.map(s => (
+                      <div key={s.type} style={styles.sensorCell}>
+                        <span style={styles.sensorCellLabel}>{s.type}</span>
+                        <span style={{ ...styles.sensorCellValue, ...(s.critical ? styles.sensorCellValueCritical : {}) }}>
+                          {s.value ?? '—'}{s.unit}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <span style={{ ...styles.itemStatus, color }}>{f.ammonia_status}</span>
               </div>
             )
           })}
@@ -571,12 +571,19 @@ const styles = {
 
   sideList: { overflowY: 'auto', padding: '0 8px', flex: 1 },
   empty: { padding: '18px 8px', textAlign: 'center', fontSize: '12.5px', color: '#9aa79d' },
-  item: { display: 'flex', alignItems: 'center', gap: '11px', padding: '11px 8px', borderRadius: '9px', cursor: 'pointer' },
-  itemDot: { width: '10px', height: '10px', borderRadius: '50%', flexShrink: 0 },
+  item: { display: 'flex', alignItems: 'flex-start', gap: '11px', padding: '11px 8px', borderRadius: '9px', cursor: 'pointer' },
+  itemTopRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' },
+  itemDot: { width: '10px', height: '10px', borderRadius: '50%', flexShrink: 0, marginTop: '3px' },
   itemText: { minWidth: 0, flex: 1 },
   itemName: { fontSize: '13px', fontWeight: 700, color: '#16311d', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   itemSub: { fontSize: '11px', color: '#8a968d', marginTop: '1px' },
   itemStatus: { fontSize: '10.5px', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 },
+
+  sensorTableRow: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px', marginTop: '6px' },
+  sensorCell: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start' },
+  sensorCellLabel: { fontSize: '9px', fontWeight: 700, color: '#9aa79d', textTransform: 'uppercase', letterSpacing: '0.02em' },
+  sensorCellValue: { fontSize: '11px', fontWeight: 700, color: '#4b5a50', marginTop: '1px' },
+  sensorCellValueCritical: { color: '#c0392b' },
 
   seeAll: { border: 'none', borderTop: '1px solid #eceee7', background: 'transparent', color: '#2c8047', fontSize: '12px', fontWeight: 700, padding: '12px', cursor: 'pointer', fontFamily: 'inherit' },
 

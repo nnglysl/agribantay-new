@@ -23,6 +23,7 @@ use App\Http\Controllers\Vet\VaccinationRequestController;
 use App\Http\Controllers\Vet\ReportController as VetReportController;
 use App\Http\Controllers\SensorIngestController;
 use App\Http\Controllers\SuperAdmin\AccountController;
+use App\Http\Controllers\NotificationController;
 
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/sensor-readings', [SensorIngestController::class, 'store']);
@@ -37,6 +38,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/settings/profile', [SettingsController::class, 'updateProfile']);
     Route::put('/settings/password', [SettingsController::class, 'updatePassword']);
 
+Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::patch('/notifications/{id}/read', [NotificationController::class, 'markRead']);
+    Route::patch('/notifications/read-all', [NotificationController::class, 'markAllRead']);
     /*
     |--------------------------------------------------------------------------
     | Veterinarian routes (role: vet)
@@ -95,6 +99,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/farms/{id}/deactivate', [FarmController::class, 'deactivate']);
         Route::patch('/farms/{id}/activate', [FarmController::class, 'activate']);
         Route::post('/farms/{userId}/resend-sms', [FarmController::class, 'resendSms']);
+        Route::get('/farms/{id}/maintenance-logs', [FarmController::class, 'maintenanceLogs']);
+        Route::get('/farms/{id}/disposal-records', [FarmController::class, 'disposalRecords']);
+        Route::get('/farms/{id}/inspection-records', [FarmController::class, 'inspectionRecords']);
 
         Route::get('/inspections', [InspectionController::class, 'index']);
         Route::post('/inspections', [InspectionController::class, 'store']);
