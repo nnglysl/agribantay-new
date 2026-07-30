@@ -3,20 +3,41 @@ import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { getUser } from '../../utils/auth'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
+const ADMIN_TYPES = ['Odor Control Request', 'Fly Control Request']
+const SUPER_ADMIN_ONLY_TYPES = ['Vaccine Request', 'Blood Test Request']
+
+const SORT_OPTIONS = [
+  { value: 'oldest', label: 'Oldest Request First (Default)' },
+  { value: 'newest', label: 'Newest Request First' },
+]
+
 export default function ServiceRequests() {
+  const user = getUser()
+  const isSuperAdmin = user?.role === 'super_admin'
+
   const [tab, setTab] = useState('pending')
+  const [typeFilter, setTypeFilter] = useState('')
+  const [sortMode, setSortMode] = useState('oldest')
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [acceptTarget, setAcceptTarget] = useState(null)
   const [confirmDecline, setConfirmDecline] = useState(null)
   const [confirmComplete, setConfirmComplete] = useState(null)
+  const [completeNotes, setCompleteNotes] = useState('')
+  const [viewRequest, setViewRequest] = useState(null)
   const isMobile = useIsMobile()
 
-  const { data, loading, error, refetch } = useCachedFetch('/admin/service-requests')
+  const params = { sort: sortMode }
+  if (typeFilter) params.service_type = typeFilter
+
+  const { data, loading, error, refetch } = useCachedFetch('/admin/service-requests', params)
   const allRequests = data || []
+
+  const availableTypes = isSuperAdmin ? [...ADMIN_TYPES, ...SUPER_ADMIN_ONLY_TYPES] : ADMIN_TYPES
 
   const filtered = allRequests.filter(r => {
     if (tab === 'pending') return r.status === 'Pending'
@@ -24,7 +45,7 @@ export default function ServiceRequests() {
     return r.status === 'Completed' || r.status === 'Cancelled'
   })
 
-  useEffect(() => { setCurrentPage(1) }, [tab, pageSize])
+  useEffect(() => { setCurrentPage(1) }, [tab, pageSize, typeFilter, sortMode])
 
   const totalItems = filtered.length
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
@@ -50,15 +71,22 @@ export default function ServiceRequests() {
   }
 
   const handleCompleteAction = async () => {
-    await api.patch(`/admin/service-requests/${confirmComplete.id}/complete`)
+    await api.patch(`/admin/service-requests/${confirmComplete.id}/complete`, {
+      notes: completeNotes || undefined,
+    })
     setConfirmComplete(null)
+    setCompleteNotes('')
     refetch()
   }
 
   return (
     <AdminLayout>
       <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Service Requests</h1>
-      <p style={styles.subtitle}>Odor control, fly control, and other farmer-submitted service requests</p>
+      <p style={styles.subtitle}>
+        {isSuperAdmin
+          ? 'Odor control, fly control, vaccination, and blood test requests'
+          : 'Odor control, fly control, and other farmer-submitted service requests'}
+      </p>
 
       <div style={styles.tabs}>
         <div style={{ ...styles.tab, ...(tab === 'pending' ? styles.tabActive : {}) }} onClick={() => setTab('pending')}>
@@ -69,6 +97,27 @@ export default function ServiceRequests() {
         </div>
         <div style={{ ...styles.tab, ...(tab === 'history' ? styles.tabActive : {}) }} onClick={() => setTab('history')}>
           History
+        </div>
+      </div>
+
+      <div style={{ ...styles.filters, ...(isMobile ? styles.filtersMobile : {}) }}>
+        <div style={styles.filterGroup}>
+          <span style={styles.filterGroupLabel}>Type</span>
+          <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={styles.sortSelect}>
+            <option value="">All Types</option>
+            {availableTypes.map(t => (
+              <option key={t} value={t}>{t.replace(' Request', '')}</option>
+            ))}
+          </select>
+        </div>
+
+        <div style={styles.filterGroup}>
+          <span style={styles.filterGroupLabel}>Sort By</span>
+          <select value={sortMode} onChange={e => setSortMode(e.target.value)} style={styles.sortSelect}>
+            {SORT_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -85,9 +134,10 @@ export default function ServiceRequests() {
             <table style={{ ...styles.table, ...(isMobile ? styles.tableMobile : {}) }}>
               <thead>
                 <tr>
-                  <th style={styles.th}>Request</th>
+                  <th style={styles.th}>Request No.</th>
+                  <th style={styles.th}>Service</th>
                   <th style={styles.th}>Farm</th>
-                  <th style={styles.th}>Requested By</th>
+                  <th style={styles.th}>Farm Owner</th>
                   <th style={styles.th}>Status</th>
                   <th style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
                 </tr>
@@ -98,12 +148,14 @@ export default function ServiceRequests() {
                   return (
                     <tr key={r.id}>
                       <td style={styles.td}>
+                        <span style={styles.reqNumberCell}>{r.request_number || '—'}</span>
+                      </td>
+                      <td style={styles.td}>
                         <div style={styles.serviceType}>{r.service_type}</div>
-                        {r.request_number && <div style={styles.reqNumber}>#{r.request_number}</div>}
                         {r.notes && <div style={styles.notes}>{r.notes}</div>}
                       </td>
                       <td style={styles.td}>{r.farm_name}</td>
-                      <td style={styles.td}>{r.requested_by}</td>
+                      <td style={styles.td}>{r.farm_owner_name || r.requested_by}</td>
                       <td style={styles.td}>
                         <span style={{ ...styles.badge, color: c, backgroundColor: badgeBg(r.status) }}>
                           <span style={{ ...styles.badgeDot, backgroundColor: c }} />
@@ -123,12 +175,17 @@ export default function ServiceRequests() {
                             </>
                           )}
                           {r.status === 'Scheduled' && (
-                            <span style={{ ...styles.actionBtn, ...styles.completeBtn }} onClick={() => setConfirmComplete(r)}>
+                            <span
+                              style={{ ...styles.actionBtn, ...styles.completeBtn }}
+                              onClick={() => { setConfirmComplete(r); setCompleteNotes('') }}
+                            >
                               Mark Completed
                             </span>
                           )}
                           {(r.status === 'Completed' || r.status === 'Cancelled') && (
-                            <span style={styles.noAction}>—</span>
+                            <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => setViewRequest(r)}>
+                              View
+                            </span>
                           )}
                         </div>
                       </td>
@@ -190,6 +247,15 @@ export default function ServiceRequests() {
             <p style={confirmStyles.message}>
               Mark the {confirmComplete.service_type} at {confirmComplete.farm_name} as completed?
             </p>
+
+            <label style={modalStyles.label}>Notes (optional)</label>
+            <textarea
+              value={completeNotes}
+              onChange={e => setCompleteNotes(e.target.value)}
+              style={{ ...modalStyles.input, minHeight: '70px', resize: 'vertical' }}
+              placeholder="Any details about how the request was completed"
+            />
+
             <div style={modalStyles.actions}>
               <button onClick={() => setConfirmComplete(null)} style={modalStyles.cancelBtn}>Cancel</button>
               <button onClick={handleCompleteAction} style={{ ...modalStyles.submitBtn, backgroundColor: '#2c8047' }}>
@@ -199,11 +265,70 @@ export default function ServiceRequests() {
           </div>
         </div>
       )}
+      {viewRequest && (
+        <div style={modalStyles.overlay} onClick={() => setViewRequest(null)}>
+          <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
+            <div style={modalStyles.header}>
+              <h3 style={modalStyles.title}>{viewRequest.request_number || 'Service Request'}</h3>
+              <span style={modalStyles.close} onClick={() => setViewRequest(null)}>×</span>
+            </div>
+
+            <div style={detailStyles.row}>
+              <span style={detailStyles.label}>Service Type</span>
+              <span style={detailStyles.value}>{viewRequest.service_type}</span>
+            </div>
+            <div style={detailStyles.row}>
+              <span style={detailStyles.label}>Farm</span>
+              <span style={detailStyles.value}>{viewRequest.farm_name}</span>
+            </div>
+            <div style={detailStyles.row}>
+              <span style={detailStyles.label}>Farm Owner</span>
+              <span style={detailStyles.value}>{viewRequest.farm_owner_name || viewRequest.requested_by}</span>
+            </div>
+            <div style={detailStyles.row}>
+              <span style={detailStyles.label}>Status</span>
+              <span style={detailStyles.value}>{viewRequest.status}</span>
+            </div>
+            {viewRequest.assigned_to && (
+              <div style={detailStyles.row}>
+                <span style={detailStyles.label}>Assigned To</span>
+                <span style={detailStyles.value}>{viewRequest.assigned_to}</span>
+              </div>
+            )}
+            {viewRequest.scheduled_at && (
+              <div style={detailStyles.row}>
+                <span style={detailStyles.label}>Scheduled</span>
+                <span style={detailStyles.value}>{new Date(viewRequest.scheduled_at).toLocaleString()}</span>
+              </div>
+            )}
+            {viewRequest.completed_at && (
+              <div style={detailStyles.row}>
+                <span style={detailStyles.label}>Completed</span>
+                <span style={detailStyles.value}>{new Date(viewRequest.completed_at).toLocaleString()}</span>
+              </div>
+            )}
+            <div style={detailStyles.row}>
+              <span style={detailStyles.label}>Submitted</span>
+              <span style={detailStyles.value}>{new Date(viewRequest.created_at).toLocaleString()}</span>
+            </div>
+
+            {viewRequest.notes && (
+              <div style={detailStyles.block}>
+                <span style={detailStyles.label}>Notes</span>
+                <p style={detailStyles.text}>{viewRequest.notes}</p>
+              </div>
+            )}
+
+            <div style={modalStyles.actions}>
+              <button onClick={() => setViewRequest(null)} style={modalStyles.cancelBtn}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </AdminLayout>
   )
 }
 
-// Soft tinted background for each status badge (matches the Farms/Inspections pages).
 function badgeBg(status) {
   if (status === 'Pending') return '#fbf1e2'
   if (status === 'Cancelled') return '#eef1ea'
@@ -359,24 +484,33 @@ const styles = {
   titleMobile: { fontSize: '20px' },
   subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px', marginBottom: '20px' },
 
-  tabs: { display: 'flex', gap: '4px', marginBottom: '20px', borderBottom: '1px solid #e7e8e0', overflowX: 'auto' },
+  tabs: { display: 'flex', gap: '4px', marginBottom: '16px', borderBottom: '1px solid #e7e8e0', overflowX: 'auto' },
   tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap' },
   tabActive: { color: '#2c8047', fontWeight: 700, borderBottom: '2px solid #2c8047' },
+
+  filters: { display: 'flex', flexWrap: 'wrap', gap: '20px', marginBottom: '18px', alignItems: 'flex-end' },
+  filtersMobile: { flexDirection: 'column', gap: '14px', alignItems: 'stretch' },
+  filterGroup: { display: 'flex', flexDirection: 'column', gap: '7px' },
+  filterGroupLabel: { fontSize: '11px', fontWeight: 700, color: '#8a968d', textTransform: 'uppercase', letterSpacing: '0.04em' },
+  sortSelect: {
+    padding: '9px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '13px',
+    color: '#33413a', backgroundColor: '#fff', cursor: 'pointer', fontFamily: SANS, minWidth: '220px',
+  },
 
   tableCard: { backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden' },
   scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0' },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  tableMobile: { minWidth: '760px' },
+  tableMobile: { minWidth: '860px' },
   th: {
     textAlign: 'left', padding: '13px 20px', fontSize: '11px', fontWeight: 700, color: '#8a968d',
     borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
     backgroundColor: '#fafbf8',
   },
   td: { padding: '13px 20px', fontSize: '13px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top' },
+  reqNumberCell: { fontSize: '12.5px', color: '#4b5a50', fontFamily: 'monospace' },
   serviceType: { fontSize: '14px', fontWeight: 700, color: '#16311d' },
-  reqNumber: { fontSize: '11px', color: '#9aa79d', fontFamily: 'monospace', marginTop: '2px' },
-  notes: { fontSize: '12px', color: '#8a968d', marginTop: '4px', maxWidth: '280px' },
+  notes: { fontSize: '12px', color: '#8a968d', marginTop: '4px', maxWidth: '260px' },
   badge: {
     display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 11px',
     borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
@@ -390,7 +524,7 @@ const styles = {
   acceptBtn: { color: '#2c8047' },
   declineBtn: { color: '#b91c1c' },
   completeBtn: { color: '#2c8047' },
-  noAction: { color: '#c4cabd' },
+  viewBtn: { color: '#4b5a50' },
   empty: { padding: '32px', textAlign: 'center', color: '#9aa79d', fontSize: '14px' },
 }
 
@@ -435,4 +569,12 @@ const confirmStyles = {
   modal: { backgroundColor: '#fff', borderRadius: '16px', padding: '28px', width: '400px', maxWidth: '90%' },
   title: { fontSize: '17px', fontWeight: 800, color: '#16311d', marginTop: 0, marginBottom: '10px' },
   message: { fontSize: '14px', color: '#6b7770', lineHeight: '1.5', marginBottom: '4px' },
+}
+
+const detailStyles = {
+  row: { display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f2f3ed' },
+  label: { fontSize: '13px', color: '#6b7770', fontWeight: 500 },
+  value: { fontSize: '13px', color: '#16311d', fontWeight: 600, textAlign: 'right' },
+  block: { marginTop: '14px' },
+  text: { fontSize: '13px', color: '#4b5a50', lineHeight: '1.5', marginTop: '4px' },
 }

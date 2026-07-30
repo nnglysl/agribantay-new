@@ -44,6 +44,33 @@ class InspectionController extends Controller
             'notes'           => 'nullable|string',
         ]);
 
+        $scheduledDate = \Carbon\Carbon::parse($request->scheduled_at);
+
+        // Rule 1 — no scheduling on a date that's already passed. Compared
+        // by calendar date only (not time), so "today" is still valid even
+        // if the current time has passed the requested time slot.
+        if ($scheduledDate->startOfDay()->lt(now()->startOfDay())) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You cannot schedule an inspection on a past date.',
+            ], 422);
+        }
+
+        // Rule 2 — only one inspection per day, system-wide, regardless of
+        // farm — inspections can be delicate for the chickens, so the LGU
+        // limits itself to one site visit per day. Cancelled inspections
+        // don't count as occupying that date.
+        $alreadyBooked = Inspection::whereDate('scheduled_at', $scheduledDate->toDateString())
+            ->where('status', '!=', 'Cancelled')
+            ->exists();
+
+        if ($alreadyBooked) {
+            return response()->json([
+                'success' => false,
+                'message' => 'An inspection has already been scheduled for this date. Please select another available date.',
+            ], 422);
+        }
+
         $count  = Inspection::count() + 1;
         $number = 'INS-' . str_pad($count, 3, '0', STR_PAD_LEFT);
 

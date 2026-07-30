@@ -7,6 +7,14 @@ import { exportPrintRefToPDF, todayStamp } from '../../utils/exportUtils'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
+/* ---- Small inline icons (stroke, currentColor) — same as Admin/Vet Reports ---- */
+const IconPrint = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M6 9V3h12v6" /><rect x="4" y="9" width="16" height="8" rx="1.5" /><path d="M7 17h10v4H7z" /></svg>
+)
+const IconFile = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z" /><path d="M14 3v5h5" /></svg>
+)
+
 export default function SuperAdminReports() {
   const { data: adminData, loading: adminLoading, error: adminError } = useCachedFetch('/admin/reports')
   const { data: vetData, loading: vetLoading, error: vetError } = useCachedFetch('/vet/reports')
@@ -113,14 +121,18 @@ export default function SuperAdminReports() {
             <p style={styles.subtitle}>Municipality-wide admin &amp; veterinary summary</p>
           </div>
           <div style={{ ...styles.controlsRow, ...(isMobile ? styles.controlsRowMobile : {}) }}>
-            <button style={{ ...styles.btnOutline, ...(isMobile ? styles.controlFull : {}) }} onClick={handlePrint}>Print</button>
-            <button style={{ ...styles.btnOutline, ...(isMobile ? styles.controlFull : {}) }} onClick={handleExportCsv}>Export CSV</button>
+            <button style={{ ...styles.secondaryBtn, ...(isMobile ? styles.controlFull : {}) }} onClick={handlePrint}>
+              <IconPrint />Print
+            </button>
+            <button style={{ ...styles.secondaryBtn, ...(isMobile ? styles.controlFull : {}) }} onClick={handleExportCsv}>
+              <IconFile />Export CSV
+            </button>
             <button
-              style={{ ...styles.btnPrimary, ...(isMobile ? styles.controlFull : {}), ...(exportingPdf ? styles.btnDisabled : {}) }}
+              style={{ ...styles.primaryBtn, ...(isMobile ? styles.controlFull : {}), ...(exportingPdf ? styles.btnDisabled : {}) }}
               onClick={handleExportPdf}
               disabled={exportingPdf}
             >
-              {exportingPdf ? 'Generating…' : 'Export PDF'}
+              <IconFile />{exportingPdf ? 'Generating...' : 'Export PDF'}
             </button>
           </div>
         </div>
@@ -128,13 +140,13 @@ export default function SuperAdminReports() {
         {/* ----------------------------------------------------- Admin section */}
         <div style={styles.sectionLabel}>Admin — Inspections, Alerts &amp; Service Requests</div>
         <div style={{ ...styles.statsGrid, ...(isMobile ? styles.statsGridMobile : {}) }}>
-          <StatCard value={adminData.inspection_summary.total} label="Total inspections" />
-          <StatCard value={adminData.inspection_summary.completed} label="Completed" accent="#2c8047" />
-          <StatCard value={adminData.inspection_summary.scheduled} label="Scheduled" />
-          <StatCard value={adminData.alert_summary.critical_alerts} label="Critical alerts" accent="#b91c1c" />
-          <StatCard value={adminData.service_summary.total} label="Service requests (odor/fly control)" />
-          <StatCard value={adminData.service_summary.completed} label="Completed" accent="#2c8047" />
-          <StatCard value={adminData.service_summary.pending} label="Pending" accent="#b45309" />
+          <StatCard value={adminData.inspection_summary.total} label="Total Inspections" />
+          <StatCard value={adminData.inspection_summary.completed} label="Completed Inspections" accent="#2c8047" />
+          <StatCard value={adminData.inspection_summary.scheduled} label="Scheduled Inspections" />
+          <StatCard value={adminData.alert_summary.critical_alerts} label="Critical Alerts" accent="#b91c1c" />
+          <StatCard value={adminData.service_summary.total} label="Total Service Requests" />
+          <StatCard value={adminData.service_summary.completed} label="Completed Requests" accent="#2c8047" />
+          <StatCard value={adminData.service_summary.pending} label="Pending Requests" accent="#b45309" />
         </div>
 
         <div style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}), marginTop: '16px' }}>
@@ -366,14 +378,10 @@ const styles = {
   controlsRow: { display: 'flex', gap: '10px', flexWrap: 'wrap' },
   controlsRowMobile: { flexDirection: 'column', width: '100%' },
   controlFull: { width: '100%', boxSizing: 'border-box' },
-  btnOutline: {
-    backgroundColor: '#fff', color: '#2c8047', border: '1px solid #dfe6de', borderRadius: '10px',
-    padding: '10px 18px', fontSize: '14px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
-  },
-  btnPrimary: {
-    backgroundColor: '#2c8047', color: '#fff', border: '1px solid #2c8047', borderRadius: '10px',
-    padding: '10px 18px', fontSize: '14px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
-  },
+
+  // Matches Admin/Vet Reports exactly — same size, padding, font, icons.
+  primaryBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '3px', backgroundColor: '#2c8047', color: '#fff', border: 'none', borderRadius: '10px', padding: '0 16px', height: '40px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS },
+  secondaryBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '3px', backgroundColor: '#fff', color: '#2c8047', border: '1px solid #cfe0d3', borderRadius: '10px', padding: '0 16px', height: '40px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS },
   btnDisabled: { opacity: 0.6, cursor: 'not-allowed' },
 
   sectionLabel: { fontSize: '13px', fontWeight: 700, color: '#8a968d', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '12px' },

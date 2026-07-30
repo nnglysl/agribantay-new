@@ -1,13 +1,36 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50]
+
+// Only Alert stays red — everything else uses the shared green palette
+// with a light tint, matching the badge convention used across Farms,
+// Service Requests, and Alert History. Role badges follow the same rule.
+function typeBadgeStyle(type) {
+  if (type === 'Alert') return { color: '#b91c1c', backgroundColor: '#fbeaea' }
+  return { color: '#256b3d', backgroundColor: '#eaf3ec' }
+}
+
+function roleBadgeStyle(role) {
+  if (role === 'System') return { color: '#6b7280', backgroundColor: '#eef1ea' }
+  return { color: '#1f5a34', backgroundColor: '#eaf3ec' }
+}
+
+const roleLabel = {
+  admin: 'Admin',
+  super_admin: 'Super Admin',
+  farm_owner: 'Farm Owner',
+  vet: 'Vet',
+  System: 'System',
+}
 
 export default function ActivityLogs() {
   const [roleFilter, setRoleFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
-  const rowsPerPage = 10
+  const [pageSize, setPageSize] = useState(10)
   const isMobile = useIsMobile()
 
   const params = {}
@@ -16,34 +39,23 @@ export default function ActivityLogs() {
 
   const { data: logs, loading, error } = useCachedFetch('/superadmin/activity-logs', params)
 
-  useEffect(() => { setCurrentPage(1) }, [roleFilter, typeFilter])
-
-  const roleColor = {
-    admin: '#3b82f6',
-    farm_owner: '#f59e0b',
-    vet: '#8b5cf6',
-    System: '#6b7280',
-  }
-
-  const typeColor = {
-    Alert: '#dc2626',
-    Vaccination: '#8b5cf6',
-    Request: '#f59e0b',
-    Inspection: '#3b82f6',
-    Account: '#2E7D32',
-    Farm: '#2E7D32',
-  }
-
-  const roleLabel = {
-    admin: 'Admin',
-    farm_owner: 'Farm Owner',
-    vet: 'Vet',
-    System: 'System',
-  }
+  useEffect(() => { setCurrentPage(1) }, [roleFilter, typeFilter, pageSize])
 
   const allLogs = logs || []
-  const totalPages = Math.ceil(allLogs.length / rowsPerPage)
-  const paginatedLogs = allLogs.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage)
+  const totalItems = allLogs.length
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages)
+  }, [totalPages, currentPage])
+
+  const paginatedLogs = useMemo(() => {
+    const start = (currentPage - 1) * pageSize
+    return allLogs.slice(start, start + pageSize)
+  }, [allLogs, currentPage, pageSize])
+
+  const rangeStart = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1
+  const rangeEnd = Math.min(currentPage * pageSize, totalItems)
 
   return (
     <AdminLayout>
@@ -55,152 +67,216 @@ export default function ActivityLogs() {
       </div>
 
       <div style={{ ...styles.filters, ...(isMobile ? styles.filtersMobile : {}) }}>
-        <div style={styles.pillRow}>
-          <FilterPill label="All" active={!roleFilter} onClick={() => setRoleFilter('')} />
-          <FilterPill label="Admin" active={roleFilter === 'admin'} onClick={() => setRoleFilter('admin')} />
-          <FilterPill label="Farm Owner" active={roleFilter === 'farm_owner'} onClick={() => setRoleFilter('farm_owner')} />
-          <FilterPill label="Vet" active={roleFilter === 'vet'} onClick={() => setRoleFilter('vet')} />
-          <FilterPill label="System" active={roleFilter === 'System'} onClick={() => setRoleFilter('System')} />
+        <div style={styles.filterGroup}>
+          <span style={styles.filterGroupLabel}>Role</span>
+          <select
+            value={roleFilter}
+            onChange={e => setRoleFilter(e.target.value)}
+            style={{ ...styles.select, ...(isMobile ? styles.selectMobile : {}) }}
+          >
+            <option value="">All Roles</option>
+            <option value="admin">Admin</option>
+            <option value="farm_owner">Farm Owner</option>
+            <option value="vet">Vet</option>
+            <option value="System">System</option>
+          </select>
         </div>
 
-        <select
-          value={typeFilter}
-          onChange={e => setTypeFilter(e.target.value)}
-          style={{ ...styles.select, ...(isMobile ? styles.selectMobile : {}) }}
-        >
-          <option value="">All Types</option>
-          <option value="Alert">Alert</option>
-          <option value="Vaccination">Vaccination</option>
-          <option value="Request">Request</option>
-          <option value="Inspection">Inspection</option>
-          <option value="Account">Account</option>
-          <option value="Farm">Farm</option>
-        </select>
+        <div style={styles.filterGroup}>
+          <span style={styles.filterGroupLabel}>Type</span>
+          <select
+            value={typeFilter}
+            onChange={e => setTypeFilter(e.target.value)}
+            style={{ ...styles.select, ...(isMobile ? styles.selectMobile : {}) }}
+          >
+            <option value="">All Types</option>
+            <option value="Alert">Alert</option>
+            <option value="Vaccination">Vaccination</option>
+            <option value="Request">Request</option>
+            <option value="Inspection">Inspection</option>
+            <option value="Account">Account</option>
+            <option value="Farm">Farm</option>
+          </select>
+        </div>
       </div>
 
-      {loading && <p>Loading...</p>}
-      {error && <p style={{ color: '#dc2626' }}>{error}</p>}
+      {loading && <p style={styles.stateText}>Loading...</p>}
+      {error && <p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p>}
 
       {!loading && !error && (
-        <>
-          <div style={styles.tableCard}>
-            {isMobile && paginatedLogs.length > 0 && (
-              <p style={styles.scrollHint}>Swipe left/right to see all columns →</p>
-            )}
-            <div style={isMobile ? styles.tableScroll : undefined}>
-              <table style={{ ...styles.table, ...(isMobile ? styles.tableMobile : {}) }}>
-                <thead>
-                  <tr>
-                    <th style={styles.th}>Time</th>
-                    <th style={styles.th}>Actor</th>
-                    <th style={styles.th}>Role</th>
-                    <th style={styles.th}>Action</th>
-                    <th style={styles.th}>Details</th>
-                    <th style={styles.th}>Type</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paginatedLogs.map(log => (
-                    <tr key={log.id}>
-                      <td style={styles.td}>{log.created_at}</td>
-                      <td style={styles.td}>{log.user}</td>
-                      <td style={styles.td}>
-                        <span style={{ ...styles.badge, backgroundColor: roleColor[log.role] || '#6b7280' }}>
-                          {roleLabel[log.role] || log.role}
-                        </span>
-                      </td>
-                      <td style={styles.td}>{log.action}</td>
-                      <td style={styles.td}>{log.details}</td>
-                      <td style={styles.td}>
-                        <span style={{ ...styles.badge, backgroundColor: typeColor[log.type] || '#6b7280' }}>
-                          {log.type}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {allLogs.length === 0 && <div style={styles.empty}>No activity recorded yet.</div>}
-          </div>
-
-          {totalPages > 1 && (
-            <div style={styles.pagination}>
-              <span
-                style={{ ...styles.pageBtn, ...(currentPage === 1 ? styles.pageBtnDisabled : {}) }}
-                onClick={() => currentPage > 1 && setCurrentPage(currentPage - 1)}
-              >
-                ‹ Prev
-              </span>
-              <span style={styles.pageInfo}>Page {currentPage} of {totalPages}</span>
-              <span
-                style={{ ...styles.pageBtn, ...(currentPage === totalPages ? styles.pageBtnDisabled : {}) }}
-                onClick={() => currentPage < totalPages && setCurrentPage(currentPage + 1)}
-              >
-                Next ›
-              </span>
-            </div>
+        <div style={styles.tableCard}>
+          {isMobile && paginatedLogs.length > 0 && (
+            <p style={styles.scrollHint}>Swipe left/right to see all columns →</p>
           )}
-        </>
+          <div style={isMobile ? styles.tableScroll : undefined}>
+            <table style={{ ...styles.table, ...(isMobile ? styles.tableMobile : {}) }}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>Time</th>
+                  <th style={styles.th}>Actor</th>
+                  <th style={styles.th}>Role</th>
+                  <th style={styles.th}>Action</th>
+                  <th style={styles.th}>Details</th>
+                  <th style={styles.th}>Type</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedLogs.map(log => (
+                  <tr key={log.id}>
+                    <td style={styles.td}>{log.created_at}</td>
+                    <td style={{ ...styles.td, fontWeight: 600, color: '#16311d' }}>{log.user}</td>
+                    <td style={styles.td}>
+                      <span style={{ ...styles.badge, ...roleBadgeStyle(log.role) }}>
+                        {roleLabel[log.role] || log.role}
+                      </span>
+                    </td>
+                    <td style={styles.td}>{log.action}</td>
+                    <td style={styles.td}>{log.details}</td>
+                    <td style={styles.td}>
+                      <span style={{ ...styles.badge, ...typeBadgeStyle(log.type) }}>
+                        {log.type}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {allLogs.length === 0 && <div style={styles.empty}>No activity recorded yet.</div>}
+
+          {allLogs.length > 0 && (
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
+              rangeStart={rangeStart}
+              rangeEnd={rangeEnd}
+              totalItems={totalItems}
+              isMobile={isMobile}
+            />
+          )}
+        </div>
       )}
     </AdminLayout>
   )
 }
 
-function FilterPill({ label, active, onClick }) {
+function Pagination({
+  currentPage, totalPages, pageSize, onPageChange, onPageSizeChange,
+  rangeStart, rangeEnd, totalItems, isMobile,
+}) {
+  const pageNumbers = useMemo(() => {
+    const maxButtons = isMobile ? 3 : 5
+    let start = Math.max(1, currentPage - Math.floor(maxButtons / 2))
+    let end = start + maxButtons - 1
+    if (end > totalPages) {
+      end = totalPages
+      start = Math.max(1, end - maxButtons + 1)
+    }
+    const pages = []
+    for (let p = start; p <= end; p++) pages.push(p)
+    return pages
+  }, [currentPage, totalPages, isMobile])
+
   return (
-    <span
-      onClick={onClick}
-      style={{
-        ...styles.filterPill,
-        ...(active ? styles.filterPillActive : {}),
-      }}
-    >
-      {label}
-    </span>
+    <div style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+      <div style={paginationStyles.info}>
+        {totalItems === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
+      </div>
+
+      <div style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
+        <select value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
+          {PAGE_SIZE_OPTIONS.map(size => (
+            <option key={size} value={size}>{size} / page</option>
+          ))}
+        </select>
+
+        <button
+          style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
+          onClick={() => onPageChange(1)} disabled={currentPage === 1} aria-label="First page"
+        >«</button>
+        <button
+          style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
+          onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1} aria-label="Previous page"
+        >‹</button>
+
+        {pageNumbers[0] > 1 && <span style={paginationStyles.ellipsis}>…</span>}
+
+        {pageNumbers.map(p => (
+          <button
+            key={p}
+            onClick={() => onPageChange(p)}
+            style={{ ...paginationStyles.pageBtn, ...(p === currentPage ? paginationStyles.pageBtnActive : {}) }}
+          >{p}</button>
+        ))}
+
+        {pageNumbers[pageNumbers.length - 1] < totalPages && <span style={paginationStyles.ellipsis}>…</span>}
+
+        <button
+          style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
+          onClick={() => onPageChange(currentPage + 1)} disabled={currentPage === totalPages} aria-label="Next page"
+        >›</button>
+        <button
+          style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
+          onClick={() => onPageChange(totalPages)} disabled={currentPage === totalPages} aria-label="Last page"
+        >»</button>
+      </div>
+    </div>
   )
 }
 
+const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+
 const styles = {
+  stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
   header: { marginBottom: '20px' },
-  title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
-  titleMobile: { fontSize: '18px' },
-  subtitle: { fontSize: '13px', color: '#6b7280', marginTop: '4px' },
-  filters: { display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap' },
-  filtersMobile: { flexDirection: 'column', alignItems: 'stretch' },
-  pillRow: { display: 'flex', gap: '8px', flexWrap: 'wrap' },
-  filterPill: {
-    padding: '6px 14px', borderRadius: '999px', fontSize: '13px', fontWeight: '500',
-    color: '#374151', backgroundColor: 'white', border: '1px solid #d1d5db', cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  },
-  filterPillActive: {
-    backgroundColor: '#2E7D32', color: 'white', border: '1px solid #2E7D32',
-  },
+  title: { fontSize: '24px', fontWeight: 800, letterSpacing: '-0.015em', color: '#16311d', margin: 0 },
+  titleMobile: { fontSize: '20px' },
+  subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px' },
+
+  filters: { display: 'flex', gap: '20px', marginBottom: '18px', flexWrap: 'wrap' },
+  filtersMobile: { flexDirection: 'column', gap: '14px' },
+  filterGroup: { display: 'flex', flexDirection: 'column', gap: '7px' },
+  filterGroupLabel: { fontSize: '11px', fontWeight: 700, color: '#8a968d', textTransform: 'uppercase', letterSpacing: '0.04em' },
   select: {
-    marginLeft: 'auto', padding: '8px 12px', borderRadius: '8px',
-    border: '1px solid #d1d5db', fontSize: '13px',
+    padding: '9px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '13px',
+    color: '#33413a', backgroundColor: '#fff', cursor: 'pointer', fontFamily: SANS, minWidth: '200px',
   },
-  selectMobile: { marginLeft: 0, width: '100%', boxSizing: 'border-box' },
-  tableCard: { backgroundColor: 'white', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', overflow: 'hidden' },
-  scrollHint: { fontSize: '11px', color: '#9ca3af', margin: '12px 16px 0' },
+  selectMobile: { width: '100%', boxSizing: 'border-box', minWidth: 0 },
+
+  tableCard: { backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden' },
+  scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0' },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  tableMobile: { minWidth: '760px' },
-  th: { textAlign: 'left', padding: '14px 16px', fontSize: '12px', color: '#6b7280', borderBottom: '1px solid #e5e7eb', textTransform: 'uppercase', whiteSpace: 'nowrap' },
-  td: { padding: '14px 16px', fontSize: '13px', color: '#374151', borderBottom: '1px solid #f3f4f6' },
-  badge: { padding: '3px 10px', borderRadius: '999px', color: 'white', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap' },
-  empty: { padding: '32px', textAlign: 'center', color: '#9ca3af', fontSize: '14px' },
-  pagination: {
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    gap: '16px', marginTop: '16px',
+  tableMobile: { minWidth: '860px' },
+  th: {
+    textAlign: 'left', padding: '13px 20px', fontSize: '11px', fontWeight: 700, color: '#8a968d',
+    borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
+    backgroundColor: '#fafbf8',
   },
-  pageBtn: {
-    padding: '8px 16px', borderRadius: '8px', border: '1px solid #d1d5db',
-    backgroundColor: 'white', fontSize: '13px', fontWeight: '600', color: '#374151', cursor: 'pointer',
+  td: { padding: '13px 20px', fontSize: '13px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle' },
+  badge: {
+    display: 'inline-block', padding: '4px 11px', borderRadius: '999px',
+    fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
   },
-  pageBtnDisabled: {
-    opacity: 0.4, cursor: 'not-allowed',
+  empty: { padding: '32px', textAlign: 'center', color: '#9aa79d', fontSize: '14px' },
+}
+
+const paginationStyles = {
+  wrap: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px',
   },
-  pageInfo: { fontSize: '13px', color: '#6b7280' },
+  wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  info: { fontSize: '12.5px', color: '#8a968d', whiteSpace: 'nowrap' },
+  controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
+  controlsMobile: { justifyContent: 'space-between' },
+  pageSizeSelect: { padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6', fontSize: '12.5px', color: '#4b5a50', marginRight: '6px' },
+  navBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '13px', cursor: 'pointer' },
+  navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
+  pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
+  pageBtnActive: { backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff' },
+  ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
 }

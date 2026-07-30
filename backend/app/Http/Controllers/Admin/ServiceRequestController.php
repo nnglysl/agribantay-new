@@ -11,44 +11,65 @@ use Illuminate\Support\Facades\Auth;
 class ServiceRequestController extends Controller
 {
     // Vaccine and blood test requests are handled exclusively through
-    // the Vet's own module — excluded here so the same request can't be
-    // actioned from two different places.
+    // the Vet's own module for regular Admins — excluded from their view
+    // so the same request can't be actioned from two different places.
+    // Super Admin is exempt from this restriction and sees every type.
     private const VET_ONLY_TYPES = ['Vaccine Request', 'Blood Test Request'];
+
+    private function isSuperAdmin(): bool
+    {
+        return Auth::user()?->role === 'super_admin';
+    }
 
     public function index(Request $request)
     {
-        $query = ServiceRequest::with(['farm', 'requestedBy', 'assignedTo'])
-            ->whereNotIn('service_type', self::VET_ONLY_TYPES);
+        $query = ServiceRequest::with(['farm', 'requestedBy', 'assignedTo']);
+
+        if (!$this->isSuperAdmin()) {
+            $query->whereNotIn('service_type', self::VET_ONLY_TYPES);
+        }
 
         if ($request->status) {
             $query->where('status', $request->status);
         }
 
-        $requests = $query->latest()->get()->map(fn($r) => [
-            'id'             => $r->id,
-            'request_number' => $r->request_number,
-            'farm_name'      => $r->farm->farm_name,
-            'requested_by'   => $r->requestedBy->first_name . ' ' . $r->requestedBy->last_name,
-            'assigned_to'    => $r->assignedTo ? $r->assignedTo->first_name . ' ' . $r->assignedTo->last_name : null,
-            'service_type'   => $r->service_type,
-            'notes'          => $r->notes,
-            'status'         => $r->status,
-            'priority'       => $r->priority,
-            'scheduled_at'   => $r->scheduled_at,
-            'completed_at'   => $r->completed_at,
-            'created_at'     => $r->created_at,
+        if ($request->service_type) {
+            $query->where('service_type', $request->service_type);
+        }
+
+        // Oldest first (default) or newest first — the only two sort
+        // modes exposed on the frontend.
+        if ($request->sort === 'newest') {
+            $query->latest();
+        } else {
+            $query->oldest();
+        }
+
+        $requests = $query->get()->map(fn($r) => [
+            'id'              => $r->id,
+            'request_number'  => $r->request_number,
+            'farm_name'       => $r->farm->farm_name,
+            'farm_owner_name' => $r->requestedBy->first_name . ' ' . $r->requestedBy->last_name,
+            'requested_by'    => $r->requestedBy->first_name . ' ' . $r->requestedBy->last_name,
+            'assigned_to'     => $r->assignedTo ? $r->assignedTo->first_name . ' ' . $r->assignedTo->last_name : null,
+            'service_type'    => $r->service_type,
+            'notes'           => $r->notes,
+            'status'          => $r->status,
+            'priority'        => $r->priority,
+            'scheduled_at'    => $r->scheduled_at,
+            'completed_at'    => $r->completed_at,
+            'created_at'      => $r->created_at,
         ]);
 
         return response()->json(['success' => true, 'data' => $requests]);
     }
 
-    /**
-     * Blocks Vaccine/Blood Test rows from being actioned through the
-     * admin endpoints even if called directly — the list filter above
-     * only hides them from view, this actually enforces it.
-     */
     private function guardAgainstVetOnly(ServiceRequest $sr): ?\Illuminate\Http\JsonResponse
     {
+        if ($this->isSuperAdmin()) {
+            return null;
+        }
+
         if (in_array($sr->service_type, self::VET_ONLY_TYPES, true)) {
             return response()->json([
                 'success' => false,
@@ -58,10 +79,6 @@ class ServiceRequestController extends Controller
         return null;
     }
 
-    /**
-     * Accepts a Pending request and schedules it — mirrors the vet
-     * module's accept()/AcceptModal pattern (date + optional notes).
-     */
     public function accept(Request $request, int $id)
     {
         $request->validate([
@@ -90,13 +107,6 @@ class ServiceRequestController extends Controller
         return response()->json(['success' => true, 'message' => 'Request scheduled.']);
     }
 
-    /**
-     * Declines a Pending request before it's ever scheduled. Kept
-     * separate from cancel() so the two remain distinguishable in the
-     * activity log even though both currently land on the same
-     * "Cancelled" status — decline is a same status, different verb/log
-     * entry, no schema change required either way.
-     */
     public function decline(int $id)
     {
         $sr = ServiceRequest::findOrFail($id);

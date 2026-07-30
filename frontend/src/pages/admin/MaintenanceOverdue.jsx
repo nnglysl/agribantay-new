@@ -6,15 +6,19 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
 export default function MaintenanceOverdue() {
-  const { data: farms, loading, error } = useCachedFetch('/admin/maintenance/overdue')
-  const isMobile = useIsMobile()
-
+  const [search, setSearch] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+  const isMobile = useIsMobile()
+
+  const params = {}
+  if (search) params.search = search
+
+  const { data: farms, loading, error } = useCachedFetch('/admin/maintenance/overdue', params)
 
   const overdueFarms = farms || []
 
-  useEffect(() => { setCurrentPage(1) }, [pageSize, overdueFarms.length])
+  useEffect(() => { setCurrentPage(1) }, [search, pageSize, overdueFarms.length])
 
   const totalItems = overdueFarms.length
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
@@ -41,6 +45,15 @@ export default function MaintenanceOverdue() {
         </p>
       </div>
 
+      <div style={styles.searchRow}>
+        <input
+          placeholder="Search by Farm ID, Farm Owner, Farm Name, or Maintenance Type..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={styles.searchInput}
+        />
+      </div>
+
       {loading && <p style={styles.stateText}>Loading...</p>}
       {error && <p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p>}
 
@@ -53,6 +66,7 @@ export default function MaintenanceOverdue() {
             <table style={{ ...styles.table, ...(isMobile ? styles.tableMobile : {}) }}>
               <thead>
                 <tr>
+                  <th style={styles.th}>Farm ID</th>
                   <th style={styles.th}>Farm</th>
                   <th style={styles.th}>Owner</th>
                   <th style={styles.th}>Barangay</th>
@@ -64,6 +78,7 @@ export default function MaintenanceOverdue() {
               <tbody>
                 {paginated.map(f => (
                   <tr key={f.farm_id}>
+                    <td style={styles.td}>#{f.farm_id}</td>
                     <td style={{ ...styles.td, fontWeight: 600, color: '#16311d' }}>{f.farm_name}</td>
                     <td style={styles.td}>{f.owner_name}</td>
                     <td style={styles.td}>{f.barangay}</td>
@@ -81,7 +96,9 @@ export default function MaintenanceOverdue() {
             </table>
           </div>
           {overdueFarms.length === 0 && (
-            <div style={styles.empty}>No farms are currently overdue for a manure clean-out.</div>
+            <div style={styles.empty}>
+              {search ? 'No overdue farms match your search.' : 'No farms are currently overdue for a manure clean-out.'}
+            </div>
           )}
 
           {overdueFarms.length > 0 && (
@@ -176,11 +193,18 @@ const styles = {
   titleMobile: { fontSize: '20px' },
   subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px', maxWidth: '580px', lineHeight: 1.5 },
 
+  searchRow: { marginBottom: '18px' },
+  searchInput: {
+    width: '100%', maxWidth: '480px', padding: '11px 14px', borderRadius: '10px',
+    border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box',
+    backgroundColor: '#fff', color: '#16311d', fontFamily: SANS,
+  },
+
   tableCard: { backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden' },
   scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0' },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  tableMobile: { minWidth: '820px' },
+  tableMobile: { minWidth: '900px' },
   th: {
     textAlign: 'left', padding: '13px 20px', fontSize: '11px', fontWeight: 700, color: '#8a968d',
     borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',

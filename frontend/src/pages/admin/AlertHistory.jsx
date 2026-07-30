@@ -9,6 +9,7 @@ export default function AlertHistory() {
   const [statusFilter, setStatusFilter] = useState('')
   const [sensorFilter, setSensorFilter] = useState('')
   const [farmFilter, setFarmFilter] = useState('')
+  const [search, setSearch] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const isMobile = useIsMobile()
@@ -17,6 +18,7 @@ export default function AlertHistory() {
   if (statusFilter) params.status = statusFilter
   if (sensorFilter) params.sensor_type = sensorFilter
   if (farmFilter) params.farm_id = farmFilter
+  if (search) params.search = search
 
   const { data: history, loading, error } = useCachedFetch('/admin/alert-history', params)
   const { data: farms } = useCachedFetch('/admin/farms')
@@ -27,8 +29,9 @@ export default function AlertHistory() {
 
   const allHistory = history || []
   const totalOngoing = allHistory.filter(h => h.is_ongoing).length
+  const totalAlerts = allHistory.length
 
-  useEffect(() => { setCurrentPage(1) }, [statusFilter, sensorFilter, farmFilter, pageSize])
+  useEffect(() => { setCurrentPage(1) }, [statusFilter, sensorFilter, farmFilter, search, pageSize])
 
   const totalItems = allHistory.length
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
@@ -54,12 +57,26 @@ export default function AlertHistory() {
             A record of every sensor incident — not a live feed, a searchable log of what already happened
           </p>
         </div>
-        {totalOngoing > 0 && (
-          <span style={styles.ongoingBadge}>
-            <span style={styles.ongoingBadgeDot} />
-            {totalOngoing} currently ongoing
+        <div style={styles.badgeGroup}>
+          <span style={styles.totalBadge}>
+            {totalAlerts} total alert{totalAlerts === 1 ? '' : 's'}
           </span>
-        )}
+          {totalOngoing > 0 && (
+            <span style={styles.ongoingBadge}>
+              <span style={styles.ongoingBadgeDot} />
+              {totalOngoing} currently ongoing
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div style={{ ...styles.searchRow, ...(isMobile ? styles.searchRowMobile : {}) }}>
+        <input
+          placeholder="Search by Farm Owner, Alert Type, or Alert ID..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={styles.searchInput}
+        />
       </div>
 
       <div style={{ ...styles.filters, ...(isMobile ? styles.filtersMobile : {}) }}>
@@ -103,6 +120,7 @@ export default function AlertHistory() {
               <thead>
                 <tr>
                   <th style={styles.th}>Farm</th>
+                  <th style={styles.th}>Farm Owner</th>
                   <th style={styles.th}>Sensor</th>
                   <th style={styles.th}>Severity</th>
                   <th style={styles.th}>Value</th>
@@ -116,7 +134,12 @@ export default function AlertHistory() {
                   return (
                     <tr key={h.id}>
                       <td style={{ ...styles.td, fontWeight: 600, color: '#16311d' }}>{h.farm_name}</td>
-                      <td style={styles.td}>{h.sensor_type}</td>
+                      <td style={styles.td}>{h.farm_owner_name || '—'}</td>
+                      <td style={styles.td}>
+                        <span style={{ ...styles.sensorTag, ...sensorTagStyle(h.sensor_type) }}>
+                          {h.sensor_type}
+                        </span>
+                      </td>
                       <td style={styles.td}>
                         <span style={{ ...styles.badge, color: c, backgroundColor: statusBg[h.status] || '#eef1ea' }}>
                           <span style={{ ...styles.badgeDot, backgroundColor: c }} />
@@ -231,6 +254,16 @@ function FilterPill({ label, active, onClick }) {
   )
 }
 
+function sensorTagStyle(sensorType) {
+  const map = {
+    Ammonia: { color: '#256b3d', backgroundColor: '#eaf3ec' },
+    Temperature: { color: '#b45309', backgroundColor: '#fbf1e2' },
+    Humidity: { color: '#2f6bb0', backgroundColor: '#e8eff8' },
+    Moisture: { color: '#7c5cbf', backgroundColor: '#f0ecfa' },
+  }
+  return map[sensorType] || { color: '#6b7280', backgroundColor: '#eef1ea' }
+}
+
 const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 const styles = {
@@ -239,12 +272,27 @@ const styles = {
   title: { fontSize: '24px', fontWeight: 800, letterSpacing: '-0.015em', color: '#16311d', margin: 0 },
   titleMobile: { fontSize: '20px' },
   subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px' },
+
+  badgeGroup: { display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'flex-start' },
+  totalBadge: {
+    display: 'inline-flex', alignItems: 'center',
+    backgroundColor: '#eaf3ec', color: '#256b3d', border: '1px solid #cfe0d3',
+    padding: '6px 14px', borderRadius: '999px', fontSize: '12.5px', fontWeight: 700, whiteSpace: 'nowrap',
+  },
   ongoingBadge: {
     display: 'inline-flex', alignItems: 'center', gap: '7px',
     backgroundColor: '#fbeaea', color: '#b91c1c', border: '1px solid #f0c9c9',
     padding: '6px 14px', borderRadius: '999px', fontSize: '12.5px', fontWeight: 700, whiteSpace: 'nowrap',
   },
   ongoingBadgeDot: { width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#b91c1c' },
+
+  searchRow: { marginBottom: '14px' },
+  searchRowMobile: {},
+  searchInput: {
+    width: '100%', maxWidth: '480px', padding: '11px 14px', borderRadius: '10px',
+    border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box',
+    backgroundColor: '#fff', color: '#16311d', fontFamily: SANS,
+  },
 
   filters: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' },
   filtersMobile: { flexDirection: 'column', alignItems: 'stretch' },
@@ -263,13 +311,17 @@ const styles = {
   scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0' },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  tableMobile: { minWidth: '820px' },
+  tableMobile: { minWidth: '860px' },
   th: {
     textAlign: 'left', padding: '13px 20px', fontSize: '11px', fontWeight: 700, color: '#8a968d',
     borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
     backgroundColor: '#fafbf8',
   },
   td: { padding: '13px 20px', fontSize: '13px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle' },
+  sensorTag: {
+    display: 'inline-block', padding: '3px 10px', borderRadius: '999px',
+    fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
+  },
   badge: {
     display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 11px',
     borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',

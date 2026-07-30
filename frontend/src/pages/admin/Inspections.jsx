@@ -11,7 +11,6 @@ const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 const DAY_NAMES_SHORT = ['S','M','T','W','T','F','S']
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
-// Calendar events keep the scannable convention: General → green, Follow-up → amber.
 function inspectionTypeStyle(type) {
   const isFollowUp = type === 'Follow-up'
   return {
@@ -23,6 +22,14 @@ function inspectionTypeStyle(type) {
 
 function sameDay(a, b) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+}
+
+function isPastDate(date) {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const check = new Date(date)
+  check.setHours(0, 0, 0, 0)
+  return check < today
 }
 
 export default function Inspections() {
@@ -158,6 +165,7 @@ export default function Inspections() {
           onClose={closeScheduleModal}
           onSuccess={() => { closeScheduleModal(); refetchInspections() }}
           isMobile={isMobile}
+          existingInspections={inspections}
         />
       )}
 
@@ -274,7 +282,6 @@ function SummaryCard({ label, value, sub, variant, isMobile }) {
   )
 }
 
-// Soft tinted background for each status badge (matches the Farms page convention).
 function badgeBg(status) {
   if (status === 'Completed') return '#eaf3ec'
   if (status === 'Scheduled') return '#fbf1e2'
@@ -445,7 +452,6 @@ function CalendarView({ inspections, viewDate, setViewDate, onAddSchedule, onVie
 
   return (
     <div style={{ ...styles.calendarLayout, ...(isMobile ? styles.calendarLayoutMobile : {}) }}>
-      {/* -------------------------------------------------- Calendar */}
       <div style={{ ...styles.calendarCard, ...(isMobile ? styles.calendarCardMobile : {}) }}>
         <div style={styles.calendarHeader}>
           <h3 style={{ ...styles.calendarMonth, ...(isMobile ? styles.calendarMonthMobile : {}) }}>
@@ -476,10 +482,15 @@ function CalendarView({ inspections, viewDate, setViewDate, onAddSchedule, onVie
                   ...styles.calendarCell,
                   ...(isMobile ? styles.calendarCellMobile : {}),
                   ...(day ? {} : styles.calendarCellEmpty),
+                  ...(day && dateForDay && isPastDate(dateForDay) ? styles.calendarCellPast : {}),
                   ...(isToday(day) ? styles.calendarCellToday : {}),
                   ...(selected ? styles.calendarCellSelected : {}),
                 }}
-                onClick={() => day && selectDay(dateForDay)}
+                onClick={() => {
+                  if (!day) return
+                  const clickedDate = new Date(year, month, day)
+                  selectDay(clickedDate)
+                }}
               >
                 {day && (
                   <>
@@ -546,7 +557,6 @@ function CalendarView({ inspections, viewDate, setViewDate, onAddSchedule, onVie
         </div>
       </div>
 
-      {/* --------------------------------------------- Side detail panel */}
       <div style={{ ...styles.sidePanel, ...(isMobile ? styles.sidePanelMobile : {}) }}>
         <div style={styles.sidePanelHead}>
           <div style={styles.sidePanelKicker}>Selected date</div>
@@ -559,9 +569,13 @@ function CalendarView({ inspections, viewDate, setViewDate, onAddSchedule, onVie
 
         {selectedDate && (
           <div style={styles.sidePanelBtnWrap}>
-            <button style={styles.addInspectionBtn} onClick={() => onAddSchedule(selectedDate)}>
-              + Add Inspection
-            </button>
+            {isPastDate(selectedDate) ? (
+              <div style={styles.pastDateNote}>Past dates cannot be scheduled.</div>
+            ) : (
+              <button style={styles.addInspectionBtn} onClick={() => onAddSchedule(selectedDate)}>
+                + Add Inspection
+              </button>
+            )}
           </div>
         )}
 
@@ -594,7 +608,7 @@ function CalendarView({ inspections, viewDate, setViewDate, onAddSchedule, onVie
   )
 }
 
-function ScheduleModal({ date, farms, prefillFarm, onClose, onSuccess, isMobile }) {
+function ScheduleModal({ date, farms, prefillFarm, onClose, onSuccess, isMobile, existingInspections = [] }) {
   const [farmId, setFarmId] = useState(prefillFarm?.id || '')
   const [farmSearch, setFarmSearch] = useState(prefillFarm ? `${prefillFarm.farm_name} — ${prefillFarm.owner_name}` : '')
   const [showFarmList, setShowFarmList] = useState(false)
@@ -603,6 +617,11 @@ function ScheduleModal({ date, farms, prefillFarm, onClose, onSuccess, isMobile 
   const [notes, setNotes] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  const dateAlreadyBooked = existingInspections.some(i => {
+    const d = new Date(i.scheduled_at)
+    return sameDay(d, date) && i.status !== 'Cancelled'
+  })
 
   const dateLabel = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
 
@@ -662,6 +681,11 @@ function ScheduleModal({ date, farms, prefillFarm, onClose, onSuccess, isMobile 
 
         <form onSubmit={handleSubmit}>
           {error && <div style={modalStyles.errorBox}>{error}</div>}
+          {dateAlreadyBooked && (
+            <div style={modalStyles.errorBox}>
+              An inspection has already been scheduled for this date. Please select another available date.
+            </div>
+          )}
 
           <label style={modalStyles.label}>Farm *</label>
           <div style={{ position: 'relative' }}>
@@ -731,8 +755,8 @@ function ScheduleModal({ date, farms, prefillFarm, onClose, onSuccess, isMobile 
             </button>
             <button
               type="submit"
-              disabled={loading}
-              style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
+              disabled={loading || dateAlreadyBooked}
+              style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}), ...(dateAlreadyBooked ? modalStyles.submitBtnDisabled : {}) }}
             >
               {loading ? 'Scheduling...' : 'Schedule Inspection'}
             </button>
@@ -887,6 +911,7 @@ const styles = {
   },
   calendarCellMobile: { minHeight: '64px', padding: '3px', borderRadius: '6px' },
   calendarCellEmpty: { cursor: 'default', backgroundColor: 'transparent', border: '1px solid transparent' },
+  calendarCellPast: { backgroundColor: '#fafaf8', opacity: 0.55 },
   calendarCellToday: { backgroundColor: '#eef5ef', border: '1px solid #bcd8c4' },
   calendarCellSelected: { backgroundColor: '#f4faf5', border: '1px solid #2c8047', boxShadow: '0 0 0 1px #2c8047 inset' },
   calendarDayNum: { fontSize: '12.5px', fontWeight: 700, color: '#374151', marginBottom: '5px' },
@@ -921,6 +946,9 @@ const styles = {
   addInspectionBtn: {
     width: '100%', boxSizing: 'border-box', padding: '11px', borderRadius: '10px', border: 'none',
     backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer',
+  },
+  pastDateNote: {
+    fontSize: '12.5px', color: '#9aa79d', textAlign: 'center', padding: '10px', fontStyle: 'italic',
   },
   scheduledLabel: {
     fontSize: '11px', fontWeight: 700, color: '#9aa79d', textTransform: 'uppercase',
@@ -980,6 +1008,7 @@ const modalStyles = {
   btnFull: { width: '100%', boxSizing: 'border-box' },
   cancelBtn: { padding: '10px 18px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff', fontSize: '14px', fontWeight: 600, color: '#33413a', cursor: 'pointer' },
   submitBtn: { padding: '10px 18px', borderRadius: '10px', border: 'none', backgroundColor: '#2c8047', color: '#fff', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
+  submitBtnDisabled: { opacity: 0.5, cursor: 'not-allowed' },
   dropdownList: {
     position: 'absolute', top: '100%', left: 0, right: 0,
     backgroundColor: '#fff', border: '1px solid #dcdfd6', borderRadius: '10px',
