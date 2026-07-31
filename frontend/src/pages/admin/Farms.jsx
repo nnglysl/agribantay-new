@@ -279,6 +279,7 @@ export default function Farms() {
             <table style={{ ...styles.table, ...(isMobile ? styles.tableMobile : {}) }}>
               <thead>
                 <tr>
+                  <th style={styles.th}></th>
                   <th style={styles.th}>Farm / Owner</th>
                   <th style={styles.th}>Mobile</th>
                   <th style={styles.th}>Barangay</th>
@@ -296,12 +297,16 @@ export default function Farms() {
                 {paginatedFarms.map(f => (
                   <tr key={f.id} style={styles.tr}>
                     <td style={styles.td}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <span style={styles.avatar}>{getInitials(f.farm_name)}</span>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 700, color: '#16311d' }}>{f.farm_name}</div>
-                          <div style={{ fontSize: '12.5px', color: '#8a968d', marginTop: '1px' }}>{f.owner_name}</div>
-                        </div>
+                      {f.owner_profile_photo_url ? (
+                        <img src={f.owner_profile_photo_url} alt="" style={styles.ownerAvatarImg} />
+                      ) : (
+                        <span style={styles.avatar}>{getInitials(f.owner_name)}</span>
+                      )}
+                    </td>
+                    <td style={styles.td}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, color: '#16311d' }}>{f.farm_name}</div>
+                        <div style={{ fontSize: '12.5px', color: '#8a968d', marginTop: '1px' }}>{f.owner_name}</div>
                       </div>
                     </td>
                     <td style={styles.td}>{f.mobile_number || f.email || '—'}</td>
@@ -1105,6 +1110,16 @@ function Lightbox({ src, alt, onClose }) {
   )
 }
 
+function IconHouseSmall() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 11l9-8 9 8" /><path d="M5 10v10h14V10" /></svg>
+}
+function IconWifiSmall() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5a11 11 0 0 1 14 0" /><path d="M8.5 16a6 6 0 0 1 7 0" /><circle cx="12" cy="19.5" r="1" fill="#fff" stroke="none" /></svg>
+}
+function IconBulbSmall() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18h6" /><path d="M10 21h4" /><path d="M12 3a6 6 0 0 0-4 10.5c.7.6 1 1.3 1 2.5h6c0-1.2.3-1.9 1-2.5A6 6 0 0 0 12 3z" /></svg>
+}
+
 function ViewFarmModal({ farmId, onClose, isMobile }) {
   const { data: farm, loading, error } = useCachedFetch(`/admin/farms/${farmId}`)
   const [lightboxImage, setLightboxImage] = useState(null)
@@ -1134,7 +1149,13 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
     reading ? `/admin/farms/${farmId}/root-cause` : null
   )
 
-  const statusColor = { Normal: '#256b3d', Warning: '#b45309', Critical: '#b91c1c', Offline: '#6b7280' }
+  const STATUS = {
+    Normal:   { color: '#256b3d', bg: '#eaf3ec', border: '#cfe0d3' },
+    Warning:  { color: '#b45309', bg: '#fbf1e2', border: '#f0e2cf' },
+    Critical: { color: '#b91c1c', bg: '#fbeaea', border: '#f0c9c9' },
+    Offline:  { color: '#6b7280', bg: '#eef1ea', border: '#e0e3da' },
+  }
+  const overall = STATUS[riskLevel] || STATUS.Offline
 
   const tabs = [
     { key: 'info', label: 'Farm Information' },
@@ -1146,39 +1167,46 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
   return (
     <div style={profileStyles.overlay} onClick={onClose}>
       <div style={{ ...profileStyles.modal, ...(isMobile ? profileStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
-        <button style={profileStyles.closeBtn} onClick={onClose} aria-label="Close">×</button>
 
         {loading && <div style={profileStyles.stateMsg}>Loading farm profile…</div>}
         {error && <div style={{ ...profileStyles.stateMsg, color: '#b91c1c' }}>{error}</div>}
 
         {farm && (
           <>
+            <div style={profileStyles.accentBar} />
+
             <div style={{ ...profileStyles.header, ...(isMobile ? profileStyles.headerMobile : {}) }}>
               <div style={profileStyles.avatarWrap}>
                 {farm.owner_profile_photo_url ? (
                   <img src={farm.owner_profile_photo_url} alt={farm.owner_name} style={profileStyles.avatarImg} />
                 ) : (
-                  <div style={profileStyles.avatar}>{initials || '—'}</div>
+                  <span style={profileStyles.avatarInitials}>{initials || '—'}</span>
                 )}
               </div>
               <div style={profileStyles.headerText}>
                 <div style={profileStyles.ownerNameLarge}>{farm.owner_name}</div>
-                <div style={profileStyles.farmNameRow}>{farm.farm_name} · Farm #{farm.id}</div>
+                <div style={profileStyles.farmNameRow}>{farm.farm_name} &nbsp;·&nbsp; Farm #{farm.id}</div>
               </div>
-              <span style={{ ...profileStyles.statusPill, color: isActive ? '#2c8047' : '#6b7280', backgroundColor: isActive ? '#eaf3ec' : '#f0f1ec' }}>
+              <span style={{
+                ...profileStyles.statusPill,
+                color: isActive ? '#2c8047' : '#6b7280',
+                backgroundColor: isActive ? '#eaf3ec' : '#f0f1ec',
+              }}>
+                <span style={{ ...profileStyles.pillDot, backgroundColor: isActive ? '#2c8047' : '#6b7280' }} />
                 {farm.status}
               </span>
+              <button style={profileStyles.closeBtn} onClick={onClose} aria-label="Close">×</button>
             </div>
 
             <div style={profileStyles.tabsRow}>
               {tabs.map(t => (
-                <span
+                <button
                   key={t.key}
                   style={{ ...profileStyles.tab, ...(activeTab === t.key ? profileStyles.tabActive : {}) }}
                   onClick={() => setActiveTab(t.key)}
                 >
                   {t.label}
-                </span>
+                </button>
               ))}
             </div>
 
@@ -1186,37 +1214,50 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
 
               {activeTab === 'info' && (
                 <>
-                  <Section title="Farm Information">
+                  <Section title="Farm Information" icon={<IconHouseSmall />}>
                     <div style={profileStyles.infoGrid}>
-                      <InfoCell label="Address" value={farm.address} full />
-                      <InfoCell label="Barangay" value={farm.barangay} />
+                      <InfoCell label="Address" value={farm.address} />
                       <InfoCell label="Contact Number" value={farm.mobile_number} />
-                      <InfoCell label="Email" value={farm.user?.email} />
+                      <InfoCell label="Barangay" value={farm.barangay} />
                       <InfoCell label="Farm Size" value={farm.farm_size} />
+                      <InfoCell label="Email" value={farm.user?.email} />
                       <InfoCell label="Date Registered" value={formatRegistrationDate(farm.created_at)} />
                     </div>
                   </Section>
 
-                  <Section title="Sensor & Monitoring">
+                  <Section title="Sensor & Monitoring" icon={<IconWifiSmall />}>
                     <div style={profileStyles.infoGrid}>
                       <InfoCell label="Device Name" value={reading?.sensor?.label || reading?.sensor?.sensor_code} />
-                      <InfoCell
-                        label="Sensor Status"
-                        value={<span style={{ color: isSensorOnline ? '#2c8047' : '#9ca3af', fontWeight: 700 }}>{isSensorOnline ? 'Online' : 'Offline'}</span>}
-                      />
-                      <InfoCell label="Last Synchronization" value={reading?.created_at ? new Date(reading.created_at).toLocaleString() : null} full />
+                      <div>
+                        <div style={profileStyles.infoLabel}>Sensor Status</div>
+                        <span style={{
+                          ...profileStyles.miniPill,
+                          color: isSensorOnline ? '#2c8047' : '#9ca3af',
+                          backgroundColor: isSensorOnline ? '#eaf3ec' : '#f0f1ec',
+                        }}>
+                          <span style={{ ...profileStyles.pillDot, backgroundColor: isSensorOnline ? '#2c8047' : '#9ca3af' }} />
+                          {isSensorOnline ? 'Online' : 'Offline'}
+                        </span>
+                      </div>
+                      <InfoCell label="Last Synchronization" value={reading?.created_at ? new Date(reading.created_at).toLocaleString() : null} />
                     </div>
 
                     {reading ? (
                       <>
                         <div style={{ ...profileStyles.sensorGrid, ...(isMobile ? profileStyles.sensorGridMobile : {}) }}>
-                          <SensorStat label="Ammonia" value={reading.ammonia} unit="ppm" status={reading.ammonia_status} colorMap={statusColor} />
-                          <SensorStat label="Temperature" value={reading.temperature} unit="°C" status={reading.temperature_status} colorMap={statusColor} />
-                          <SensorStat label="Humidity" value={reading.humidity} unit="%" status={reading.humidity_status} colorMap={statusColor} />
-                          <SensorStat label="Moisture" value={reading.moisture} unit="%" status={reading.moisture_status} colorMap={statusColor} />
+                          <SensorStat label="Ammonia" value={reading.ammonia} unit="ppm" status={reading.ammonia_status} STATUS={STATUS} />
+                          <SensorStat label="Temperature" value={reading.temperature} unit="°C" status={reading.temperature_status} STATUS={STATUS} />
+                          <SensorStat label="Humidity" value={reading.humidity} unit="%" status={reading.humidity_status} STATUS={STATUS} />
+                          <SensorStat label="Moisture" value={reading.moisture} unit="%" status={reading.moisture_status} STATUS={STATUS} />
                         </div>
                         {riskLevel && (
-                          <div style={{ ...profileStyles.riskNote, color: statusColor[riskLevel] || '#6b7280' }}>Overall status: {riskLevel}</div>
+                          <div style={profileStyles.overallRow}>
+                            <span style={profileStyles.overallLabel}>Overall Farm Status</span>
+                            <span style={{ ...profileStyles.overallBadge, color: overall.color, backgroundColor: overall.bg, borderColor: overall.border }}>
+                              <span style={{ ...profileStyles.pillDot, backgroundColor: overall.color }} />
+                              {riskLevel}
+                            </span>
+                          </div>
                         )}
                       </>
                     ) : (
@@ -1225,19 +1266,24 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                   </Section>
 
                   {reading && (
-                    <Section title="AI Insight">
+                    <Section title="AI Insight" icon={<IconBulbSmall />}>
                       {insightLoading && <div style={profileStyles.empty}>Analyzing sensor data…</div>}
                       {!insightLoading && insight && (
-                        <div style={profileStyles.insightBlock}>
-                          <div style={profileStyles.insightHeader}>
-                            <span style={profileStyles.insightRootCause}>{insight.diagnosis.root_cause}</span>
-                            <span style={{ ...profileStyles.confidenceTag, color: statusColor[riskLevel] || '#6b7280' }}>{insight.diagnosis.confidence}% confidence</span>
+                        <div style={profileStyles.insightCard}>
+                          <span style={profileStyles.insightIcon}>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2c8047" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v2" /><path d="m4.9 4.9 1.4 1.4" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m17.7 6.3 1.4-1.4" /><circle cx="12" cy="13" r="5" /></svg>
+                          </span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={profileStyles.insightHeader}>
+                              <span style={profileStyles.insightRootCause}>{insight.diagnosis.root_cause}</span>
+                              <span style={{ ...profileStyles.confidenceTag, color: overall.color, backgroundColor: overall.bg }}>{insight.diagnosis.confidence}% confidence</span>
+                            </div>
+                            {insight.explanation ? (
+                              <p style={profileStyles.insightExplanation}>{insight.explanation}</p>
+                            ) : (
+                              <p style={profileStyles.insightExplanationUnavailable}>Explanation unavailable right now — the diagnosis above is still accurate.</p>
+                            )}
                           </div>
-                          {insight.explanation ? (
-                            <p style={profileStyles.insightExplanation}>{insight.explanation}</p>
-                          ) : (
-                            <p style={profileStyles.insightExplanationUnavailable}>Explanation unavailable right now — the diagnosis above is still accurate.</p>
-                          )}
                         </div>
                       )}
                       {!insightLoading && !insight && <div style={profileStyles.empty}>Insight unavailable for this farm right now.</div>}
@@ -1309,14 +1355,24 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                   {!inspectionLoading && inspectionData?.inspections?.length > 0 && (
                     <>
                       <div style={profileStyles.logsList}>
-                        {inspectionData.inspections.map(i => (
-                          <div key={i.id} style={profileStyles.textRow}>
-                            <div style={profileStyles.logDate}>{i.inspection_type} — {i.status}</div>
-                            <div style={profileStyles.logNote}>
-                              {i.status === 'Completed' ? `Completed ${i.completed_at}` : `Scheduled ${i.scheduled_at}`}
+                        {inspectionData.inspections.map(i => {
+                          const done = i.status === 'Completed'
+                          return (
+                            <div key={i.id} style={profileStyles.inspectionRow}>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={profileStyles.logDate}>{i.inspection_type}</div>
+                                <div style={profileStyles.logNote}>
+                                  {done ? `Completed ${i.completed_at}` : `Scheduled ${i.scheduled_at}`}
+                                </div>
+                              </div>
+                              <span style={{
+                                ...profileStyles.miniPill,
+                                color: done ? '#256b3d' : '#b45309',
+                                backgroundColor: done ? '#eaf3ec' : '#fbf1e2',
+                              }}>{i.status}</span>
                             </div>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                       <TabPagination currentPage={inspectionData.current_page} lastPage={inspectionData.last_page} onPageChange={setInspectionPage} />
                     </>
@@ -1338,11 +1394,14 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
   )
 }
 
-function Section({ title, children, badge, badgeColor }) {
+function Section({ title, icon, children, badge, badgeColor }) {
   return (
     <div style={profileStyles.section}>
       <div style={profileStyles.sectionHeader}>
-        <span style={profileStyles.sectionTitle}>{title}</span>
+        <div style={profileStyles.sectionTitleRow}>
+          {icon && <span style={profileStyles.sectionIcon}>{icon}</span>}
+          <span style={profileStyles.sectionTitle}>{title}</span>
+        </div>
         {badge && (
           <span style={{ ...profileStyles.sectionBadge, color: badgeColor, backgroundColor: `${badgeColor}18` }}>{badge}</span>
         )}
@@ -1352,28 +1411,37 @@ function Section({ title, children, badge, badgeColor }) {
   )
 }
 
+function InfoRow({ children, last }) {
+  return <div style={{ ...profileStyles.infoRow, ...(last ? profileStyles.infoRowLast : {}) }}>{children}</div>
+}
+
 function maintBadgeColor(status) {
   if (status === 'Overdue') return '#b91c1c'
   if (status === 'Due') return '#b45309'
   return '#2c8047'
 }
 
-function InfoCell({ label, value, full }) {
+function InfoCell({ label, value }) {
   return (
-    <div style={{ ...profileStyles.infoCell, ...(full ? profileStyles.infoCellFull : {}) }}>
+    <div style={profileStyles.infoCell}>
       <div style={profileStyles.infoLabel}>{label}</div>
       <div style={profileStyles.infoValue}>{value || value === 0 ? value : '—'}</div>
     </div>
   )
 }
 
-function SensorStat({ label, value, unit, status, colorMap }) {
-  const color = colorMap[status] || '#6b7280'
+function SensorStat({ label, value, unit, status, STATUS }) {
+  const s = STATUS[status] || STATUS.Offline
   return (
     <div style={profileStyles.sensorCard}>
       <div style={profileStyles.sensorLabel}>{label}</div>
-      <div style={{ ...profileStyles.sensorValue, color }}>{value !== null && value !== undefined ? `${value} ${unit}` : '—'}</div>
-      {status && <div style={{ ...profileStyles.sensorStatus, color }}>{status}</div>}
+      <div style={{ ...profileStyles.sensorValue, color: s.color }}>{value !== null && value !== undefined ? `${value} ${unit}` : '—'}</div>
+      {status && (
+        <div style={profileStyles.sensorStatusRow}>
+          <span style={{ ...profileStyles.pillDot, backgroundColor: s.color }} />
+          <span style={{ ...profileStyles.sensorStatus, color: s.color }}>{status}</span>
+        </div>
+      )}
     </div>
   )
 }
@@ -1416,6 +1484,7 @@ const styles = {
   tr: {},
   td: { padding: '13px 20px', fontSize: '13px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle' },
   avatar: { width: '38px', height: '38px', borderRadius: '10px', backgroundColor: '#eaf3ec', color: '#2c8047', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 700, flexShrink: 0, textTransform: 'uppercase' },
+  ownerAvatarImg: { width: '38px', height: '38px', borderRadius: '10px', objectFit: 'cover', display: 'block' },
   badge: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 11px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap' },
   badgeDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
   actionBtn: { padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer', border: '1px solid #e3e6dd', backgroundColor: '#fff', whiteSpace: 'nowrap' },
@@ -1513,73 +1582,83 @@ const confirmStyles = {
 }
 
 const profileStyles = {
-  overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '16px', boxSizing: 'border-box' },
-  modal: { backgroundColor: '#fff', borderRadius: '16px', width: '760px', maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(15,38,22,0.3)', position: 'relative' },
+  overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '16px', boxSizing: 'border-box' },
+  modal: { backgroundColor: '#fff', borderRadius: '16px', width: '660px', maxWidth: '94vw', maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 70px rgba(15,38,22,0.28)', border: '1px solid #e7e8e0', position: 'relative' },
   modalMobile: { width: '100%', maxWidth: '100%', borderRadius: '16px 16px 0 0', position: 'fixed', bottom: 0, left: 0, maxHeight: '92vh' },
-  closeBtn: { position: 'absolute', top: '16px', right: '16px', width: '26px', height: '26px', borderRadius: '50%', border: 'none', backgroundColor: 'rgba(255,255,255,0.18)', color: '#fff', fontSize: '17px', lineHeight: '24px', cursor: 'pointer', zIndex: 2 },
-  stateMsg: { padding: '40px 24px', textAlign: 'center', color: '#6b7770', fontSize: '14px' },
+  stateMsg: { padding: '48px 24px', textAlign: 'center', color: '#6b7770', fontSize: '14px' },
 
-  header: { backgroundColor: '#1f5a34', borderRadius: '16px 16px 0 0', padding: '22px 24px', display: 'flex', alignItems: 'center', gap: '14px' },
-  headerMobile: { padding: '18px 40px 18px 18px', gap: '11px' },
-  avatarWrap: { width: '52px', height: '52px', borderRadius: '50%', flexShrink: 0, overflow: 'hidden' },
+  accentBar: { height: '6px', backgroundColor: '#1f5a34' },
+
+  header: { display: 'flex', alignItems: 'center', gap: '16px', padding: '20px 24px', borderBottom: '1px solid #f0efe8' },
+  headerMobile: { padding: '18px 18px', gap: '12px' },
+  avatarWrap: { width: '60px', height: '60px', borderRadius: '50%', flexShrink: 0, overflow: 'hidden', backgroundColor: '#eaf3ec', border: '1px solid #d6e5da', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   avatarImg: { width: '100%', height: '100%', objectFit: 'cover' },
-  avatar: { width: '52px', height: '52px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.15)', color: '#eaf3ec', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '17px', fontWeight: 700 },
+  avatarInitials: { fontSize: '20px', fontWeight: 700, color: '#2c8047', letterSpacing: '0.02em' },
   headerText: { flex: 1, minWidth: 0 },
-  ownerNameLarge: { color: '#fff', fontSize: '16px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  farmNameRow: { color: 'rgba(234,243,236,0.75)', fontSize: '12.5px', marginTop: '3px' },
-  statusPill: { padding: '4px 11px', borderRadius: '999px', fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 },
+  ownerNameLarge: { color: '#16311d', fontSize: '19px', fontWeight: 800, letterSpacing: '-0.01em', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  farmNameRow: { color: '#7b8a80', fontSize: '13px', marginTop: '3px' },
+  statusPill: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '5px 13px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 },
+  pillDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
+  closeBtn: { width: '30px', height: '30px', borderRadius: '8px', border: '1px solid #eceee7', backgroundColor: '#fff', color: '#8a968d', fontSize: '17px', lineHeight: 1, cursor: 'pointer', flexShrink: 0 },
 
-  tabsRow: { display: 'flex', gap: '4px', padding: '14px 24px 0', borderBottom: '1px solid #f0efe8', overflowX: 'auto' },
-  tab: { padding: '8px 4px', fontSize: '12.5px', fontWeight: 700, color: '#9aa79d', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap', marginRight: '18px' },
+  tabsRow: { display: 'flex', gap: '26px', padding: '0 24px', borderBottom: '1px solid #f0efe8', overflowX: 'auto' },
+  tab: { border: 'none', background: 'none', padding: '14px 0 12px', fontFamily: 'inherit', fontSize: '13px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', color: '#8a968d', borderBottom: '2px solid transparent', marginBottom: '-1px' },
   tabActive: { color: '#2c8047', borderBottom: '2px solid #2c8047' },
 
   body: { padding: '4px 24px 8px' },
 
   section: { padding: '18px 0', borderBottom: '1px solid #f0efe8' },
-  sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' },
-  sectionTitle: { fontSize: '12px', fontWeight: 700, color: '#16311d', textTransform: 'uppercase', letterSpacing: '0.04em' },
+  sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' },
+  sectionTitleRow: { display: 'flex', alignItems: 'center', gap: '10px' },
+  sectionIcon: { width: '26px', height: '26px', borderRadius: '8px', backgroundColor: '#2c8047', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  sectionTitle: { fontSize: '14px', fontWeight: 800, color: '#16311d' },
   sectionBadge: { padding: '3px 10px', borderRadius: '999px', fontSize: '10.5px', fontWeight: 700 },
 
-  infoGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 20px' },
-  infoGridMobile: { gridTemplateColumns: '1fr' },
-  inspectionGrid: { gridTemplateColumns: 'repeat(3, 1fr)' },
+  infoGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px 28px' },
+  infoRow: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 20px', padding: '14px 0', borderBottom: '1px solid #f0efe8' },
+  infoRowLast: { borderBottom: 'none', paddingBottom: '18px' },
   infoCell: {},
-  infoCellFull: { gridColumn: '1 / -1' },
-  infoLabel: { fontSize: '10.5px', color: '#9aa79d', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '3px' },
-  infoValue: { fontSize: '13.5px', color: '#16311d', fontWeight: 600, wordBreak: 'break-word' },
+  infoLabel: { fontSize: '10.5px', color: '#9aa79d', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '5px' },
+  infoValue: { fontSize: '13.5px', color: '#16311d', fontWeight: 600, lineHeight: 1.4, wordBreak: 'break-word' },
+  miniPill: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '3px 11px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap' },
 
-  sensorGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px', marginTop: '14px' },
+  sensorGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', marginTop: '16px' },
   sensorGridMobile: { gridTemplateColumns: 'repeat(2, 1fr)' },
-  sensorCard: { backgroundColor: '#fafbf8', borderRadius: '10px', padding: '10px 12px' },
-  sensorLabel: { fontSize: '10px', color: '#8a968d', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em' },
-  sensorValue: { fontSize: '14.5px', fontWeight: 700, marginTop: '4px' },
-  sensorStatus: { fontSize: '10px', fontWeight: 700, marginTop: '2px' },
-  riskNote: { fontSize: '11.5px', fontWeight: 600, marginTop: '10px' },
+  sensorCard: { backgroundColor: '#fafbf8', border: '1px solid #eceee7', borderRadius: '12px', padding: '13px 15px' },
+  sensorLabel: { fontSize: '10px', color: '#8a968d', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' },
+  sensorValue: { fontSize: '18px', fontWeight: 800, marginTop: '6px' },
+  sensorStatusRow: { display: 'inline-flex', alignItems: 'center', gap: '5px', marginTop: '7px' },
+  sensorStatus: { fontSize: '11px', fontWeight: 700 },
 
-  empty: { fontSize: '13px', color: '#9aa79d' },
+  overallRow: { display: 'flex', alignItems: 'center', gap: '10px', marginTop: '16px' },
+  overallLabel: { fontSize: '12.5px', fontWeight: 600, color: '#6b7770' },
+  overallBadge: { display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '6px 15px', borderRadius: '999px', fontSize: '12.5px', fontWeight: 800, border: '1px solid transparent' },
 
-  insightBlock: { backgroundColor: '#fafbf8', borderRadius: '10px', padding: '14px' },
-  insightHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' },
-  insightRootCause: { fontSize: '13.5px', fontWeight: 700, color: '#16311d' },
-  confidenceTag: { fontSize: '11px', fontWeight: 700 },
-  insightExplanation: { fontSize: '13px', color: '#4b5a50', lineHeight: '1.6', marginTop: '10px', marginBottom: 0 },
-  insightExplanationUnavailable: { fontSize: '12px', color: '#9aa79d', fontStyle: 'italic', marginTop: '10px', marginBottom: 0 },
+  empty: { fontSize: '13px', color: '#9aa79d', marginTop: '12px' },
 
-  logsList: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '14px' },
-  logRow: { display: 'flex', alignItems: 'center', gap: '11px' },
-  textRow: { paddingBottom: '2px' },
-  logThumb: { width: '40px', height: '40px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0, cursor: 'pointer' },
-  logDate: { fontSize: '12.5px', fontWeight: 700, color: '#16311d' },
-  logNote: { fontSize: '11.5px', color: '#6b7770', marginTop: '2px' },
+  insightCard: { display: 'flex', gap: '13px', alignItems: 'flex-start', backgroundColor: '#fafbf8', border: '1px solid #eceee7', borderRadius: '12px', padding: '15px 16px' },
+  insightIcon: { width: '30px', height: '30px', borderRadius: '9px', backgroundColor: '#eaf3ec', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '1px' },
+  insightHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' },
+  insightRootCause: { fontSize: '13.5px', fontWeight: 800, color: '#16311d' },
+  confidenceTag: { fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '999px' },
+  insightExplanation: { fontSize: '12.5px', color: '#5c6b60', lineHeight: 1.6, marginTop: '8px', marginBottom: 0 },
+  insightExplanationUnavailable: { fontSize: '12px', color: '#9aa79d', fontStyle: 'italic', marginTop: '8px', marginBottom: 0 },
 
-  viewAllLink: { display: 'inline-block', fontSize: '12px', fontWeight: 700, color: '#2c8047', cursor: 'pointer', marginTop: '12px' },
+  logsList: { display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' },
+  logRow: { display: 'flex', alignItems: 'center', gap: '13px' },
+  textRow: { padding: '13px 0', borderBottom: '1px solid #f2f3ed' },
+  inspectionRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '13px 0', borderBottom: '1px solid #f2f3ed' },
+  logThumb: { width: '44px', height: '44px', borderRadius: '9px', objectFit: 'cover', flexShrink: 0, cursor: 'pointer' },
+  logDate: { fontSize: '13px', fontWeight: 700, color: '#16311d' },
+  logNote: { fontSize: '12px', color: '#6b7770', marginTop: '2px' },
+
   tabPager: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '16px', paddingTop: '14px', borderTop: '1px solid #f0efe8' },
   tabPagerBtn: { padding: '6px 12px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#33413a', fontSize: '12px', fontWeight: 600, cursor: 'pointer' },
   tabPagerBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   tabPagerInfo: { fontSize: '11.5px', color: '#8a968d' },
 
-  footer: { padding: '16px 24px 20px', display: 'flex', justifyContent: 'flex-end' },
-  closeFooterBtn: { padding: '9px 20px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#33413a', fontSize: '13px', fontWeight: 600, cursor: 'pointer' },
+  footer: { padding: '14px 24px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #f0efe8' },
+  closeFooterBtn: { padding: '9px 22px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#33413a', fontSize: '13px', fontWeight: 700, cursor: 'pointer' },
 }
 
 const lightboxStyles = {

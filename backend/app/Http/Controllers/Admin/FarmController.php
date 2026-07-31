@@ -65,6 +65,9 @@ class FarmController extends Controller
 
             return [
                 'id'          => $farm->id,
+                'owner_profile_photo_url' => $farm->user?->profile_photo_path
+                    ? asset('storage/' . $farm->user->profile_photo_path)
+                    : null,
                 'farm_name'   => $farm->farm_name,
                 'owner_name'  => $farm->owner_name,
                 'mobile_number' => $farm->mobile_number,

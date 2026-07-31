@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import api from '../../api/axios'
 import VetLayout from '../../components/VetLayout'
 import { getUser, setAuth, getToken } from '../../utils/auth'
@@ -10,12 +10,15 @@ export default function Settings() {
   const [profile, setProfile] = useState(null)
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
-  const [contact, setContact] = useState('')
+  const [mobileNumber, setMobileNumber] = useState('')
+  const [email, setEmail] = useState('')
+  const [profilePhoto, setProfilePhoto] = useState(null)
   const [isEditing, setIsEditing] = useState(false)
   const [profileError, setProfileError] = useState('')
   const [profileSuccess, setProfileSuccess] = useState('')
   const [profileLoading, setProfileLoading] = useState(false)
   const isMobile = useIsMobile()
+  const fileInputRef = useRef(null)
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -37,9 +40,8 @@ export default function Settings() {
       setProfile(data)
       setFirstName(data.first_name)
       setLastName(data.last_name)
-      // Prefer whichever contact method is currently on file — mobile
-      // first since that's the more common case, falling back to email.
-      setContact(data.mobile_number || data.email || '')
+      setMobileNumber(data.mobile_number || '')
+      setEmail(data.email || '')
     })
   }, [])
 
@@ -50,23 +52,29 @@ export default function Settings() {
     setProfileLoading(true)
 
     try {
-      await api.put('/settings/profile', {
-        first_name: firstName,
-        last_name: lastName,
-        contact,
+      const formData = new FormData()
+      formData.append('first_name', firstName)
+      formData.append('last_name', lastName)
+      formData.append('mobile_number', mobileNumber)
+      if (email) formData.append('email', email)
+      if (profilePhoto) formData.append('profile_photo', profilePhoto)
+
+      await api.post('/settings/profile', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        params: { _method: 'PUT' },
       })
 
       const user = getUser()
       setAuth(getToken(), { ...user, first_name: firstName, last_name: lastName })
 
-      const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.trim())
       setProfile({
         ...profile,
         first_name: firstName,
         last_name: lastName,
-        email: isEmail ? contact : profile.email,
-        mobile_number: isEmail ? profile.mobile_number : contact,
+        mobile_number: mobileNumber,
+        email: email || null,
       })
+      setProfilePhoto(null)
       setProfileSuccess('Profile updated successfully.')
       setIsEditing(false)
     } catch (err) {
@@ -79,7 +87,9 @@ export default function Settings() {
   const handleCancelEdit = () => {
     setFirstName(profile.first_name)
     setLastName(profile.last_name)
-    setContact(profile.mobile_number || profile.email || '')
+    setMobileNumber(profile.mobile_number || '')
+    setEmail(profile.email || '')
+    setProfilePhoto(null)
     setIsEditing(false)
     setProfileError('')
   }
@@ -121,13 +131,18 @@ export default function Settings() {
   if (!profile) return <VetLayout><p>Loading...</p></VetLayout>
 
   const initials = `${profile.first_name?.[0] || ''}${profile.last_name?.[0] || ''}`.toUpperCase()
+  const photoPreview = profilePhoto ? URL.createObjectURL(profilePhoto) : profile.profile_photo_url
 
   return (
     <VetLayout>
       <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Settings</h1>
 
       <div style={{ ...styles.profileCard, ...(isMobile ? styles.profileCardMobile : {}) }}>
-        <div style={styles.avatar}>{initials}</div>
+        {photoPreview ? (
+          <img src={photoPreview} alt="Profile" style={styles.avatarImg} />
+        ) : (
+          <div style={styles.avatar}>{initials}</div>
+        )}
         <div>
           <div style={styles.profileName}>{profile.first_name} {profile.last_name}</div>
           <div style={styles.profileSub}>Municipal Veterinarian</div>
@@ -147,6 +162,32 @@ export default function Settings() {
         <form onSubmit={handleProfileSave}>
           {profileError && <div style={styles.errorBox}>{profileError}</div>}
           {profileSuccess && <div style={styles.successBox}>{profileSuccess}</div>}
+
+          {isEditing && (
+            <div style={styles.photoUploadWrap}>
+              <div style={styles.photoPreviewCircle} onClick={() => fileInputRef.current?.click()}>
+                {photoPreview ? (
+                  <img src={photoPreview} alt="Preview" style={styles.photoPreviewImg} />
+                ) : (
+                  <span style={styles.photoPlaceholder}>+</span>
+                )}
+              </div>
+              <div>
+                <div style={styles.photoUploadLabel}>Profile Photo</div>
+                <div style={styles.photoUploadHint}>Optional. JPG or PNG, up to 5MB.</div>
+                <span style={styles.photoUploadBtn} onClick={() => fileInputRef.current?.click()}>
+                  {photoPreview ? 'Change photo' : 'Upload photo'}
+                </span>
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={e => setProfilePhoto(e.target.files?.[0] || null)}
+              />
+            </div>
+          )}
 
           <div style={{ ...styles.row, ...(isMobile ? styles.rowMobile : {}) }}>
             <div style={styles.fieldGroup}>
@@ -170,11 +211,23 @@ export default function Settings() {
           </div>
 
           <div style={styles.fieldGroup}>
-            <label style={styles.label}>Email or Mobile Number</label>
+            <label style={styles.label}>Mobile Number</label>
             <input
-              value={contact}
-              onChange={e => setContact(e.target.value)}
+              value={mobileNumber}
+              onChange={e => setMobileNumber(e.target.value)}
               disabled={!isEditing}
+              style={{ ...styles.input, ...(!isEditing ? styles.inputDisabled : {}) }}
+            />
+          </div>
+
+          <div style={styles.fieldGroup}>
+            <label style={styles.label}>Email Address</label>
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              disabled={!isEditing}
+              placeholder={isEditing ? 'Optional' : ''}
               style={{ ...styles.input, ...(!isEditing ? styles.inputDisabled : {}) }}
             />
           </div>
@@ -304,6 +357,9 @@ const styles = {
     color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontSize: '20px', fontWeight: '700', flexShrink: 0,
   },
+  avatarImg: {
+    width: '56px', height: '56px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0,
+  },
   profileName: { fontSize: '16px', fontWeight: '700', color: '#111827' },
   profileSub: { fontSize: '13px', color: '#6b7280' },
   card: {
@@ -317,6 +373,22 @@ const styles = {
     backgroundColor: 'white', color: '#2E7D32', border: '1px solid #2E7D32',
     borderRadius: '8px', padding: '6px 14px', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
   },
+
+  photoUploadWrap: {
+    display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '18px',
+    padding: '12px', backgroundColor: '#f9fafb', borderRadius: '10px', border: '1px solid #eceee7',
+  },
+  photoPreviewCircle: {
+    width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#eaf3ec',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+    flexShrink: 0, overflow: 'hidden', border: '2px dashed #cfe0d3',
+  },
+  photoPreviewImg: { width: '100%', height: '100%', objectFit: 'cover' },
+  photoPlaceholder: { fontSize: '22px', color: '#2E7D32', fontWeight: '700' },
+  photoUploadLabel: { fontSize: '13px', fontWeight: '700', color: '#111827' },
+  photoUploadHint: { fontSize: '11.5px', color: '#9ca3af', marginTop: '2px' },
+  photoUploadBtn: { fontSize: '12px', fontWeight: '700', color: '#2E7D32', cursor: 'pointer', marginTop: '4px', display: 'inline-block' },
+
   row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' },
   rowMobile: { gridTemplateColumns: '1fr', gap: '0px' },
   fieldGroup: { display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '14px' },

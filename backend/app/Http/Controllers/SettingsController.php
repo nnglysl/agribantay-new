@@ -16,11 +16,12 @@ class SettingsController extends Controller
         $user = Auth::user();
 
         $data = [
-            'first_name'    => $user->first_name,
-            'last_name'     => $user->last_name,
-            'mobile_number' => $user->mobile_number,
-            'email'         => $user->email,
-            'role'          => $user->role,
+            'first_name'         => $user->first_name,
+            'last_name'          => $user->last_name,
+            'mobile_number'      => $user->mobile_number,
+            'email'              => $user->email,
+            'role'               => $user->role,
+            'profile_photo_url'  => $user->profile_photo_path ? asset('storage/' . $user->profile_photo_path) : null,
         ];
 
         // Farm owners also see their farm's registered address info,
@@ -59,32 +60,49 @@ class SettingsController extends Controller
         $user = Auth::user();
 
         $request->validate([
-            'first_name' => 'required|string',
-            'last_name'  => 'required|string',
-            'contact'    => 'required|string',
+            'first_name'    => 'required|string',
+            'last_name'     => 'required|string',
+            'mobile_number' => 'required|string',
+            'email'         => 'nullable|email',
+            'profile_photo' => 'nullable|image|max:5120',
         ]);
 
-        $isEmail = filter_var($request->contact, FILTER_VALIDATE_EMAIL);
+        $mobileExists = User::where('mobile_number', $request->mobile_number)
+            ->where('id', '!=', $user->id)
+            ->exists();
 
-        $exists = $isEmail
-            ? User::where('email', $request->contact)->where('id', '!=', $user->id)->exists()
-            : User::where('mobile_number', $request->contact)->where('id', '!=', $user->id)->exists();
-
-        if ($exists) {
+        if ($mobileExists) {
             return response()->json([
                 'success' => false,
-                'message' => $isEmail
-                    ? 'Another account already uses this email.'
-                    : 'Another account already uses this mobile number.',
+                'message' => 'Another account already uses this mobile number.',
             ], 422);
         }
 
-        $user->update([
+        if ($request->filled('email')) {
+            $emailExists = User::where('email', $request->email)
+                ->where('id', '!=', $user->id)
+                ->exists();
+
+            if ($emailExists) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Another account already uses this email.',
+                ], 422);
+            }
+        }
+
+       $updates = [
             'first_name'    => $request->first_name,
             'last_name'     => $request->last_name,
-            'email'         => $isEmail ? $request->contact : $user->email,
-            'mobile_number' => $isEmail ? $user->mobile_number : $request->contact,
-        ]);
+            'mobile_number' => $request->mobile_number,
+            'email'         => $request->filled('email') ? $request->email : null,
+        ];
+
+        if ($request->hasFile('profile_photo')) {
+            $updates['profile_photo_path'] = $request->file('profile_photo')->store('profile-photos', 'public');
+        }
+
+        $user->update($updates);
 
         return response()->json([
             'success' => true,

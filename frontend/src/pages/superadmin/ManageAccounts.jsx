@@ -11,14 +11,14 @@ function emptyTabState() {
 }
 
 export default function ManageAccounts() {
-  const [statusTab, setStatusTab] = useState('active') // active | deactivated
+  const [statusTab, setStatusTab] = useState('active')
   const [tabState, setTabState] = useState({
     active: emptyTabState(),
     deactivated: emptyTabState(),
   })
 
   const [showRegisterModal, setShowRegisterModal] = useState(false)
-  const [editTarget, setEditTarget] = useState(null)
+  const [viewTarget, setViewTarget] = useState(null)
   const [resetTarget, setResetTarget] = useState(null)
   const [resetResult, setResetResult] = useState(null)
   const [confirmAction, setConfirmAction] = useState(null)
@@ -167,6 +167,7 @@ export default function ManageAccounts() {
             <table style={{ ...styles.table, ...(isMobile ? styles.tableMobile : {}) }}>
               <thead>
                 <tr>
+                  <th style={styles.th}></th>
                   <th style={styles.th}>Name</th>
                   <th style={styles.th}>Role</th>
                   <th style={styles.th}>Email</th>
@@ -177,6 +178,15 @@ export default function ManageAccounts() {
               <tbody>
                 {pagedAccounts.map(acc => (
                   <tr key={acc.id} style={styles.tr}>
+                    <td style={styles.td}>
+                      {acc.profile_photo_url ? (
+                        <img src={acc.profile_photo_url} alt="" style={styles.tableAvatarImg} />
+                      ) : (
+                        <div style={styles.tableAvatarFallback}>
+                          {(acc.first_name?.[0] || '') + (acc.last_name?.[0] || '')}
+                        </div>
+                      )}
+                    </td>
                     <td style={styles.td}>{acc.first_name} {acc.last_name}</td>
                     <td style={styles.td}>
                       <span style={{ ...styles.roleBadge, backgroundColor: roleBadgeColor[acc.role] || '#6b7280' }}>
@@ -187,7 +197,7 @@ export default function ManageAccounts() {
                     <td style={styles.td}>{acc.mobile_number || '—'}</td>
                     <td style={styles.td}>
                       <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                        <span style={{ ...styles.actionBtn, ...styles.editBtn }} onClick={() => setEditTarget(acc)}>Edit</span>
+                        <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => setViewTarget(acc)}>View</span>
                         <span style={{ ...styles.actionBtn, ...styles.resetBtn }} onClick={() => handleResetPassword(acc)}>Reset Password</span>
                         {statusTab === 'active' ? (
                           <span style={{ ...styles.actionBtn, ...styles.deactivateBtn }} onClick={() => handleDeactivate(acc)}>Deactivate</span>
@@ -231,12 +241,13 @@ export default function ManageAccounts() {
         />
       )}
 
-      {editTarget && (
-        <EditModal
-          account={editTarget}
+      {viewTarget && (
+        <ViewEditModal
+          account={viewTarget}
           isMobile={isMobile}
-          onClose={() => setEditTarget(null)}
-          onSuccess={() => { setEditTarget(null); refetch() }}
+          onClose={() => setViewTarget(null)}
+          onSaved={(updated) => { setViewTarget(updated); refetch() }}
+          roleBadgeColor={roleBadgeColor}
         />
       )}
 
@@ -328,9 +339,7 @@ function Pagination({
             key={p}
             onClick={() => onPageChange(p)}
             style={{ ...paginationStyles.pageBtn, ...(p === currentPage ? paginationStyles.pageBtnActive : {}) }}
-          >
-            {p}
-          </button>
+          >{p}</button>
         ))}
 
         {pageNumbers[pageNumbers.length - 1] < totalPages && <span style={paginationStyles.ellipsis}>…</span>}
@@ -371,9 +380,6 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
 
     setLoading(true)
     try {
-      // Backend still expects a single 'contact' field and auto-detects
-      // whether it's an email or phone — send whichever was filled in.
-      // If both are filled, email takes precedence.
       const contact = form.email.trim() || form.contact_number.trim()
 
       await api.post('/superadmin/accounts', {
@@ -433,24 +439,38 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
   )
 }
 
-function EditModal({ account, onClose, onSuccess, isMobile }) {
-  const [form, setForm] = useState({
-    full_name: `${account.first_name} ${account.last_name}`.trim(),
-    email: account.email || '',
-    contact_number: account.mobile_number || '',
-  })
+function ViewEditModal({ account, onClose, onSaved, isMobile, roleBadgeColor }) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [fullName, setFullName] = useState(`${account.first_name} ${account.last_name}`.trim())
+  const [email, setEmail] = useState(account.email || '')
+  const [contactNumber, setContactNumber] = useState(account.mobile_number || '')
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const update = (key) => (e) => setForm({ ...form, [key]: e.target.value })
+  const handleCancelEdit = () => {
+    setFullName(`${account.first_name} ${account.last_name}`.trim())
+    setEmail(account.email || '')
+    setContactNumber(account.mobile_number || '')
+    setIsEditing(false)
+    setError('')
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (!isEditing) return // hard guard — this should only ever run from the Save Changes button
     setError('')
+    setSuccess('')
     setLoading(true)
     try {
-      await api.put(`/superadmin/accounts/${account.id}`, form)
-      onSuccess()
+      const res = await api.put(`/superadmin/accounts/${account.id}`, {
+        full_name: fullName,
+        email,
+        contact_number: contactNumber,
+      })
+      setSuccess('Account updated successfully.')
+      setIsEditing(false)
+      onSaved(res.data.data ? { ...account, ...res.data.data, mobile_number: contactNumber, email } : { ...account, email, mobile_number: contactNumber })
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to update account.')
     } finally {
@@ -460,33 +480,99 @@ function EditModal({ account, onClose, onSuccess, isMobile }) {
 
   return (
     <div style={modalStyles.overlay} onClick={onClose}>
-      <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
+      <div style={{ ...modalStyles.viewModal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
         <div style={modalStyles.header}>
-          <h3 style={modalStyles.title}>Edit {account.role === 'admin' ? 'Admin' : 'Veterinarian'} Account</h3>
+          <h3 style={modalStyles.title}>{account.role === 'admin' ? 'Admin' : 'Veterinarian'} Account</h3>
           <span style={modalStyles.close} onClick={onClose}>×</span>
+        </div>
+
+        <div style={modalStyles.viewPhotoRow}>
+          {account.profile_photo_url ? (
+            <img src={account.profile_photo_url} alt="" style={modalStyles.viewPhotoImg} />
+          ) : (
+            <div style={modalStyles.viewPhotoFallback}>
+              {(account.first_name?.[0] || '') + (account.last_name?.[0] || '')}
+            </div>
+          )}
+          <div>
+            <div style={modalStyles.viewName}>{account.first_name} {account.last_name}</div>
+            <span style={{ ...styles.roleBadge, backgroundColor: roleBadgeColor[account.role] || '#6b7280' }}>
+              {account.role === 'admin' ? 'Admin' : 'Veterinarian'}
+            </span>
+          </div>
         </div>
 
         <form onSubmit={handleSubmit}>
           {error && <div style={modalStyles.errorBox}>{error}</div>}
+          {success && <div style={modalStyles.successBox}>{success}</div>}
 
-          <label style={modalStyles.label}>Full Name *</label>
-          <input placeholder="Full Name" value={form.full_name} onChange={update('full_name')} style={modalStyles.inputFull} required />
+          <div style={modalStyles.viewGrid}>
+            <div style={modalStyles.viewFieldGroup}>
+              <label style={modalStyles.label}>Full Name</label>
+              <input
+                value={fullName}
+                onChange={e => setFullName(e.target.value)}
+                disabled={!isEditing}
+                style={{ ...modalStyles.viewFieldBox, ...(!isEditing ? {} : modalStyles.viewFieldBoxEditable) }}
+              />
+            </div>
+            <div style={modalStyles.viewFieldGroup}>
+              <label style={modalStyles.label}>Email Address</label>
+              <input
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                disabled={!isEditing}
+                style={{ ...modalStyles.viewFieldBox, ...(!isEditing ? {} : modalStyles.viewFieldBoxEditable) }}
+              />
+            </div>
+            <div style={modalStyles.viewFieldGroup}>
+              <label style={modalStyles.label}>Mobile Number</label>
+              <input
+                value={contactNumber}
+                onChange={e => setContactNumber(e.target.value)}
+                disabled={!isEditing}
+                style={{ ...modalStyles.viewFieldBox, ...(!isEditing ? {} : modalStyles.viewFieldBoxEditable) }}
+              />
+            </div>
+            <div style={modalStyles.viewFieldGroup}>
+              <label style={modalStyles.label}>Status</label>
+              <div
+                style={{
+                  ...modalStyles.viewFieldBox,
+                  color: account.status === 'active' ? '#2c8047' : '#6b7280',
+                  fontWeight: 700,
+                }}
+              >
+                {account.status === 'active' ? 'Active' : 'Deactivated'}
+              </div>
+            </div>
+          </div>
 
-          <label style={modalStyles.label}>Email *</label>
-          <input type="email" placeholder="Email" value={form.email} onChange={update('email')} style={modalStyles.inputFull} required />
+          <p style={modalStyles.viewNote}>
+            Profile photo is set by the account holder in their own Settings and cannot be changed here.
+          </p>
 
-          <label style={modalStyles.label}>Contact Number *</label>
-          <input placeholder="Contact Number" value={form.contact_number} onChange={update('contact_number')} style={modalStyles.inputFull} required />
+          {isEditing && (
+            <div style={modalStyles.actions}>
+              <button type="button" onClick={handleCancelEdit} style={modalStyles.cancelBtn} disabled={loading}>
+                Cancel
+              </button>
+              <button type="submit" disabled={loading} style={modalStyles.submitBtn}>
+                {loading ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          )}
+        </form>
 
-          <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
-            <button type="button" onClick={onClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
-              Cancel
-            </button>
-            <button type="submit" disabled={loading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
-              {loading ? 'Saving...' : 'Save Changes'}
+        {!isEditing && (
+          <div style={modalStyles.actions}>
+            <button type="button" onClick={onClose} style={modalStyles.cancelBtn}>Close</button>
+            <button type="button" onClick={() => { setIsEditing(true); setSuccess('') }} style={modalStyles.submitBtn}>
+              Edit
             </button>
           </div>
-        </form>
+        )}
       </div>
     </div>
   )
@@ -529,7 +615,7 @@ const styles = {
   scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0', fontFamily: SANS },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  tableMobile: { minWidth: '760px' },
+  tableMobile: { minWidth: '800px' },
   th: {
     textAlign: 'left', padding: '13px 20px', fontSize: '11px', fontWeight: 700, color: '#8a968d',
     borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em',
@@ -539,11 +625,17 @@ const styles = {
   td: { padding: '13px 20px', fontSize: '13px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle', fontFamily: SANS },
   roleBadge: { padding: '4px 11px', borderRadius: '999px', color: '#fff', fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap' },
 
+  tableAvatarImg: { width: '34px', height: '34px', borderRadius: '50%', objectFit: 'cover', display: 'block' },
+  tableAvatarFallback: {
+    width: '34px', height: '34px', borderRadius: '50%', backgroundColor: '#eaf3ec', color: '#2c8047',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700, textTransform: 'uppercase',
+  },
+
   actionBtn: {
     padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600,
     cursor: 'pointer', border: '1px solid #e3e6dd', backgroundColor: '#fff', whiteSpace: 'nowrap', fontFamily: SANS,
   },
-  editBtn: { color: '#2c8047' },
+  viewBtn: { color: '#4b5a50' },
   resetBtn: { color: '#b45309' },
   deactivateBtn: { color: '#b91c1c' },
   activateBtn: { color: '#2c8047' },
@@ -587,20 +679,47 @@ const paginationStyles = {
 const modalStyles = {
   overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 },
   modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '440px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto', fontFamily: SANS },
+  viewModal: { backgroundColor: 'white', borderRadius: '16px', padding: '32px', width: '540px', maxWidth: '92%', maxHeight: '90vh', overflowY: 'auto', fontFamily: SANS },
   modalMobile: { width: '100%', maxWidth: '100%', borderRadius: '16px 16px 0 0', padding: '20px', margin: '0', position: 'fixed', bottom: 0, left: 0, maxHeight: '85vh' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' },
-  title: { fontSize: '17px', fontWeight: 800, color: '#16311d', margin: 0 },
+  title: { fontSize: '18px', fontWeight: 800, color: '#16311d', margin: 0 },
   close: { fontSize: '22px', cursor: 'pointer', color: '#8a968d' },
   errorBox: { backgroundColor: '#fbeaea', border: '1px solid #f0c9c9', color: '#b91c1c', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '14px' },
+  successBox: { backgroundColor: '#eaf3ec', border: '1px solid #cfe0d3', color: '#1f5a34', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '14px' },
   label: { display: 'block', fontSize: '12.5px', fontWeight: 600, color: '#33413a', marginBottom: '5px', marginTop: '12px' },
   input: { padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', width: '100%' },
   inputFull: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', marginTop: '2px' },
   hint: { fontSize: '12px', color: '#6b7770', marginTop: '14px', lineHeight: '1.5' },
-  actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' },
+  actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '22px' },
   actionsMobile: { flexDirection: 'column-reverse' },
   btnFull: { width: '100%', boxSizing: 'border-box' },
   cancelBtn: { padding: '10px 18px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: 'white', fontSize: '14px', fontWeight: 600, color: '#33413a', cursor: 'pointer' },
   submitBtn: { padding: '10px 18px', borderRadius: '10px', border: 'none', backgroundColor: '#2c8047', color: 'white', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
+
+  // --- View/Edit modal specific ---
+  viewPhotoRow: {
+    display: 'flex', alignItems: 'center', gap: '16px', marginTop: '18px',
+    paddingBottom: '20px', borderBottom: '1px solid #eceee7',
+  },
+  viewPhotoImg: { width: '64px', height: '64px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 },
+  viewPhotoFallback: {
+    width: '64px', height: '64px', borderRadius: '50%', backgroundColor: '#eaf3ec', color: '#2c8047',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', fontWeight: 700,
+    flexShrink: 0, textTransform: 'uppercase',
+  },
+  viewName: { fontSize: '17px', fontWeight: 800, color: '#16311d', marginBottom: '6px' },
+
+  viewGrid: { display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' },
+  viewFieldGroup: { display: 'flex', flexDirection: 'column' },
+  viewFieldBox: {
+    padding: '11px 14px', borderRadius: '10px', border: '1px solid #e7e8e0', backgroundColor: '#fafbf8',
+    fontSize: '14px', color: '#16311d', fontWeight: 500, fontFamily: SANS, width: '100%', boxSizing: 'border-box',
+  },
+  viewFieldBoxEditable: {
+    backgroundColor: '#fff', borderColor: '#2c8047', cursor: 'text',
+  },
+
+  viewNote: { fontSize: '11.5px', color: '#9aa79d', marginTop: '16px', lineHeight: '1.5', fontStyle: 'italic' },
 }
 
 const confirmStyles = {

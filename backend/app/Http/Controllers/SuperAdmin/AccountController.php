@@ -52,13 +52,14 @@ class AccountController extends Controller
         }
 
         $accounts = $query->orderBy('role')->orderBy('first_name')->get()->map(fn($u) => [
-            'id'            => $u->id,
-            'first_name'    => $u->first_name,
-            'last_name'     => $u->last_name,
-            'email'         => $u->email,
-            'mobile_number' => $u->mobile_number,
-            'role'          => $u->role,
-            'status'        => $u->status,
+            'id'                => $u->id,
+            'first_name'        => $u->first_name,
+            'last_name'         => $u->last_name,
+            'email'             => $u->email,
+            'mobile_number'     => $u->mobile_number,
+            'role'              => $u->role,
+            'status'            => $u->status,
+            'profile_photo_url' => $u->profile_photo_path ? asset('storage/' . $u->profile_photo_path) : null,
         ]);
 
         return response()->json(['success' => true, 'data' => $accounts]);

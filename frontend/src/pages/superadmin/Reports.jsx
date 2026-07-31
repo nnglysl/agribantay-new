@@ -142,11 +142,9 @@ export default function SuperAdminReports() {
         <div style={{ ...styles.statsGrid, ...(isMobile ? styles.statsGridMobile : {}) }}>
           <StatCard value={adminData.inspection_summary.total} label="Total Inspections" />
           <StatCard value={adminData.inspection_summary.completed} label="Completed Inspections" accent="#2c8047" />
-          <StatCard value={adminData.inspection_summary.scheduled} label="Scheduled Inspections" />
           <StatCard value={adminData.alert_summary.critical_alerts} label="Critical Alerts" accent="#b91c1c" />
           <StatCard value={adminData.service_summary.total} label="Total Service Requests" />
           <StatCard value={adminData.service_summary.completed} label="Completed Requests" accent="#2c8047" />
-          <StatCard value={adminData.service_summary.pending} label="Pending Requests" accent="#b45309" />
         </div>
 
         <div style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}), marginTop: '16px' }}>
@@ -201,8 +199,7 @@ export default function SuperAdminReports() {
         {/* ---------------------------------------------------- Vet section */}
         <div style={{ ...styles.sectionLabel, marginTop: '32px' }}>Veterinarian — Vaccinations &amp; Blood Tests</div>
         <div style={{ ...styles.statsGrid, ...(isMobile ? styles.statsGridMobile : {}) }}>
-          <StatCard value={vetData.total_completed} label="Total completed (vaccine + blood test)" accent="#2c8047" />
-          <StatCard value={vetData.farms_covered} label="Farms covered" accent="#2c8047" />
+          <StatCard value={vetData.total_completed} label="Total Completed (Vaccine + Blood Test)" accent="#2c8047" />
         </div>
 
         <div style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}), marginTop: '16px' }}>
