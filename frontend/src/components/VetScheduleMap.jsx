@@ -4,7 +4,6 @@ import 'leaflet/dist/leaflet.css'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { SAN_JOSE_CENTER, SAN_JOSE_BOUNDARY, WORLD_RING } from './FarmMap'
 
-// Green for Vaccine (brand color, matches the stat cards), blue for Blood Test.
 const requestTypeColor = (type) => (type === 'Blood Test Request' ? '#3b82f6' : '#2E7D32')
 
 export default function VetScheduleMap({ requests = [] }) {
@@ -90,7 +89,7 @@ export default function VetScheduleMap({ requests = [] }) {
 
   return (
     <div style={styles.wrap}>
-      <div ref={containerRef} style={{ height: isMobile ? '300px' : '420px', width: '100%' }} />
+      <div ref={containerRef} style={{ height: isMobile ? '300px' : '520px', width: '100%' }} />
 
       <div style={{ ...styles.legend, ...(isMobile ? styles.legendMobile : {}) }}>
         <div style={styles.legendTitle}>Request type</div>

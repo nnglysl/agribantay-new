@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo, useLayoutEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -233,9 +233,11 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], ser
   const mapRef = useRef(null)
   const containerRef = useRef(null)
   const markersRef = useRef([])
+  const listRef = useRef(null)
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const [mode, setMode] = useState('alerts')
+  const [visibleCount, setVisibleCount] = useState(3)
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -371,7 +373,27 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], ser
   )
 
   const listItems = mode === 'alerts' ? alertItems : mode === 'inspection' ? inspectionItems : serviceRequestItems
-  const visibleItems = listItems.slice(0, 3)
+  const visibleItems = listItems.slice(0, visibleCount)
+  const hiddenCount = Math.max(0, listItems.length - visibleItems.length)
+
+  // Fit as many rows as the list container can show, then hide the rest.
+  // Alerts rows are taller (they include the sensor table), so use a per-mode row height.
+  const ITEM_HEIGHT = mode === 'alerts' ? 92 : 60
+  const recomputeFit = useCallback(() => {
+    const el = listRef.current
+    if (!el) return
+    const fits = Math.max(1, Math.floor(el.clientHeight / ITEM_HEIGHT))
+    setVisibleCount(prev => (prev === fits ? prev : fits))
+  }, [ITEM_HEIGHT])
+
+  useLayoutEffect(() => {
+    recomputeFit()
+    const el = listRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(recomputeFit)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [recomputeFit, mode, listItems.length])
 
   const odorCount = serviceRequestItems.filter(r => /odor/i.test(r.request_type || r.type || '')).length
   const flyCount = serviceRequestItems.filter(r => /fly/i.test(r.request_type || r.type || '')).length
@@ -456,7 +478,7 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], ser
           )}
         </div>
 
-        <div style={styles.sideList}>
+        <div ref={listRef} style={styles.sideList}>
           {visibleItems.length === 0 && (
             <div style={styles.empty}>{mode === 'alerts' ? 'No critical alerts right now.' : mode === 'inspection' ? 'No upcoming inspections.' : 'No pending service requests.'}</div>
           )}
@@ -521,9 +543,9 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], ser
           })}
         </div>
 
-        {listItems.length > visibleItems.length && (
+        {hiddenCount > 0 && (
           <button style={styles.seeAll} onClick={() => (mode === 'alerts' ? onSeeAllAlerts?.() : mode === 'inspection' ? onSeeAllInspections?.() : onSeeAllServiceRequests?.())}>
-            See all ({listItems.length - visibleItems.length} more)
+            See all ({hiddenCount} more)
           </button>
         )}
       </div>
@@ -569,7 +591,7 @@ const styles = {
   countValue: { fontSize: '14px', fontWeight: 800, color: '#16311d', lineHeight: 1.1 },
   countLabel: { fontSize: '8px', fontWeight: 700, color: '#8a968d', textTransform: 'uppercase' },
 
-  sideList: { overflowY: 'auto', padding: '0 8px', flex: 1 },
+  sideList: { overflowY: 'auto', padding: '0 8px', flex: 1, minHeight: 0 },
   empty: { padding: '18px 8px', textAlign: 'center', fontSize: '12.5px', color: '#9aa79d' },
   item: { display: 'flex', alignItems: 'flex-start', gap: '11px', padding: '11px 8px', borderRadius: '9px', cursor: 'pointer' },
   itemTopRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' },

@@ -20,10 +20,15 @@ const RANGE_OPTIONS = [
   { value: 'custom', label: 'Custom range' },
 ]
 
-const TYPE_FILTERS = [
-  { value: 'all', label: 'All types' },
+const TYPE_OPTIONS = [
+  { value: 'all', label: 'All Types' },
   { value: 'Vaccine Request', label: 'Vaccine' },
   { value: 'Blood Test Request', label: 'Blood Test' },
+]
+
+const SORT_OPTIONS = [
+  { value: 'oldest', label: 'Oldest Request First (Default)' },
+  { value: 'newest', label: 'Newest Request First' },
 ]
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
@@ -65,6 +70,7 @@ function getRangeBounds(rangeKey, customFrom, customTo) {
 export default function VaccinationRequests() {
   const [tab, setTab] = useState('scheduled')
   const [typeFilter, setTypeFilter] = useState('all')
+  const [sortMode, setSortMode] = useState('oldest')
   const [range, setRange] = useState('all')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
@@ -85,7 +91,7 @@ export default function VaccinationRequests() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  useEffect(() => { setCurrentPage(1) }, [tab, typeFilter, range, customFrom, customTo, pageSize])
+  useEffect(() => { setCurrentPage(1) }, [tab, typeFilter, sortMode, range, customFrom, customTo, pageSize])
 
   const handleDeclineAction = async () => {
     await api.patch(`/vet/vaccination-requests/${confirmDecline.id}/decline`)
@@ -116,10 +122,18 @@ export default function VaccinationRequests() {
 
   const baseList = tab === 'scheduled' ? requestData.scheduled : filteredCompleted
 
-  const sortedList = useMemo(
-    () => [...baseList].sort((a, b) => a.id - b.id),
-    [baseList]
-  )
+  // First Come, First Served — sorts by submission date (created_at) if
+  // available, falling back to id order if the backend hasn't been
+  // updated to include it yet.
+  const sortedList = useMemo(() => {
+    const list = [...baseList]
+    list.sort((a, b) => {
+      const aKey = a.created_at ? new Date(a.created_at).getTime() : a.id
+      const bKey = b.created_at ? new Date(b.created_at).getTime() : b.id
+      return sortMode === 'newest' ? bKey - aKey : aKey - bKey
+    })
+    return list
+  }, [baseList, sortMode])
 
   const typeFilteredList = useMemo(() => {
     if (typeFilter === 'all') return sortedList
@@ -141,7 +155,7 @@ export default function VaccinationRequests() {
   const rangeStartIdx = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1
   const rangeEndIdx = Math.min(currentPage * pageSize, totalItems)
 
-  const statusColor = { Pending: '#b45309', Scheduled: '#2f6bb0', Completed: '#2c8047', Cancelled: '#8a968d' }
+  const statusColor = { Pending: '#b45309', Scheduled: '#2f6bb0', Completed: '#2c8047', Cancelled: '#6b7280' }
 
   return (
     <VetLayout>
@@ -163,34 +177,39 @@ export default function VaccinationRequests() {
         </div>
       </div>
 
-      <div style={{ ...styles.filterRow, ...(isMobile ? styles.filterRowMobile : {}) }}>
-        <div style={styles.pillRow}>
-          {TYPE_FILTERS.map(f => (
-            <span
-              key={f.value}
-              onClick={() => setTypeFilter(f.value)}
-              style={{ ...styles.filterPill, ...(typeFilter === f.value ? styles.filterPillActive : {}) }}
-            >
-              {f.label}
-            </span>
-          ))}
-        </div>
-
-        {tab === 'completed' && (
-          <select
-            value={range}
-            onChange={e => setRange(e.target.value)}
-            style={{ ...styles.filterSelect, ...(isMobile ? styles.filterSelectMobile : {}) }}
-          >
-            {RANGE_OPTIONS.map(opt => (
+      <div style={{ ...styles.filters, ...(isMobile ? styles.filtersMobile : {}) }}>
+        <div style={styles.filterGroup}>
+          <span style={styles.filterGroupLabel}>Type</span>
+          <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={styles.sortSelect}>
+            {TYPE_OPTIONS.map(opt => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
+        </div>
+
+        <div style={styles.filterGroup}>
+          <span style={styles.filterGroupLabel}>Sort By</span>
+          <select value={sortMode} onChange={e => setSortMode(e.target.value)} style={styles.sortSelect}>
+            {SORT_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {tab === 'completed' && (
+          <div style={styles.filterGroup}>
+            <span style={styles.filterGroupLabel}>Range</span>
+            <select value={range} onChange={e => setRange(e.target.value)} style={styles.sortSelect}>
+              {RANGE_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
         )}
       </div>
 
       {tab === 'completed' && range === 'custom' && (
-        <div style={{ ...styles.customDates, ...(isMobile ? styles.customDatesMobile : {}), marginBottom: '16px' }}>
+        <div style={{ ...styles.customDates, ...(isMobile ? styles.customDatesMobile : {}) }}>
           <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} style={styles.filterDateInput} />
           <span style={styles.customDatesSep}>to</span>
           <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} style={styles.filterDateInput} />
@@ -210,19 +229,24 @@ export default function VaccinationRequests() {
             <table style={{ ...styles.table, ...(isMobile ? styles.tableMobile : {}) }}>
               <thead>
                 <tr>
+                  <th style={styles.th}>Request No.</th>
                   <th style={styles.th}>Farm</th>
                   <th style={styles.th}>Type</th>
-                  <th style={styles.th}>Owner</th>
+                  <th style={styles.th}>Farm Owner</th>
                   <th style={styles.th}>Date</th>
                   <th style={styles.th}>Status</th>
-                  <th style={styles.th}>Actions</th>
+                  <th style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {list.map(r => {
+                  const c = statusColor[r.status] || '#6b7280'
                   const typeColor = requestTypeColor(r.service_type)
                   return (
                     <tr key={r.id}>
+                      <td style={styles.td}>
+                        <span style={styles.reqNumberCell}>{r.request_number || '—'}</span>
+                      </td>
                       <td style={styles.td}>
                         <div style={styles.farmName}>{r.farm_name}</div>
                         <div style={styles.farmMeta}>
@@ -231,12 +255,7 @@ export default function VaccinationRequests() {
                         {r.notes && <div style={styles.notes}>{r.notes}</div>}
                       </td>
                       <td style={styles.td}>
-                        <span style={{
-                          ...styles.typeTag,
-                          color: typeColor,
-                          backgroundColor: `${typeColor}1A`,
-                          borderColor: `${typeColor}55`,
-                        }}>
+                        <span style={{ ...styles.typeTag, color: typeColor, backgroundColor: `${typeColor}18` }}>
                           {requestTypeLabel(r.service_type)}
                         </span>
                       </td>
@@ -249,48 +268,34 @@ export default function VaccinationRequests() {
                           : '—'}
                       </td>
                       <td style={styles.td}>
-                        <span style={{ ...styles.badge, backgroundColor: statusColor[r.status] || '#8a968d' }}>
+                        <span style={{ ...styles.badge, color: c, backgroundColor: badgeBg(r.status) }}>
+                          <span style={{ ...styles.badgeDot, backgroundColor: c }} />
                           {r.status}
                         </span>
                       </td>
                       <td style={styles.td}>
                         <div style={styles.actionGroup}>
                           {r.status === 'Completed' && (
-                            <span
-                              style={{ ...styles.actionBtn, ...styles.viewBtn }}
-                              onClick={() => setViewTarget(r)}
-                            >
+                            <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => setViewTarget(r)}>
                               View
                             </span>
                           )}
                           {r.status === 'Pending' && (
                             <>
-                              <span
-                                style={{ ...styles.actionBtn, ...styles.acceptBtn }}
-                                onClick={() => setAcceptTarget(r)}
-                              >
+                              <span style={{ ...styles.actionBtn, ...styles.acceptBtn }} onClick={() => setAcceptTarget(r)}>
                                 Accept
                               </span>
-                              <span
-                                style={{ ...styles.actionBtn, ...styles.declineBtn }}
-                                onClick={() => setConfirmDecline(r)}
-                              >
+                              <span style={{ ...styles.actionBtn, ...styles.declineBtn }} onClick={() => setConfirmDecline(r)}>
                                 Decline
                               </span>
                             </>
                           )}
                           {r.status === 'Scheduled' && (
                             <>
-                              <span
-                                style={{ ...styles.actionBtn, ...styles.noteBtn }}
-                                onClick={() => setNoteTarget(r)}
-                              >
+                              <span style={{ ...styles.actionBtn, ...styles.noteBtn }} onClick={() => setNoteTarget(r)}>
                                 Add Note
                               </span>
-                              <span
-                                style={{ ...styles.actionBtn, ...styles.completeBtn }}
-                                onClick={() => setConfirmComplete(r)}
-                              >
+                              <span style={{ ...styles.actionBtn, ...styles.completeBtn }} onClick={() => setConfirmComplete(r)}>
                                 Complete
                               </span>
                             </>
@@ -387,6 +392,13 @@ export default function VaccinationRequests() {
   )
 }
 
+function badgeBg(status) {
+  if (status === 'Pending') return '#fbf1e2'
+  if (status === 'Scheduled') return '#e8eff8'
+  if (status === 'Cancelled') return '#eef1ea'
+  return '#eaf3ec'
+}
+
 function Pagination({
   currentPage, totalPages, pageSize, onPageChange, onPageSizeChange,
   rangeStart, rangeEnd, totalItems, isMobile,
@@ -411,11 +423,7 @@ function Pagination({
       </div>
 
       <div style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
-        <select
-          value={pageSize}
-          onChange={e => onPageSizeChange(Number(e.target.value))}
-          style={paginationStyles.pageSizeSelect}
-        >
+        <select value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
           {PAGE_SIZE_OPTIONS.map(size => (
             <option key={size} value={size}>{size} / page</option>
           ))}
@@ -423,20 +431,12 @@ function Pagination({
 
         <button
           style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(1)}
-          disabled={currentPage === 1}
-          aria-label="First page"
-        >
-          «
-        </button>
+          onClick={() => onPageChange(1)} disabled={currentPage === 1} aria-label="First page"
+        >«</button>
         <button
           style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(currentPage - 1)}
-          disabled={currentPage === 1}
-          aria-label="Previous page"
-        >
-          ‹
-        </button>
+          onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1} aria-label="Previous page"
+        >‹</button>
 
         {pageNumbers[0] > 1 && <span style={paginationStyles.ellipsis}>…</span>}
 
@@ -445,29 +445,19 @@ function Pagination({
             key={p}
             onClick={() => onPageChange(p)}
             style={{ ...paginationStyles.pageBtn, ...(p === currentPage ? paginationStyles.pageBtnActive : {}) }}
-          >
-            {p}
-          </button>
+          >{p}</button>
         ))}
 
         {pageNumbers[pageNumbers.length - 1] < totalPages && <span style={paginationStyles.ellipsis}>…</span>}
 
         <button
           style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(currentPage + 1)}
-          disabled={currentPage === totalPages}
-          aria-label="Next page"
-        >
-          ›
-        </button>
+          onClick={() => onPageChange(currentPage + 1)} disabled={currentPage === totalPages} aria-label="Next page"
+        >›</button>
         <button
           style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(totalPages)}
-          disabled={currentPage === totalPages}
-          aria-label="Last page"
-        >
-          »
-        </button>
+          onClick={() => onPageChange(totalPages)} disabled={currentPage === totalPages} aria-label="Last page"
+        >»</button>
       </div>
     </div>
   )
@@ -605,10 +595,12 @@ function NoteModal({ request, onClose, onSuccess, isMobile }) {
     </div>
   )
 }
+const HISTORY_BATCH = 4
 
 function FarmHistoryModal({ farm, allRequests, onClose, isMobile }) {
   const [expandedId, setExpandedId] = useState(null)
-  const statusColor = { Pending: '#b45309', Scheduled: '#2f6bb0', Completed: '#2c8047' }
+  const [visibleCount, setVisibleCount] = useState(HISTORY_BATCH)
+  const statusColor = { Pending: '#b45309', Scheduled: '#2f6bb0', Completed: '#2c8047', Cancelled: '#6b7280' }
 
   const farmRecords = allRequests
     .filter(r => (farm.farm_id ? r.farm_id === farm.farm_id : r.farm_name === farm.farm_name && r.owner_name === farm.owner_name))
@@ -619,132 +611,152 @@ function FarmHistoryModal({ farm, allRequests, onClose, isMobile }) {
     })
 
   const completedCount = farmRecords.filter(r => r.status === 'Completed').length
-  const initial = farm.farm_name?.[0]?.toUpperCase() ?? '?'
+  const initials = (farm.farm_name || '?').split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('')
+
+  const visibleRecords = farmRecords.slice(0, visibleCount)
+  const remaining = Math.max(0, farmRecords.length - visibleRecords.length)
 
   const toggleExpand = (id) => setExpandedId(prev => (prev === id ? null : id))
 
   return (
     <div style={modalStyles.overlay} onClick={onClose}>
       <div style={{ ...historyStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
-        <span style={historyStyles.close} onClick={onClose}>×</span>
 
-        <div style={historyStyles.heroHeader}>
-          <div style={historyStyles.avatar}>{initial}</div>
+        {/* HEADER */}
+        <div style={historyStyles.accentBar} />
+        <div style={historyStyles.header}>
+          <div style={historyStyles.avatar}>{initials}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={historyStyles.farmName}>{farm.farm_name}</div>
             <div style={historyStyles.ownerName}>{farm.owner_name}</div>
           </div>
+          <button style={historyStyles.closeX} onClick={onClose} aria-label="Close">×</button>
         </div>
 
+        {/* BODY */}
         <div style={historyStyles.body}>
-          <div style={historyStyles.sectionLabel}>FARM &amp; OWNER</div>
+
+          {/* FARM & OWNER */}
+          <div style={historyStyles.sectionHead}>
+            <span style={historyStyles.sectionIcon}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 11l9-8 9 8" /><path d="M5 10v10h14V10" /></svg>
+            </span>
+            <span style={historyStyles.sectionTitle}>Farm &amp; Owner</span>
+          </div>
           <div style={{ ...historyStyles.infoGrid, ...(isMobile ? historyStyles.infoGridMobile : {}) }}>
-            <div style={historyStyles.infoCard}>
-              <div>
-                <div style={historyStyles.infoLabel}>Barangay</div>
-                <div style={historyStyles.infoValue}>{farm.barangay}</div>
+            <div>
+              <div style={historyStyles.infoLabel}>Barangay</div>
+              <div style={historyStyles.infoValue}>{farm.barangay || '—'}</div>
+            </div>
+            <div>
+              <div style={historyStyles.infoLabel}>Farm Size</div>
+              <div style={historyStyles.infoValue}>
+                {farm.farm_size || '—'} <span style={historyStyles.infoValueSub}>({BIRD_ESTIMATES[farm.farm_size] || '—'})</span>
               </div>
             </div>
-            <div style={historyStyles.infoCard}>
-              <div>
-                <div style={historyStyles.infoLabel}>Farm Size</div>
-                <div style={historyStyles.infoValue}>
-                  {farm.farm_size} <span style={historyStyles.infoValueSub}>({BIRD_ESTIMATES[farm.farm_size] || '—'})</span>
-                </div>
-              </div>
+            <div>
+              <div style={historyStyles.infoLabel}>Total Records</div>
+              <div style={historyStyles.infoValue}>{farmRecords.length}</div>
             </div>
-          </div>
-
-          <div style={{ ...historyStyles.infoGrid, ...(isMobile ? historyStyles.infoGridMobile : {}), marginTop: '10px' }}>
-            <div style={historyStyles.infoCard}>
-              <div>
-                <div style={historyStyles.infoLabel}>Total Records</div>
-                <div style={historyStyles.infoValue}>{farmRecords.length}</div>
-              </div>
-            </div>
-            <div style={historyStyles.infoCard}>
-              <div>
-                <div style={historyStyles.infoLabel}>Completed</div>
-                <div style={historyStyles.infoValue}>{completedCount}</div>
-              </div>
+            <div>
+              <div style={historyStyles.infoLabel}>Completed</div>
+              <div style={historyStyles.infoValue}>{completedCount}</div>
             </div>
           </div>
 
-          <div style={historyStyles.sectionLabel}>REQUEST HISTORY</div>
+          {/* REQUEST HISTORY */}
+          <div style={historyStyles.sectionHead}>
+            <span style={historyStyles.sectionIcon}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+            </span>
+            <span style={historyStyles.sectionTitle}>Request History</span>
+          </div>
 
           {farmRecords.length === 0 ? (
             <div style={historyStyles.emptyBox}>
               <p style={{ fontSize: '13px', color: '#9aa79d', margin: 0 }}>No records found.</p>
             </div>
           ) : (
-            <div style={historyStyles.recordList}>
-              {farmRecords.map(r => {
-                const isExpanded = expandedId === r.id
-                const color = statusColor[r.status] || '#8a968d'
-                return (
-                  <div
-                    key={r.id}
-                    style={{ ...historyStyles.recordCard, borderColor: isExpanded ? color : '#e7e8e0' }}
-                    onClick={() => toggleExpand(r.id)}
-                  >
-                    <div style={historyStyles.recordTop}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span style={{ ...historyStyles.recordBadge, backgroundColor: color }}>{r.status}</span>
-                        <span style={{ ...historyStyles.recordTypeTag, color: requestTypeColor(r.service_type) }}>
-                          {requestTypeLabel(r.service_type)}
-                        </span>
-                      </div>
-                      <span style={historyStyles.recordDateRow}>
-                        <span style={historyStyles.recordDate}>
-                          {r.completed_at
-                            ? new Date(r.completed_at).toLocaleDateString()
-                            : r.scheduled_at
-                            ? new Date(r.scheduled_at).toLocaleDateString()
-                            : '—'}
-                        </span>
-                        <span style={{ ...historyStyles.chevron, transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</span>
-                      </span>
-                    </div>
-
-                    {!isExpanded && r.notes && <p style={historyStyles.recordNotes}>{r.notes}</p>}
-
-                    {isExpanded && (
-                      <div style={historyStyles.expandedBox}>
-                        {r.scheduled_at && (
-                          <div style={historyStyles.expandedRow}>
-                            <span style={historyStyles.expandedLabel}>Scheduled</span>
-                            <span style={historyStyles.expandedValue}>{new Date(r.scheduled_at).toLocaleString()}</span>
-                          </div>
-                        )}
-                        {r.completed_at && (
-                          <div style={historyStyles.expandedRow}>
-                            <span style={historyStyles.expandedLabel}>Completed</span>
-                            <span style={historyStyles.expandedValue}>{new Date(r.completed_at).toLocaleString()}</span>
-                          </div>
-                        )}
-                        <div style={historyStyles.expandedRow}>
-                          <span style={historyStyles.expandedLabel}>Status</span>
-                          <span style={historyStyles.expandedValue}>{r.status}</span>
+            <>
+              <div style={historyStyles.recordList}>
+                {visibleRecords.map(r => {
+                  const isExpanded = expandedId === r.id
+                  const color = statusColor[r.status] || '#8a968d'
+                  return (
+                    <div
+                      key={r.id}
+                      style={{ ...historyStyles.recordCard, borderColor: isExpanded ? color : '#e7e8e0' }}
+                      onClick={() => toggleExpand(r.id)}
+                    >
+                      <div style={historyStyles.recordTop}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ ...historyStyles.recordBadge, backgroundColor: color }}>{r.status}</span>
+                          <span style={{ ...historyStyles.recordTypeTag, color: requestTypeColor(r.service_type) }}>
+                            {requestTypeLabel(r.service_type)}
+                          </span>
                         </div>
-                        {r.notes ? (
-                          <div style={{ marginTop: '8px' }}>
-                            <span style={historyStyles.expandedLabel}>Notes</span>
-                            <p style={historyStyles.expandedNotes}>{r.notes}</p>
-                          </div>
-                        ) : (
-                          <p style={historyStyles.expandedNotes}>No notes recorded.</p>
-                        )}
+                        <span style={historyStyles.recordDateRow}>
+                          <span style={historyStyles.recordDate}>
+                            {r.completed_at
+                              ? new Date(r.completed_at).toLocaleDateString()
+                              : r.scheduled_at
+                              ? new Date(r.scheduled_at).toLocaleDateString()
+                              : '—'}
+                          </span>
+                          <span style={{ ...historyStyles.chevron, transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</span>
+                        </span>
                       </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
 
-          <div style={historyStyles.footer}>
-            <button onClick={onClose} style={historyStyles.closeBtn}>Close</button>
-          </div>
+                      {!isExpanded && r.notes && <p style={historyStyles.recordNotes}>{r.notes}</p>}
+
+                      {isExpanded && (
+                        <div style={historyStyles.expandedBox}>
+                          {r.scheduled_at && (
+                            <div style={historyStyles.expandedRow}>
+                              <span style={historyStyles.expandedLabel}>Scheduled</span>
+                              <span style={historyStyles.expandedValue}>{new Date(r.scheduled_at).toLocaleString()}</span>
+                            </div>
+                          )}
+                          {r.completed_at && (
+                            <div style={historyStyles.expandedRow}>
+                              <span style={historyStyles.expandedLabel}>Completed</span>
+                              <span style={historyStyles.expandedValue}>{new Date(r.completed_at).toLocaleString()}</span>
+                            </div>
+                          )}
+                          <div style={historyStyles.expandedRow}>
+                            <span style={historyStyles.expandedLabel}>Status</span>
+                            <span style={historyStyles.expandedValue}>{r.status}</span>
+                          </div>
+                          {r.notes ? (
+                            <div style={{ marginTop: '8px' }}>
+                              <span style={historyStyles.expandedLabel}>Notes</span>
+                              <p style={historyStyles.expandedNotes}>{r.notes}</p>
+                            </div>
+                          ) : (
+                            <p style={historyStyles.expandedNotes}>No notes recorded.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {remaining > 0 && (
+                <button
+                  style={historyStyles.seeMore}
+                  onClick={() => setVisibleCount(c => c + HISTORY_BATCH)}
+                >
+                  See more ({remaining} remaining)
+                </button>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* FOOTER */}
+        <div style={historyStyles.footer}>
+          <button onClick={onClose} style={historyStyles.closeBtn}>Close</button>
         </div>
       </div>
     </div>
@@ -755,135 +767,144 @@ const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Sego
 
 const styles = {
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
-  title: { fontFamily: SANS, fontSize: '24px', fontWeight: 800, letterSpacing: '-0.015em', color: '#16311d', margin: 0 },
+  title: { fontSize: '24px', fontWeight: 800, letterSpacing: '-0.015em', color: '#16311d', margin: 0 },
   titleMobile: { fontSize: '20px' },
-  subtitle: { fontFamily: SANS, fontSize: '13.5px', color: '#6b7770', marginTop: '5px', marginBottom: '22px' },
+  subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px', marginBottom: '20px' },
 
-  tabs: { display: 'flex', gap: '24px', marginBottom: '18px', borderBottom: '1px solid #e7e8e0' },
-  tab: { fontFamily: SANS, padding: '10px 2px', fontSize: '14px', fontWeight: 600, color: '#8a968d', cursor: 'pointer', borderBottom: '2px solid transparent', marginBottom: '-1px' },
-  tabActive: { color: '#16311d', borderBottomColor: '#2c8047' },
+  tabs: { display: 'flex', gap: '4px', marginBottom: '16px', borderBottom: '1px solid #e7e8e0', overflowX: 'auto' },
+  tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap' },
+  tabActive: { color: '#2c8047', fontWeight: 700, borderBottom: '2px solid #2c8047' },
 
-  filterRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' },
-  filterRowMobile: { flexDirection: 'column', alignItems: 'stretch' },
-  pillRow: { display: 'flex', gap: '8px', flexWrap: 'wrap' },
-  filterPill: {
-    fontFamily: SANS, padding: '7px 14px', borderRadius: '999px', fontSize: '12.5px', fontWeight: 600,
-    color: '#6b7770', backgroundColor: '#fff', border: '1px solid #e7e8e0', cursor: 'pointer', whiteSpace: 'nowrap',
+  filters: { display: 'flex', flexWrap: 'wrap', gap: '20px', marginBottom: '18px', alignItems: 'flex-end' },
+  filtersMobile: { flexDirection: 'column', gap: '14px', alignItems: 'stretch' },
+  filterGroup: { display: 'flex', flexDirection: 'column', gap: '7px' },
+  filterGroupLabel: { fontSize: '11px', fontWeight: 700, color: '#8a968d', textTransform: 'uppercase', letterSpacing: '0.04em' },
+  sortSelect: {
+    padding: '9px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '13px',
+    color: '#33413a', backgroundColor: '#fff', cursor: 'pointer', fontFamily: SANS, minWidth: '200px',
   },
-  filterPillActive: { backgroundColor: '#2c8047', color: '#fff', border: '1px solid #2c8047' },
-  filterSelect: { fontFamily: SANS, padding: '8px 12px', borderRadius: '9px', border: '1px solid #e7e8e0', fontSize: '13px', color: '#33413a', backgroundColor: '#fff' },
-  filterSelectMobile: { width: '100%', boxSizing: 'border-box' },
-  customDates: { display: 'flex', alignItems: 'center', gap: '8px' },
-  customDatesMobile: { width: '100%' },
-  customDatesSep: { fontFamily: SANS, fontSize: '13px', color: '#9aa79d' },
-  filterDateInput: { fontFamily: SANS, padding: '8px 12px', borderRadius: '9px', border: '1px solid #e7e8e0', fontSize: '13px', color: '#33413a' },
 
-  tableCard: { fontFamily: SANS, backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden' },
-  scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 18px 0' },
+  customDates: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' },
+  customDatesMobile: { width: '100%' },
+  customDatesSep: { fontSize: '13px', color: '#9aa79d' },
+  filterDateInput: { padding: '9px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '13px', color: '#33413a', fontFamily: SANS },
+
+  tableCard: { backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden' },
+  scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0' },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  tableMobile: { minWidth: '760px' },
+  tableMobile: { minWidth: '960px' },
   th: {
-    textAlign: 'left', padding: '12px 18px', fontSize: '11.5px', fontWeight: 700, color: '#6b7770',
-    backgroundColor: '#f8f8f4', borderBottom: '1px solid #e7e8e0', textTransform: 'uppercase', letterSpacing: '0.4px', whiteSpace: 'nowrap',
+    textAlign: 'left', padding: '13px 20px', fontSize: '11px', fontWeight: 700, color: '#8a968d',
+    borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
+    backgroundColor: '#fafbf8',
   },
-  td: { padding: '14px 18px', fontSize: '13px', color: '#33413a', borderBottom: '1px solid #f0efe8', verticalAlign: 'top' },
-  farmName: { fontSize: '13.5px', fontWeight: 600, color: '#16311d' },
-  farmMeta: { fontSize: '11.5px', color: '#8a968d', marginTop: '2px' },
-  notes: { fontSize: '12px', color: '#6b7770', marginTop: '4px', maxWidth: '240px' },
+  td: { padding: '13px 20px', fontSize: '13px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top' },
+  reqNumberCell: { fontSize: '12.5px', color: '#4b5a50', fontFamily: 'monospace' },
+  farmName: { fontSize: '14px', fontWeight: 700, color: '#16311d' },
+  farmMeta: { fontSize: '12px', color: '#8a968d', marginTop: '2px' },
+  notes: { fontSize: '12px', color: '#8a968d', marginTop: '4px', maxWidth: '240px' },
   typeTag: {
-    fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '999px',
-    border: '1px solid', whiteSpace: 'nowrap',
+    fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '999px', whiteSpace: 'nowrap',
   },
-  badge: { padding: '3px 10px', borderRadius: '999px', color: '#fff', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap' },
-  actionGroup: { display: 'flex', gap: '8px', whiteSpace: 'nowrap' },
+  badge: {
+    display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 11px',
+    borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
+  },
+  badgeDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
+  actionGroup: { display: 'flex', gap: '6px', whiteSpace: 'nowrap', justifyContent: 'flex-end' },
   actionBtn: {
-    padding: '5px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: 700,
-    cursor: 'pointer', border: '1px solid transparent', whiteSpace: 'nowrap',
+    padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600,
+    cursor: 'pointer', border: '1px solid #e3e6dd', backgroundColor: '#fff', whiteSpace: 'nowrap',
   },
-  acceptBtn: { color: '#2c8047', backgroundColor: '#eaf3ec', border: '1px solid #cfe6d5' },
-  declineBtn: { color: '#b91c1c', backgroundColor: '#fbeceb', border: '1px solid #f3cfcb' },
-  noteBtn: { color: '#2f6bb0', backgroundColor: '#e8eff8', border: '1px solid #cfe0f2' },
-  completeBtn: { color: '#2c8047', backgroundColor: '#eaf3ec', border: '1px solid #cfe6d5' },
-  viewBtn: { color: '#2f6bb0', backgroundColor: '#e8eff8', border: '1px solid #cfe0f2' },
-  noAction: { color: '#c4ccc6' },
-  empty: { padding: '40px', textAlign: 'center', color: '#9aa79d', fontSize: '14px' },
+  acceptBtn: { color: '#2c8047' },
+  declineBtn: { color: '#b91c1c' },
+  noteBtn: { color: '#2f6bb0' },
+  completeBtn: { color: '#2c8047' },
+  viewBtn: { color: '#4b5a50' },
+  noAction: { color: '#c4cabd' },
+  empty: { padding: '32px', textAlign: 'center', color: '#9aa79d', fontSize: '14px' },
 }
 
 const paginationStyles = {
   wrap: {
-    fontFamily: SANS, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '14px 18px', borderTop: '1px solid #f0efe8', flexWrap: 'wrap', gap: '10px',
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px',
   },
   wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
-  info: { fontSize: '12.5px', color: '#6b7770', whiteSpace: 'nowrap' },
+  info: { fontSize: '12.5px', color: '#8a968d', whiteSpace: 'nowrap' },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },
-  pageSizeSelect: { fontFamily: SANS, padding: '6px 10px', borderRadius: '8px', border: '1px solid #e7e8e0', fontSize: '12.5px', color: '#33413a', marginRight: '8px', backgroundColor: '#fff' },
-  navBtn: {
-    minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px',
-    border: '1px solid #e7e8e0', backgroundColor: '#fff', color: '#33413a', fontSize: '13px', cursor: 'pointer',
-  },
+  pageSizeSelect: { padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6', fontSize: '12.5px', color: '#4b5a50', marginRight: '6px' },
+  navBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '13px', cursor: 'pointer' },
   navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
-  pageBtn: {
-    minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px',
-    border: '1px solid #e7e8e0', backgroundColor: '#fff', color: '#33413a', fontSize: '12.5px', fontWeight: 700, cursor: 'pointer',
-  },
+  pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
   pageBtnActive: { backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff' },
   ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
 }
 
 const modalStyles = {
-  overlay: { fontFamily: SANS, position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 },
-  modal: { fontFamily: SANS, backgroundColor: '#fff', borderRadius: '16px', padding: '28px', width: '440px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto' },
+  overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 },
+  modal: { backgroundColor: '#fff', borderRadius: '16px', padding: '28px', width: '440px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto' },
   modalMobile: { width: '100%', maxWidth: '100%', borderRadius: '16px 16px 0 0', padding: '20px', margin: '0', position: 'fixed', bottom: 0, left: 0, maxHeight: '85vh' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' },
   title: { fontSize: '17px', fontWeight: 800, color: '#16311d', margin: 0 },
-  close: { fontSize: '22px', cursor: 'pointer', color: '#8a968d', lineHeight: 1 },
+  close: { fontSize: '22px', cursor: 'pointer', color: '#8a968d' },
   dateLabel: { fontSize: '13px', color: '#6b7770', marginBottom: '16px' },
   label: { display: 'block', fontSize: '13px', fontWeight: 600, color: '#33413a', marginBottom: '6px', marginTop: '12px' },
-  input: { width: '100%', padding: '10px 12px', borderRadius: '9px', border: '1px solid #e7e8e0', fontSize: '14px', boxSizing: 'border-box', fontFamily: 'inherit', color: '#16311d' },
+  input: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', fontFamily: 'inherit' },
   row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' },
   rowMobile: { gridTemplateColumns: '1fr' },
-  errorBox: { backgroundColor: '#fbeceb', border: '1px solid #f3cfcb', color: '#b91c1c', padding: '10px 14px', borderRadius: '9px', fontSize: '13px', marginBottom: '14px' },
+  errorBox: { backgroundColor: '#fbeaea', border: '1px solid #f0c9c9', color: '#b91c1c', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '14px' },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' },
   actionsMobile: { flexDirection: 'column-reverse' },
   btnFull: { width: '100%', boxSizing: 'border-box' },
-  cancelBtn: { fontFamily: SANS, padding: '10px 18px', borderRadius: '9px', border: '1px solid #e7e8e0', backgroundColor: '#fff', color: '#33413a', fontSize: '14px', fontWeight: 600, cursor: 'pointer' },
-  submitBtn: { fontFamily: SANS, padding: '10px 18px', borderRadius: '9px', border: 'none', backgroundColor: '#2c8047', color: '#fff', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
+  cancelBtn: { padding: '10px 18px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff', fontSize: '14px', fontWeight: 600, color: '#33413a', cursor: 'pointer' },
+  submitBtn: { padding: '10px 18px', borderRadius: '10px', border: 'none', backgroundColor: '#2c8047', color: '#fff', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
 }
 
 const confirmStyles = {
-  modal: { fontFamily: SANS, backgroundColor: '#fff', borderRadius: '16px', padding: '28px', width: '400px', maxWidth: '90%' },
+  modal: { backgroundColor: '#fff', borderRadius: '16px', padding: '28px', width: '400px', maxWidth: '90%' },
   title: { fontSize: '17px', fontWeight: 800, color: '#16311d', marginTop: 0, marginBottom: '10px' },
   message: { fontSize: '14px', color: '#6b7770', lineHeight: '1.5', marginBottom: '4px' },
 }
 
 const historyStyles = {
-  modal: { fontFamily: SANS, backgroundColor: '#f4f3ee', borderRadius: '18px', width: '560px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto', position: 'relative', padding: 0 },
-  close: {
-    position: 'absolute', top: '16px', right: '16px', fontSize: '16px', color: '#fff', cursor: 'pointer',
-    lineHeight: 1, zIndex: 2, width: '28px', height: '28px', borderRadius: '50%',
-    backgroundColor: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  modal: {
+    fontFamily: SANS, backgroundColor: '#fff', borderRadius: '16px', width: '560px', maxWidth: '90%',
+    maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative',
+    border: '1px solid #e7e8e0', boxShadow: '0 24px 70px rgba(15,38,22,0.28)',
   },
-  heroHeader: { display: 'flex', alignItems: 'center', gap: '14px', padding: '24px 24px 20px', background: 'linear-gradient(135deg,#234A35 0%,#16311d 100%)', borderRadius: '18px 18px 0 0' },
+
+  accentBar: { height: '6px', background: '#1f5a34', flexShrink: 0 },
+
+  header: { display: 'flex', alignItems: 'center', gap: '14px', padding: '20px 24px', borderBottom: '1px solid #f0efe8', flexShrink: 0 },
   avatar: {
-    width: '52px', height: '52px', borderRadius: '50%', backgroundColor: '#16311d', color: '#f2c14e',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', fontWeight: 800,
-    flexShrink: 0, border: '2px solid #f2c14e',
+    width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#eaf3ec', border: '1px solid #d6e5da',
+    color: '#2c8047', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px',
+    fontWeight: 800, letterSpacing: '0.02em', flexShrink: 0,
   },
-  farmName: { fontSize: '18px', fontWeight: 800, color: '#fff' },
-  ownerName: { fontSize: '13px', color: '#c3d4c8', marginTop: '2px' },
-  body: { padding: '20px 24px 24px' },
-  sectionLabel: { fontSize: '11.5px', fontWeight: 700, color: '#16311d', textTransform: 'uppercase', letterSpacing: '0.4px', margin: '18px 0 10px' },
-  infoGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' },
+  farmName: { fontSize: '19px', fontWeight: 800, color: '#16311d', letterSpacing: '-0.01em', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  ownerName: { fontSize: '13px', color: '#7b8a80', marginTop: '3px' },
+  closeX: {
+    width: '30px', height: '30px', borderRadius: '8px', border: '1px solid #eceee7', background: '#fff',
+    color: '#8a968d', fontSize: '17px', lineHeight: 1, cursor: 'pointer', flexShrink: 0,
+  },
+
+  body: { padding: '6px 24px 12px', overflowY: 'auto', flex: 1, minHeight: 0 },
+
+  sectionHead: { display: 'flex', alignItems: 'center', gap: '10px', padding: '20px 0 4px' },
+  sectionIcon: { width: '26px', height: '26px', borderRadius: '8px', background: '#2c8047', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  sectionTitle: { fontSize: '14px', fontWeight: 800, color: '#16311d' },
+
+  infoGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: '16px 28px', padding: '14px 0 20px', borderBottom: '1px solid #f0efe8' },
   infoGridMobile: { gridTemplateColumns: '1fr' },
-  infoCard: { backgroundColor: '#fff', borderRadius: '12px', padding: '12px 14px', display: 'flex', alignItems: 'center', gap: '10px', border: '1px solid #e7e8e0' },
-  infoLabel: { fontSize: '10px', color: '#8a968d', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px' },
-  infoValue: { fontSize: '14px', color: '#16311d', fontWeight: 700, marginTop: '2px' },
+  infoLabel: { fontSize: '10.5px', color: '#9aa79d', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '5px' },
+  infoValue: { fontSize: '13.5px', color: '#16311d', fontWeight: 600, lineHeight: 1.4 },
   infoValueSub: { fontSize: '11px', color: '#6b7770', fontWeight: 500 },
-  emptyBox: { backgroundColor: '#fff', borderRadius: '12px', padding: '24px', textAlign: 'center', border: '1px solid #e7e8e0' },
-  recordList: { display: 'flex', flexDirection: 'column', gap: '10px' },
+
+  emptyBox: { backgroundColor: '#fafbf8', borderRadius: '12px', padding: '24px', textAlign: 'center', border: '1px solid #eceee7', marginTop: '14px' },
+  recordList: { display: 'flex', flexDirection: 'column', gap: '10px', padding: '14px 0 4px' },
   recordCard: { backgroundColor: '#fff', borderRadius: '12px', padding: '12px 14px', border: '1.5px solid #e7e8e0', cursor: 'pointer', transition: 'border-color 0.15s ease' },
   recordTop: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' },
   recordBadge: { padding: '3px 10px', borderRadius: '999px', color: '#fff', fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap' },
@@ -891,12 +912,19 @@ const historyStyles = {
   recordDateRow: { display: 'flex', alignItems: 'center', gap: '6px' },
   recordDate: { fontSize: '12px', color: '#6b7770' },
   chevron: { fontSize: '12px', color: '#9aa79d', transition: 'transform 0.15s ease', display: 'inline-block' },
-  recordNotes: { fontSize: '13px', color: '#33413a', marginTop: '8px', marginBottom: 0, lineHeight: '1.4' },
-  expandedBox: { backgroundColor: '#f8f8f4', borderRadius: '10px', padding: '12px 14px', marginTop: '10px' },
+  recordNotes: { fontSize: '13px', color: '#33413a', marginTop: '8px', marginBottom: 0, lineHeight: 1.4 },
+  expandedBox: { backgroundColor: '#fafbf8', borderRadius: '10px', padding: '12px 14px', marginTop: '10px', border: '1px solid #eceee7' },
   expandedRow: { display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '12px' },
   expandedLabel: { color: '#8a968d', fontWeight: 600 },
   expandedValue: { color: '#16311d', fontWeight: 600 },
-  expandedNotes: { fontSize: '13px', color: '#33413a', marginTop: '4px', marginBottom: 0, lineHeight: '1.4' },
-  footer: { marginTop: '20px' },
-  closeBtn: { fontFamily: SANS, width: '100%', padding: '10px 18px', borderRadius: '9px', border: '1px solid #e7e8e0', backgroundColor: '#fff', color: '#33413a', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
+  expandedNotes: { fontSize: '13px', color: '#33413a', marginTop: '4px', marginBottom: 0, lineHeight: 1.4 },
+
+seeMore: {
+    width: '100%', marginTop: '12px', padding: '11px', borderRadius: '10px',
+    border: '1px solid #dcdfd6', background: '#fff', color: '#2c8047',
+    fontFamily: SANS, fontSize: '12.5px', fontWeight: 700, cursor: 'pointer',
+  },
+  
+  footer: { padding: '14px 24px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #f0efe8', flexShrink: 0 },
+  closeBtn: { fontFamily: SANS, padding: '9px 22px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#33413a', fontSize: '13px', fontWeight: 700, cursor: 'pointer' },
 }

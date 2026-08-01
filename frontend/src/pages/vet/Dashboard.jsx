@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef, useLayoutEffect, useCallback } from 'react'
 import VetLayout from '../../components/VetLayout'
 import VetScheduleMap from '../../components/VetScheduleMap'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
@@ -37,12 +37,12 @@ export default function VetDashboard() {
 
       <h3 style={styles.mapTitle}>Scheduled visits map</h3>
       <p style={styles.mapSubtitle}>
-        Farms with a confirmed vaccination or blood test date — useful for planning which visits to group together
+        Farms with a confirmed vaccination or blood test date
       </p>
 
       <div style={{ ...styles.mainGrid, ...(isMobile ? styles.mainGridMobile : {}) }}>
         <VetScheduleMap requests={mapRequests} />
-        <ScheduledPanel items={scheduled} />
+        <ScheduledPanel items={scheduled} isMobile={isMobile} />
       </div>
     </VetLayout>
   )
@@ -58,26 +58,41 @@ function StatCard({ value, label, foot, isMobile }) {
   )
 }
 
-const PAGE_SIZE = 4
 const TABS = ['Vaccine', 'Blood Test']
+const ITEM_HEIGHT = 61 // one row incl. padding + divider
 
-function ScheduledPanel({ items }) {
+function ScheduledPanel({ items, isMobile, onSeeAll }) {
   const [tab, setTab] = useState('Vaccine')
-  const [page, setPage] = useState(0)
+  const [visibleCount, setVisibleCount] = useState(4)
+  const listRef = useRef(null)
 
   const filtered = useMemo(
     () => items.filter(i => (i.service_type || '').replace(' Request', '') === tab),
     [items, tab]
   )
 
-  useEffect(() => { setPage(0) }, [tab])
+  // Fit as many rows as the list area can show, then hide the rest.
+  const recomputeFit = useCallback(() => {
+    const el = listRef.current
+    if (!el) return
+    const fits = Math.max(1, Math.floor(el.clientHeight / ITEM_HEIGHT))
+    setVisibleCount(prev => (prev === fits ? prev : fits))
+  }, [])
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const safePage = Math.min(page, pageCount - 1)
-  const paged = filtered.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE)
+  useLayoutEffect(() => {
+    recomputeFit()
+    const el = listRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(recomputeFit)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [recomputeFit, tab, filtered.length])
+
+  const visible = filtered.slice(0, visibleCount)
+  const hiddenCount = Math.max(0, filtered.length - visible.length)
 
   return (
-    <section style={styles.panel}>
+    <section style={{ ...styles.panel, ...(isMobile ? styles.panelMobile : {}) }}>
       <div style={styles.tabs}>
         {TABS.map(t => (
           <button
@@ -98,9 +113,9 @@ function ScheduledPanel({ items }) {
         <span style={styles.panelCount}>{filtered.length}</span>
       </div>
 
-      <div style={styles.panelBody}>
-        {paged.length === 0 && <p style={styles.emptyText}>No {tab.toLowerCase()} activities scheduled.</p>}
-        {paged.map((r, i) => {
+      <div ref={listRef} style={styles.panelBody}>
+        {visible.length === 0 && <p style={styles.emptyText}>No {tab.toLowerCase()} activities scheduled.</p>}
+        {visible.map((r, i) => {
           const type = (r.service_type || 'Visit').replace(' Request', '')
           const c = REQ_COLOR[type] || REQ_COLOR.default
           return (
@@ -118,19 +133,11 @@ function ScheduledPanel({ items }) {
         })}
       </div>
 
-      <div style={styles.pager}>
-        <button
-          onClick={() => setPage(p => Math.max(0, p - 1))}
-          disabled={safePage === 0}
-          style={{ ...styles.pagerBtn, ...(safePage === 0 ? styles.pagerBtnDisabled : {}) }}
-        >‹</button>
-        <span style={styles.pagerLabel}>Page {safePage + 1} of {pageCount}</span>
-        <button
-          onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))}
-          disabled={safePage >= pageCount - 1}
-          style={{ ...styles.pagerBtn, ...(safePage >= pageCount - 1 ? styles.pagerBtnDisabled : {}) }}
-        >›</button>
-      </div>
+      {hiddenCount > 0 && (
+        <button style={styles.seeAll} onClick={() => onSeeAll?.(tab)}>
+          See all ({hiddenCount} more)
+        </button>
+      )}
     </section>
   )
 }
@@ -153,7 +160,7 @@ const styles = {
 
   statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '28px' },
   statsGridMobile: { gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '20px' },
-  
+
   statCard: { fontFamily: SANS, background: '#234A35', border: '1px solid #1c3c2b', borderRadius: '14px', padding: '20px 22px' },
   statCardMobile: { padding: '16px' },
   statValue: { fontSize: '30px', fontWeight: 800, letterSpacing: '-0.02em', color: '#ffffff', lineHeight: 1 },
@@ -167,21 +174,23 @@ const styles = {
   mainGrid: { display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 340px', gap: '16px', alignItems: 'start' },
   mainGridMobile: { gridTemplateColumns: '1fr', gap: '20px' },
 
-  panel: { fontFamily: SANS, background: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px', overflow: 'hidden' },
+  // Fixed height on desktop so the list can fill the space and "See all" is meaningful.
+  panel: { fontFamily: SANS, background: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '520px' },
+  panelMobile: { height: 'auto', maxHeight: '460px' },
 
-  tabs: { display: 'flex', gap: '4px', margin: '14px 18px 0', padding: '4px', background: '#f4f5f0', border: '1px solid #e7e8e0', borderRadius: '10px' },
+  tabs: { display: 'flex', gap: '4px', margin: '14px 18px 0', padding: '4px', background: '#f4f5f0', border: '1px solid #e7e8e0', borderRadius: '10px', flexShrink: 0 },
   tab: {
     flex: 1, fontFamily: SANS, fontSize: '13px', fontWeight: 700, color: '#6b7770', cursor: 'pointer',
     background: 'transparent', border: 'none', borderRadius: '7px', padding: '8px', textAlign: 'center',
   },
   tabActive: { background: '#2c8047', color: '#fff' },
 
-  panelHead: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px 12px', borderBottom: '1px solid #f0efe8' },
+  panelHead: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px 12px', borderBottom: '1px solid #f0efe8', flexShrink: 0 },
   panelTitle: { fontSize: '15px', fontWeight: 700, color: '#16311d', margin: 0 },
   panelSub: { fontSize: '11.5px', color: '#8a968d', margin: '3px 0 0' },
   panelCount: { fontSize: '11px', fontWeight: 700, color: '#2c8047', background: '#eaf3ec', borderRadius: '999px', padding: '2px 9px' },
 
-  panelBody: { padding: '4px 18px 4px', minHeight: '196px' },
+  panelBody: { padding: '4px 18px', flex: 1, minHeight: 0, overflowY: 'auto' },
   emptyText: { fontSize: '13px', color: '#9aa79d', padding: '12px 0' },
   row: { display: 'flex', alignItems: 'center', gap: '12px', padding: '13px 0', borderBottom: '1px solid #f0efe8' },
   rowBar: { width: '4px', height: '34px', borderRadius: '2px', flexShrink: 0 },
@@ -189,11 +198,5 @@ const styles = {
   rowDetail: { fontSize: '11.5px', color: '#6b7770', marginTop: '2px' },
   rowTag: { fontSize: '10.5px', fontWeight: 700, padding: '3px 9px', borderRadius: '999px', whiteSpace: 'nowrap', flexShrink: 0 },
 
-  pager: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px 16px', borderTop: '1px solid #f0efe8' },
-  pagerBtn: {
-    width: '28px', height: '28px', border: '1px solid #e7e8e0', background: '#fff', borderRadius: '8px',
-    color: '#33413a', cursor: 'pointer', fontSize: '15px', lineHeight: 1,
-  },
-  pagerBtnDisabled: { color: '#c4ccc6', cursor: 'default' },
-  pagerLabel: { fontSize: '12px', fontWeight: 700, color: '#33413a' },
+  seeAll: { border: 'none', borderTop: '1px solid #f0efe8', background: 'transparent', color: '#2c8047', fontSize: '12px', fontWeight: 700, padding: '13px', cursor: 'pointer', fontFamily: SANS, flexShrink: 0 },
 }

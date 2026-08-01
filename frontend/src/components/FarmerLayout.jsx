@@ -2,6 +2,7 @@ import DashboardLayout from './DashboardLayout'
 
 const navItems = [
   { label: 'Dashboard', path: '/farmowner/dashboard', icon: 'dashboard' },
+  { label: 'Manure Records', path: '/farmowner/manure-records', icon: 'requests' },
   { label: 'Service requests', path: '/farmowner/service-requests', icon: 'requests' },
   { label: 'Settings', path: '/farmowner/settings', icon: 'settings' },
 ]

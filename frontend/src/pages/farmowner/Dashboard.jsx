@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import FarmerLayout from '../../components/FarmerLayout'
-import api from '../../api/axios'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 
 function timeAgo(dateString) {
@@ -17,172 +16,38 @@ function timeAgo(dateString) {
 }
 
 const responsiveCss = `
-  .fd-overview {
-    display: grid;
-    grid-template-columns: minmax(190px, 260px) 1fr;
-    gap: 1px;
-    margin-bottom: 20px;
-    background: #e7e8e0;
-    border: 1px solid #e7e8e0;
-    border-radius: 14px;
-    overflow: hidden;
-  }
-  .fd-score-panel {
+  .fd-hero {
     display: flex;
     align-items: center;
-    justify-content: center;
-    padding: 24px 18px;
-    color: white;
-    text-align: center;
-  }
-  .fd-stats-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1px;
-    background: #e7e8e0;
-  }
-  .fd-stat {
-    background: white;
-    padding: 18px 16px;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    gap: 6px;
-  }
-  @media (min-width: 640px) {
-    .fd-stats-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    gap: 28px;
   }
   @media (max-width: 640px) {
-    .fd-overview { grid-template-columns: 1fr; }
-    .fd-score-panel { padding: 22px; }
+    .fd-hero { flex-direction: column; text-align: center; }
   }
 
-  .fd-two-col {
+  .fd-conditions-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 16px;
-    margin-bottom: 24px;
-    align-items: start;
   }
-  @media (max-width: 720px) {
-    .fd-two-col { grid-template-columns: 1fr; }
+  @media (max-width: 900px) {
+    .fd-conditions-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
-
-  .fd-modal-card {
-    background: white;
-    border-radius: 16px;
-    width: 100%;
-    max-width: 440px;
-    max-height: 85vh;
-    overflow-y: auto;
-    box-shadow: 0 12px 32px rgba(15,38,22,0.22);
-  }
-  @media (max-width: 640px) {
-    .fd-modal-card {
-      max-width: 100%;
-      border-radius: 16px 16px 0 0;
-      position: fixed;
-      bottom: 0; left: 0; right: 0;
-      max-height: 90vh;
-    }
+  @media (max-width: 520px) {
+    .fd-conditions-grid { grid-template-columns: 1fr; }
   }
 `
 
 export default function FarmerDashboard() {
   const { data, loading, error, refetch } = useCachedFetch('/farmer/dashboard')
   const { data: insight, loading: insightLoading, refetch: refetchInsight } = useCachedFetch('/farmer/insights')
-  const { data: maintenance, loading: maintenanceLoading, refetch: refetchMaintenance } = useCachedFetch('/farmer/maintenance')
-  const { data: disposalRecords, loading: disposalLoading, refetch: refetchDisposal } = useCachedFetch('/farmer/disposal-records')
+  const { data: maintenance } = useCachedFetch('/farmer/maintenance')
   const navigate = useNavigate()
-
-  const [showMaintenanceForm, setShowMaintenanceForm] = useState(false)
-  const [maintenanceDate, setMaintenanceDate] = useState('')
-  const [maintenanceNotes, setMaintenanceNotes] = useState('')
-  const [maintenancePhoto, setMaintenancePhoto] = useState(null)
-  const [maintenanceSubmitting, setMaintenanceSubmitting] = useState(false)
-  const [maintenanceError, setMaintenanceError] = useState('')
-
-  const [showDisposalForm, setShowDisposalForm] = useState(false)
-  const [disposalMethod, setDisposalMethod] = useState('Sold')
-  const [disposalQuantity, setDisposalQuantity] = useState('')
-  const [disposalBuyerName, setDisposalBuyerName] = useState('')
-  const [disposalDate, setDisposalDate] = useState('')
-  const [disposalNotes, setDisposalNotes] = useState('')
-  const [disposalSubmitting, setDisposalSubmitting] = useState(false)
-  const [disposalError, setDisposalError] = useState('')
-
-  const handleDisposalSubmit = async (e) => {
-    e.preventDefault()
-    setDisposalError('')
-
-    if (!disposalQuantity || !disposalDate) {
-      setDisposalError('Quantity and date are both required.')
-      return
-    }
-
-    setDisposalSubmitting(true)
-    try {
-      await api.post('/farmer/disposal-records', {
-        disposal_method: disposalMethod,
-        quantity: disposalQuantity,
-        buyer_name: disposalMethod === 'Sold' ? disposalBuyerName : null,
-        disposal_date: disposalDate,
-        notes: disposalNotes,
-      })
-      setShowDisposalForm(false)
-      setDisposalMethod('Sold')
-      setDisposalQuantity('')
-      setDisposalBuyerName('')
-      setDisposalDate('')
-      setDisposalNotes('')
-      refetchDisposal()
-    } catch (err) {
-      setDisposalError(err.response?.data?.message || 'Failed to log disposal record. Please try again.')
-    } finally {
-      setDisposalSubmitting(false)
-    }
-  }
-
-  const handleMaintenanceSubmit = async (e) => {
-    e.preventDefault()
-    setMaintenanceError('')
-
-    if (!maintenanceDate || !maintenancePhoto) {
-      setMaintenanceError('Date and a photo are both required.')
-      return
-    }
-
-    const formData = new FormData()
-    formData.append('performed_at', maintenanceDate)
-    formData.append('notes', maintenanceNotes)
-    formData.append('photo', maintenancePhoto)
-
-    setMaintenanceSubmitting(true)
-    try {
-      await api.post('/farmer/maintenance', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-      setShowMaintenanceForm(false)
-      setMaintenanceDate('')
-      setMaintenanceNotes('')
-      setMaintenancePhoto(null)
-      refetchMaintenance()
-    } catch (err) {
-      setMaintenanceError(err.response?.data?.message || 'Failed to log clean-out. Please try again.')
-    } finally {
-      setMaintenanceSubmitting(false)
-    }
-  }
 
   useEffect(() => {
     const interval = setInterval(() => {
       refetch()
       refetchInsight()
-      refetchMaintenance()
-      refetchDisposal()
     }, 60000)
 
     return () => clearInterval(interval)
@@ -191,18 +56,11 @@ export default function FarmerDashboard() {
   if (loading) return <FarmerLayout><p style={styles.stateText}>Loading...</p></FarmerLayout>
   if (error) return <FarmerLayout><p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p></FarmerLayout>
 
-  const statusColor = {
-    Healthy: '#2c8047',
-    Warning: '#b45309',
-    Critical: '#b91c1c',
-  }[data.health_status] || '#6b7770'
+  const hero = heroConfig[data.health_status] || heroConfig.Healthy
 
   const goToServiceRequest = (serviceType) => {
     navigate('/farmowner/service-requests', { state: { prefillService: serviceType } })
   }
-
-  const recentMaintLogs = (maintenance?.recent_logs || []).slice(0, 2)
-  const recentDisposalRecords = (disposalRecords || []).slice(0, 2)
 
   return (
     <FarmerLayout>
@@ -211,26 +69,30 @@ export default function FarmerDashboard() {
       <h1 style={styles.title}>
         Welcome back, {data.farm_name ? data.farm_name.split(' ')[0] : ''}
       </h1>
-      <p style={styles.subtitle}>{data.farm_name} · {data.barangay}</p>
+      <p style={styles.subtitle}>
+        Here's how your farm is doing today. We'll tell you if anything needs your attention.
+      </p>
 
-      {/* ---------------------------------------------------- Farm Overview */}
-      <div className="fd-overview">
-        <div className="fd-score-panel" style={{ backgroundColor: statusColor }}>
-          <div>
-            <div style={styles.healthLabel}>Farm Health Score</div>
-            <div style={styles.healthScore}>{data.health_score}</div>
-            <div style={styles.healthStatus}>{data.health_status}</div>
-            <div style={styles.healthTimestamp}>
-              {data.last_reading_at ? `Last updated ${timeAgo(data.last_reading_at)}` : 'No readings yet'}
+      {/* ---------------------------------------------------- Big status hero */}
+      <div style={styles.heroCard}>
+        <div className="fd-hero">
+          <div style={{ ...styles.heroRing, backgroundColor: hero.ring, borderColor: hero.border }}>
+            <HeroIcon name={hero.iconName} color={hero.icon} />
+            <span style={{ ...styles.heroBadge, color: hero.icon }}>{hero.badge}</span>
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={styles.heroTitle}>{hero.title}</div>
+            <p style={styles.heroText}>{insight?.explanation || hero.text}</p>
+            <div style={styles.heroMeta}>
+              <span style={styles.heroMetaItem}>
+                <ClockIcon />
+                {data.last_reading_at ? `Last checked ${timeAgo(data.last_reading_at)}` : 'No readings yet'}
+              </span>
+              {data.health_score != null && (
+                <span style={styles.heroScore}>Farm health score: {data.health_score}</span>
+              )}
             </div>
           </div>
-        </div>
-
-        <div className="fd-stats-grid">
-          <SensorGauge label="Ammonia" value={data.ammonia} status={data.ammonia_status} unit="ppm" />
-          <SensorGauge label="Temperature" value={data.temperature} status={data.temperature_status} unit="°C" />
-          <SensorGauge label="Humidity" value={data.humidity} status={data.humidity_status} unit="%" />
-          <SensorGauge label="Soil Moisture" value={data.moisture} status={data.moisture_status} unit="%" />
         </div>
       </div>
 
@@ -238,16 +100,29 @@ export default function FarmerDashboard() {
       {!insightLoading && insight?.available && (
         <div style={styles.insightCard}>
           <div style={styles.insightHeader}>
-            <div>
-              <div style={styles.insightTitle}>Recommendations</div>
-              <div style={styles.insightSubtitle}>Based on your farm's latest sensor readings</div>
+            <span style={styles.insightIcon}><SparkleIcon /></span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={styles.insightTitleRow}>
+                <span style={styles.insightTitle}>Recommendations</span>
+                <span style={styles.aiBadge}><SparkleMini /> AI-generated</span>
+              </div>
+              <div style={styles.insightSubtitle}>Personalised for your farm, based on your latest sensor readings</div>
             </div>
           </div>
 
-          <div style={styles.insightExplanationBlock}>
-            <p style={styles.insightExplanation}>
-              {insight.explanation || insight.main_action}
-            </p>
+          {(insight.explanation || insight.main_action) && (
+            <div style={styles.insightExplanationBlock}>
+              <InfoIcon />
+              <p style={styles.insightExplanation}>{insight.main_action || insight.explanation}</p>
+            </div>
+          )}
+
+          {/* Primary actions */}
+          <div style={styles.insightActions}>
+            <button style={styles.primaryBtn} onClick={() => navigate('/farmowner/manure-records')}>Log a clean-out</button>
+            <button style={styles.secondaryBtn} onClick={() => navigate('/farmowner/service-requests')}>
+              <MsgIcon /> Ask the vet for help
+            </button>
           </div>
 
           {insight.tips?.length > 0 && (
@@ -271,10 +146,7 @@ export default function FarmerDashboard() {
                 {insight.service_suggestions.map((s, i) => (
                   <div key={i} style={styles.serviceSuggestionCard}>
                     <span style={styles.serviceSuggestionReason}>{s.reason}</span>
-                    <button
-                      style={styles.serviceSuggestionBtn}
-                      onClick={() => goToServiceRequest(s.type)}
-                    >
+                    <button style={styles.serviceSuggestionBtn} onClick={() => goToServiceRequest(s.type)}>
                       Request {s.type.replace(' Request', '')} →
                     </button>
                   </div>
@@ -285,368 +157,274 @@ export default function FarmerDashboard() {
         </div>
       )}
 
-      {/* --------------------------------------- Maintenance + Disposal (side by side) */}
-      <div className="fd-two-col">
-        {/* Manure clean-out status */}
-        {!maintenanceLoading && maintenance && (
-          <div style={styles.maintCard}>
-            <div style={styles.maintHeader}>
-              <p style={styles.maintTitle}>Manure clean-out status</p>
-              <span style={{ ...styles.maintBadge, ...maintBadgeStyle(maintenance.status.status) }}>
-                {maintenance.status.status}
-              </span>
-            </div>
+      {/* ---------------------------------------------- How things feel (plain words) */}
+      <div style={styles.sectionTitle}>How things feel inside the farm</div>
+      <div style={styles.sectionSub}>Simple check of your chickens' living conditions right now</div>
 
-            <div style={styles.maintStatRow}>
-              <span style={styles.maintStatValue}>{maintenance.status.days_since}</span>
-              <span style={styles.maintStatLabel}>days since last clean-out</span>
-            </div>
-            <p style={styles.maintInterval}>
-              Expected every ~{Math.round(maintenance.status.expected_interval_days / 30)} months · Last logged{' '}
-              {maintenance.status.last_performed_at || 'never'}
-            </p>
-
-            <button style={styles.maintLogBtn} onClick={() => setShowMaintenanceForm(true)}>
-              + Log a clean-out
-            </button>
-
-            {recentMaintLogs.length > 0 && (
-              <div style={styles.maintHistory}>
-                <p style={styles.maintHistoryLabel}>Recent clean-outs</p>
-                {recentMaintLogs.map(log => (
-                  <div key={log.id} style={styles.maintHistoryRow}>
-                    <span>{log.performed_at}</span>
-                    <span style={styles.maintHistoryNote}>{log.notes || '—'}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Manure disposal records */}
-        {!disposalLoading && (
-          <div style={styles.maintCard}>
-            <div style={styles.maintHeader}>
-              <p style={styles.maintTitle}>Manure disposal records</p>
-            </div>
-            <p style={styles.disposalSubtitle}>
-              Sold, composted, or otherwise disposed of manure from this farm
-            </p>
-
-            <button style={styles.maintLogBtn} onClick={() => setShowDisposalForm(true)}>
-              + Log a disposal record
-            </button>
-
-            {recentDisposalRecords.length > 0 && (
-              <div style={styles.maintHistory}>
-                <p style={styles.maintHistoryLabel}>Recent records</p>
-                {recentDisposalRecords.map(r => (
-                  <div key={r.id} style={styles.maintHistoryRow}>
-                    <span>{r.disposal_date} — {r.disposal_method}</span>
-                    <span style={styles.maintHistoryNote}>{r.quantity} kg{r.buyer_name ? ` · ${r.buyer_name}` : ''}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+      <div className="fd-conditions-grid">
+        <SensorFeel type="ammonia" value={data.ammonia} status={data.ammonia_status} unit="ppm" />
+        <SensorFeel type="temperature" value={data.temperature} status={data.temperature_status} unit="°C" />
+        <SensorFeel type="humidity" value={data.humidity} status={data.humidity_status} unit="%" />
+        <SensorFeel type="moisture" value={data.moisture} status={data.moisture_status} unit="%" />
       </div>
 
-      {/* ------------------------------------------------------- Modals */}
-      {showMaintenanceForm && (
-        <Modal title="Log a clean-out" onClose={() => { setShowMaintenanceForm(false); setMaintenanceError('') }}>
-          <form onSubmit={handleMaintenanceSubmit} style={styles.maintForm}>
-            {maintenanceError && <div style={styles.maintFormError}>{maintenanceError}</div>}
-
-            <label style={styles.maintFormLabel}>Date performed *</label>
-            <input
-              type="date"
-              value={maintenanceDate}
-              onChange={e => setMaintenanceDate(e.target.value)}
-              max={new Date().toISOString().split('T')[0]}
-              style={styles.maintFormInput}
-              required
-            />
-
-            <label style={styles.maintFormLabel}>Notes (optional)</label>
-            <textarea
-              value={maintenanceNotes}
-              onChange={e => setMaintenanceNotes(e.target.value)}
-              placeholder="Removed all litter, added fresh bedding"
-              style={{ ...styles.maintFormInput, minHeight: '60px', resize: 'vertical' }}
-            />
-
-            <label style={styles.maintFormLabel}>Photo *</label>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={e => setMaintenancePhoto(e.target.files?.[0] || null)}
-              style={styles.maintFormInput}
-              required
-            />
-
-            <div style={styles.maintFormActions}>
-              <button
-                type="button"
-                onClick={() => { setShowMaintenanceForm(false); setMaintenanceError('') }}
-                style={styles.maintCancelBtn}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={maintenanceSubmitting || !maintenanceDate || !maintenancePhoto}
-                style={{
-                  ...styles.maintLogBtn,
-                  opacity: (maintenanceSubmitting || !maintenanceDate || !maintenancePhoto) ? 0.6 : 1,
-                  cursor: (maintenanceSubmitting || !maintenanceDate || !maintenancePhoto) ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {maintenanceSubmitting ? 'Saving...' : 'Save log'}
-              </button>
+      {/* ------------------------------------------------ Manure records — link out */}
+      {maintenance?.status && (
+        <div style={styles.manureLinkCard} onClick={() => navigate('/farmowner/manure-records')}>
+          <div style={styles.manureLinkLeft}>
+            <span style={styles.manureLinkIcon}><CleanIcon /></span>
+            <div>
+              <div style={styles.manureLinkTitle}>Manure Records</div>
+              <div style={styles.manureLinkSub}>
+                {maintenance.status.days_since} days since your last clean-out
+                {' · '}
+                <span style={{ color: maintBadgeStyle(maintenance.status.status).color, fontWeight: 700 }}>
+                  {maintenance.status.status}
+                </span>
+              </div>
             </div>
-          </form>
-        </Modal>
+          </div>
+          <span style={styles.manureLinkArrow}>→</span>
+        </div>
       )}
 
-      {showDisposalForm && (
-        <Modal title="Log a disposal record" onClose={() => { setShowDisposalForm(false); setDisposalError('') }}>
-          <form onSubmit={handleDisposalSubmit} style={styles.maintForm}>
-            {disposalError && <div style={styles.maintFormError}>{disposalError}</div>}
-
-            <label style={styles.maintFormLabel}>Disposal method *</label>
-            <select
-              value={disposalMethod}
-              onChange={e => setDisposalMethod(e.target.value)}
-              style={styles.maintFormInput}
-            >
-              <option value="Sold">Sold</option>
-              <option value="Composted on-site">Composted on-site</option>
-              <option value="Other">Other</option>
-            </select>
-
-            <label style={styles.maintFormLabel}>Quantity (kg) *</label>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={disposalQuantity}
-              onChange={e => setDisposalQuantity(e.target.value)}
-              placeholder="e.g. 200"
-              style={styles.maintFormInput}
-              required
-            />
-
-            {disposalMethod === 'Sold' && (
-              <>
-                <label style={styles.maintFormLabel}>Buyer name (optional)</label>
-                <input
-                  type="text"
-                  value={disposalBuyerName}
-                  onChange={e => setDisposalBuyerName(e.target.value)}
-                  placeholder="e.g. Mang Rudy"
-                  style={styles.maintFormInput}
-                />
-              </>
-            )}
-
-            <label style={styles.maintFormLabel}>Date *</label>
-            <input
-              type="date"
-              value={disposalDate}
-              onChange={e => setDisposalDate(e.target.value)}
-              max={new Date().toISOString().split('T')[0]}
-              style={styles.maintFormInput}
-              required
-            />
-
-            <label style={styles.maintFormLabel}>Notes (optional)</label>
-            <textarea
-              value={disposalNotes}
-              onChange={e => setDisposalNotes(e.target.value)}
-              placeholder="Any additional details"
-              style={{ ...styles.maintFormInput, minHeight: '60px', resize: 'vertical' }}
-            />
-
-            <div style={styles.maintFormActions}>
-              <button
-                type="button"
-                onClick={() => { setShowDisposalForm(false); setDisposalError('') }}
-                style={styles.maintCancelBtn}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={disposalSubmitting || !disposalQuantity || !disposalDate}
-                style={{
-                  ...styles.maintLogBtn,
-                  opacity: (disposalSubmitting || !disposalQuantity || !disposalDate) ? 0.6 : 1,
-                  cursor: (disposalSubmitting || !disposalQuantity || !disposalDate) ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {disposalSubmitting ? 'Saving...' : 'Save record'}
-              </button>
-            </div>
-          </form>
-        </Modal>
-      )}
+      {/* ------------------------------------------------------- Reassurance */}
+      <div style={styles.reassure}>
+        <ShieldIcon />
+        <div style={styles.reassureText}>
+          Relax — we're watching your farm around the clock. If anything becomes urgent, we'll let you know right away.
+        </div>
+      </div>
     </FarmerLayout>
   )
 }
 
-// Green for Up to date, amber for Due (the 30-day grace period), red for Overdue.
 function maintBadgeStyle(status) {
   if (status === 'Overdue') return { backgroundColor: '#fbe3e3', color: '#b91c1c' }
   if (status === 'Due') return { backgroundColor: '#fdf3e6', color: '#b45309' }
   return { backgroundColor: '#eaf3ec', color: '#256b3d' }
 }
 
-function Modal({ title, onClose, children }) {
+const heroConfig = {
+  Healthy: {
+    badge: 'All good', iconName: 'check', icon: '#2c8047', ring: '#eaf3ec', border: '#cfe6d6',
+    title: 'Your farm is doing well',
+    text: 'Everything looks comfortable for your chickens right now. Keep up the good work.',
+  },
+  Warning: {
+    badge: 'Attention', iconName: 'alert', icon: '#c07d16', ring: '#fbf1e2', border: '#f4e2c4',
+    title: 'Your farm needs a little attention',
+    text: 'A few things could be better for your chickens. Nothing serious — small steps now will keep them healthy.',
+  },
+  Critical: {
+    badge: 'Urgent', iconName: 'alert', icon: '#b91c1c', ring: '#fbe3e3', border: '#f3c9c9',
+    title: 'Your farm needs attention now',
+    text: 'Some conditions need your attention today to keep your chickens safe and comfortable.',
+  },
+}
+
+const SENSOR_CONFIG = {
+  ammonia: {
+    title: 'Fresh air', sub: 'Ammonia & smell', icon: 'wind',
+    words: { Normal: 'Fresh & clean', Warning: 'A little stuffy', Critical: 'Very stuffy' },
+    action: { Normal: 'All good', Warning: 'Needs airing out', Critical: 'Air it out now' },
+  },
+  temperature: {
+    title: 'Warmth', sub: 'Temperature', icon: 'thermometer',
+    words: { Normal: 'Just right', Warning: 'Warm', Critical: 'Too hot' },
+    action: { Normal: 'All good', Warning: 'Add shade or fans', Critical: 'Cool it down now' },
+  },
+  humidity: {
+    title: 'Air moisture', sub: 'Humidity', icon: 'droplet',
+    words: { Normal: 'Comfortable', Warning: 'A bit humid', Critical: 'Very humid' },
+    action: { Normal: 'All good', Warning: 'Improve airflow', Critical: 'Improve airflow now' },
+  },
+  moisture: {
+    title: 'Bedding', sub: 'Ground moisture', icon: 'leaf',
+    words: { Normal: 'Just right', Warning: 'A bit off', Critical: 'Needs attention' },
+    action: { Normal: 'All good', Warning: 'Check the bedding', Critical: 'Check it now' },
+  },
+}
+
+function feelStyle(status) {
+  if (status === 'Critical') return { color: '#b91c1c', tint: '#fbe3e3', dot: '#b91c1c' }
+  if (status === 'Warning') return { color: '#b45309', tint: '#fbf1e2', dot: '#c07d16' }
+  if (status === 'Normal') return { color: '#2c8047', tint: '#eaf3ec', dot: '#2c8047' }
+  return { color: '#6b7770', tint: '#eef0ea', dot: '#9aa79d' }
+}
+
+function formatReading(value, unit) {
+  if (value == null) return null
+  if (unit === 'ppm') return `${value} ppm`
+  return `${value}${unit}`
+}
+
+function SensorFeel({ type, value, status, unit }) {
+  const cfg = SENSOR_CONFIG[type]
+  const s = feelStyle(status)
+  const word = status ? (cfg.words[status] || status) : 'No reading'
+  const action = status ? (cfg.action[status] || '') : 'Offline'
+  const reading = formatReading(value, unit)
   return (
-    <div style={styles.modalOverlay} onClick={onClose}>
-      <div className="fd-modal-card" onClick={e => e.stopPropagation()}>
-        <div style={styles.modalHeader}>
-          <p style={styles.modalTitle}>{title}</p>
-          <button style={styles.modalCloseBtn} onClick={onClose} aria-label="Close">×</button>
+    <div style={styles.feelCard}>
+      <div style={styles.feelHead}>
+        <div style={{ ...styles.feelIcon, backgroundColor: s.tint }}>
+          <SensorIcon name={cfg.icon} color={s.color} />
         </div>
-        <div style={styles.modalBody}>{children}</div>
+        <div>
+          <div style={styles.feelTitle}>{cfg.title}</div>
+          <div style={styles.feelSub}>{cfg.sub}</div>
+        </div>
       </div>
+      <div style={styles.feelValueRow}>
+        <span style={{ ...styles.feelWord, color: s.color }}>{word}</span>
+        {reading && <span style={styles.feelNumber}>{reading}</span>}
+      </div>
+      <span style={{ ...styles.feelPill, backgroundColor: s.tint }}>
+        <span style={{ ...styles.feelDot, backgroundColor: s.dot }}></span>
+        <span style={{ ...styles.feelPillText, color: s.color }}>{action}</span>
+      </span>
     </div>
   )
 }
+
+/* ------------------------------------------------------------------------ icons */
+
+const iconBase = { fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' }
 
 function CheckIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M20 6L9 17l-5-5" />
-    </svg>
-  )
+  return <svg width="13" height="13" viewBox="0 0 24 24" {...iconBase} strokeWidth="2.6"><path d="M20 6L9 17l-5-5" /></svg>
+}
+function ClockIcon() {
+  return <svg width="15" height="15" viewBox="0 0 24 24" {...iconBase}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+}
+function InfoIcon() {
+  return <svg width="20" height="20" viewBox="0 0 24 24" {...iconBase} style={{ flexShrink: 0, marginTop: '1px', color: '#2c8047' }}><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>
+}
+function MsgIcon() {
+  return <svg width="18" height="18" viewBox="0 0 24 24" {...iconBase} strokeWidth="1.9"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+}
+function ShieldIcon() {
+  return <svg width="20" height="20" viewBox="0 0 24 24" {...iconBase} style={{ flexShrink: 0, color: '#2c8047' }}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
+}
+function SparkleIcon() {
+  return <svg width="19" height="19" viewBox="0 0 24 24" {...iconBase} strokeWidth="1.9" style={{ color: '#2c8047' }}><path d="M12 3 13.9 8.6 19.5 10.5 13.9 12.4 12 18 10.1 12.4 4.5 10.5 10.1 8.6 12 3Z" /><path d="M19 15l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2Z" /></svg>
+}
+function SparkleMini() {
+  return <svg width="11" height="11" viewBox="0 0 24 24" {...iconBase} strokeWidth="2.4" style={{ color: '#3a6bc7' }}><path d="M12 3 13.9 8.6 19.5 10.5 13.9 12.4 12 18 10.1 12.4 4.5 10.5 10.1 8.6 12 3Z" /></svg>
+}
+function CleanIcon() {
+  return <svg width="20" height="20" viewBox="0 0 24 24" {...iconBase} strokeWidth="1.8" style={{ color: '#2c8047' }}><path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
+}
+function HeroIcon({ name, color }) {
+  if (name === 'check') {
+    return <svg width="42" height="42" viewBox="0 0 24 24" {...iconBase} style={{ color }}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><path d="M22 4 12 14.01l-3-3" /></svg>
+  }
+  return <svg width="42" height="42" viewBox="0 0 24 24" {...iconBase} style={{ color }}><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+}
+function SensorIcon({ name, color }) {
+  const p = { width: 23, height: 23, viewBox: '0 0 24 24', ...iconBase, strokeWidth: 1.9, style: { color } }
+  if (name === 'wind') return <svg {...p}><path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2" /><path d="M9.6 4.6A2 2 0 1 1 11 8H2" /><path d="M12.6 19.4A2 2 0 1 0 14 16H2" /></svg>
+  if (name === 'thermometer') return <svg {...p}><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z" /></svg>
+  if (name === 'droplet') return <svg {...p}><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5S5 13 5 15a7 7 0 0 0 7 7z" /></svg>
+  return <svg {...p}><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" /><path d="M2 21c0-3 1.85-5.36 5.08-6" /></svg>
 }
 
-function SensorGauge({ label, value, status, unit }) {
-  const color = { Normal: '#2c8047', Warning: '#b45309', Critical: '#b91c1c' }[status] || '#6b7770'
-  const tint = { Normal: '#eaf3ec', Warning: '#fdf3e6', Critical: '#fbe3e3' }[status] || '#eef0ea'
-  return (
-    <div className="fd-stat">
-      <div style={styles.cardLabel}>{label}</div>
-      <div style={{ ...styles.gaugeValue, color }}>{value ?? '—'} <span style={styles.gaugeUnit}>{unit}</span></div>
-      <span style={{ ...styles.gaugePill, backgroundColor: tint, color }}>{status ?? 'Offline'}</span>
-    </div>
-  )
-}
+/* ----------------------------------------------------------------------- styles */
 
 const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 const styles = {
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
 
-  title: { fontSize: '24px', fontWeight: 800, letterSpacing: '-0.015em', color: '#16311d', margin: 0, fontFamily: SANS },
-  subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px', marginBottom: '20px' },
+  title: { fontSize: '26px', fontWeight: 800, letterSpacing: '-0.015em', color: '#16311d', margin: 0, fontFamily: SANS },
+  subtitle: { fontSize: '14.5px', color: '#6b7770', marginTop: '5px', marginBottom: '24px', fontFamily: SANS, lineHeight: 1.5 },
 
-  healthLabel: { fontSize: '12px', opacity: 0.92, fontWeight: 600 },
-  healthScore: { fontSize: '38px', fontWeight: 800, lineHeight: 1.1, letterSpacing: '-0.02em', marginTop: '2px' },
-  healthStatus: { fontSize: '12.5px', opacity: 0.95, marginTop: '2px', fontWeight: 600 },
-  healthTimestamp: { fontSize: '10.5px', opacity: 0.75, marginTop: '8px' },
+  sectionTitle: { fontSize: '16px', fontWeight: 800, color: '#16311d', margin: '34px 0 4px', fontFamily: SANS },
+  sectionSub: { fontSize: '13.5px', color: '#8a968d', marginBottom: '16px', fontFamily: SANS },
 
-  cardLabel: { fontSize: '12px', color: '#6b7770', fontWeight: 600 },
-  gaugeValue: { fontSize: '26px', fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1 },
-  gaugeUnit: { fontSize: '14px', fontWeight: 700 },
-  gaugePill: { fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '999px' },
-
-  insightCard: {
-    backgroundColor: 'white', borderRadius: '14px', padding: '20px 22px',
-    marginBottom: '20px', border: '1px solid #e7e8e0',
+  heroCard: {
+    background: '#fff', border: '1px solid #e7e8e0', borderRadius: '20px', padding: '28px 30px',
+    boxShadow: '0 1px 2px rgba(20,48,28,0.04)', fontFamily: SANS,
   },
-  insightHeader: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' },
-  insightTitle: { fontSize: '16px', fontWeight: 800, color: '#16311d', letterSpacing: '-0.01em' },
-  insightSubtitle: { fontSize: '12.5px', color: '#9aa79d', marginTop: '2px' },
+  heroRing: {
+    width: '118px', height: '118px', borderRadius: '50%', display: 'flex', flexDirection: 'column',
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0, borderWidth: '6px', borderStyle: 'solid',
+  },
+  heroBadge: { fontSize: '12px', fontWeight: 800, marginTop: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' },
+  heroTitle: { fontSize: '23px', fontWeight: 800, color: '#16311d', letterSpacing: '-0.01em' },
+  heroText: { fontSize: '15px', color: '#5c6b60', lineHeight: 1.6, margin: '10px 0 0', maxWidth: '640px' },
+  heroMeta: { display: 'flex', alignItems: 'center', gap: '18px', marginTop: '16px', flexWrap: 'wrap' },
+  heroMetaItem: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#8a968d' },
+  heroScore: { fontSize: '13px', color: '#8a968d', fontWeight: 600 },
+
+  insightCard: { backgroundColor: 'white', borderRadius: '18px', padding: '24px 26px', marginTop: '26px', border: '1px solid #e7e8e0', fontFamily: SANS },
+  insightHeader: { display: 'flex', alignItems: 'center', gap: '12px' },
+  insightIcon: { width: '34px', height: '34px', borderRadius: '10px', backgroundColor: '#eaf3ec', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  insightTitleRow: { display: 'flex', alignItems: 'center', gap: '9px', flexWrap: 'wrap' },
+  insightTitle: { fontSize: '17px', fontWeight: 800, color: '#16311d', letterSpacing: '-0.01em' },
+  aiBadge: {
+    display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '999px',
+    background: '#eef3ff', border: '1px solid #dbe6fb', fontSize: '10.5px', fontWeight: 800, color: '#3a6bc7',
+    textTransform: 'uppercase', letterSpacing: '0.05em',
+  },
+  insightSubtitle: { fontSize: '13px', color: '#8a968d', marginTop: '3px' },
   insightExplanationBlock: {
-    backgroundColor: '#f7faf6', border: '1px solid #e2ebdf', borderLeft: '3px solid #2c8047',
-    borderRadius: '10px', padding: '13px 16px',
+    marginTop: '18px', display: 'flex', gap: '14px', alignItems: 'flex-start',
+    backgroundColor: '#f5faf6', border: '1px solid #dcebe0', borderLeft: '4px solid #2c8047',
+    borderRadius: '12px', padding: '16px 18px',
   },
-  insightExplanation: { fontSize: '13.5px', color: '#33413a', lineHeight: '1.6', margin: 0 },
-  insightSection: { marginTop: '18px' },
-  insightSectionLabel: {
-    fontSize: '11px', fontWeight: 700, color: '#2c8047', textTransform: 'uppercase',
-    letterSpacing: '0.06em', marginBottom: '10px',
+  insightExplanation: { fontSize: '15px', fontWeight: 600, color: '#1e4a2e', lineHeight: 1.55, margin: 0 },
+  insightActions: { marginTop: '14px', display: 'flex', gap: '12px', flexWrap: 'wrap' },
+  primaryBtn: {
+    padding: '14px 24px', borderRadius: '12px', border: 'none', background: '#2c8047', color: '#fff',
+    fontFamily: SANS, fontSize: '14.5px', fontWeight: 700, cursor: 'pointer',
   },
-  insightTipsList: { display: 'flex', flexDirection: 'column', gap: '9px' },
-  insightTipRow: { display: 'flex', alignItems: 'flex-start', gap: '10px' },
-  insightTipCheck: {
-    width: '18px', height: '18px', borderRadius: '50%', backgroundColor: '#eaf3ec',
-    color: '#256b3d', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    flexShrink: 0, marginTop: '1px',
+  secondaryBtn: {
+    padding: '14px 22px', borderRadius: '12px', border: '1px solid #cfe0d5', background: '#fff', color: '#2c8047',
+    fontFamily: SANS, fontSize: '14.5px', fontWeight: 700, cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center', gap: '9px',
   },
-  insightTipText: { fontSize: '13px', color: '#4b5a50', lineHeight: '1.55' },
-  serviceSuggestions: { display: 'flex', flexDirection: 'column', gap: '10px' },
+  insightSection: { marginTop: '22px' },
+  insightSectionLabel: { fontSize: '11.5px', fontWeight: 800, color: '#2c8047', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '12px' },
+  insightTipsList: { display: 'flex', flexDirection: 'column', gap: '13px' },
+  insightTipRow: { display: 'flex', alignItems: 'flex-start', gap: '12px' },
+  insightTipCheck: { width: '22px', height: '22px', borderRadius: '50%', backgroundColor: '#eaf3ec', color: '#2c8047', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '1px' },
+  insightTipText: { fontSize: '14px', color: '#33413a', lineHeight: 1.5 },
+  serviceSuggestions: { display: 'flex', flexDirection: 'column', gap: '12px' },
   serviceSuggestionCard: {
-    backgroundColor: '#fafbf8', border: '1px solid #eceee7', borderRadius: '10px',
-    padding: '12px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    gap: '14px', flexWrap: 'wrap',
+    backgroundColor: '#fafbf8', border: '1px solid #eceee7', borderRadius: '12px', padding: '15px 18px',
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap',
   },
-  serviceSuggestionReason: { fontSize: '12.5px', color: '#6b7770', flex: 1, minWidth: '180px', lineHeight: '1.5' },
+  serviceSuggestionReason: { fontSize: '13.5px', color: '#5c6b60', flex: 1, minWidth: '180px', lineHeight: 1.5 },
   serviceSuggestionBtn: {
-    backgroundColor: '#2c8047', color: 'white', border: 'none', borderRadius: '9px',
-    padding: '9px 16px', fontSize: '12.5px', fontWeight: 700, cursor: 'pointer',
-    whiteSpace: 'nowrap', flexShrink: 0, fontFamily: SANS,
+    backgroundColor: '#2c8047', color: 'white', border: 'none', borderRadius: '10px', padding: '11px 18px',
+    fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, fontFamily: SANS,
   },
 
-  maintCard: {
-    backgroundColor: 'white', borderRadius: '14px', padding: '18px 20px',
-    border: '1px solid #e7e8e0',
-  },
-  maintHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' },
-  maintTitle: { fontSize: '15px', fontWeight: 700, color: '#16311d', margin: 0 },
-  maintBadge: { padding: '4px 12px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700 },
-  maintStatRow: { display: 'flex', alignItems: 'baseline', gap: '6px', marginBottom: '2px' },
-  maintStatValue: { fontSize: '26px', fontWeight: 800, letterSpacing: '-0.02em', color: '#16311d' },
-  maintStatLabel: { fontSize: '13px', color: '#6b7770' },
-  maintInterval: { fontSize: '12px', color: '#9aa79d', margin: '0 0 14px', lineHeight: '1.5' },
-  disposalSubtitle: { fontSize: '12px', color: '#9aa79d', margin: '0 0 14px', lineHeight: '1.5' },
+  feelCard: { background: '#fff', border: '1px solid #e7e8e0', borderRadius: '16px', padding: '20px 22px', fontFamily: SANS },
+  feelHead: { display: 'flex', alignItems: 'center', gap: '12px' },
+  feelIcon: { width: '46px', height: '46px', borderRadius: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  feelTitle: { fontSize: '14.5px', fontWeight: 700, color: '#16311d' },
+  feelSub: { fontSize: '12.5px', color: '#8a968d' },
+  feelValueRow: { display: 'flex', alignItems: 'baseline', gap: '8px', marginTop: '16px', flexWrap: 'wrap' },
+  feelWord: { fontSize: '19px', fontWeight: 800 },
+  feelNumber: { fontSize: '12px', fontWeight: 600, color: '#a3aea6' },
+  feelPill: { display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '8px', padding: '4px 11px', borderRadius: '999px' },
+  feelDot: { width: '7px', height: '7px', borderRadius: '50%' },
+  feelPillText: { fontSize: '12px', fontWeight: 700 },
 
-  maintLogBtn: {
-    width: '100%', backgroundColor: '#2c8047', color: 'white', border: 'none', borderRadius: '10px',
-    padding: '11px', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
+  manureLinkCard: {
+    marginTop: '34px', background: '#fff', border: '1px solid #e7e8e0', borderRadius: '16px',
+    padding: '18px 22px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    cursor: 'pointer', fontFamily: SANS,
   },
-  maintCancelBtn: {
-    padding: '11px 18px', borderRadius: '10px', border: '1px solid #d9dcd4',
-    backgroundColor: 'white', fontSize: '14px', fontWeight: 600, color: '#33413a', cursor: 'pointer', fontFamily: SANS,
-  },
-  maintForm: { display: 'flex', flexDirection: 'column', gap: '4px' },
-  maintFormError: {
-    backgroundColor: '#fdf2f2', border: '1px solid #f3c9c9', color: '#b91c1c',
-    padding: '10px 14px', borderRadius: '9px', fontSize: '13px', marginBottom: '8px',
-  },
-  maintFormLabel: { fontSize: '12.5px', fontWeight: 600, color: '#33413a', marginTop: '10px', marginBottom: '4px' },
-  maintFormInput: {
-    width: '100%', padding: '9px 12px', borderRadius: '10px', border: '1px solid #dcdfd6',
-    fontSize: '13.5px', boxSizing: 'border-box', fontFamily: SANS, color: '#16311d',
-  },
-  maintFormActions: { display: 'flex', gap: '10px', marginTop: '16px' },
-  maintHistory: { marginTop: '14px', paddingTop: '12px', borderTop: '1px solid #f2f3ed' },
-  maintHistoryLabel: { fontSize: '12px', color: '#6b7770', margin: '0 0 6px' },
-  maintHistoryRow: {
-    display: 'flex', justifyContent: 'space-between', fontSize: '12.5px', color: '#4b5a50',
-    padding: '5px 0', borderTop: '1px solid #f7f8f4', gap: '10px',
-  },
-  maintHistoryNote: { color: '#9aa79d', textAlign: 'right' },
+  manureLinkLeft: { display: 'flex', alignItems: 'center', gap: '14px' },
+  manureLinkIcon: { width: '40px', height: '40px', borderRadius: '11px', background: '#eaf3ec', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  manureLinkTitle: { fontSize: '14.5px', fontWeight: 800, color: '#16311d' },
+  manureLinkSub: { fontSize: '12.5px', color: '#8a968d', marginTop: '2px' },
+  manureLinkArrow: { fontSize: '18px', color: '#2c8047', fontWeight: 700 },
 
-  modalOverlay: {
-    position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.5)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    zIndex: 1000, padding: '16px',
-  },
-  modalHeader: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '16px 20px', borderBottom: '1px solid #f2f3ed', position: 'sticky', top: 0,
-    backgroundColor: 'white', borderRadius: '16px 16px 0 0',
-  },
-  modalTitle: { fontSize: '16px', fontWeight: 800, color: '#16311d', margin: 0 },
-  modalCloseBtn: {
-    background: 'none', border: 'none', fontSize: '22px', lineHeight: 1, color: '#9aa79d',
-    cursor: 'pointer', padding: '2px 6px',
-  },
-  modalBody: { padding: '18px 20px 20px' },
+  reassure: { marginTop: '18px', display: 'flex', alignItems: 'center', gap: '12px', padding: '15px 20px', background: '#eaf3ec', borderRadius: '14px', fontFamily: SANS },
+  reassureText: { fontSize: '13.5px', color: '#2c6b3f', fontWeight: 600 },
 }

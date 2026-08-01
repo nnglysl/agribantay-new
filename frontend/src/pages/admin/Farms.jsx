@@ -1622,7 +1622,7 @@ const profileStyles = {
   infoValue: { fontSize: '13.5px', color: '#16311d', fontWeight: 600, lineHeight: 1.4, wordBreak: 'break-word' },
   miniPill: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '3px 11px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap' },
 
-  sensorGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', marginTop: '16px' },
+  sensorGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '12px', marginTop: '16px' },
   sensorGridMobile: { gridTemplateColumns: 'repeat(2, 1fr)' },
   sensorCard: { backgroundColor: '#fafbf8', border: '1px solid #eceee7', borderRadius: '12px', padding: '13px 15px' },
   sensorLabel: { fontSize: '10px', color: '#8a968d', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' },

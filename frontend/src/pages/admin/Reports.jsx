@@ -72,30 +72,12 @@ const IconPrint = () => (
 const IconFile = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z" /><path d="M14 3v5h5" /></svg>
 )
-const IconClipboard = ({ color }) => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.7"><rect x="5" y="4" width="14" height="17" rx="1.5" /><path d="M9 9l1.7 1.7L14 7.5" /><path d="M9 14h6M9 17h4" /></svg>
-)
-const IconCheck = ({ color }) => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.7"><circle cx="12" cy="12" r="8.5" /><path d="M8.5 12l2.3 2.3L16 9" /></svg>
-)
-const IconCalendar = ({ color }) => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.7"><rect x="4" y="5" width="16" height="16" rx="2" /><path d="M4 9h16M8 3v4M16 3v4" /></svg>
-)
-const IconBell = ({ color }) => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.7"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" /></svg>
-)
-const IconAlert = ({ color }) => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.7"><path d="M12 3 2 20h20L12 3z" /><path d="M12 10v4" /><circle cx="12" cy="17" r="0.6" fill={color} stroke="none" /></svg>
-)
 
-function StatCard({ icon, iconBg, value, valueColor, label, labelColor, cardBg }) {
+function StatCard({ value, valueColor, label, labelColor, cardBg }) {
   return (
     <div style={{ ...styles.statCard, background: cardBg }}>
-      <div style={{ ...styles.statIcon, background: iconBg }}>{icon}</div>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ ...styles.statValue, color: valueColor }}>{value}</div>
-        <div style={{ ...styles.statLabel, color: labelColor }}>{label}</div>
-      </div>
+      <div style={{ ...styles.statValue, color: valueColor }}>{value}</div>
+      <div style={{ ...styles.statLabel, color: labelColor }}>{label}</div>
     </div>
   )
 }
@@ -187,7 +169,7 @@ export default function Reports() {
         .rp-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
         .rp-actions  { display: flex; gap: 10px; }
 
-        .rp-stats  { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+        .rp-stats  { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
         .rp-two    { display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; margin-top: 20px; }
         .rp-two > * { min-width: 0; }
 
@@ -263,11 +245,11 @@ export default function Reports() {
         )}
 
         <div className="rp-stats">
-          <StatCard icon={<IconClipboard color="#2c8047" />} iconBg="#eaf3ec" value={data.inspection_summary.total} valueColor="#1b6135" label="Total inspections" labelColor="#6b7770" cardBg="#fff" />
-          <StatCard icon={<IconCheck color="#256b3d" />} iconBg="#eaf3ec" value={data.inspection_summary.completed} valueColor="#256b3d" label="Completed" labelColor="#6b7770" cardBg="#fff" />
-          <StatCard icon={<IconCalendar color="#b45309" />} iconBg="#fdf3e6" value={data.inspection_summary.scheduled} valueColor="#b45309" label="Scheduled" labelColor="#6b7770" cardBg="#fff" />
-          <StatCard icon={<IconBell color="#2c8047" />} iconBg="#eaf3ec" value={data.alert_summary.total} valueColor="#1b6135" label="Alerts this month" labelColor="#6b7770" cardBg="#fff" />
-          <StatCard icon={<IconAlert color="#b91c1c" />} iconBg="#fbe3e3" value={data.alert_summary.critical_alerts} valueColor="#b91c1c" label="Critical alerts" labelColor="#8f2020" cardBg="#fff" />
+         <StatCard value={data.inspection_summary.total} valueColor="#1b6135" label="Total inspections" labelColor="#6b7770" cardBg="#fff" />
+          <StatCard value={data.inspection_summary.completed} valueColor="#256b3d" label="Completed" labelColor="#6b7770" cardBg="#fff" />
+          <StatCard value={data.inspection_summary.scheduled} valueColor="#b45309" label="Scheduled" labelColor="#6b7770" cardBg="#fff" />
+          <StatCard value={data.alert_summary.total} valueColor="#1b6135" label="Alerts this month" labelColor="#6b7770" cardBg="#fff" />
+          <StatCard value={data.alert_summary.critical_alerts} valueColor="#b91c1c" label="Critical alerts" labelColor="#8f2020" cardBg="#fff" />
         </div>
         <p style={styles.statsNote}>
           Stat cards above show all-time totals. The chart and table below reflect: <strong style={{ color: '#6b7770' }}>{selectedRangeLabel}</strong>.
@@ -469,8 +451,7 @@ const styles = {
   customLabel: { fontSize: '12px', color: '#6b7770', fontWeight: 600 },
   customInput: { padding: '9px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', fontFamily: SANS },
 
-  statCard: { borderRadius: '16px', padding: '18px 20px', boxShadow: '0 2px 10px rgba(22,49,29,0.06)', display: 'flex', alignItems: 'flex-start', gap: '14px' },
-  statIcon: { width: '42px', height: '42px', borderRadius: '11px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  statCard: { borderRadius: '14px', padding: '18px 20px', border: '1px solid #e7e8e0', boxShadow: '0 2px 10px rgba(22,49,29,0.04)' },
   statValue: { fontSize: '26px', fontWeight: 800, letterSpacing: '-0.02em', color: '#16311d', lineHeight: 1 },
   statLabel: { fontSize: '12.5px', color: '#6b7770', marginTop: '6px', fontWeight: 600 },
   statsNote: { fontSize: '11.5px', color: '#9aa79d', marginTop: '12px', marginBottom: 0, lineHeight: 1.5 },

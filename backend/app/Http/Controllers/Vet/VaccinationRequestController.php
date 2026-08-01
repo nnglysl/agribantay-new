@@ -29,19 +29,20 @@ class VaccinationRequestController extends Controller
             ->oldest()
             ->get()
             ->map(fn($r) => [
-                'id'             => $r->id,
-                'request_number' => $r->request_number,
-                'service_type'   => $r->service_type,
-                'farm_id'        => $r->farm->id,
-                'farm_name'      => $r->farm->farm_name,
-                'owner_name'     => $r->farm->owner_name,
-                'barangay'       => $r->farm->barangay,
-                'farm_size'      => $r->farm->farm_size,
-                'notes'          => $r->notes,
-                'status'         => $r->status,
-                'scheduled_at'   => $r->scheduled_at,
-                'completed_at'   => $r->completed_at,
-            ]);
+                    'id'             => $r->id,
+                    'request_number' => $r->request_number,
+                    'service_type'   => $r->service_type,
+                    'farm_id'        => $r->farm->id,
+                    'farm_name'      => $r->farm->farm_name,
+                    'owner_name'     => $r->farm->owner_name,
+                    'barangay'       => $r->farm->barangay,
+                    'farm_size'      => $r->farm->farm_size,
+                    'notes'          => $r->notes,
+                    'status'         => $r->status,
+                    'scheduled_at'   => $r->scheduled_at,
+                    'completed_at'   => $r->completed_at,
+                    'created_at'     => $r->created_at,
+                ]);
 
         return response()->json([
             'success' => true,

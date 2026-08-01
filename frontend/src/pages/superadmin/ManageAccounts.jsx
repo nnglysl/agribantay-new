@@ -439,6 +439,10 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
   )
 }
 
+function IconUserSmall() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+}
+
 function ViewEditModal({ account, onClose, onSaved, isMobile, roleBadgeColor }) {
   const [isEditing, setIsEditing] = useState(false)
   const [fullName, setFullName] = useState(`${account.first_name} ${account.last_name}`.trim())
@@ -447,6 +451,10 @@ function ViewEditModal({ account, onClose, onSaved, isMobile, roleBadgeColor }) 
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
+
+  const isActive = account.status === 'active'
+  const initials = ((account.first_name?.[0] || '') + (account.last_name?.[0] || '')).toUpperCase()
+  const roleLabel = account.role === 'admin' ? 'Admin' : 'Veterinarian'
 
   const handleCancelEdit = () => {
     setFullName(`${account.first_name} ${account.last_name}`.trim())
@@ -478,101 +486,124 @@ function ViewEditModal({ account, onClose, onSaved, isMobile, roleBadgeColor }) 
     }
   }
 
-  return (
-    <div style={modalStyles.overlay} onClick={onClose}>
-      <div style={{ ...modalStyles.viewModal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
-        <div style={modalStyles.header}>
-          <h3 style={modalStyles.title}>{account.role === 'admin' ? 'Admin' : 'Veterinarian'} Account</h3>
-          <span style={modalStyles.close} onClick={onClose}>×</span>
-        </div>
+  const fieldStyle = (editing) => ({
+    ...profileStyles.fieldBox,
+    ...(editing ? profileStyles.fieldBoxEditable : {}),
+  })
 
-        <div style={modalStyles.viewPhotoRow}>
-          {account.profile_photo_url ? (
-            <img src={account.profile_photo_url} alt="" style={modalStyles.viewPhotoImg} />
-          ) : (
-            <div style={modalStyles.viewPhotoFallback}>
-              {(account.first_name?.[0] || '') + (account.last_name?.[0] || '')}
-            </div>
-          )}
-          <div>
-            <div style={modalStyles.viewName}>{account.first_name} {account.last_name}</div>
-            <span style={{ ...styles.roleBadge, backgroundColor: roleBadgeColor[account.role] || '#6b7280' }}>
-              {account.role === 'admin' ? 'Admin' : 'Veterinarian'}
-            </span>
+  return (
+    <div style={profileStyles.overlay} onClick={onClose}>
+      <div style={{ ...profileStyles.modal, ...(isMobile ? profileStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
+        <div style={profileStyles.accentBar} />
+
+        <div style={{ ...profileStyles.header, ...(isMobile ? profileStyles.headerMobile : {}) }}>
+          <div style={profileStyles.avatarWrap}>
+            {account.profile_photo_url ? (
+              <img src={account.profile_photo_url} alt={fullName} style={profileStyles.avatarImg} />
+            ) : (
+              <span style={profileStyles.avatarInitials}>{initials || '—'}</span>
+            )}
           </div>
+          <div style={profileStyles.headerText}>
+            <div style={profileStyles.ownerNameLarge}>{account.first_name} {account.last_name}</div>
+            <div style={profileStyles.roleRow}>
+              <span style={{ ...styles.roleBadge, backgroundColor: roleBadgeColor[account.role] || '#6b7280' }}>
+                {roleLabel}
+              </span>
+            </div>
+          </div>
+          <span style={{
+            ...profileStyles.statusPill,
+            color: isActive ? '#2c8047' : '#6b7280',
+            backgroundColor: isActive ? '#eaf3ec' : '#f0f1ec',
+          }}>
+            <span style={{ ...profileStyles.pillDot, backgroundColor: isActive ? '#2c8047' : '#6b7280' }} />
+            {isActive ? 'Active' : 'Deactivated'}
+          </span>
+          <button style={profileStyles.closeBtn} onClick={onClose} aria-label="Close">×</button>
         </div>
 
         <form onSubmit={handleSubmit}>
-          {error && <div style={modalStyles.errorBox}>{error}</div>}
-          {success && <div style={modalStyles.successBox}>{success}</div>}
-
-          <div style={modalStyles.viewGrid}>
-            <div style={modalStyles.viewFieldGroup}>
-              <label style={modalStyles.label}>Full Name</label>
-              <input
-                value={fullName}
-                onChange={e => setFullName(e.target.value)}
-                disabled={!isEditing}
-                style={{ ...modalStyles.viewFieldBox, ...(!isEditing ? {} : modalStyles.viewFieldBoxEditable) }}
-              />
-            </div>
-            <div style={modalStyles.viewFieldGroup}>
-              <label style={modalStyles.label}>Email Address</label>
-              <input
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                disabled={!isEditing}
-                style={{ ...modalStyles.viewFieldBox, ...(!isEditing ? {} : modalStyles.viewFieldBoxEditable) }}
-              />
-            </div>
-            <div style={modalStyles.viewFieldGroup}>
-              <label style={modalStyles.label}>Mobile Number</label>
-              <input
-                value={contactNumber}
-                onChange={e => setContactNumber(e.target.value)}
-                disabled={!isEditing}
-                style={{ ...modalStyles.viewFieldBox, ...(!isEditing ? {} : modalStyles.viewFieldBoxEditable) }}
-              />
-            </div>
-            <div style={modalStyles.viewFieldGroup}>
-              <label style={modalStyles.label}>Status</label>
-              <div
-                style={{
-                  ...modalStyles.viewFieldBox,
-                  color: account.status === 'active' ? '#2c8047' : '#6b7280',
-                  fontWeight: 700,
-                }}
-              >
-                {account.status === 'active' ? 'Active' : 'Deactivated'}
+          <div style={profileStyles.body}>
+            <div style={profileStyles.section}>
+              <div style={profileStyles.sectionHeader}>
+                <div style={profileStyles.sectionTitleRow}>
+                  <span style={profileStyles.sectionIcon}><IconUserSmall /></span>
+                  <span style={profileStyles.sectionTitle}>Account Information</span>
+                </div>
+                {isEditing && <span style={profileStyles.editingTag}>Editing</span>}
               </div>
+
+              {error && <div style={profileStyles.errorBox}>{error}</div>}
+              {success && <div style={profileStyles.successBox}>{success}</div>}
+
+              <div style={profileStyles.fieldGrid}>
+                <div style={profileStyles.fieldGroup}>
+                  <label style={profileStyles.fieldLabel}>Full Name</label>
+                  <input
+                    value={fullName}
+                    onChange={e => setFullName(e.target.value)}
+                    disabled={!isEditing}
+                    style={fieldStyle(isEditing)}
+                  />
+                </div>
+                <div style={profileStyles.fieldGroup}>
+                  <label style={profileStyles.fieldLabel}>Email Address</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    disabled={!isEditing}
+                    style={fieldStyle(isEditing)}
+                  />
+                </div>
+                <div style={profileStyles.fieldGroup}>
+                  <label style={profileStyles.fieldLabel}>Mobile Number</label>
+                  <input
+                    value={contactNumber}
+                    onChange={e => setContactNumber(e.target.value)}
+                    disabled={!isEditing}
+                    style={fieldStyle(isEditing)}
+                  />
+                </div>
+                <div style={profileStyles.fieldGroup}>
+                  <label style={profileStyles.fieldLabel}>Status</label>
+                  <div style={{
+                    ...profileStyles.fieldBox,
+                    color: isActive ? '#2c8047' : '#6b7280',
+                    fontWeight: 700,
+                  }}>
+                    {isActive ? 'Active' : 'Deactivated'}
+                  </div>
+                </div>
+              </div>
+
+              <p style={profileStyles.note}>
+                Profile photo is set by the account holder in their own Settings and cannot be changed here.
+              </p>
             </div>
           </div>
 
-          <p style={modalStyles.viewNote}>
-            Profile photo is set by the account holder in their own Settings and cannot be changed here.
-          </p>
-
-          {isEditing && (
-            <div style={modalStyles.actions}>
-              <button type="button" onClick={handleCancelEdit} style={modalStyles.cancelBtn} disabled={loading}>
-                Cancel
-              </button>
-              <button type="submit" disabled={loading} style={modalStyles.submitBtn}>
-                {loading ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
-          )}
+          <div style={profileStyles.footer}>
+            {isEditing ? (
+              <>
+                <button type="button" onClick={handleCancelEdit} style={profileStyles.footerCancelBtn} disabled={loading}>
+                  Cancel
+                </button>
+                <button type="submit" disabled={loading} style={profileStyles.footerPrimaryBtn}>
+                  {loading ? 'Saving...' : 'Save Changes'}
+                </button>
+              </>
+            ) : (
+              <>
+                <button type="button" onClick={onClose} style={profileStyles.footerCancelBtn}>Close</button>
+                <button type="button" onClick={() => { setIsEditing(true); setSuccess('') }} style={profileStyles.footerPrimaryBtn}>
+                  Edit
+                </button>
+              </>
+            )}
+          </div>
         </form>
-
-        {!isEditing && (
-          <div style={modalStyles.actions}>
-            <button type="button" onClick={onClose} style={modalStyles.cancelBtn}>Close</button>
-            <button type="button" onClick={() => { setIsEditing(true); setSuccess('') }} style={modalStyles.submitBtn}>
-              Edit
-            </button>
-          </div>
-        )}
       </div>
     </div>
   )
@@ -679,7 +710,6 @@ const paginationStyles = {
 const modalStyles = {
   overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 },
   modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '440px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto', fontFamily: SANS },
-  viewModal: { backgroundColor: 'white', borderRadius: '16px', padding: '32px', width: '540px', maxWidth: '92%', maxHeight: '90vh', overflowY: 'auto', fontFamily: SANS },
   modalMobile: { width: '100%', maxWidth: '100%', borderRadius: '16px 16px 0 0', padding: '20px', margin: '0', position: 'fixed', bottom: 0, left: 0, maxHeight: '85vh' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' },
   title: { fontSize: '18px', fontWeight: 800, color: '#16311d', margin: 0 },
@@ -695,35 +725,58 @@ const modalStyles = {
   btnFull: { width: '100%', boxSizing: 'border-box' },
   cancelBtn: { padding: '10px 18px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: 'white', fontSize: '14px', fontWeight: 600, color: '#33413a', cursor: 'pointer' },
   submitBtn: { padding: '10px 18px', borderRadius: '10px', border: 'none', backgroundColor: '#2c8047', color: 'white', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
-
-  // --- View/Edit modal specific ---
-  viewPhotoRow: {
-    display: 'flex', alignItems: 'center', gap: '16px', marginTop: '18px',
-    paddingBottom: '20px', borderBottom: '1px solid #eceee7',
-  },
-  viewPhotoImg: { width: '64px', height: '64px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 },
-  viewPhotoFallback: {
-    width: '64px', height: '64px', borderRadius: '50%', backgroundColor: '#eaf3ec', color: '#2c8047',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', fontWeight: 700,
-    flexShrink: 0, textTransform: 'uppercase',
-  },
-  viewName: { fontSize: '17px', fontWeight: 800, color: '#16311d', marginBottom: '6px' },
-
-  viewGrid: { display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' },
-  viewFieldGroup: { display: 'flex', flexDirection: 'column' },
-  viewFieldBox: {
-    padding: '11px 14px', borderRadius: '10px', border: '1px solid #e7e8e0', backgroundColor: '#fafbf8',
-    fontSize: '14px', color: '#16311d', fontWeight: 500, fontFamily: SANS, width: '100%', boxSizing: 'border-box',
-  },
-  viewFieldBoxEditable: {
-    backgroundColor: '#fff', borderColor: '#2c8047', cursor: 'text',
-  },
-
-  viewNote: { fontSize: '11.5px', color: '#9aa79d', marginTop: '16px', lineHeight: '1.5', fontStyle: 'italic' },
 }
 
 const confirmStyles = {
   modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '400px', maxWidth: '90%', fontFamily: SANS },
   title: { fontSize: '17px', fontWeight: 800, color: '#16311d', marginTop: 0, marginBottom: '10px' },
   message: { fontSize: '14px', color: '#6b7770', lineHeight: '1.5', marginBottom: '14px' },
+}
+
+// View/Edit account modal — matches the Farms ViewFarmModal design language
+const profileStyles = {
+  overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '16px', boxSizing: 'border-box', fontFamily: SANS },
+  modal: { backgroundColor: '#fff', borderRadius: '16px', width: '560px', maxWidth: '94vw', maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 70px rgba(15,38,22,0.28)', border: '1px solid #e7e8e0', position: 'relative', fontFamily: SANS },
+  modalMobile: { width: '100%', maxWidth: '100%', borderRadius: '16px 16px 0 0', position: 'fixed', bottom: 0, left: 0, maxHeight: '92vh' },
+
+  accentBar: { height: '6px', backgroundColor: '#1f5a34' },
+
+  header: { display: 'flex', alignItems: 'center', gap: '16px', padding: '20px 24px', borderBottom: '1px solid #f0efe8' },
+  headerMobile: { padding: '18px 18px', gap: '12px' },
+  avatarWrap: { width: '60px', height: '60px', borderRadius: '50%', flexShrink: 0, overflow: 'hidden', backgroundColor: '#eaf3ec', border: '1px solid #d6e5da', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  avatarImg: { width: '100%', height: '100%', objectFit: 'cover' },
+  avatarInitials: { fontSize: '20px', fontWeight: 700, color: '#2c8047', letterSpacing: '0.02em' },
+  headerText: { flex: 1, minWidth: 0 },
+  ownerNameLarge: { color: '#16311d', fontSize: '19px', fontWeight: 800, letterSpacing: '-0.01em', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  roleRow: { marginTop: '7px' },
+  statusPill: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '5px 13px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 },
+  pillDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
+  closeBtn: { width: '30px', height: '30px', borderRadius: '8px', border: '1px solid #eceee7', backgroundColor: '#fff', color: '#8a968d', fontSize: '17px', lineHeight: 1, cursor: 'pointer', flexShrink: 0 },
+
+  body: { padding: '4px 24px 8px' },
+
+  section: { padding: '18px 0 4px' },
+  sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
+  sectionTitleRow: { display: 'flex', alignItems: 'center', gap: '10px' },
+  sectionIcon: { width: '26px', height: '26px', borderRadius: '8px', backgroundColor: '#2c8047', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  sectionTitle: { fontSize: '14px', fontWeight: 800, color: '#16311d' },
+  editingTag: { padding: '3px 10px', borderRadius: '999px', fontSize: '10.5px', fontWeight: 700, color: '#2c8047', backgroundColor: '#eaf3ec' },
+
+  errorBox: { backgroundColor: '#fbeaea', border: '1px solid #f0c9c9', color: '#b91c1c', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '14px' },
+  successBox: { backgroundColor: '#eaf3ec', border: '1px solid #cfe0d3', color: '#1f5a34', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '14px' },
+
+  fieldGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '16px 20px' },
+  fieldGroup: { display: 'flex', flexDirection: 'column' },
+  fieldLabel: { fontSize: '10.5px', color: '#9aa79d', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' },
+  fieldBox: {
+    padding: '11px 14px', borderRadius: '10px', border: '1px solid #e7e8e0', backgroundColor: '#fafbf8',
+    fontSize: '14px', color: '#16311d', fontWeight: 600, fontFamily: SANS, width: '100%', boxSizing: 'border-box',
+  },
+  fieldBoxEditable: { backgroundColor: '#fff', borderColor: '#2c8047', cursor: 'text' },
+
+  note: { fontSize: '11.5px', color: '#9aa79d', marginTop: '18px', marginBottom: '4px', lineHeight: '1.5', fontStyle: 'italic' },
+
+  footer: { padding: '14px 24px', display: 'flex', justifyContent: 'flex-end', gap: '10px', borderTop: '1px solid #f0efe8' },
+  footerCancelBtn: { padding: '9px 22px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#33413a', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS },
+  footerPrimaryBtn: { padding: '9px 22px', borderRadius: '10px', border: 'none', backgroundColor: '#2c8047', color: '#fff', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS },
 }
