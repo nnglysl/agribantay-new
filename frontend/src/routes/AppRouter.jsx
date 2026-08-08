@@ -8,6 +8,7 @@ const ChangePassword = lazy(() => import('../pages/ChangePassword'))
 
 const FarmerDashboard = lazy(() => import('../pages/farmowner/Dashboard'))
 const ServiceRequests = lazy(() => import('../pages/farmowner/ServiceRequests'))
+const ManureRecords = lazy(() => import('../pages/farmowner/ManureRecords'))
 const FarmerSettings = lazy(() => import('../pages/farmowner/Settings'))
 
 const AdminDashboard = lazy(() => import('../pages/admin/Dashboard'))
@@ -140,6 +141,11 @@ export default function AppRouter() {
           <Route path="/farmowner/dashboard" element={
             <ProtectedRoute role="farm_owner">
               <FarmerDashboard />
+            </ProtectedRoute>
+          } />
+          <Route path="/farmowner/manure-records" element={
+            <ProtectedRoute role="farm_owner">
+              <ManureRecords />
             </ProtectedRoute>
           } />
           <Route path="/farmowner/service-requests" element={
