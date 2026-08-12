@@ -15,11 +15,19 @@ function timeAgo(dateString) {
   return `${days} day${days === 1 ? '' : 's'} ago`
 }
 
+// Renders "English text (Filipino text)" — falls back to English-only
+// when no translation is available, so nothing ever looks broken.
+function bilingual(en, fil) {
+  if (!en) return null
+  if (!fil) return en
+  return `${en} (${fil})`
+}
+
 const responsiveCss = `
   .fd-hero {
     display: flex;
     align-items: center;
-    gap: 28px;
+    gap: 24px;
   }
   @media (max-width: 640px) {
     .fd-hero { flex-direction: column; text-align: center; }
@@ -36,12 +44,33 @@ const responsiveCss = `
   @media (max-width: 520px) {
     .fd-conditions-grid { grid-template-columns: 1fr; }
   }
+
+  .fd-second-row {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+  @media (max-width: 1100px) {
+    .fd-second-row { grid-template-columns: 1fr; }
+  }
+
+  .fd-service-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid #f2f3ed;
+  }
+  .fd-service-row:last-child { border-bottom: none; }
 `
 
 export default function FarmerDashboard() {
   const { data, loading, error, refetch } = useCachedFetch('/farmer/dashboard')
   const { data: insight, loading: insightLoading, refetch: refetchInsight } = useCachedFetch('/farmer/insights')
   const { data: maintenance } = useCachedFetch('/farmer/maintenance')
+  const { data: disposalRecords } = useCachedFetch('/farmer/disposal-records')
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -57,136 +86,161 @@ export default function FarmerDashboard() {
   if (error) return <FarmerLayout><p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p></FarmerLayout>
 
   const hero = heroConfig[data.health_status] || heroConfig.Healthy
+  const latestDisposal = (disposalRecords || [])[0]
 
   const goToServiceRequest = (serviceType) => {
     navigate('/farmowner/service-requests', { state: { prefillService: serviceType } })
   }
 
+  // AI recommendation shown as "English (Filipino)" — Filipino comes from
+  // the backend/Gemini translation; falls back to English-only if missing.
+  const recoMainEn = insight?.main_action || insight?.explanation || null
+  const recoMainFil = insight?.main_action_fil || insight?.explanation_fil || null
+  const recoText = bilingual(recoMainEn, recoMainFil)
+
   return (
     <FarmerLayout>
       <style>{responsiveCss}</style>
 
-      <h1 style={styles.title}>
-        Welcome back, {data.farm_name ? data.farm_name.split(' ')[0] : ''}
-      </h1>
+      <h1 style={styles.title}>Welcome back, {data.farm_name ? data.farm_name.split(' ')[0] : ''}</h1>
       <p style={styles.subtitle}>
         Here's how your farm is doing today. We'll tell you if anything needs your attention.
       </p>
 
-      {/* ---------------------------------------------------- Big status hero */}
-      <div style={styles.heroCard}>
+      {/* ---------------------------------------------------- Overall farm status */}
+      <div style={{ ...styles.heroCard, backgroundColor: hero.ring, borderColor: hero.border }}>
         <div className="fd-hero">
-          <div style={{ ...styles.heroRing, backgroundColor: hero.ring, borderColor: hero.border }}>
+          <div style={styles.heroIconWrap}>
             <HeroIcon name={hero.iconName} color={hero.icon} />
-            <span style={{ ...styles.heroBadge, color: hero.icon }}>{hero.badge}</span>
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={styles.heroTitle}>{hero.title}</div>
-            <p style={styles.heroText}>{insight?.explanation || hero.text}</p>
-            <div style={styles.heroMeta}>
-              <span style={styles.heroMetaItem}>
-                <ClockIcon />
-                {data.last_reading_at ? `Last checked ${timeAgo(data.last_reading_at)}` : 'No readings yet'}
-              </span>
-              {data.health_score != null && (
-                <span style={styles.heroScore}>Farm health score: {data.health_score}</span>
-              )}
-            </div>
+            <div style={{ ...styles.heroTitle, color: hero.icon }}>{hero.title}</div>
+            <p style={styles.heroText}>{hero.text}</p>
           </div>
         </div>
       </div>
 
-      {/* ---------------------------------------------------------- AI Insight */}
-      {!insightLoading && insight?.available && (
-        <div style={styles.insightCard}>
-          <div style={styles.insightHeader}>
-            <span style={styles.insightIcon}><SparkleIcon /></span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={styles.insightTitleRow}>
-                <span style={styles.insightTitle}>Recommendations</span>
-                <span style={styles.aiBadge}><SparkleMini /> AI-generated</span>
-              </div>
-              <div style={styles.insightSubtitle}>Personalised for your farm, based on your latest sensor readings</div>
-            </div>
+      {/* ---------------------------------------------- Farm conditions (bilingual, no raw numbers) */}
+      <div style={styles.sectionTitle}>Conditions Inside the Coop</div>
+      <div style={styles.sectionSub}>A simple check of your chickens' living conditions right now, based on your farm sensors.</div>
+
+      <div className="fd-conditions-grid">
+        <SensorFeel type="ammonia" status={data.ammonia_status} />
+        <SensorFeel type="temperature" status={data.temperature_status} />
+        <SensorFeel type="humidity" status={data.humidity_status} />
+        <SensorFeel type="moisture" status={data.moisture_status} />
+      </div>
+
+      {/* ------------------------------------------------------------- Second row */}
+      <div className="fd-second-row" style={{ marginTop: '20px' }}>
+        {/* Recommendations */}
+        <div style={styles.card}>
+          <div style={styles.cardHeadRow}>
+            <div style={styles.cardTitle}>Recommendations</div>
+            {insight?.available && recoText && (
+              <span style={styles.aiBadge}><SparkleMini /> AI</span>
+            )}
           </div>
 
-          {(insight.explanation || insight.main_action) && (
-            <div style={styles.insightExplanationBlock}>
-              <InfoIcon />
-              <p style={styles.insightExplanation}>{insight.main_action || insight.explanation}</p>
+          {!insightLoading && insight?.available && recoText ? (
+            <div style={styles.recoBox}>
+              <span style={styles.recoIcon}><BulbIcon /></span>
+              <p style={styles.recoText}>{recoText}</p>
             </div>
+          ) : (
+            <p style={styles.emptyText}>No recommendations right now — your farm looks good.</p>
           )}
 
-          {/* Primary actions */}
-          <div style={styles.insightActions}>
-            <button style={styles.primaryBtn} onClick={() => navigate('/farmowner/manure-records')}>Log a clean-out</button>
-            <button style={styles.secondaryBtn} onClick={() => navigate('/farmowner/service-requests')}>
-              <MsgIcon /> Ask the vet for help
-            </button>
-          </div>
+          <button style={styles.fullPrimaryBtn} onClick={() => navigate('/farmowner/manure-records')}>
+            + Log a Clean-out
+          </button>
 
-          {insight.tips?.length > 0 && (
-            <div style={styles.insightSection}>
-              <div style={styles.insightSectionLabel}>What you can do</div>
+          {insight?.tips?.length > 0 && (
+            <div style={styles.tipsBlock}>
+              <div style={styles.tipsLabel}>Things to keep in mind</div>
               <div style={styles.insightTipsList}>
                 {insight.tips.slice(0, 3).map((tip, i) => (
                   <div key={i} style={styles.insightTipRow}>
                     <span style={styles.insightTipCheck}><CheckIcon /></span>
-                    <span style={styles.insightTipText}>{tip}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {insight.service_suggestions?.length > 0 && (
-            <div style={styles.insightSection}>
-              <div style={styles.insightSectionLabel}>Municipal services you can request</div>
-              <div style={styles.serviceSuggestions}>
-                {insight.service_suggestions.map((s, i) => (
-                  <div key={i} style={styles.serviceSuggestionCard}>
-                    <span style={styles.serviceSuggestionReason}>{s.reason}</span>
-                    <button style={styles.serviceSuggestionBtn} onClick={() => goToServiceRequest(s.type)}>
-                      Request {s.type.replace(' Request', '')} →
-                    </button>
+                    <span style={styles.insightTipText}>{bilingual(tip, insight.tips_fil?.[i])}</span>
                   </div>
                 ))}
               </div>
             </div>
           )}
         </div>
-      )}
 
-      {/* ---------------------------------------------- How things feel (plain words) */}
-      <div style={styles.sectionTitle}>How things feel inside the farm</div>
-      <div style={styles.sectionSub}>Simple check of your chickens' living conditions right now</div>
+        {/* Manure Records */}
+        <div style={styles.card}>
+          <div style={styles.cardTitle}>Manure Records</div>
 
-      <div className="fd-conditions-grid">
-        <SensorFeel type="ammonia" value={data.ammonia} status={data.ammonia_status} unit="ppm" />
-        <SensorFeel type="temperature" value={data.temperature} status={data.temperature_status} unit="°C" />
-        <SensorFeel type="humidity" value={data.humidity} status={data.humidity_status} unit="%" />
-        <SensorFeel type="moisture" value={data.moisture} status={data.moisture_status} unit="%" />
-      </div>
-
-      {/* ------------------------------------------------ Manure records — link out */}
-      {maintenance?.status && (
-        <div style={styles.manureLinkCard} onClick={() => navigate('/farmowner/manure-records')}>
-          <div style={styles.manureLinkLeft}>
-            <span style={styles.manureLinkIcon}><CleanIcon /></span>
-            <div>
-              <div style={styles.manureLinkTitle}>Manure Records</div>
-              <div style={styles.manureLinkSub}>
-                {maintenance.status.days_since} days since your last clean-out
-                {' · '}
-                <span style={{ color: maintBadgeStyle(maintenance.status.status).color, fontWeight: 700 }}>
-                  {maintenance.status.status}
-                </span>
+          {maintenance?.status && (
+            <div style={styles.manureBlock}>
+              <div style={styles.manureRow}>
+                <CalendarIcon />
+                <div>
+                  <div style={styles.manureRowLabel}>Last Clean-out</div>
+                  <div style={styles.manureRowValue}>{maintenance.status.last_performed_at || '—'}</div>
+                  <div style={styles.manureRowSub}>{maintenance.status.days_since ?? '—'} days ago</div>
+                </div>
               </div>
+
+              {latestDisposal && (
+                <div style={styles.manureRow}>
+                  <CalendarIcon />
+                  <div>
+                    <div style={styles.manureRowLabel}>Last Disposal</div>
+                    <div style={styles.manureRowValue}>{latestDisposal.disposal_date}</div>
+                  </div>
+                </div>
+              )}
+
+              <div style={styles.manureRow}>
+                <div style={styles.manureRowLabel}>Status</div>
+              </div>
+              <span style={{ ...styles.badge, ...maintBadgeStyle(maintenance.status.status) }}>
+                <span style={{ ...styles.badgeDot, backgroundColor: maintBadgeStyle(maintenance.status.status).color }} />
+                {maintenance.status.status}
+              </span>
             </div>
+          )}
+
+          <div style={styles.manureActions}>
+            <button style={styles.outlineBtn} onClick={() => navigate('/farmowner/manure-records')}>
+              Log Clean-out
+            </button>
+            <button style={styles.fullPrimaryBtnSm} onClick={() => navigate('/farmowner/manure-records')}>
+              View Records
+            </button>
           </div>
-          <span style={styles.manureLinkArrow}>→</span>
         </div>
-      )}
+
+        {/* Municipal Services */}
+        <div style={styles.card}>
+          <div style={styles.cardTitle}>Municipal Services</div>
+
+          {insight?.service_suggestions?.length > 0 ? (
+            <div style={{ marginTop: '14px' }}>
+              {insight.service_suggestions.map((s, i) => (
+                <div key={i} className="fd-service-row">
+                  <div style={styles.serviceLeft}>
+                    <span style={styles.serviceIcon}><ServiceIcon type={s.type} /></span>
+                    <div>
+                      <div style={styles.serviceName}>{s.type.replace(' Request', '')}</div>
+                      <div style={styles.serviceReason}>{s.reason}</div>
+                    </div>
+                  </div>
+                  <button style={styles.serviceBtn} onClick={() => goToServiceRequest(s.type)}>
+                    Request
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p style={styles.emptyText}>—</p>
+          )}
+        </div>
+      </div>
 
       {/* ------------------------------------------------------- Reassurance */}
       <div style={styles.reassure}>
@@ -207,64 +261,60 @@ function maintBadgeStyle(status) {
 
 const heroConfig = {
   Healthy: {
-    badge: 'All good', iconName: 'check', icon: '#2c8047', ring: '#eaf3ec', border: '#cfe6d6',
-    title: 'Your farm is doing well',
+    iconName: 'check', icon: '#1B4332', ring: '#eaf3ec', border: '#cfe6d6',
+    title: 'Your farm is safe',
     text: 'Everything looks comfortable for your chickens right now. Keep up the good work.',
   },
   Warning: {
-    badge: 'Attention', iconName: 'alert', icon: '#c07d16', ring: '#fbf1e2', border: '#f4e2c4',
-    title: 'Your farm needs a little attention',
+    iconName: 'alert', icon: '#b45309', ring: '#fdf3e6', border: '#f4e2c4',
+    title: 'Your farm needs attention',
     text: 'A few things could be better for your chickens. Nothing serious — small steps now will keep them healthy.',
   },
   Critical: {
-    badge: 'Urgent', iconName: 'alert', icon: '#b91c1c', ring: '#fbe3e3', border: '#f3c9c9',
+    iconName: 'alert', icon: '#b91c1c', ring: '#fbe3e3', border: '#f3c9c9',
     title: 'Your farm needs attention now',
     text: 'Some conditions need your attention today to keep your chickens safe and comfortable.',
   },
 }
 
+// Word/action pairs shown as "English (Filipino)" via bilingual()
 const SENSOR_CONFIG = {
   ammonia: {
-    title: 'Fresh air', sub: 'Ammonia & smell', icon: 'wind',
-    words: { Normal: 'Fresh & clean', Warning: 'A little stuffy', Critical: 'Very stuffy' },
-    action: { Normal: 'All good', Warning: 'Needs airing out', Critical: 'Air it out now' },
+    title: 'Fresh Air', sub: 'Ammonia & smell', icon: 'wind',
+    words: { Normal: ['Fresh & clean', 'Sariwa'], Warning: ['A little stuffy', 'Medyo mabaho'], Critical: ['Very stuffy', 'Napakabaho'] },
+    action: { Normal: ['All good', 'Ayos naman'], Warning: ['Needs airing out', 'Linisin nang mas madalas'], Critical: ['Air it out now', 'Linisin agad'] },
   },
   temperature: {
     title: 'Warmth', sub: 'Temperature', icon: 'thermometer',
-    words: { Normal: 'Just right', Warning: 'Warm', Critical: 'Too hot' },
-    action: { Normal: 'All good', Warning: 'Add shade or fans', Critical: 'Cool it down now' },
+    words: { Normal: ['Just right', 'Tamang-tama'], Warning: ['Warm', 'Mainit'], Critical: ['Too hot', 'Sobrang init'] },
+    action: { Normal: ['All good', 'Ayos naman'], Warning: ['Add shade or fans', 'Magbigay ng lilim o bentilador'], Critical: ['Cool it down now', 'Palamigin agad'] },
   },
   humidity: {
-    title: 'Air moisture', sub: 'Humidity', icon: 'droplet',
-    words: { Normal: 'Comfortable', Warning: 'A bit humid', Critical: 'Very humid' },
-    action: { Normal: 'All good', Warning: 'Improve airflow', Critical: 'Improve airflow now' },
+    title: 'Air Moisture', sub: 'Humidity', icon: 'droplet',
+    words: { Normal: ['Comfortable', 'Normal'], Warning: ['A bit humid', 'Medyo mataas'], Critical: ['Very humid', 'Sobrang halumigmig'] },
+    action: { Normal: ['All good', 'Ayos naman'], Warning: ['Improve airflow', 'Palakasin ang bentilasyon'], Critical: ['Improve airflow now', 'Bentilasyon agad'] },
   },
   moisture: {
     title: 'Bedding', sub: 'Ground moisture', icon: 'leaf',
-    words: { Normal: 'Just right', Warning: 'A bit off', Critical: 'Needs attention' },
-    action: { Normal: 'All good', Warning: 'Check the bedding', Critical: 'Check it now' },
+    words: { Normal: ['Just right', 'Normal'], Warning: ['A bit off', 'Medyo may problema'], Critical: ['Needs attention', 'Kailangan ng atensyon'] },
+    action: { Normal: ['All good', 'Wala pang dapat alalahanin'], Warning: ['Check the bedding', 'Tingnan ang lupa'], Critical: ['Check it now', 'Tingnan agad ang lupa'] },
   },
 }
 
 function feelStyle(status) {
   if (status === 'Critical') return { color: '#b91c1c', tint: '#fbe3e3', dot: '#b91c1c' }
-  if (status === 'Warning') return { color: '#b45309', tint: '#fbf1e2', dot: '#c07d16' }
-  if (status === 'Normal') return { color: '#2c8047', tint: '#eaf3ec', dot: '#2c8047' }
+  if (status === 'Warning') return { color: '#b45309', tint: '#fdf3e6', dot: '#b45309' }
+  if (status === 'Normal') return { color: '#256b3d', tint: '#eaf3ec', dot: '#256b3d' }
   return { color: '#6b7770', tint: '#eef0ea', dot: '#9aa79d' }
 }
 
-function formatReading(value, unit) {
-  if (value == null) return null
-  if (unit === 'ppm') return `${value} ppm`
-  return `${value}${unit}`
-}
-
-function SensorFeel({ type, value, status, unit }) {
+function SensorFeel({ type, status }) {
   const cfg = SENSOR_CONFIG[type]
   const s = feelStyle(status)
-  const word = status ? (cfg.words[status] || status) : 'No reading'
-  const action = status ? (cfg.action[status] || '') : 'Offline'
-  const reading = formatReading(value, unit)
+  const wordPair = status ? cfg.words[status] : ['No reading', 'Walang datos']
+  const actionPair = status ? cfg.action[status] : ['Offline', 'Offline']
+  const word = bilingual(wordPair?.[0], wordPair?.[1])
+  const action = bilingual(actionPair?.[0], actionPair?.[1])
   return (
     <div style={styles.feelCard}>
       <div style={styles.feelHead}>
@@ -278,12 +328,8 @@ function SensorFeel({ type, value, status, unit }) {
       </div>
       <div style={styles.feelValueRow}>
         <span style={{ ...styles.feelWord, color: s.color }}>{word}</span>
-        {reading && <span style={styles.feelNumber}>{reading}</span>}
       </div>
-      <span style={{ ...styles.feelPill, backgroundColor: s.tint }}>
-        <span style={{ ...styles.feelDot, backgroundColor: s.dot }}></span>
-        <span style={{ ...styles.feelPillText, color: s.color }}>{action}</span>
-      </span>
+      <p style={styles.feelActionText}>{action}</p>
     </div>
   )
 }
@@ -295,39 +341,39 @@ const iconBase = { fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeL
 function CheckIcon() {
   return <svg width="13" height="13" viewBox="0 0 24 24" {...iconBase} strokeWidth="2.6"><path d="M20 6L9 17l-5-5" /></svg>
 }
-function ClockIcon() {
-  return <svg width="15" height="15" viewBox="0 0 24 24" {...iconBase}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+function CalendarIcon() {
+  return <svg width="16" height="16" viewBox="0 0 24 24" {...iconBase} strokeWidth="2" style={{ color: '#1B4332', flexShrink: 0, marginTop: '2px' }}><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
 }
-function InfoIcon() {
-  return <svg width="20" height="20" viewBox="0 0 24 24" {...iconBase} style={{ flexShrink: 0, marginTop: '1px', color: '#2c8047' }}><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>
-}
-function MsgIcon() {
-  return <svg width="18" height="18" viewBox="0 0 24 24" {...iconBase} strokeWidth="1.9"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+function BulbIcon() {
+  return <svg width="18" height="18" viewBox="0 0 24 24" {...iconBase} strokeWidth="1.9" style={{ color: '#b45309', flexShrink: 0 }}><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.5.4.8 1 .8 1.6v.2h6.4v-.2c0-.6.3-1.2.8-1.6A7 7 0 0 0 12 2Z" /></svg>
 }
 function ShieldIcon() {
-  return <svg width="20" height="20" viewBox="0 0 24 24" {...iconBase} style={{ flexShrink: 0, color: '#2c8047' }}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
-}
-function SparkleIcon() {
-  return <svg width="19" height="19" viewBox="0 0 24 24" {...iconBase} strokeWidth="1.9" style={{ color: '#2c8047' }}><path d="M12 3 13.9 8.6 19.5 10.5 13.9 12.4 12 18 10.1 12.4 4.5 10.5 10.1 8.6 12 3Z" /><path d="M19 15l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2Z" /></svg>
+  return <svg width="20" height="20" viewBox="0 0 24 24" {...iconBase} style={{ flexShrink: 0, color: '#256b3d' }}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
 }
 function SparkleMini() {
-  return <svg width="11" height="11" viewBox="0 0 24 24" {...iconBase} strokeWidth="2.4" style={{ color: '#3a6bc7' }}><path d="M12 3 13.9 8.6 19.5 10.5 13.9 12.4 12 18 10.1 12.4 4.5 10.5 10.1 8.6 12 3Z" /></svg>
-}
-function CleanIcon() {
-  return <svg width="20" height="20" viewBox="0 0 24 24" {...iconBase} strokeWidth="1.8" style={{ color: '#2c8047' }}><path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
+  return <svg width="10" height="10" viewBox="0 0 24 24" {...iconBase} strokeWidth="2.4" style={{ color: '#3a6bc7' }}><path d="M12 3 13.9 8.6 19.5 10.5 13.9 12.4 12 18 10.1 12.4 4.5 10.5 10.1 8.6 12 3Z" /></svg>
 }
 function HeroIcon({ name, color }) {
   if (name === 'check') {
-    return <svg width="42" height="42" viewBox="0 0 24 24" {...iconBase} style={{ color }}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><path d="M22 4 12 14.01l-3-3" /></svg>
+    return <svg width="40" height="40" viewBox="0 0 24 24" {...iconBase} style={{ color }}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><path d="M22 4 12 14.01l-3-3" /></svg>
   }
-  return <svg width="42" height="42" viewBox="0 0 24 24" {...iconBase} style={{ color }}><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+  return <svg width="40" height="40" viewBox="0 0 24 24" {...iconBase} style={{ color }}><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
 }
 function SensorIcon({ name, color }) {
-  const p = { width: 23, height: 23, viewBox: '0 0 24 24', ...iconBase, strokeWidth: 1.9, style: { color } }
+  const p = { width: 21, height: 21, viewBox: '0 0 24 24', ...iconBase, strokeWidth: 1.9, style: { color } }
   if (name === 'wind') return <svg {...p}><path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2" /><path d="M9.6 4.6A2 2 0 1 1 11 8H2" /><path d="M12.6 19.4A2 2 0 1 0 14 16H2" /></svg>
   if (name === 'thermometer') return <svg {...p}><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z" /></svg>
   if (name === 'droplet') return <svg {...p}><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5S5 13 5 15a7 7 0 0 0 7 7z" /></svg>
   return <svg {...p}><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" /><path d="M2 21c0-3 1.85-5.36 5.08-6" /></svg>
+}
+function ServiceIcon({ type }) {
+  const t = (type || '').toLowerCase()
+  const p = { width: 18, height: 18, viewBox: '0 0 24 24', ...iconBase, strokeWidth: 1.8, style: { color: '#1B4332' } }
+  if (t.includes('odor')) return <svg {...p}><path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2" /><path d="M9.6 4.6A2 2 0 1 1 11 8H2" /><path d="M12.6 19.4A2 2 0 1 0 14 16H2" /></svg>
+  if (t.includes('fly')) return <svg {...p}><circle cx="12" cy="12" r="3" /><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8" /></svg>
+  if (t.includes('vaccin') || t.includes('bakuna')) return <svg {...p}><path d="M18 2 22 6" /><path d="M17 7 20 4l-3-3-3 3" /><path d="M8 12l8-8 4 4-8 8" /><path d="M8 12 3 17v4h4l5-5" /></svg>
+  if (t.includes('blood')) return <svg {...p}><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5S5 13 5 15a7 7 0 0 0 7 7z" /></svg>
+  return <svg {...p}><circle cx="12" cy="12" r="9" /></svg>
 }
 
 /* ----------------------------------------------------------------------- styles */
@@ -337,94 +383,74 @@ const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Sego
 const styles = {
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
 
-  title: { fontSize: '26px', fontWeight: 800, letterSpacing: '-0.015em', color: '#16311d', margin: 0, fontFamily: SANS },
-  subtitle: { fontSize: '14.5px', color: '#6b7770', marginTop: '5px', marginBottom: '24px', fontFamily: SANS, lineHeight: 1.5 },
+  title: { fontSize: '24px', fontWeight: 800, letterSpacing: '-0.01em', color: '#16311d', margin: 0, fontFamily: SANS },
+  subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px', marginBottom: '22px', fontFamily: SANS, lineHeight: 1.5 },
 
-  sectionTitle: { fontSize: '16px', fontWeight: 800, color: '#16311d', margin: '34px 0 4px', fontFamily: SANS },
-  sectionSub: { fontSize: '13.5px', color: '#8a968d', marginBottom: '16px', fontFamily: SANS },
+  sectionTitle: { fontSize: '16px', fontWeight: 800, color: '#16311d', margin: '28px 0 4px', fontFamily: SANS },
+  sectionSub: { fontSize: '13px', color: '#8a968d', marginBottom: '14px', fontFamily: SANS },
 
   heroCard: {
-    background: '#fff', border: '1px solid #e7e8e0', borderRadius: '20px', padding: '28px 30px',
-    boxShadow: '0 1px 2px rgba(20,48,28,0.04)', fontFamily: SANS,
+    border: '1px solid', borderRadius: '14px', padding: '20px 24px', fontFamily: SANS,
   },
-  heroRing: {
-    width: '118px', height: '118px', borderRadius: '50%', display: 'flex', flexDirection: 'column',
-    alignItems: 'center', justifyContent: 'center', flexShrink: 0, borderWidth: '6px', borderStyle: 'solid',
-  },
-  heroBadge: { fontSize: '12px', fontWeight: 800, marginTop: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' },
-  heroTitle: { fontSize: '23px', fontWeight: 800, color: '#16311d', letterSpacing: '-0.01em' },
-  heroText: { fontSize: '15px', color: '#5c6b60', lineHeight: 1.6, margin: '10px 0 0', maxWidth: '640px' },
-  heroMeta: { display: 'flex', alignItems: 'center', gap: '18px', marginTop: '16px', flexWrap: 'wrap' },
-  heroMetaItem: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#8a968d' },
-  heroScore: { fontSize: '13px', color: '#8a968d', fontWeight: 600 },
+  heroIconWrap: { width: '56px', height: '56px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  heroTitle: { fontSize: '17px', fontWeight: 800, letterSpacing: '-0.01em' },
+  heroText: { fontSize: '13.5px', color: '#5c6b60', lineHeight: 1.55, margin: '4px 0 0', maxWidth: '640px' },
 
-  insightCard: { backgroundColor: 'white', borderRadius: '18px', padding: '24px 26px', marginTop: '26px', border: '1px solid #e7e8e0', fontFamily: SANS },
-  insightHeader: { display: 'flex', alignItems: 'center', gap: '12px' },
-  insightIcon: { width: '34px', height: '34px', borderRadius: '10px', backgroundColor: '#eaf3ec', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  insightTitleRow: { display: 'flex', alignItems: 'center', gap: '9px', flexWrap: 'wrap' },
-  insightTitle: { fontSize: '17px', fontWeight: 800, color: '#16311d', letterSpacing: '-0.01em' },
+  card: {
+    background: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px', padding: '20px', fontFamily: SANS,
+    display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box',
+  },
+  cardHeadRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' },
+  cardTitle: { fontSize: '15px', fontWeight: 800, color: '#16311d' },
   aiBadge: {
-    display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '999px',
-    background: '#eef3ff', border: '1px solid #dbe6fb', fontSize: '10.5px', fontWeight: 800, color: '#3a6bc7',
-    textTransform: 'uppercase', letterSpacing: '0.05em',
-  },
-  insightSubtitle: { fontSize: '13px', color: '#8a968d', marginTop: '3px' },
-  insightExplanationBlock: {
-    marginTop: '18px', display: 'flex', gap: '14px', alignItems: 'flex-start',
-    backgroundColor: '#f5faf6', border: '1px solid #dcebe0', borderLeft: '4px solid #2c8047',
-    borderRadius: '12px', padding: '16px 18px',
-  },
-  insightExplanation: { fontSize: '15px', fontWeight: 600, color: '#1e4a2e', lineHeight: 1.55, margin: 0 },
-  insightActions: { marginTop: '14px', display: 'flex', gap: '12px', flexWrap: 'wrap' },
-  primaryBtn: {
-    padding: '14px 24px', borderRadius: '12px', border: 'none', background: '#2c8047', color: '#fff',
-    fontFamily: SANS, fontSize: '14.5px', fontWeight: 700, cursor: 'pointer',
-  },
-  secondaryBtn: {
-    padding: '14px 22px', borderRadius: '12px', border: '1px solid #cfe0d5', background: '#fff', color: '#2c8047',
-    fontFamily: SANS, fontSize: '14.5px', fontWeight: 700, cursor: 'pointer',
-    display: 'inline-flex', alignItems: 'center', gap: '9px',
-  },
-  insightSection: { marginTop: '22px' },
-  insightSectionLabel: { fontSize: '11.5px', fontWeight: 800, color: '#2c8047', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '12px' },
-  insightTipsList: { display: 'flex', flexDirection: 'column', gap: '13px' },
-  insightTipRow: { display: 'flex', alignItems: 'flex-start', gap: '12px' },
-  insightTipCheck: { width: '22px', height: '22px', borderRadius: '50%', backgroundColor: '#eaf3ec', color: '#2c8047', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '1px' },
-  insightTipText: { fontSize: '14px', color: '#33413a', lineHeight: 1.5 },
-  serviceSuggestions: { display: 'flex', flexDirection: 'column', gap: '12px' },
-  serviceSuggestionCard: {
-    backgroundColor: '#fafbf8', border: '1px solid #eceee7', borderRadius: '12px', padding: '15px 18px',
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap',
-  },
-  serviceSuggestionReason: { fontSize: '13.5px', color: '#5c6b60', flex: 1, minWidth: '180px', lineHeight: 1.5 },
-  serviceSuggestionBtn: {
-    backgroundColor: '#2c8047', color: 'white', border: 'none', borderRadius: '10px', padding: '11px 18px',
-    fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, fontFamily: SANS,
+    display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 9px', borderRadius: '999px',
+    background: '#eef3ff', border: '1px solid #dbe6fb', fontSize: '10px', fontWeight: 800, color: '#3a6bc7',
+    textTransform: 'uppercase', letterSpacing: '0.04em',
   },
 
-  feelCard: { background: '#fff', border: '1px solid #e7e8e0', borderRadius: '16px', padding: '20px 22px', fontFamily: SANS },
-  feelHead: { display: 'flex', alignItems: 'center', gap: '12px' },
-  feelIcon: { width: '46px', height: '46px', borderRadius: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  feelTitle: { fontSize: '14.5px', fontWeight: 700, color: '#16311d' },
-  feelSub: { fontSize: '12.5px', color: '#8a968d' },
-  feelValueRow: { display: 'flex', alignItems: 'baseline', gap: '8px', marginTop: '16px', flexWrap: 'wrap' },
-  feelWord: { fontSize: '19px', fontWeight: 800 },
-  feelNumber: { fontSize: '12px', fontWeight: 600, color: '#a3aea6' },
-  feelPill: { display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '8px', padding: '4px 11px', borderRadius: '999px' },
-  feelDot: { width: '7px', height: '7px', borderRadius: '50%' },
-  feelPillText: { fontSize: '12px', fontWeight: 700 },
-
-  manureLinkCard: {
-    marginTop: '34px', background: '#fff', border: '1px solid #e7e8e0', borderRadius: '16px',
-    padding: '18px 22px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    cursor: 'pointer', fontFamily: SANS,
+  recoBox: {
+    marginTop: '14px', display: 'flex', gap: '10px', alignItems: 'flex-start',
+    backgroundColor: '#fdf3e6', border: '1px solid #f4e2c4', borderRadius: '10px', padding: '13px 14px',
   },
-  manureLinkLeft: { display: 'flex', alignItems: 'center', gap: '14px' },
-  manureLinkIcon: { width: '40px', height: '40px', borderRadius: '11px', background: '#eaf3ec', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  manureLinkTitle: { fontSize: '14.5px', fontWeight: 800, color: '#16311d' },
-  manureLinkSub: { fontSize: '12.5px', color: '#8a968d', marginTop: '2px' },
-  manureLinkArrow: { fontSize: '18px', color: '#2c8047', fontWeight: 700 },
+  recoIcon: { flexShrink: 0, marginTop: '1px' },
+  recoText: { fontSize: '13px', fontWeight: 600, color: '#5c4419', lineHeight: 1.55, margin: 0 },
+  emptyText: { fontSize: '13px', color: '#9aa79d', fontStyle: 'italic', marginTop: '14px' },
 
-  reassure: { marginTop: '18px', display: 'flex', alignItems: 'center', gap: '12px', padding: '15px 20px', background: '#eaf3ec', borderRadius: '14px', fontFamily: SANS },
-  reassureText: { fontSize: '13.5px', color: '#2c6b3f', fontWeight: 600 },
+  fullPrimaryBtn: { marginTop: '14px', width: '100%', padding: '12px', borderRadius: '10px', border: 'none', background: '#1B4332', color: '#fff', fontFamily: SANS, fontSize: '13.5px', fontWeight: 700, cursor: 'pointer' },
+  fullPrimaryBtnSm: { flex: 1, padding: '11px', borderRadius: '10px', border: 'none', background: '#1B4332', color: '#fff', fontFamily: SANS, fontSize: '13px', fontWeight: 700, cursor: 'pointer' },
+  outlineBtn: { flex: 1, padding: '11px', borderRadius: '10px', border: '1px solid #cfd6cf', background: '#fff', color: '#33413a', fontFamily: SANS, fontSize: '13px', fontWeight: 700, cursor: 'pointer' },
+
+  tipsBlock: { marginTop: '18px', paddingTop: '16px', borderTop: '1px solid #f2f3ed' },
+  tipsLabel: { fontSize: '11px', fontWeight: 800, color: '#8a968d', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' },
+  insightTipsList: { display: 'flex', flexDirection: 'column', gap: '10px' },
+  insightTipRow: { display: 'flex', alignItems: 'flex-start', gap: '9px' },
+  insightTipCheck: { width: '18px', height: '18px', borderRadius: '50%', backgroundColor: '#eaf3ec', color: '#256b3d', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '1px' },
+  insightTipText: { fontSize: '13px', color: '#33413a', lineHeight: 1.5 },
+
+  manureBlock: { marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '12px' },
+  manureRow: { display: 'flex', gap: '10px', alignItems: 'flex-start' },
+  manureRowLabel: { fontSize: '12px', fontWeight: 700, color: '#5c6b60' },
+  manureRowValue: { fontSize: '14px', fontWeight: 800, color: '#16311d', marginTop: '1px' },
+  manureRowSub: { fontSize: '11.5px', color: '#8a968d', marginTop: '1px' },
+  badge: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '5px 12px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap', width: 'fit-content' },
+  badgeDot: { width: '6px', height: '6px', borderRadius: '50%' },
+  manureActions: { display: 'flex', gap: '10px', marginTop: '18px' },
+
+  serviceLeft: { display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 },
+  serviceIcon: { width: '34px', height: '34px', borderRadius: '9px', background: '#eaf3ec', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  serviceName: { fontSize: '13px', fontWeight: 700, color: '#16311d' },
+  serviceReason: { fontSize: '11.5px', color: '#8a968d', marginTop: '1px', lineHeight: 1.4 },
+  serviceBtn: { flexShrink: 0, padding: '8px 14px', borderRadius: '8px', border: '1px solid #cfe0d5', background: '#fff', color: '#1B4332', fontFamily: SANS, fontSize: '12px', fontWeight: 700, cursor: 'pointer' },
+
+  feelCard: { background: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px', padding: '18px 20px', fontFamily: SANS },
+  feelHead: { display: 'flex', alignItems: 'center', gap: '11px' },
+  feelIcon: { width: '42px', height: '42px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  feelTitle: { fontSize: '13.5px', fontWeight: 700, color: '#16311d' },
+  feelSub: { fontSize: '11.5px', color: '#8a968d' },
+  feelValueRow: { marginTop: '14px' },
+  feelWord: { fontSize: '15.5px', fontWeight: 800, lineHeight: 1.3 },
+  feelActionText: { fontSize: '12px', color: '#5c6b60', margin: '6px 0 0', lineHeight: 1.4 },
+
+  reassure: { marginTop: '20px', display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 18px', background: '#eaf3ec', borderRadius: '12px', fontFamily: SANS },
+  reassureText: { fontSize: '13px', color: '#256b3d', fontWeight: 600 },
 }

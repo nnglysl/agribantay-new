@@ -70,11 +70,17 @@ class InsightController extends Controller
             $diagnosis['root_cause']
         );
 
-        $explanation = app(RecommendationExplanationService::class)->explain([
+        $tips = array_map(
+            fn($a) => $a['suggestion'],
+            $preventiveActions['sensor_actions']
+        );
+
+        $translated = app(RecommendationExplanationService::class)->explain([
             'farm_name'          => $farm->farm_name,
             'root_cause'         => $diagnosis['root_cause'],
             'trend'              => $trend,
             'recommended_action' => $preventiveActions['overall_action'],
+            'tips'               => $tips,
         ]);
 
         return response()->json([
@@ -82,14 +88,19 @@ class InsightController extends Controller
             'data' => [
                 'available'   => true,
                 'root_cause'  => $diagnosis['root_cause'],
-                'explanation' => $explanation,
+
+                // English (unchanged keys — existing frontend usage keeps working)
+                'explanation' => $translated['explanation_en'] ?? null,
                 'main_action' => $preventiveActions['overall_action'],
-                // Plain suggestion text only — no severity percentages
-                // shown to the farm owner, unlike the Admin view.
-                'tips' => array_map(
-                    fn($a) => $a['suggestion'],
-                    $preventiveActions['sensor_actions']
-                ),
+                'tips'        => $tips,
+
+                // Filipino translations — null/omitted fields simply
+                // mean Gemini didn't return them (e.g. API down), and
+                // the frontend should fall back to English-only.
+                'explanation_fil' => $translated['explanation_fil'] ?? null,
+                'main_action_fil' => $translated['main_action_fil'] ?? null,
+                'tips_fil'        => $translated['tips_fil'] ?? null,
+
                 // Municipal services worth requesting given this
                 // diagnosis — empty array when nothing applies (e.g.
                 // "Normal conditions"). Each item's 'type' matches the
