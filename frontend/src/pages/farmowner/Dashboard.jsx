@@ -68,7 +68,7 @@ const responsiveCss = `
 
 export default function FarmerDashboard() {
   const { data, loading, error, refetch } = useCachedFetch('/farmer/dashboard')
-  const { data: insight, loading: insightLoading, refetch: refetchInsight } = useCachedFetch('/farmer/insights')
+  const { data: insight, insightLoading, refetch: refetchInsight } = useCachedFetch('/farmer/insights')
   const { data: maintenance } = useCachedFetch('/farmer/maintenance')
   const { data: disposalRecords } = useCachedFetch('/farmer/disposal-records')
   const navigate = useNavigate()
@@ -135,25 +135,13 @@ export default function FarmerDashboard() {
       <div className="fd-second-row" style={{ marginTop: '20px' }}>
         {/* Recommendations */}
         <div style={styles.card}>
-          <div style={styles.cardHeadRow}>
-            <div style={styles.cardTitle}>Recommendations</div>
-            {insight?.available && recoText && (
-              <span style={styles.aiBadge}><SparkleMini /> AI</span>
-            )}
-          </div>
+          <div style={styles.cardTitle}>Recommendations</div>
 
           {!insightLoading && insight?.available && recoText ? (
-            <div style={styles.recoBox}>
-              <span style={styles.recoIcon}><BulbIcon /></span>
-              <p style={styles.recoText}>{recoText}</p>
-            </div>
+            <p style={styles.recoText}>{recoText}</p>
           ) : (
             <p style={styles.emptyText}>No recommendations right now — your farm looks good.</p>
           )}
-
-          <button style={styles.fullPrimaryBtn} onClick={() => navigate('/farmowner/manure-records')}>
-            + Log a Clean-out
-          </button>
 
           {insight?.tips?.length > 0 && (
             <div style={styles.tipsBlock}>
@@ -206,7 +194,10 @@ export default function FarmerDashboard() {
           )}
 
           <div style={styles.manureActions}>
-            <button style={styles.outlineBtn} onClick={() => navigate('/farmowner/manure-records')}>
+            <button
+              style={styles.outlineBtn}
+              onClick={() => navigate('/farmowner/manure-records', { state: { openCleanoutForm: true } })}
+            >
               Log Clean-out
             </button>
             <button style={styles.fullPrimaryBtnSm} onClick={() => navigate('/farmowner/manure-records')}>
@@ -239,14 +230,6 @@ export default function FarmerDashboard() {
           ) : (
             <p style={styles.emptyText}>—</p>
           )}
-        </div>
-      </div>
-
-      {/* ------------------------------------------------------- Reassurance */}
-      <div style={styles.reassure}>
-        <ShieldIcon />
-        <div style={styles.reassureText}>
-          Relax — we're watching your farm around the clock. If anything becomes urgent, we'll let you know right away.
         </div>
       </div>
     </FarmerLayout>
@@ -344,15 +327,6 @@ function CheckIcon() {
 function CalendarIcon() {
   return <svg width="16" height="16" viewBox="0 0 24 24" {...iconBase} strokeWidth="2" style={{ color: '#1B4332', flexShrink: 0, marginTop: '2px' }}><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
 }
-function BulbIcon() {
-  return <svg width="18" height="18" viewBox="0 0 24 24" {...iconBase} strokeWidth="1.9" style={{ color: '#b45309', flexShrink: 0 }}><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.5.4.8 1 .8 1.6v.2h6.4v-.2c0-.6.3-1.2.8-1.6A7 7 0 0 0 12 2Z" /></svg>
-}
-function ShieldIcon() {
-  return <svg width="20" height="20" viewBox="0 0 24 24" {...iconBase} style={{ flexShrink: 0, color: '#256b3d' }}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
-}
-function SparkleMini() {
-  return <svg width="10" height="10" viewBox="0 0 24 24" {...iconBase} strokeWidth="2.4" style={{ color: '#3a6bc7' }}><path d="M12 3 13.9 8.6 19.5 10.5 13.9 12.4 12 18 10.1 12.4 4.5 10.5 10.1 8.6 12 3Z" /></svg>
-}
 function HeroIcon({ name, color }) {
   if (name === 'check') {
     return <svg width="40" height="40" viewBox="0 0 24 24" {...iconBase} style={{ color }}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><path d="M22 4 12 14.01l-3-3" /></svg>
@@ -400,23 +374,11 @@ const styles = {
     background: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px', padding: '20px', fontFamily: SANS,
     display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box',
   },
-  cardHeadRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' },
   cardTitle: { fontSize: '15px', fontWeight: 800, color: '#16311d' },
-  aiBadge: {
-    display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 9px', borderRadius: '999px',
-    background: '#eef3ff', border: '1px solid #dbe6fb', fontSize: '10px', fontWeight: 800, color: '#3a6bc7',
-    textTransform: 'uppercase', letterSpacing: '0.04em',
-  },
 
-  recoBox: {
-    marginTop: '14px', display: 'flex', gap: '10px', alignItems: 'flex-start',
-    backgroundColor: '#fdf3e6', border: '1px solid #f4e2c4', borderRadius: '10px', padding: '13px 14px',
-  },
-  recoIcon: { flexShrink: 0, marginTop: '1px' },
-  recoText: { fontSize: '13px', fontWeight: 600, color: '#5c4419', lineHeight: 1.55, margin: 0 },
+  recoText: { fontSize: '13.5px', color: '#33413a', lineHeight: 1.6, margin: '12px 0 0' },
   emptyText: { fontSize: '13px', color: '#9aa79d', fontStyle: 'italic', marginTop: '14px' },
 
-  fullPrimaryBtn: { marginTop: '14px', width: '100%', padding: '12px', borderRadius: '10px', border: 'none', background: '#1B4332', color: '#fff', fontFamily: SANS, fontSize: '13.5px', fontWeight: 700, cursor: 'pointer' },
   fullPrimaryBtnSm: { flex: 1, padding: '11px', borderRadius: '10px', border: 'none', background: '#1B4332', color: '#fff', fontFamily: SANS, fontSize: '13px', fontWeight: 700, cursor: 'pointer' },
   outlineBtn: { flex: 1, padding: '11px', borderRadius: '10px', border: '1px solid #cfd6cf', background: '#fff', color: '#33413a', fontFamily: SANS, fontSize: '13px', fontWeight: 700, cursor: 'pointer' },
 
@@ -450,7 +412,4 @@ const styles = {
   feelValueRow: { marginTop: '14px' },
   feelWord: { fontSize: '15.5px', fontWeight: 800, lineHeight: 1.3 },
   feelActionText: { fontSize: '12px', color: '#5c6b60', margin: '6px 0 0', lineHeight: 1.4 },
-
-  reassure: { marginTop: '20px', display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 18px', background: '#eaf3ec', borderRadius: '12px', fontFamily: SANS },
-  reassureText: { fontSize: '13px', color: '#256b3d', fontWeight: 600 },
 }
