@@ -12,13 +12,18 @@ export default function Settings() {
   const [lastName, setLastName] = useState('')
   const [mobileNumber, setMobileNumber] = useState('')
   const [email, setEmail] = useState('')
-  const [profilePhoto, setProfilePhoto] = useState(null)
   const [isEditing, setIsEditing] = useState(false)
   const [profileError, setProfileError] = useState('')
   const [profileSuccess, setProfileSuccess] = useState('')
   const [profileLoading, setProfileLoading] = useState(false)
   const isMobile = useIsMobile()
   const fileInputRef = useRef(null)
+
+  // Photo modal (separate flow from the Personal Information edit)
+  const [showPhotoModal, setShowPhotoModal] = useState(false)
+  const [photoFile, setPhotoFile] = useState(null)
+  const [photoError, setPhotoError] = useState('')
+  const [photoSaving, setPhotoSaving] = useState(false)
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -34,16 +39,19 @@ export default function Settings() {
   const passwordsMatch = newPassword && newPassword === confirmPassword
   const canSubmitPassword = newPasswordValid && passwordsMatch
 
-  useEffect(() => {
-    api.get('/settings').then(res => {
+  const loadProfile = () => {
+    return api.get('/settings').then(res => {
       const data = res.data.data
       setProfile(data)
       setFirstName(data.first_name)
       setLastName(data.last_name)
       setMobileNumber(data.mobile_number || '')
       setEmail(data.email || '')
+      return data
     })
-  }, [])
+  }
+
+  useEffect(() => { loadProfile() }, [])
 
   const handleProfileSave = async (e) => {
     e.preventDefault()
@@ -57,24 +65,21 @@ export default function Settings() {
       formData.append('last_name', lastName)
       formData.append('mobile_number', mobileNumber)
       if (email) formData.append('email', email)
-      if (profilePhoto) formData.append('profile_photo', profilePhoto)
 
+      // IMPORTANT: do not manually set a Content-Type header here.
+      // Axios/browser needs to generate its own multipart boundary —
+      // overriding it strips the boundary and the backend silently
+      // fails to parse the request (this was the root cause of the
+      // "photo disappears" bug).
       await api.post('/settings/profile', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
         params: { _method: 'PUT' },
       })
 
-      const user = getUser()
-      setAuth(getToken(), { ...user, first_name: firstName, last_name: lastName })
+      const updated = await loadProfile()
 
-      setProfile({
-        ...profile,
-        first_name: firstName,
-        last_name: lastName,
-        mobile_number: mobileNumber,
-        email: email || null,
-      })
-      setProfilePhoto(null)
+      const user = getUser()
+      setAuth(getToken(), { ...user, first_name: updated.first_name, last_name: updated.last_name })
+
       setProfileSuccess('Profile updated successfully.')
       setIsEditing(false)
     } catch (err) {
@@ -89,9 +94,55 @@ export default function Settings() {
     setLastName(profile.last_name)
     setMobileNumber(profile.mobile_number || '')
     setEmail(profile.email || '')
-    setProfilePhoto(null)
     setIsEditing(false)
     setProfileError('')
+  }
+
+  const openPhotoModal = () => {
+    setPhotoFile(null)
+    setPhotoError('')
+    setShowPhotoModal(true)
+  }
+
+  const closePhotoModal = () => {
+    setShowPhotoModal(false)
+    setPhotoFile(null)
+    setPhotoError('')
+  }
+
+  const handleSavePhoto = async () => {
+    if (!photoFile) {
+      setPhotoError('Please choose a photo first.')
+      return
+    }
+
+    setPhotoError('')
+    setPhotoSaving(true)
+
+    try {
+      const formData = new FormData()
+      // The backend requires these fields on every profile update —
+      // send the current known values so the photo-only save doesn't
+      // fail validation or accidentally blank anything out.
+      formData.append('first_name', profile.first_name)
+      formData.append('last_name', profile.last_name)
+      formData.append('mobile_number', profile.mobile_number || '')
+      if (profile.email) formData.append('email', profile.email)
+      formData.append('profile_photo', photoFile)
+
+      await api.post('/settings/profile', formData, {
+        params: { _method: 'PUT' },
+      })
+
+      await loadProfile()
+      setShowPhotoModal(false)
+      setPhotoFile(null)
+      setProfileSuccess('Profile photo updated successfully.')
+    } catch (err) {
+      setPhotoError(err.response?.data?.message || 'Failed to upload photo. Please try again.')
+    } finally {
+      setPhotoSaving(false)
+    }
   }
 
   const handlePasswordSave = async (e) => {
@@ -131,7 +182,7 @@ export default function Settings() {
   if (!profile) return <FarmerLayout><p>Loading...</p></FarmerLayout>
 
   const initials = `${profile.first_name?.[0] || ''}${profile.last_name?.[0] || ''}`.toUpperCase()
-  const photoPreview = profilePhoto ? URL.createObjectURL(profilePhoto) : profile.profile_photo_url
+  const photoModalPreview = photoFile ? URL.createObjectURL(photoFile) : profile.profile_photo_url
   const farm = profile.farm
 
   return (
@@ -144,24 +195,19 @@ export default function Settings() {
         <div style={{ ...styles.card, ...(isMobile ? styles.cardMobile : {}) }}>
           <h3 style={styles.sectionTitle}>Profile Photo</h3>
 
+          {profileSuccess && <div style={styles.successBox}>{profileSuccess}</div>}
+
           <div style={styles.photoBlock}>
             <div style={{ ...styles.photoRow, ...(isMobile ? styles.photoRowMobile : {}) }}>
               <div style={styles.photoCircleWrap}>
-                {photoPreview ? (
-                  <img src={photoPreview} alt="Profile" style={styles.photoCircleImg} />
+                {profile.profile_photo_url ? (
+                  <img src={profile.profile_photo_url} alt="Profile" style={styles.photoCircleImg} />
                 ) : (
                   <div style={styles.photoCirclePlaceholder}>{initials}</div>
                 )}
-                <span style={styles.photoCameraBadge} onClick={() => fileInputRef.current?.click()}>
+                <span style={styles.photoCameraBadge} onClick={openPhotoModal}>
                   <CameraIcon />
                 </span>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  style={{ display: 'none' }}
-                  onChange={e => { setProfilePhoto(e.target.files?.[0] || null) }}
-                />
               </div>
 
               <div style={styles.photoInfo}>
@@ -172,11 +218,7 @@ export default function Settings() {
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              style={styles.changePhotoBtn}
-            >
+            <button type="button" onClick={openPhotoModal} style={styles.changePhotoBtn}>
               <UploadIcon /> Change Photo
             </button>
             <div style={styles.photoHint}>JPG, PNG up to 5MB</div>
@@ -225,7 +267,6 @@ export default function Settings() {
 
         <form onSubmit={handleProfileSave}>
           {profileError && <div style={styles.errorBox}>{profileError}</div>}
-          {profileSuccess && <div style={styles.successBox}>{profileSuccess}</div>}
 
           <div style={{ ...styles.row, ...(isMobile ? styles.rowMobile : {}) }}>
             <div style={styles.fieldGroup}>
@@ -362,6 +403,51 @@ export default function Settings() {
           </button>
         </form>
       </div>
+
+      {showPhotoModal && (
+        <div style={modalStyles.overlay} onClick={closePhotoModal}>
+          <div style={modalStyles.modal} onClick={e => e.stopPropagation()}>
+            <h3 style={modalStyles.title}>Edit Profile Photo</h3>
+
+            {photoError && <div style={styles.errorBox}>{photoError}</div>}
+
+            <div style={modalStyles.previewWrap}>
+              {photoModalPreview ? (
+                <img src={photoModalPreview} alt="Preview" style={modalStyles.previewImg} />
+              ) : (
+                <div style={modalStyles.previewPlaceholder}>{initials}</div>
+              )}
+            </div>
+
+            <label style={styles.label}>Choose a new photo</label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={e => setPhotoFile(e.target.files?.[0] || null)}
+              style={styles.input}
+            />
+
+            <div style={modalStyles.actions}>
+              <button type="button" onClick={closePhotoModal} style={styles.cancelBtn}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSavePhoto}
+                disabled={photoSaving || !photoFile}
+                style={{
+                  ...styles.saveBtn,
+                  opacity: (photoSaving || !photoFile) ? 0.5 : 1,
+                  cursor: (photoSaving || !photoFile) ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {photoSaving ? 'Saving...' : 'Save Photo'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </FarmerLayout>
   )
 }
@@ -506,4 +592,24 @@ const styles = {
     padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '14px',
   },
   mismatchText: { fontSize: '12px', color: '#dc2626', marginTop: '2px' },
+}
+
+const modalStyles = {
+  overlay: {
+    position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.5)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '16px',
+  },
+  modal: {
+    backgroundColor: 'white', borderRadius: '14px', padding: '24px',
+    width: '400px', maxWidth: '100%', boxSizing: 'border-box',
+  },
+  title: { fontSize: '17px', fontWeight: '700', color: '#111827', marginTop: 0, marginBottom: '16px' },
+  previewWrap: { display: 'flex', justifyContent: 'center', marginBottom: '16px' },
+  previewImg: { width: '110px', height: '110px', borderRadius: '50%', objectFit: 'cover' },
+  previewPlaceholder: {
+    width: '110px', height: '110px', borderRadius: '50%', backgroundColor: '#2E7D32',
+    color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: '32px', fontWeight: '700',
+  },
+  actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '18px' },
 }

@@ -1110,16 +1110,6 @@ function Lightbox({ src, alt, onClose }) {
   )
 }
 
-function IconHouseSmall() {
-  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 11l9-8 9 8" /><path d="M5 10v10h14V10" /></svg>
-}
-function IconWifiSmall() {
-  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5a11 11 0 0 1 14 0" /><path d="M8.5 16a6 6 0 0 1 7 0" /><circle cx="12" cy="19.5" r="1" fill="#fff" stroke="none" /></svg>
-}
-function IconBulbSmall() {
-  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18h6" /><path d="M10 21h4" /><path d="M12 3a6 6 0 0 0-4 10.5c.7.6 1 1.3 1 2.5h6c0-1.2.3-1.9 1-2.5A6 6 0 0 0 12 3z" /></svg>
-}
-
 function ViewFarmModal({ farmId, onClose, isMobile }) {
   const { data: farm, loading, error } = useCachedFetch(`/admin/farms/${farmId}`)
   const [lightboxImage, setLightboxImage] = useState(null)
@@ -1173,8 +1163,6 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
 
         {farm && (
           <>
-            <div style={profileStyles.accentBar} />
-
             <div style={{ ...profileStyles.header, ...(isMobile ? profileStyles.headerMobile : {}) }}>
               <div style={profileStyles.avatarWrap}>
                 {farm.owner_profile_photo_url ? (
@@ -1214,7 +1202,7 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
 
               {activeTab === 'info' && (
                 <>
-                  <Section title="Farm Information" icon={<IconHouseSmall />}>
+                  <Section title="Farm Information">
                     <div style={profileStyles.infoGrid}>
                       <InfoCell label="Address" value={farm.address} />
                       <InfoCell label="Contact Number" value={farm.mobile_number} />
@@ -1225,7 +1213,7 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                     </div>
                   </Section>
 
-                  <Section title="Sensor & Monitoring" icon={<IconWifiSmall />}>
+                  <Section title="Sensor & Monitoring">
                     <div style={profileStyles.infoGrid}>
                       <InfoCell label="Device Name" value={reading?.sensor?.label || reading?.sensor?.sensor_code} />
                       <div>
@@ -1244,11 +1232,11 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
 
                     {reading ? (
                       <>
-                        <div style={{ ...profileStyles.sensorGrid, ...(isMobile ? profileStyles.sensorGridMobile : {}) }}>
+                        <div style={profileStyles.sensorList}>
                           <SensorStat label="Ammonia" value={reading.ammonia} unit="ppm" status={reading.ammonia_status} STATUS={STATUS} />
                           <SensorStat label="Temperature" value={reading.temperature} unit="°C" status={reading.temperature_status} STATUS={STATUS} />
                           <SensorStat label="Humidity" value={reading.humidity} unit="%" status={reading.humidity_status} STATUS={STATUS} />
-                          <SensorStat label="Moisture" value={reading.moisture} unit="%" status={reading.moisture_status} STATUS={STATUS} />
+                          <SensorStat label="Moisture" value={reading.moisture} unit="%" status={reading.moisture_status} STATUS={STATUS} last />
                         </div>
                         {riskLevel && (
                           <div style={profileStyles.overallRow}>
@@ -1266,13 +1254,10 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                   </Section>
 
                   {reading && (
-                    <Section title="AI Insight" icon={<IconBulbSmall />}>
+                    <Section title="AI Insight">
                       {insightLoading && <div style={profileStyles.empty}>Analyzing sensor data…</div>}
                       {!insightLoading && insight && (
                         <div style={profileStyles.insightCard}>
-                          <span style={profileStyles.insightIcon}>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2c8047" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v2" /><path d="m4.9 4.9 1.4 1.4" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m17.7 6.3 1.4-1.4" /><circle cx="12" cy="13" r="5" /></svg>
-                          </span>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={profileStyles.insightHeader}>
                               <span style={profileStyles.insightRootCause}>{insight.diagnosis.root_cause}</span>
@@ -1394,14 +1379,11 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
   )
 }
 
-function Section({ title, icon, children, badge, badgeColor }) {
+function Section({ title, children, badge, badgeColor }) {
   return (
     <div style={profileStyles.section}>
       <div style={profileStyles.sectionHeader}>
-        <div style={profileStyles.sectionTitleRow}>
-          {icon && <span style={profileStyles.sectionIcon}>{icon}</span>}
-          <span style={profileStyles.sectionTitle}>{title}</span>
-        </div>
+        <span style={profileStyles.sectionTitle}>{title}</span>
         {badge && (
           <span style={{ ...profileStyles.sectionBadge, color: badgeColor, backgroundColor: `${badgeColor}18` }}>{badge}</span>
         )}
@@ -1430,18 +1412,19 @@ function InfoCell({ label, value }) {
   )
 }
 
-function SensorStat({ label, value, unit, status, STATUS }) {
+function SensorStat({ label, value, unit, status, STATUS, last }) {
   const s = STATUS[status] || STATUS.Offline
   return (
-    <div style={profileStyles.sensorCard}>
-      <div style={profileStyles.sensorLabel}>{label}</div>
-      <div style={{ ...profileStyles.sensorValue, color: s.color }}>{value !== null && value !== undefined ? `${value} ${unit}` : '—'}</div>
-      {status && (
-        <div style={profileStyles.sensorStatusRow}>
-          <span style={{ ...profileStyles.pillDot, backgroundColor: s.color }} />
-          <span style={{ ...profileStyles.sensorStatus, color: s.color }}>{status}</span>
-        </div>
-      )}
+    <div style={{ ...profileStyles.sensorRow, ...(last ? profileStyles.sensorRowLast : {}) }}>
+      <span style={profileStyles.sensorRowLabel}>{label}</span>
+      <div style={profileStyles.sensorRowRight}>
+        <span style={{ ...profileStyles.sensorRowValue, color: s.color }}>
+          {value !== null && value !== undefined ? `${value} ${unit}` : '—'}
+        </span>
+        {status && (
+          <span style={{ ...profileStyles.sensorRowStatus, color: s.color }}>{status}</span>
+        )}
+      </div>
     </div>
   )
 }
@@ -1583,17 +1566,15 @@ const confirmStyles = {
 
 const profileStyles = {
   overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '16px', boxSizing: 'border-box' },
-  modal: { backgroundColor: '#fff', borderRadius: '16px', width: '660px', maxWidth: '94vw', maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 70px rgba(15,38,22,0.28)', border: '1px solid #e7e8e0', position: 'relative' },
+  modal: { backgroundColor: '#fff', borderRadius: '16px', width: '820px', maxWidth: '94vw', maxHeight: '92vh', overflowY: 'auto', border: '1px solid #e7e8e0', position: 'relative' },
   modalMobile: { width: '100%', maxWidth: '100%', borderRadius: '16px 16px 0 0', position: 'fixed', bottom: 0, left: 0, maxHeight: '92vh' },
   stateMsg: { padding: '48px 24px', textAlign: 'center', color: '#6b7770', fontSize: '14px' },
 
-  accentBar: { height: '6px', backgroundColor: '#1f5a34' },
-
-  header: { display: 'flex', alignItems: 'center', gap: '16px', padding: '20px 24px', borderBottom: '1px solid #f0efe8' },
+  header: { display: 'flex', alignItems: 'center', gap: '18px', padding: '24px 28px', borderBottom: '1px solid #f0efe8' },
   headerMobile: { padding: '18px 18px', gap: '12px' },
-  avatarWrap: { width: '60px', height: '60px', borderRadius: '50%', flexShrink: 0, overflow: 'hidden', backgroundColor: '#eaf3ec', border: '1px solid #d6e5da', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  avatarWrap: { width: '84px', height: '84px', borderRadius: '50%', flexShrink: 0, overflow: 'hidden', backgroundColor: '#eaf3ec', border: '1px solid #d6e5da', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   avatarImg: { width: '100%', height: '100%', objectFit: 'cover' },
-  avatarInitials: { fontSize: '20px', fontWeight: 700, color: '#2c8047', letterSpacing: '0.02em' },
+  avatarInitials: { fontSize: '26px', fontWeight: 700, color: '#2c8047', letterSpacing: '0.02em' },
   headerText: { flex: 1, minWidth: 0 },
   ownerNameLarge: { color: '#16311d', fontSize: '19px', fontWeight: 800, letterSpacing: '-0.01em', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   farmNameRow: { color: '#7b8a80', fontSize: '13px', marginTop: '3px' },
@@ -1601,20 +1582,18 @@ const profileStyles = {
   pillDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
   closeBtn: { width: '30px', height: '30px', borderRadius: '8px', border: '1px solid #eceee7', backgroundColor: '#fff', color: '#8a968d', fontSize: '17px', lineHeight: 1, cursor: 'pointer', flexShrink: 0 },
 
-  tabsRow: { display: 'flex', gap: '26px', padding: '0 24px', borderBottom: '1px solid #f0efe8', overflowX: 'auto' },
+  tabsRow: { display: 'flex', gap: '26px', padding: '0 28px', borderBottom: '1px solid #f0efe8', overflowX: 'auto' },
   tab: { border: 'none', background: 'none', padding: '14px 0 12px', fontFamily: 'inherit', fontSize: '13px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', color: '#8a968d', borderBottom: '2px solid transparent', marginBottom: '-1px' },
   tabActive: { color: '#2c8047', borderBottom: '2px solid #2c8047' },
 
-  body: { padding: '4px 24px 8px' },
+  body: { padding: '4px 28px 8px' },
 
-  section: { padding: '18px 0', borderBottom: '1px solid #f0efe8' },
+  section: { padding: '20px 0', borderBottom: '1px solid #f0efe8' },
   sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' },
-  sectionTitleRow: { display: 'flex', alignItems: 'center', gap: '10px' },
-  sectionIcon: { width: '26px', height: '26px', borderRadius: '8px', backgroundColor: '#2c8047', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   sectionTitle: { fontSize: '14px', fontWeight: 800, color: '#16311d' },
   sectionBadge: { padding: '3px 10px', borderRadius: '999px', fontSize: '10.5px', fontWeight: 700 },
 
-  infoGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px 28px' },
+  infoGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px 40px' },
   infoRow: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 20px', padding: '14px 0', borderBottom: '1px solid #f0efe8' },
   infoRowLast: { borderBottom: 'none', paddingBottom: '18px' },
   infoCell: {},
@@ -1622,13 +1601,13 @@ const profileStyles = {
   infoValue: { fontSize: '13.5px', color: '#16311d', fontWeight: 600, lineHeight: 1.4, wordBreak: 'break-word' },
   miniPill: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '3px 11px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap' },
 
-  sensorGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '12px', marginTop: '16px' },
-  sensorGridMobile: { gridTemplateColumns: 'repeat(2, 1fr)' },
-  sensorCard: { backgroundColor: '#fafbf8', border: '1px solid #eceee7', borderRadius: '12px', padding: '13px 15px' },
-  sensorLabel: { fontSize: '10px', color: '#8a968d', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' },
-  sensorValue: { fontSize: '18px', fontWeight: 800, marginTop: '6px' },
-  sensorStatusRow: { display: 'inline-flex', alignItems: 'center', gap: '5px', marginTop: '7px' },
-  sensorStatus: { fontSize: '11px', fontWeight: 700 },
+  sensorList: { marginTop: '18px', border: '1px solid #eceee7', borderRadius: '10px', overflow: 'hidden' },
+  sensorRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 16px', borderBottom: '1px solid #f2f3ed', backgroundColor: '#fff' },
+  sensorRowLast: { borderBottom: 'none' },
+  sensorRowLabel: { fontSize: '12.5px', color: '#6b7770', fontWeight: 600 },
+  sensorRowRight: { display: 'flex', alignItems: 'center', gap: '14px' },
+  sensorRowValue: { fontSize: '14px', fontWeight: 800 },
+  sensorRowStatus: { fontSize: '11px', fontWeight: 700 },
 
   overallRow: { display: 'flex', alignItems: 'center', gap: '10px', marginTop: '16px' },
   overallLabel: { fontSize: '12.5px', fontWeight: 600, color: '#6b7770' },
@@ -1636,8 +1615,7 @@ const profileStyles = {
 
   empty: { fontSize: '13px', color: '#9aa79d', marginTop: '12px' },
 
-  insightCard: { display: 'flex', gap: '13px', alignItems: 'flex-start', backgroundColor: '#fafbf8', border: '1px solid #eceee7', borderRadius: '12px', padding: '15px 16px' },
-  insightIcon: { width: '30px', height: '30px', borderRadius: '9px', backgroundColor: '#eaf3ec', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '1px' },
+  insightCard: { display: 'flex', gap: '13px', alignItems: 'flex-start', backgroundColor: '#fafbf8', border: '1px solid #eceee7', borderRadius: '12px', padding: '16px 18px' },
   insightHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' },
   insightRootCause: { fontSize: '13.5px', fontWeight: 800, color: '#16311d' },
   confidenceTag: { fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '999px' },
@@ -1657,7 +1635,7 @@ const profileStyles = {
   tabPagerBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   tabPagerInfo: { fontSize: '11.5px', color: '#8a968d' },
 
-  footer: { padding: '14px 24px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #f0efe8' },
+  footer: { padding: '14px 28px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #f0efe8' },
   closeFooterBtn: { padding: '9px 22px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#33413a', fontSize: '13px', fontWeight: 700, cursor: 'pointer' },
 }
 

@@ -6,7 +6,6 @@ import axios from 'axios'
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
   headers: {
-    'Content-Type': 'application/json',
     'Accept': 'application/json',
   },
 })
@@ -16,6 +15,16 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
+
+  // Only set Content-Type for plain JSON bodies. FormData requests
+  // (file uploads) must NOT have Content-Type set manually — axios
+  // needs to generate its own multipart boundary, and a fixed
+  // 'application/json' or hardcoded 'multipart/form-data' header
+  // (without a boundary) breaks the request server-side.
+  if (!(config.data instanceof FormData) && !config.headers['Content-Type']) {
+    config.headers['Content-Type'] = 'application/json'
+  }
+
   return config
 })
 

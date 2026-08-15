@@ -37,8 +37,8 @@ function bilingual(en, fil) {
 const STANDARD_SERVICES = [
   { type: 'Odor Control Request', reason: 'Request help managing odor around your poultry area.' },
   { type: 'Fly Control Request', reason: 'Request help controlling flies around your farm.' },
-  { type: 'Vaccine Request', reason: 'Request a vaccine visit for your flock.' },
-  { type: 'Blood Test Request', reason: 'Request a blood test for your flock.' },
+  { type: 'Vaccine Request', reason: 'Request a vaccine visit for your chickens.' },
+  { type: 'Blood Test Request', reason: 'Request a blood test for your chickens.' },
 ]
 
 function allServices(aiSuggestions) {

@@ -12,13 +12,17 @@ export default function Settings() {
   const [lastName, setLastName] = useState('')
   const [mobileNumber, setMobileNumber] = useState('')
   const [email, setEmail] = useState('')
-  const [profilePhoto, setProfilePhoto] = useState(null)
   const [isEditing, setIsEditing] = useState(false)
   const [profileError, setProfileError] = useState('')
   const [profileSuccess, setProfileSuccess] = useState('')
   const [profileLoading, setProfileLoading] = useState(false)
   const isMobile = useIsMobile()
   const fileInputRef = useRef(null)
+
+  const [showPhotoModal, setShowPhotoModal] = useState(false)
+  const [photoFile, setPhotoFile] = useState(null)
+  const [photoError, setPhotoError] = useState('')
+  const [photoSaving, setPhotoSaving] = useState(false)
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -34,16 +38,19 @@ export default function Settings() {
   const passwordsMatch = newPassword && newPassword === confirmPassword
   const canSubmitPassword = newPasswordValid && passwordsMatch
 
-  useEffect(() => {
-    api.get('/settings').then(res => {
+  const loadProfile = () => {
+    return api.get('/settings').then(res => {
       const data = res.data.data
       setProfile(data)
       setFirstName(data.first_name)
       setLastName(data.last_name)
       setMobileNumber(data.mobile_number || '')
       setEmail(data.email || '')
+      return data
     })
-  }, [])
+  }
+
+  useEffect(() => { loadProfile() }, [])
 
   const handleProfileSave = async (e) => {
     e.preventDefault()
@@ -57,24 +64,16 @@ export default function Settings() {
       formData.append('last_name', lastName)
       formData.append('mobile_number', mobileNumber)
       if (email) formData.append('email', email)
-      if (profilePhoto) formData.append('profile_photo', profilePhoto)
 
       await api.post('/settings/profile', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
         params: { _method: 'PUT' },
       })
 
-      const user = getUser()
-      setAuth(getToken(), { ...user, first_name: firstName, last_name: lastName })
+      const updated = await loadProfile()
 
-      setProfile({
-        ...profile,
-        first_name: firstName,
-        last_name: lastName,
-        mobile_number: mobileNumber,
-        email: email || null,
-      })
-      setProfilePhoto(null)
+      const user = getUser()
+      setAuth(getToken(), { ...user, first_name: updated.first_name, last_name: updated.last_name })
+
       setProfileSuccess('Profile updated successfully.')
       setIsEditing(false)
     } catch (err) {
@@ -89,9 +88,52 @@ export default function Settings() {
     setLastName(profile.last_name)
     setMobileNumber(profile.mobile_number || '')
     setEmail(profile.email || '')
-    setProfilePhoto(null)
     setIsEditing(false)
     setProfileError('')
+  }
+
+  const openPhotoModal = () => {
+    setPhotoFile(null)
+    setPhotoError('')
+    setShowPhotoModal(true)
+  }
+
+  const closePhotoModal = () => {
+    setShowPhotoModal(false)
+    setPhotoFile(null)
+    setPhotoError('')
+  }
+
+  const handleSavePhoto = async () => {
+    if (!photoFile) {
+      setPhotoError('Please choose a photo first.')
+      return
+    }
+
+    setPhotoError('')
+    setPhotoSaving(true)
+
+    try {
+      const formData = new FormData()
+      formData.append('first_name', profile.first_name)
+      formData.append('last_name', profile.last_name)
+      formData.append('mobile_number', profile.mobile_number || '')
+      if (profile.email) formData.append('email', profile.email)
+      formData.append('profile_photo', photoFile)
+
+      await api.post('/settings/profile', formData, {
+        params: { _method: 'PUT' },
+      })
+
+      await loadProfile()
+      setShowPhotoModal(false)
+      setPhotoFile(null)
+      setProfileSuccess('Profile photo updated successfully.')
+    } catch (err) {
+      setPhotoError(err.response?.data?.message || 'Failed to upload photo. Please try again.')
+    } finally {
+      setPhotoSaving(false)
+    }
   }
 
   const handlePasswordSave = async (e) => {
@@ -131,7 +173,7 @@ export default function Settings() {
   if (!profile) return <VetLayout><p>Loading...</p></VetLayout>
 
   const initials = `${profile.first_name?.[0] || ''}${profile.last_name?.[0] || ''}`.toUpperCase()
-  const photoPreview = profilePhoto ? URL.createObjectURL(profilePhoto) : profile.profile_photo_url
+  const photoModalPreview = photoFile ? URL.createObjectURL(photoFile) : profile.profile_photo_url
 
   return (
     <VetLayout>
@@ -141,40 +183,33 @@ export default function Settings() {
       <div style={{ ...styles.card, ...(isMobile ? styles.cardMobile : {}) }}>
         <h3 style={styles.sectionTitle}>Profile Photo</h3>
 
+        {profileSuccess && <div style={styles.successBox}>{profileSuccess}</div>}
+
         <div style={styles.photoBlock}>
-          <div style={styles.photoCircleWrap}>
-            {photoPreview ? (
-              <img src={photoPreview} alt="Profile" style={styles.photoCircleImg} />
-            ) : (
-              <div style={styles.photoCirclePlaceholder}>{initials}</div>
-            )}
-            <span style={styles.photoCameraBadge} onClick={() => fileInputRef.current?.click()}>
-              <CameraIcon />
-            </span>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              style={{ display: 'none' }}
-              onChange={e => setProfilePhoto(e.target.files?.[0] || null)}
-            />
+          <div style={{ ...styles.photoRow, ...(isMobile ? styles.photoRowMobile : {}) }}>
+            <div style={styles.photoCircleWrap}>
+              {profile.profile_photo_url ? (
+                <img src={profile.profile_photo_url} alt="Profile" style={styles.photoCircleImg} />
+              ) : (
+                <div style={styles.photoCirclePlaceholder}>{initials}</div>
+              )}
+              <span style={styles.photoCameraBadge} onClick={openPhotoModal}>
+                <CameraIcon />
+              </span>
+            </div>
+
+            <div style={styles.photoInfo}>
+              <div style={styles.photoName}>{profile.first_name} {profile.last_name}</div>
+              <div style={styles.photoRole}>Municipal Veterinarian</div>
+              {profile.email && <div style={styles.photoMeta}>{profile.email}</div>}
+              {profile.mobile_number && <div style={styles.photoMeta}>{profile.mobile_number}</div>}
+            </div>
           </div>
 
-          <div style={styles.photoTextBlock}>
-            <div style={styles.photoName}>{profile.first_name} {profile.last_name}</div>
-            <div style={styles.photoRole}>Municipal Veterinarian</div>
-            {profile.email && <div style={styles.photoMeta}>{profile.email}</div>}
-            {profile.mobile_number && <div style={styles.photoMeta}>{profile.mobile_number}</div>}
-
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              style={styles.changePhotoBtn}
-            >
-              <UploadIcon /> Change Photo
-            </button>
-            <div style={styles.photoHint}>JPG, PNG up to 5MB</div>
-          </div>
+          <button type="button" onClick={openPhotoModal} style={styles.changePhotoBtn}>
+            <UploadIcon /> Change Photo
+          </button>
+          <div style={styles.photoHint}>JPG, PNG up to 5MB</div>
         </div>
       </div>
 
@@ -190,7 +225,6 @@ export default function Settings() {
 
         <form onSubmit={handleProfileSave}>
           {profileError && <div style={styles.errorBox}>{profileError}</div>}
-          {profileSuccess && <div style={styles.successBox}>{profileSuccess}</div>}
 
           <div style={{ ...styles.row, ...(isMobile ? styles.rowMobile : {}) }}>
             <div style={styles.fieldGroup}>
@@ -327,6 +361,51 @@ export default function Settings() {
           </button>
         </form>
       </div>
+
+      {showPhotoModal && (
+        <div style={modalStyles.overlay} onClick={closePhotoModal}>
+          <div style={modalStyles.modal} onClick={e => e.stopPropagation()}>
+            <h3 style={modalStyles.title}>Edit Profile Photo</h3>
+
+            {photoError && <div style={styles.errorBox}>{photoError}</div>}
+
+            <div style={modalStyles.previewWrap}>
+              {photoModalPreview ? (
+                <img src={photoModalPreview} alt="Preview" style={modalStyles.previewImg} />
+              ) : (
+                <div style={modalStyles.previewPlaceholder}>{initials}</div>
+              )}
+            </div>
+
+            <label style={styles.label}>Choose a new photo</label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={e => setPhotoFile(e.target.files?.[0] || null)}
+              style={styles.input}
+            />
+
+            <div style={modalStyles.actions}>
+              <button type="button" onClick={closePhotoModal} style={styles.cancelBtn}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSavePhoto}
+                disabled={photoSaving || !photoFile}
+                style={{
+                  ...styles.saveBtn,
+                  opacity: (photoSaving || !photoFile) ? 0.5 : 1,
+                  cursor: (photoSaving || !photoFile) ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {photoSaving ? 'Saving...' : 'Save Photo'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </VetLayout>
   )
 }
@@ -392,29 +471,31 @@ const styles = {
     display: 'inline-flex', alignItems: 'center', gap: '6px',
   },
 
-  photoBlock: { display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' },
-  photoTextBlock: { minWidth: '180px' },
+  photoBlock: { display: 'flex', flexDirection: 'column' },
+  photoRow: { display: 'flex', alignItems: 'center', gap: '18px', marginBottom: '18px' },
+  photoRowMobile: { gap: '14px' },
+  photoInfo: { display: 'flex', flexDirection: 'column' },
   photoCircleWrap: { position: 'relative', flexShrink: 0 },
-  photoCircleImg: { width: '72px', height: '72px', borderRadius: '50%', objectFit: 'cover', display: 'block' },
+  photoCircleImg: { width: '84px', height: '84px', borderRadius: '50%', objectFit: 'cover', display: 'block' },
   photoCirclePlaceholder: {
-    width: '72px', height: '72px', borderRadius: '50%', backgroundColor: '#2E7D32',
+    width: '84px', height: '84px', borderRadius: '50%', backgroundColor: '#2E7D32',
     color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontSize: '24px', fontWeight: '700',
+    fontSize: '26px', fontWeight: '700',
   },
   photoCameraBadge: {
-    position: 'absolute', bottom: 0, right: 0, width: '24px', height: '24px', borderRadius: '50%',
+    position: 'absolute', bottom: 0, right: 0, width: '26px', height: '26px', borderRadius: '50%',
     backgroundColor: '#2E7D32', display: 'flex', alignItems: 'center', justifyContent: 'center',
     cursor: 'pointer', border: '2px solid white',
   },
-  photoName: { fontSize: '15px', fontWeight: '700', color: '#111827' },
-  photoRole: { fontSize: '13px', color: '#6b7280', marginTop: '2px' },
-  photoMeta: { fontSize: '12.5px', color: '#6b7280', marginTop: '4px' },
+  photoName: { fontSize: '17px', fontWeight: '700', color: '#111827' },
+  photoRole: { fontSize: '13.5px', color: '#6b7280', marginTop: '3px' },
+  photoMeta: { fontSize: '13px', color: '#374151', marginTop: '6px' },
   changePhotoBtn: {
-    marginTop: '12px', backgroundColor: 'white', color: '#2E7D32', border: '1px solid #2E7D32',
-    borderRadius: '8px', padding: '8px 14px', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
-    display: 'inline-flex', alignItems: 'center', gap: '7px',
+    backgroundColor: 'white', color: '#2E7D32', border: '1px solid #2E7D32',
+    borderRadius: '8px', padding: '9px 16px', fontSize: '13.5px', fontWeight: '600', cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center', gap: '7px', width: 'fit-content',
   },
-  photoHint: { fontSize: '11px', color: '#9ca3af', marginTop: '8px' },
+  photoHint: { fontSize: '11.5px', color: '#9ca3af', marginTop: '8px' },
 
   row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' },
   rowMobile: { gridTemplateColumns: '1fr', gap: '0px' },
@@ -449,4 +530,24 @@ const styles = {
     padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '14px',
   },
   mismatchText: { fontSize: '12px', color: '#dc2626', marginTop: '2px' },
+}
+
+const modalStyles = {
+  overlay: {
+    position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.5)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '16px',
+  },
+  modal: {
+    backgroundColor: 'white', borderRadius: '14px', padding: '24px',
+    width: '400px', maxWidth: '100%', boxSizing: 'border-box',
+  },
+  title: { fontSize: '17px', fontWeight: '700', color: '#111827', marginTop: 0, marginBottom: '16px' },
+  previewWrap: { display: 'flex', justifyContent: 'center', marginBottom: '16px' },
+  previewImg: { width: '110px', height: '110px', borderRadius: '50%', objectFit: 'cover' },
+  previewPlaceholder: {
+    width: '110px', height: '110px', borderRadius: '50%', backgroundColor: '#2E7D32',
+    color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: '32px', fontWeight: '700',
+  },
+  actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '18px' },
 }
