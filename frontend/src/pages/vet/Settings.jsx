@@ -136,16 +136,45 @@ export default function Settings() {
   return (
     <VetLayout>
       <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Settings</h1>
+      <p style={styles.pageSubtitle}>Manage your account and personal information.</p>
 
-      <div style={{ ...styles.profileCard, ...(isMobile ? styles.profileCardMobile : {}) }}>
-        {photoPreview ? (
-          <img src={photoPreview} alt="Profile" style={styles.avatarImg} />
-        ) : (
-          <div style={styles.avatar}>{initials}</div>
-        )}
-        <div>
-          <div style={styles.profileName}>{profile.first_name} {profile.last_name}</div>
-          <div style={styles.profileSub}>Municipal Veterinarian</div>
+      <div style={{ ...styles.card, ...(isMobile ? styles.cardMobile : {}) }}>
+        <h3 style={styles.sectionTitle}>Profile Photo</h3>
+
+        <div style={styles.photoBlock}>
+          <div style={styles.photoCircleWrap}>
+            {photoPreview ? (
+              <img src={photoPreview} alt="Profile" style={styles.photoCircleImg} />
+            ) : (
+              <div style={styles.photoCirclePlaceholder}>{initials}</div>
+            )}
+            <span style={styles.photoCameraBadge} onClick={() => fileInputRef.current?.click()}>
+              <CameraIcon />
+            </span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              style={{ display: 'none' }}
+              onChange={e => setProfilePhoto(e.target.files?.[0] || null)}
+            />
+          </div>
+
+          <div style={styles.photoTextBlock}>
+            <div style={styles.photoName}>{profile.first_name} {profile.last_name}</div>
+            <div style={styles.photoRole}>Municipal Veterinarian</div>
+            {profile.email && <div style={styles.photoMeta}>{profile.email}</div>}
+            {profile.mobile_number && <div style={styles.photoMeta}>{profile.mobile_number}</div>}
+
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              style={styles.changePhotoBtn}
+            >
+              <UploadIcon /> Change Photo
+            </button>
+            <div style={styles.photoHint}>JPG, PNG up to 5MB</div>
+          </div>
         </div>
       </div>
 
@@ -154,7 +183,7 @@ export default function Settings() {
           <h3 style={styles.sectionTitle}>Personal Information</h3>
           {!isEditing && (
             <button type="button" onClick={() => setIsEditing(true)} style={styles.editBtn}>
-              Edit
+              <EditIcon /> Edit
             </button>
           )}
         </div>
@@ -162,32 +191,6 @@ export default function Settings() {
         <form onSubmit={handleProfileSave}>
           {profileError && <div style={styles.errorBox}>{profileError}</div>}
           {profileSuccess && <div style={styles.successBox}>{profileSuccess}</div>}
-
-          {isEditing && (
-            <div style={styles.photoUploadWrap}>
-              <div style={styles.photoPreviewCircle} onClick={() => fileInputRef.current?.click()}>
-                {photoPreview ? (
-                  <img src={photoPreview} alt="Preview" style={styles.photoPreviewImg} />
-                ) : (
-                  <span style={styles.photoPlaceholder}>+</span>
-                )}
-              </div>
-              <div>
-                <div style={styles.photoUploadLabel}>Profile Photo</div>
-                <div style={styles.photoUploadHint}>Optional. JPG or PNG, up to 5MB.</div>
-                <span style={styles.photoUploadBtn} onClick={() => fileInputRef.current?.click()}>
-                  {photoPreview ? 'Change photo' : 'Upload photo'}
-                </span>
-              </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                style={{ display: 'none' }}
-                onChange={e => setProfilePhoto(e.target.files?.[0] || null)}
-              />
-            </div>
-          )}
 
           <div style={{ ...styles.row, ...(isMobile ? styles.rowMobile : {}) }}>
             <div style={styles.fieldGroup}>
@@ -210,26 +213,27 @@ export default function Settings() {
             </div>
           </div>
 
-          <div style={styles.fieldGroup}>
-            <label style={styles.label}>Mobile Number</label>
-            <input
-              value={mobileNumber}
-              onChange={e => setMobileNumber(e.target.value)}
-              disabled={!isEditing}
-              style={{ ...styles.input, ...(!isEditing ? styles.inputDisabled : {}) }}
-            />
-          </div>
-
-          <div style={styles.fieldGroup}>
-            <label style={styles.label}>Email Address</label>
-            <input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              disabled={!isEditing}
-              placeholder={isEditing ? 'Optional' : ''}
-              style={{ ...styles.input, ...(!isEditing ? styles.inputDisabled : {}) }}
-            />
+          <div style={{ ...styles.row, ...(isMobile ? styles.rowMobile : {}) }}>
+            <div style={styles.fieldGroup}>
+              <label style={styles.label}>Email Address</label>
+              <input
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                disabled={!isEditing}
+                placeholder={isEditing ? 'Optional' : ''}
+                style={{ ...styles.input, ...(!isEditing ? styles.inputDisabled : {}) }}
+              />
+            </div>
+            <div style={styles.fieldGroup}>
+              <label style={styles.label}>Mobile Number</label>
+              <input
+                value={mobileNumber}
+                onChange={e => setMobileNumber(e.target.value)}
+                disabled={!isEditing}
+                style={{ ...styles.input, ...(!isEditing ? styles.inputDisabled : {}) }}
+              />
+            </div>
           </div>
 
           {isEditing && (
@@ -343,51 +347,74 @@ function EyeOffIcon() {
   )
 }
 
+function CameraIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+      <circle cx="12" cy="13" r="4" />
+    </svg>
+  )
+}
+
+function UploadIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="17 8 12 3 7 8" />
+      <line x1="12" y1="3" x2="12" y2="15" />
+    </svg>
+  )
+}
+
+function EditIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+    </svg>
+  )
+}
+
 const styles = {
-  title: { fontSize: '22px', fontWeight: '700', color: '#111827', marginBottom: '24px' },
-  titleMobile: { fontSize: '18px', marginBottom: '16px' },
-  profileCard: {
-    display: 'flex', alignItems: 'center', gap: '16px',
-    backgroundColor: 'white', borderRadius: '12px', padding: '24px',
-    marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-  },
-  profileCardMobile: { padding: '16px', gap: '12px' },
-  avatar: {
-    width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#2E7D32',
-    color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontSize: '20px', fontWeight: '700', flexShrink: 0,
-  },
-  avatarImg: {
-    width: '56px', height: '56px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0,
-  },
-  profileName: { fontSize: '16px', fontWeight: '700', color: '#111827' },
-  profileSub: { fontSize: '13px', color: '#6b7280' },
+  title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
+  titleMobile: { fontSize: '18px' },
+  pageSubtitle: { fontSize: '13.5px', color: '#6b7280', marginTop: '4px', marginBottom: '24px' },
+
   card: {
     backgroundColor: 'white', borderRadius: '12px', padding: '24px',
     marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
   },
   cardMobile: { padding: '16px' },
   sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
-  sectionTitle: { fontSize: '15px', fontWeight: '700', color: '#111827', margin: 0 },
+  sectionTitle: { fontSize: '13px', fontWeight: '700', color: '#374151', margin: 0, marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.03em' },
   editBtn: {
     backgroundColor: 'white', color: '#2E7D32', border: '1px solid #2E7D32',
     borderRadius: '8px', padding: '6px 14px', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center', gap: '6px',
   },
 
-  photoUploadWrap: {
-    display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '18px',
-    padding: '12px', backgroundColor: '#f9fafb', borderRadius: '10px', border: '1px solid #eceee7',
+  photoBlock: { display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' },
+  photoTextBlock: { minWidth: '180px' },
+  photoCircleWrap: { position: 'relative', flexShrink: 0 },
+  photoCircleImg: { width: '72px', height: '72px', borderRadius: '50%', objectFit: 'cover', display: 'block' },
+  photoCirclePlaceholder: {
+    width: '72px', height: '72px', borderRadius: '50%', backgroundColor: '#2E7D32',
+    color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: '24px', fontWeight: '700',
   },
-  photoPreviewCircle: {
-    width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#eaf3ec',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-    flexShrink: 0, overflow: 'hidden', border: '2px dashed #cfe0d3',
+  photoCameraBadge: {
+    position: 'absolute', bottom: 0, right: 0, width: '24px', height: '24px', borderRadius: '50%',
+    backgroundColor: '#2E7D32', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer', border: '2px solid white',
   },
-  photoPreviewImg: { width: '100%', height: '100%', objectFit: 'cover' },
-  photoPlaceholder: { fontSize: '22px', color: '#2E7D32', fontWeight: '700' },
-  photoUploadLabel: { fontSize: '13px', fontWeight: '700', color: '#111827' },
-  photoUploadHint: { fontSize: '11.5px', color: '#9ca3af', marginTop: '2px' },
-  photoUploadBtn: { fontSize: '12px', fontWeight: '700', color: '#2E7D32', cursor: 'pointer', marginTop: '4px', display: 'inline-block' },
+  photoName: { fontSize: '15px', fontWeight: '700', color: '#111827' },
+  photoRole: { fontSize: '13px', color: '#6b7280', marginTop: '2px' },
+  photoMeta: { fontSize: '12.5px', color: '#6b7280', marginTop: '4px' },
+  changePhotoBtn: {
+    marginTop: '12px', backgroundColor: 'white', color: '#2E7D32', border: '1px solid #2E7D32',
+    borderRadius: '8px', padding: '8px 14px', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center', gap: '7px',
+  },
+  photoHint: { fontSize: '11px', color: '#9ca3af', marginTop: '8px' },
 
   row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' },
   rowMobile: { gridTemplateColumns: '1fr', gap: '0px' },

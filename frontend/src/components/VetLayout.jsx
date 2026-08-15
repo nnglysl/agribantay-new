@@ -9,7 +9,7 @@ const navItems = [
 
 export default function VetLayout({ children }) {
   return (
-    <DashboardLayout navItems={navItems} roleLabel="Municipal Veterinarian" logoutRedirect="/login">
+    <DashboardLayout navItems={navItems} roleLabel="Municipal Veterinarian" logoutRedirect="/login" hideSidebarUserInfo>
       {children}
     </DashboardLayout>
   )

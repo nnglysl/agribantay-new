@@ -80,10 +80,6 @@ function groupByRecency(notifications) {
   return groups
 }
 
-// Icon per notification type — matches the existing 'type' enum values
-// (Sensor Alert, Request Update, Vet Assigned, Inspection Completed,
-// System) plus the new 'maintenance_overdue' type from the compliance
-// system, so the icon gives an at-a-glance sense of category.
 function NotificationIcon({ type }) {
   const common = { width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: '#2c8047', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round' }
   switch (type) {
@@ -238,11 +234,15 @@ function NotificationBell() {
 /**
  * Unified sidebar/layout for every role.
  * Props:
- *   navItems       — [{ label, path, icon, section? }]  (role-specific menu)
- *   roleLabel      — string shown under the user's name
- *   logoutRedirect — path to navigate to after logging out (default '/')
+ *   navItems             — [{ label, path, icon, section? }]  (role-specific menu)
+ *   roleLabel            — string shown under the user's name
+ *   logoutRedirect       — path to navigate to after logging out (default '/')
+ *   hideSidebarUserInfo  — when true, hides just the avatar/name/role block
+ *                           at the bottom of the sidebar (used by FarmerLayout,
+ *                           since that info is redundant with the topbar).
+ *                           "Log out" stays in the sidebar either way.
  */
-export default function DashboardLayout({ children, navItems = [], roleLabel = '', logoutRedirect = '/' }) {
+export default function DashboardLayout({ children, navItems = [], roleLabel = '', logoutRedirect = '/', hideSidebarUserInfo = false }) {
   const navigate = useNavigate()
   const location = useLocation()
   const user = getUser()
@@ -316,15 +316,17 @@ export default function DashboardLayout({ children, navItems = [], roleLabel = '
         </nav>
 
         <div style={styles.sidebarFooter}>
-          <div style={styles.userMini}>
-            <span style={styles.userAvatar}>
-              {(user.first_name?.[0] || '') + (user.last_name?.[0] || '')}
-            </span>
-            <div style={{ minWidth: 0 }}>
-              <div style={styles.userMiniName}>{user.first_name} {user.last_name}</div>
-              <div style={styles.userMiniRole}>{roleLabel}</div>
+          {!hideSidebarUserInfo && (
+            <div style={styles.userMini}>
+              <span style={styles.userAvatar}>
+                {(user.first_name?.[0] || '') + (user.last_name?.[0] || '')}
+              </span>
+              <div style={{ minWidth: 0 }}>
+                <div style={styles.userMiniName}>{user.first_name} {user.last_name}</div>
+                <div style={styles.userMiniRole}>{roleLabel}</div>
+              </div>
             </div>
-          </div>
+          )}
           <div style={styles.logout} className="agb-logout" onClick={() => setShowLogoutConfirm(true)}>
             <IconLogout color="#e6b455" />
             Log out

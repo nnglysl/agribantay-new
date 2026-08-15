@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import api from '../../api/axios'
 import FarmerLayout from '../../components/FarmerLayout'
 import { getUser, setAuth, getToken } from '../../utils/auth'
@@ -10,12 +10,15 @@ export default function Settings() {
   const [profile, setProfile] = useState(null)
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
-  const [contact, setContact] = useState('')
+  const [mobileNumber, setMobileNumber] = useState('')
+  const [email, setEmail] = useState('')
+  const [profilePhoto, setProfilePhoto] = useState(null)
   const [isEditing, setIsEditing] = useState(false)
   const [profileError, setProfileError] = useState('')
   const [profileSuccess, setProfileSuccess] = useState('')
   const [profileLoading, setProfileLoading] = useState(false)
   const isMobile = useIsMobile()
+  const fileInputRef = useRef(null)
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -37,7 +40,8 @@ export default function Settings() {
       setProfile(data)
       setFirstName(data.first_name)
       setLastName(data.last_name)
-      setContact(data.mobile_number || data.email || '')
+      setMobileNumber(data.mobile_number || '')
+      setEmail(data.email || '')
     })
   }, [])
 
@@ -48,23 +52,29 @@ export default function Settings() {
     setProfileLoading(true)
 
     try {
-      await api.put('/settings/profile', {
-        first_name: firstName,
-        last_name: lastName,
-        contact,
+      const formData = new FormData()
+      formData.append('first_name', firstName)
+      formData.append('last_name', lastName)
+      formData.append('mobile_number', mobileNumber)
+      if (email) formData.append('email', email)
+      if (profilePhoto) formData.append('profile_photo', profilePhoto)
+
+      await api.post('/settings/profile', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        params: { _method: 'PUT' },
       })
 
       const user = getUser()
       setAuth(getToken(), { ...user, first_name: firstName, last_name: lastName })
 
-      const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.trim())
       setProfile({
         ...profile,
         first_name: firstName,
         last_name: lastName,
-        email: isEmail ? contact : profile.email,
-        mobile_number: isEmail ? profile.mobile_number : contact,
+        mobile_number: mobileNumber,
+        email: email || null,
       })
+      setProfilePhoto(null)
       setProfileSuccess('Profile updated successfully.')
       setIsEditing(false)
     } catch (err) {
@@ -77,7 +87,9 @@ export default function Settings() {
   const handleCancelEdit = () => {
     setFirstName(profile.first_name)
     setLastName(profile.last_name)
-    setContact(profile.mobile_number || profile.email || '')
+    setMobileNumber(profile.mobile_number || '')
+    setEmail(profile.email || '')
+    setProfilePhoto(null)
     setIsEditing(false)
     setProfileError('')
   }
@@ -119,53 +131,94 @@ export default function Settings() {
   if (!profile) return <FarmerLayout><p>Loading...</p></FarmerLayout>
 
   const initials = `${profile.first_name?.[0] || ''}${profile.last_name?.[0] || ''}`.toUpperCase()
+  const photoPreview = profilePhoto ? URL.createObjectURL(profilePhoto) : profile.profile_photo_url
   const farm = profile.farm
 
   return (
     <FarmerLayout>
       <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Settings</h1>
+      <p style={styles.pageSubtitle}>Manage your account, farm, and security settings.</p>
 
-      <div style={{ ...styles.profileCard, ...(isMobile ? styles.profileCardMobile : {}) }}>
-        <div style={styles.avatar}>{initials}</div>
-        <div>
-          <div style={styles.profileName}>{profile.first_name} {profile.last_name}</div>
-          <div style={styles.profileSub}>Farm Owner</div>
-        </div>
-      </div>
-
-      {farm && (
+      <div style={{ ...styles.topGrid, ...(isMobile ? styles.topGridMobile : {}) }}>
+        {/* Profile Photo card */}
         <div style={{ ...styles.card, ...(isMobile ? styles.cardMobile : {}) }}>
-          <h3 style={styles.sectionTitle}>Farm Information</h3>
+          <h3 style={styles.sectionTitle}>Profile Photo</h3>
 
-          <div style={styles.readonlyRow}>
-            <span style={styles.readonlyLabel}>Farm Name</span>
-            <span style={styles.readonlyValue}>{farm.farm_name}</span>
-          </div>
-          <div style={styles.readonlyRow}>
-            <span style={styles.readonlyLabel}>Barangay</span>
-            <span style={styles.readonlyValue}>{farm.barangay}</span>
-          </div>
-          <div style={styles.readonlyRow}>
-            <span style={styles.readonlyLabel}>Address</span>
-            <span style={styles.readonlyValue}>{farm.address}</span>
-          </div>
-          <div style={styles.readonlyRow}>
-            <span style={styles.readonlyLabel}>Farm Size</span>
-            <span style={styles.readonlyValue}>{farm.farm_size}</span>
-          </div>
+          <div style={styles.photoBlock}>
+            <div style={{ ...styles.photoRow, ...(isMobile ? styles.photoRowMobile : {}) }}>
+              <div style={styles.photoCircleWrap}>
+                {photoPreview ? (
+                  <img src={photoPreview} alt="Profile" style={styles.photoCircleImg} />
+                ) : (
+                  <div style={styles.photoCirclePlaceholder}>{initials}</div>
+                )}
+                <span style={styles.photoCameraBadge} onClick={() => fileInputRef.current?.click()}>
+                  <CameraIcon />
+                </span>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={e => { setProfilePhoto(e.target.files?.[0] || null) }}
+                />
+              </div>
 
-          <p style={styles.farmNote}>
-            To update your farm's registered address, please contact the Municipal Agriculture Office.
-          </p>
+              <div style={styles.photoInfo}>
+                <div style={styles.photoName}>{profile.first_name} {profile.last_name}</div>
+                <div style={styles.photoRole}>Farm Owner</div>
+                {profile.email && <div style={styles.photoMeta}>{profile.email}</div>}
+                {profile.mobile_number && <div style={styles.photoMeta}>{profile.mobile_number}</div>}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              style={styles.changePhotoBtn}
+            >
+              <UploadIcon /> Change Photo
+            </button>
+            <div style={styles.photoHint}>JPG, PNG up to 5MB</div>
+          </div>
         </div>
-      )}
+
+        {/* Farm Information card */}
+        {farm && (
+          <div style={{ ...styles.card, ...(isMobile ? styles.cardMobile : {}) }}>
+            <h3 style={styles.sectionTitle}>Farm Information</h3>
+
+            <div style={styles.readonlyRow}>
+              <span style={styles.readonlyLabel}>Farm Name</span>
+              <span style={styles.readonlyValue}>{farm.farm_name}</span>
+            </div>
+            <div style={styles.readonlyRow}>
+              <span style={styles.readonlyLabel}>Barangay</span>
+              <span style={styles.readonlyValue}>{farm.barangay}</span>
+            </div>
+            <div style={styles.readonlyRow}>
+              <span style={styles.readonlyLabel}>Address</span>
+              <span style={styles.readonlyValue}>{farm.address}</span>
+            </div>
+            <div style={styles.readonlyRow}>
+              <span style={styles.readonlyLabel}>Farm Size</span>
+              <span style={styles.readonlyValue}>{farm.farm_size}</span>
+            </div>
+
+            <p style={styles.farmNote}>
+              <InfoIcon /> To update your farm's registered address, please contact
+              the Municipal Agriculture Office.
+            </p>
+          </div>
+        )}
+      </div>
 
       <div style={{ ...styles.card, ...(isMobile ? styles.cardMobile : {}) }}>
         <div style={styles.sectionHeader}>
           <h3 style={styles.sectionTitle}>Personal Information</h3>
           {!isEditing && (
             <button type="button" onClick={() => setIsEditing(true)} style={styles.editBtn}>
-              Edit
+              <EditIcon /> Edit
             </button>
           )}
         </div>
@@ -195,14 +248,27 @@ export default function Settings() {
             </div>
           </div>
 
-          <div style={styles.fieldGroup}>
-            <label style={styles.label}>Email or Mobile Number</label>
-            <input
-              value={contact}
-              onChange={e => setContact(e.target.value)}
-              disabled={!isEditing}
-              style={{ ...styles.input, ...(!isEditing ? styles.inputDisabled : {}) }}
-            />
+          <div style={{ ...styles.row, ...(isMobile ? styles.rowMobile : {}) }}>
+            <div style={styles.fieldGroup}>
+              <label style={styles.label}>Email Address</label>
+              <input
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                disabled={!isEditing}
+                placeholder={isEditing ? 'Optional' : ''}
+                style={{ ...styles.input, ...(!isEditing ? styles.inputDisabled : {}) }}
+              />
+            </div>
+            <div style={styles.fieldGroup}>
+              <label style={styles.label}>Mobile Number</label>
+              <input
+                value={mobileNumber}
+                onChange={e => setMobileNumber(e.target.value)}
+                disabled={!isEditing}
+                style={{ ...styles.input, ...(!isEditing ? styles.inputDisabled : {}) }}
+              />
+            </div>
           </div>
 
           {isEditing && (
@@ -316,33 +382,89 @@ function EyeOffIcon() {
   )
 }
 
+function CameraIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+      <circle cx="12" cy="13" r="4" />
+    </svg>
+  )
+}
+
+function UploadIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="17 8 12 3 7 8" />
+      <line x1="12" y1="3" x2="12" y2="15" />
+    </svg>
+  )
+}
+
+function EditIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+    </svg>
+  )
+}
+
+function InfoIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: '-2px', marginRight: '5px' }}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 16v-5M12 8h.01" />
+    </svg>
+  )
+}
+
 const styles = {
-  title: { fontSize: '22px', fontWeight: '700', color: '#111827', marginBottom: '24px' },
-  titleMobile: { fontSize: '18px', marginBottom: '16px' },
-  profileCard: {
-    display: 'flex', alignItems: 'center', gap: '16px',
-    backgroundColor: 'white', borderRadius: '12px', padding: '24px',
-    marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-  },
-  profileCardMobile: { padding: '16px', gap: '12px' },
-  avatar: {
-    width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#2E7D32',
-    color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontSize: '20px', fontWeight: '700', flexShrink: 0,
-  },
-  profileName: { fontSize: '16px', fontWeight: '700', color: '#111827' },
-  profileSub: { fontSize: '13px', color: '#6b7280' },
+  title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
+  titleMobile: { fontSize: '18px' },
+  pageSubtitle: { fontSize: '13.5px', color: '#6b7280', marginTop: '4px', marginBottom: '24px' },
+
+  topGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px', alignItems: 'start' },
+  topGridMobile: { gridTemplateColumns: '1fr' },
+
   card: {
     backgroundColor: 'white', borderRadius: '12px', padding: '24px',
     marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
   },
   cardMobile: { padding: '16px' },
   sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
-  sectionTitle: { fontSize: '15px', fontWeight: '700', color: '#111827', margin: 0, marginBottom: '4px' },
+  sectionTitle: { fontSize: '13px', fontWeight: '700', color: '#374151', margin: 0, marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.03em' },
   editBtn: {
     backgroundColor: 'white', color: '#2E7D32', border: '1px solid #2E7D32',
     borderRadius: '8px', padding: '6px 14px', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center', gap: '6px',
   },
+
+  photoBlock: { display: 'flex', flexDirection: 'column' },
+  photoRow: { display: 'flex', alignItems: 'center', gap: '18px', marginBottom: '18px' },
+  photoRowMobile: { gap: '14px' },
+  photoInfo: { display: 'flex', flexDirection: 'column' },
+  photoCircleWrap: { position: 'relative', flexShrink: 0 },
+  photoCircleImg: { width: '84px', height: '84px', borderRadius: '50%', objectFit: 'cover', display: 'block' },
+  photoCirclePlaceholder: {
+    width: '84px', height: '84px', borderRadius: '50%', backgroundColor: '#2E7D32',
+    color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: '26px', fontWeight: '700',
+  },
+  photoCameraBadge: {
+    position: 'absolute', bottom: 0, right: 0, width: '26px', height: '26px', borderRadius: '50%',
+    backgroundColor: '#2E7D32', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer', border: '2px solid white',
+  },
+  photoName: { fontSize: '17px', fontWeight: '700', color: '#111827' },
+  photoRole: { fontSize: '13.5px', color: '#6b7280', marginTop: '3px' },
+  photoMeta: { fontSize: '13px', color: '#374151', marginTop: '6px' },
+  changePhotoBtn: {
+    backgroundColor: 'white', color: '#2E7D32', border: '1px solid #2E7D32',
+    borderRadius: '8px', padding: '9px 16px', fontSize: '13.5px', fontWeight: '600', cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center', gap: '7px', width: 'fit-content',
+  },
+  photoHint: { fontSize: '11.5px', color: '#9ca3af', marginTop: '8px' },
+
   readonlyRow: {
     display: 'flex', justifyContent: 'space-between', gap: '12px',
     padding: '10px 0', borderBottom: '1px solid #f3f4f6', fontSize: '13px',
@@ -350,6 +472,7 @@ const styles = {
   readonlyLabel: { color: '#6b7280', fontWeight: '500' },
   readonlyValue: { color: '#111827', fontWeight: '600', textAlign: 'right' },
   farmNote: { fontSize: '12px', color: '#9ca3af', marginTop: '14px', marginBottom: 0, lineHeight: '1.5' },
+
   row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' },
   rowMobile: { gridTemplateColumns: '1fr', gap: '0px' },
   fieldGroup: { display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '14px' },

@@ -9,7 +9,7 @@ const navItems = [
 
 export default function FarmerLayout({ children }) {
   return (
-    <DashboardLayout navItems={navItems} roleLabel="Farm Owner" logoutRedirect="/">
+    <DashboardLayout navItems={navItems} roleLabel="Farm Owner" logoutRedirect="/" hideSidebarUserInfo>
       {children}
     </DashboardLayout>
   )

@@ -20,7 +20,7 @@ export default function AdminLayout({ children }) {
   ]
 
   return (
-    <DashboardLayout navItems={navItems} roleLabel={isSuper ? 'Super Administrator' : 'Administrator'} logoutRedirect="/">
+    <DashboardLayout navItems={navItems} roleLabel={isSuper ? 'Super Administrator' : 'Administrator'} logoutRedirect="/" hideSidebarUserInfo>
       {children}
     </DashboardLayout>
   )

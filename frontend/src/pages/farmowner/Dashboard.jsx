@@ -23,6 +23,31 @@ function bilingual(en, fil) {
   return `${en} (${fil})`
 }
 
+// The AI/root-cause engine only suggests services relevant to whatever
+// it diagnosed from the current sensor readings (e.g. manure buildup ->
+// Odor Control + Fly Control). Vaccine and Blood Test aren't tied to
+// any sensor value, so they never get suggested that way. This merges
+// in a generic fallback entry for any of the four standard services
+// the AI list didn't already include, so the farmer always sees the
+// full set to choose from.
+//
+// These type strings match the exact <option value="..."> values in
+// ServiceRequests.jsx's RequestModal — keep them in sync if that form
+// ever changes.
+const STANDARD_SERVICES = [
+  { type: 'Odor Control Request', reason: 'Request help managing odor around your poultry area.' },
+  { type: 'Fly Control Request', reason: 'Request help controlling flies around your farm.' },
+  { type: 'Vaccine Request', reason: 'Request a vaccine visit for your flock.' },
+  { type: 'Blood Test Request', reason: 'Request a blood test for your flock.' },
+]
+
+function allServices(aiSuggestions) {
+  const suggested = aiSuggestions || []
+  const suggestedTypes = new Set(suggested.map(s => s.type))
+  const fallback = STANDARD_SERVICES.filter(s => !suggestedTypes.has(s.type))
+  return [...suggested, ...fallback]
+}
+
 const responsiveCss = `
   .fd-hero {
     display: flex;
@@ -68,7 +93,7 @@ const responsiveCss = `
 
 export default function FarmerDashboard() {
   const { data, loading, error, refetch } = useCachedFetch('/farmer/dashboard')
-  const { data: insight, insightLoading, refetch: refetchInsight } = useCachedFetch('/farmer/insights')
+  const { data: insight, loading: insightLoading, refetch: refetchInsight } = useCachedFetch('/farmer/insights')
   const { data: maintenance } = useCachedFetch('/farmer/maintenance')
   const { data: disposalRecords } = useCachedFetch('/farmer/disposal-records')
   const navigate = useNavigate()
@@ -121,8 +146,8 @@ export default function FarmerDashboard() {
       </div>
 
       {/* ---------------------------------------------- Farm conditions (bilingual, no raw numbers) */}
-      <div style={styles.sectionTitle}>Conditions Inside the Coop</div>
-      <div style={styles.sectionSub}>A simple check of your chickens' living conditions right now, based on your farm sensors.</div>
+      <div style={styles.sectionTitle}>Your Chickens Today</div>
+      <div style={styles.sectionSub}>See how your chickens are doing based on your farm's latest sensor readings.</div>
 
       <div className="fd-conditions-grid">
         <SensorFeel type="ammonia" status={data.ammonia_status} />
@@ -210,26 +235,22 @@ export default function FarmerDashboard() {
         <div style={styles.card}>
           <div style={styles.cardTitle}>Municipal Services</div>
 
-          {insight?.service_suggestions?.length > 0 ? (
-            <div style={{ marginTop: '14px' }}>
-              {insight.service_suggestions.map((s, i) => (
-                <div key={i} className="fd-service-row">
-                  <div style={styles.serviceLeft}>
-                    <span style={styles.serviceIcon}><ServiceIcon type={s.type} /></span>
-                    <div>
-                      <div style={styles.serviceName}>{s.type.replace(' Request', '')}</div>
-                      <div style={styles.serviceReason}>{s.reason}</div>
-                    </div>
+          <div style={{ marginTop: '14px' }}>
+            {allServices(insight?.service_suggestions).map((s, i) => (
+              <div key={i} className="fd-service-row">
+                <div style={styles.serviceLeft}>
+                  <span style={styles.serviceIcon}><ServiceIcon type={s.type} /></span>
+                  <div>
+                    <div style={styles.serviceName}>{s.type.replace(' Request', '')}</div>
+                    <div style={styles.serviceReason}>{s.reason}</div>
                   </div>
-                  <button style={styles.serviceBtn} onClick={() => goToServiceRequest(s.type)}>
-                    Request
-                  </button>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <p style={styles.emptyText}>—</p>
-          )}
+                <button style={styles.serviceBtn} onClick={() => goToServiceRequest(s.type)}>
+                  Request
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </FarmerLayout>
@@ -345,7 +366,7 @@ function ServiceIcon({ type }) {
   const p = { width: 18, height: 18, viewBox: '0 0 24 24', ...iconBase, strokeWidth: 1.8, style: { color: '#1B4332' } }
   if (t.includes('odor')) return <svg {...p}><path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2" /><path d="M9.6 4.6A2 2 0 1 1 11 8H2" /><path d="M12.6 19.4A2 2 0 1 0 14 16H2" /></svg>
   if (t.includes('fly')) return <svg {...p}><circle cx="12" cy="12" r="3" /><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8" /></svg>
-  if (t.includes('vaccin') || t.includes('bakuna')) return <svg {...p}><path d="M18 2 22 6" /><path d="M17 7 20 4l-3-3-3 3" /><path d="M8 12l8-8 4 4-8 8" /><path d="M8 12 3 17v4h4l5-5" /></svg>
+  if (t.includes('vaccin')) return <svg {...p}><path d="M18 2 22 6" /><path d="M17 7 20 4l-3-3-3 3" /><path d="M8 12l8-8 4 4-8 8" /><path d="M8 12 3 17v4h4l5-5" /></svg>
   if (t.includes('blood')) return <svg {...p}><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5S5 13 5 15a7 7 0 0 0 7 7z" /></svg>
   return <svg {...p}><circle cx="12" cy="12" r="9" /></svg>
 }
