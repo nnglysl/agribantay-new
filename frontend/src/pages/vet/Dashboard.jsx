@@ -30,9 +30,9 @@ export default function VetDashboard() {
       <p style={styles.subtitle}>Municipal Veterinarian — San Jose, Batangas</p>
 
       <div style={{ ...styles.statsGrid, ...(isMobile ? styles.statsGridMobile : {}) }}>
-        <StatCard value={data.assigned_requests ?? 0} label="Assigned Requests" foot="All requests routed to you" isMobile={isMobile} />
-        <StatCard value={data.pending ?? 0} label="Pending" foot="Awaiting action" isMobile={isMobile} />
-        <StatCard value={data.completed ?? 0} label="Completed" foot="Closed out" isMobile={isMobile} />
+        <StatCard value={data.assigned_requests ?? 0} label="Assigned Requests" isMobile={isMobile} />
+        <StatCard value={data.pending ?? 0} label="Pending" isMobile={isMobile} />
+        <StatCard value={data.completed ?? 0} label="Completed" isMobile={isMobile} />
       </div>
 
       <h3 style={styles.mapTitle}>Scheduled visits map</h3>

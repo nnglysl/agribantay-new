@@ -55,7 +55,6 @@ function emptyFarm() {
     farm_name: '',
     farm_size: '',
     barangay: '',
-    landmark: '',
     address: '',
     latitude: null,
     longitude: null,
@@ -475,6 +474,12 @@ function ProfilePhotoUpload({ file, setFile, existingUrl }) {
   )
 }
 
+function FieldError({ errors, field }) {
+  const msg = errors?.[field]?.[0]
+  if (!msg) return null
+  return <div style={modalStyles.fieldErrorText}>{msg}</div>
+}
+
 function RegisterModal({ onClose, onSuccess, isMobile }) {
   const [step, setStep] = useState('owner')
 
@@ -484,6 +489,7 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
   const [profilePhoto, setProfilePhoto] = useState(null)
   const [ownerId, setOwnerId] = useState(null)
   const [ownerError, setOwnerError] = useState('')
+  const [ownerFieldErrors, setOwnerFieldErrors] = useState({})
   const [ownerLoading, setOwnerLoading] = useState(false)
   const [smsWarning, setSmsWarning] = useState('')
 
@@ -496,6 +502,7 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
   const handleOwnerSubmit = async (e) => {
     e.preventDefault()
     setOwnerError('')
+    setOwnerFieldErrors({})
     setOwnerLoading(true)
     try {
       const formData = new FormData()
@@ -515,7 +522,12 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
       }
       setStep('farms')
     } catch (err) {
-      setOwnerError(err.response?.data?.message || 'Failed to register farm owner.')
+      const errors = err.response?.data?.errors
+      if (errors) {
+        setOwnerFieldErrors(errors)
+      } else {
+        setOwnerError(err.response?.data?.message || 'Failed to register farm owner.')
+      }
     } finally {
       setOwnerLoading(false)
     }
@@ -532,12 +544,12 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
     setFarmsError('')
 
     for (const f of farmsList) {
-      if (!f.farm_name || !f.farm_size || !f.barangay) {
+      if (!f.farm_name || !f.farm_size || !f.barangay || !f.address) {
         setFarmsError('Please complete every required field for each farm.')
         return
       }
       if (f.latitude == null || f.longitude == null) {
-        setFarmsError(`Please pin "${f.farm_name || 'a farm'}"'s exact location on the map so it can be saved.`)
+        setFarmsError(`Please confirm "${f.farm_name || 'a farm'}"'s location on the map so it can be saved.`)
         return
       }
     }
@@ -551,7 +563,6 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
             farm_name: f.farm_name,
             farm_size: f.farm_size,
             barangay: f.barangay,
-            landmark: f.landmark,
             address: f.address,
             latitude: f.latitude,
             longitude: f.longitude,
@@ -595,23 +606,62 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
             <div style={{ ...modalStyles.row, ...(isMobile ? modalStyles.rowMobile : {}) }}>
               <div>
                 <Label text="First Name" required />
-                <input placeholder="First Name" value={ownerForm.first_name} onChange={updateOwner('first_name')} style={modalStyles.input} required />
+                <input
+                  placeholder="First Name"
+                  value={ownerForm.first_name}
+                  onChange={updateOwner('first_name')}
+                  style={{ ...modalStyles.input, ...(ownerFieldErrors.first_name ? modalStyles.inputError : {}) }}
+                  required
+                />
+                <FieldError errors={ownerFieldErrors} field="first_name" />
               </div>
               <div>
                 <Label text="Last Name" required />
-                <input placeholder="Last Name" value={ownerForm.last_name} onChange={updateOwner('last_name')} style={modalStyles.input} required />
+                <input
+                  placeholder="Last Name"
+                  value={ownerForm.last_name}
+                  onChange={updateOwner('last_name')}
+                  style={{ ...modalStyles.input, ...(ownerFieldErrors.last_name ? modalStyles.inputError : {}) }}
+                  required
+                />
+                <FieldError errors={ownerFieldErrors} field="last_name" />
               </div>
             </div>
 
-            <Label text="Mobile Number" required />
-            <input placeholder="e.g. 0917 123 4567" value={ownerForm.mobile_number} onChange={updateOwner('mobile_number')} style={modalStyles.inputFull} required />
-
-            <Label text="Email Address" />
-            <input type="email" placeholder="Optional" value={ownerForm.email} onChange={updateOwner('email')} style={modalStyles.inputFull} />
-            <p style={modalStyles.mapHint}>Both mobile number and email (if provided) can be used to log in.</p>
+            <div style={{ ...modalStyles.row, ...(isMobile ? modalStyles.rowMobile : {}) }}>
+              <div>
+                <Label text="Mobile Number" required />
+                <input
+                  placeholder="e.g. 0917 123 4567"
+                  value={ownerForm.mobile_number}
+                  onChange={updateOwner('mobile_number')}
+                  style={{ ...modalStyles.input, ...(ownerFieldErrors.mobile_number ? modalStyles.inputError : {}) }}
+                  required
+                />
+                <FieldError errors={ownerFieldErrors} field="mobile_number" />
+              </div>
+              <div>
+                <Label text="Email Address" />
+                <input
+                  type="email"
+                  placeholder="Optional"
+                  value={ownerForm.email}
+                  onChange={updateOwner('email')}
+                  style={{ ...modalStyles.input, ...(ownerFieldErrors.email ? modalStyles.inputError : {}) }}
+                />
+                <FieldError errors={ownerFieldErrors} field="email" />
+              </div>
+            </div>
 
             <Label text="Owner Address" required />
-            <input placeholder="House/Lot No., Street, Barangay" value={ownerForm.address} onChange={updateOwner('address')} style={modalStyles.inputFull} required />
+            <input
+              placeholder="House/Lot No., Street, Barangay"
+              value={ownerForm.address}
+              onChange={updateOwner('address')}
+              style={{ ...modalStyles.inputFull, ...(ownerFieldErrors.address ? modalStyles.inputError : {}) }}
+              required
+            />
+            <FieldError errors={ownerFieldErrors} field="address" />
 
             <p style={modalStyles.hint}>
               A temporary password will be generated and sent to the owner's mobile number via SMS. The owner must change it on their first login, and can log in afterward using either their mobile number or email (if provided). The owner is registered once — you'll add their farm(s) in the next step.
@@ -703,12 +753,12 @@ function AddFarmModal({ onClose, onSuccess, isMobile }) {
     setFarmsError('')
 
     for (const f of farmsList) {
-      if (!f.farm_name || !f.farm_size || !f.barangay) {
+      if (!f.farm_name || !f.farm_size || !f.barangay || !f.address) {
         setFarmsError('Please complete every required field for each farm.')
         return
       }
       if (f.latitude == null || f.longitude == null) {
-        setFarmsError(`Please pin "${f.farm_name || 'a farm'}"'s exact location on the map so it can be saved.`)
+        setFarmsError(`Please confirm "${f.farm_name || 'a farm'}"'s location on the map so it can be saved.`)
         return
       }
     }
@@ -722,7 +772,6 @@ function AddFarmModal({ onClose, onSuccess, isMobile }) {
             farm_name: f.farm_name,
             farm_size: f.farm_size,
             barangay: f.barangay,
-            landmark: f.landmark,
             address: f.address,
             latitude: f.latitude,
             longitude: f.longitude,
@@ -836,10 +885,8 @@ function Label({ text, required }) {
 }
 
 function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
-  const [suggestions, setSuggestions] = useState([])
-  const [showSuggestions, setShowSuggestions] = useState(false)
-  const [geocodeLoading, setGeocodeLoading] = useState(false)
-  const [geocodeError, setGeocodeError] = useState('')
+  const [geocodeStatus, setGeocodeStatus] = useState('idle') // 'idle' | 'loading' | 'found' | 'notfound'
+  const [adjustMode, setAdjustMode] = useState(false)
   const debounceRef = useRef(null)
 
   const mapContainerRef = useRef(null)
@@ -856,6 +903,7 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
         const pos = marker.getLatLng()
         onChange('latitude', pos.lat)
         onChange('longitude', pos.lng)
+        setGeocodeStatus('found')
       })
       markerRef.current = marker
     }
@@ -880,11 +928,17 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
       maxZoom: 18,
     }).addTo(map)
 
-    map.on('click', (e) => placeMarker(e.latlng.lat, e.latlng.lng))
+    map.on('click', (e) => {
+      placeMarker(e.latlng.lat, e.latlng.lng)
+      setGeocodeStatus('found')
+    })
 
     mapRef.current = map
 
-    if (hasExisting) addOrMoveMarker(farm.latitude, farm.longitude)
+    if (hasExisting) {
+      addOrMoveMarker(farm.latitude, farm.longitude)
+      setGeocodeStatus('found')
+    }
 
     setTimeout(() => map.invalidateSize(), 200)
 
@@ -898,43 +952,46 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
 
   const handleBarangayChange = async (value) => {
     onChange('barangay', value)
-    if (!value || !mapRef.current) return
+    if (!value) return
+    setGeocodeStatus('loading')
     try {
       const results = await geocodeAddress(value)
       if (results[0]) {
-        mapRef.current.flyTo([parseFloat(results[0].lat), parseFloat(results[0].lon)], 15, { duration: 0.6 })
+        const lat = parseFloat(results[0].lat)
+        const lng = parseFloat(results[0].lon)
+        if (mapRef.current) mapRef.current.flyTo([lat, lng], 15, { duration: 0.6 })
+        placeMarker(lat, lng)
+        setGeocodeStatus('found')
+      } else {
+        setGeocodeStatus('notfound')
       }
-    } catch { /* silent */ }
+    } catch {
+      setGeocodeStatus('notfound')
+    }
   }
 
   const handleAddressChange = (value) => {
     onChange('address', value)
-    setGeocodeError('')
 
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(async () => {
-      if (value.trim().length < 3) { setSuggestions([]); return }
-      setGeocodeLoading(true)
+      if (value.trim().length < 6) return
+      setGeocodeStatus('loading')
       try {
         const results = await geocodeAddress(value)
-        setSuggestions(results)
-        setShowSuggestions(true)
+        if (results[0]) {
+          const lat = parseFloat(results[0].lat)
+          const lng = parseFloat(results[0].lon)
+          if (mapRef.current) mapRef.current.flyTo([lat, lng], 16, { duration: 0.6 })
+          placeMarker(lat, lng)
+          setGeocodeStatus('found')
+        } else {
+          setGeocodeStatus('notfound')
+        }
       } catch {
-        setGeocodeError('Could not look up that address — try a different search, or just click directly on the map instead.')
-      } finally {
-        setGeocodeLoading(false)
+        setGeocodeStatus('notfound')
       }
-    }, 400)
-  }
-
-  const selectSuggestion = (s) => {
-    onChange('address', s.display_name)
-    const lat = parseFloat(s.lat)
-    const lng = parseFloat(s.lon)
-    if (mapRef.current) mapRef.current.flyTo([lat, lng], 17, { duration: 0.6 })
-    placeMarker(lat, lng)
-    setShowSuggestions(false)
-    setSuggestions([])
+    }, 500)
   }
 
   useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current) }, [])
@@ -946,53 +1003,75 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
         {canRemove && <span style={modalStyles.removeFarmBtn} onClick={onRemove}>Remove</span>}
       </div>
 
-      <Label text="Farm Name" required />
-      <input placeholder="Farm Name" value={farm.farm_name} onChange={e => onChange('farm_name', e.target.value)} style={modalStyles.inputFull} required />
-
-      <Label text="Farm Size" required />
-      <select value={farm.farm_size} onChange={e => onChange('farm_size', e.target.value)} style={modalStyles.inputFull} required>
-        <option value="">Farm Size</option>
-        <option value="Small">Small (below 10,000 layers)</option>
-        <option value="Medium">Medium (10,000–50,000 layers)</option>
-        <option value="Large">Large (above 50,000 layers)</option>
-      </select>
+      <div style={{ ...modalStyles.row, ...(isMobile ? modalStyles.rowMobile : {}) }}>
+        <div>
+          <Label text="Farm Name" required />
+          <input placeholder="Farm Name" value={farm.farm_name} onChange={e => onChange('farm_name', e.target.value)} style={modalStyles.input} required />
+        </div>
+        <div>
+          <Label text="Farm Size" required />
+          <select value={farm.farm_size} onChange={e => onChange('farm_size', e.target.value)} style={modalStyles.input} required>
+            <option value="">Farm Size</option>
+            <option value="Small">Small (below 10,000 layers)</option>
+            <option value="Medium">Medium (10,000–50,000 layers)</option>
+            <option value="Large">Large (above 50,000 layers)</option>
+          </select>
+        </div>
+      </div>
 
       <Label text="Barangay" required />
       <select value={farm.barangay} onChange={e => handleBarangayChange(e.target.value)} style={modalStyles.inputFull} required>
         <option value="">-- Select Barangay --</option>
         {BARANGAYS.map(b => <option key={b} value={b}>Brgy. {b}</option>)}
       </select>
-      <p style={modalStyles.mapHint}>Selecting a barangay moves the map below to that area.</p>
+      <p style={modalStyles.mapHint}>Selecting a barangay centers the map on that area.</p>
 
-      <Label text="Landmark (optional)" />
-      <input placeholder="Landmark (optional)" value={farm.landmark} onChange={e => onChange('landmark', e.target.value)} style={modalStyles.inputFull} />
+      <Label text="Farm Address / Location Details" required />
+      <textarea
+        placeholder="Near Iglesia ni Cristo, Purok 3, Brgy. Calansayan, San Jose, Batangas"
+        value={farm.address}
+        onChange={e => handleAddressChange(e.target.value)}
+        style={{ ...modalStyles.inputFull, minHeight: '56px', resize: 'vertical', fontFamily: 'inherit' }}
+        required
+      />
+      <p style={modalStyles.mapHint}>Please provide the complete address, sitio/purok, and any nearby landmark.</p>
 
-      <Label text="Search Address (optional)" />
-      <div style={{ position: 'relative' }}>
-        <input
-          placeholder="Search to jump the map there, or just click below..."
-          value={farm.address}
-          onChange={e => handleAddressChange(e.target.value)}
-          onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-          style={modalStyles.inputFull}
-        />
-        {geocodeLoading && <span style={modalStyles.geocodeSpinner}>Searching...</span>}
-        {showSuggestions && suggestions.length > 0 && (
-          <div style={modalStyles.dropdownList}>
-            {suggestions.map((s, i) => (
-              <div key={i} style={modalStyles.dropdownItem} onClick={() => selectSuggestion(s)}>{s.display_name}</div>
-            ))}
-          </div>
+      <Label text="Location Preview" />
+
+      <div
+        ref={mapContainerRef}
+        style={{ ...modalStyles.mapContainer, ...(adjustMode ? modalStyles.mapContainerActive : {}) }}
+      />
+
+      <div style={modalStyles.locationStatusRow}>
+        {geocodeStatus === 'loading' && (
+          <span style={modalStyles.locationStatusLoading}>Locating…</span>
         )}
+        {geocodeStatus === 'found' && farm.latitude != null && (
+          <span style={modalStyles.locationStatusFound}>✓ Location detected from address</span>
+        )}
+        {geocodeStatus === 'notfound' && (
+          <span style={modalStyles.locationStatusNotFound}>Could not find that address — adjust the pin manually.</span>
+        )}
+        {geocodeStatus === 'idle' && farm.latitude == null && (
+          <span style={modalStyles.locationStatusLoading}>Select a barangay to preview the location.</span>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setAdjustMode(v => !v)}
+          style={{ ...modalStyles.adjustBtn, ...(adjustMode ? modalStyles.adjustBtnActive : {}) }}
+        >
+          ✎ {adjustMode ? 'Done Adjusting' : 'Adjust Location'}
+        </button>
       </div>
-      {geocodeError && <div style={modalStyles.geocodeError}>{geocodeError}</div>}
 
-      <Label text="Pin Exact Farm Location" required />
-      <p style={modalStyles.mapHint}>Click anywhere on the map to drop a pin, or drag the pin to fine-tune it.</p>
-      <div ref={mapContainerRef} style={modalStyles.mapContainer} />
+      {adjustMode && (
+        <div style={modalStyles.adjustHint}>Click on the map to move the pin, or drag it directly.</div>
+      )}
 
-      {farm.latitude != null && farm.longitude != null && (
-        <div style={modalStyles.geotagConfirmed}>✓ Location pinned for this farm</div>
+      {farm.latitude == null && (
+        <div style={modalStyles.geocodeError}>A pinned location is required before this farm can be saved.</div>
       )}
     </div>
   )
@@ -1495,7 +1574,7 @@ const paginationStyles = {
 const modalStyles = {
   overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 },
   modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '480px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto' },
-  modalWide: { width: '560px' },
+  modalWide: { width: '680px' },
   modalMobile: { width: '100%', maxWidth: '100%', borderRadius: '16px 16px 0 0', padding: '20px', margin: '0', position: 'fixed', bottom: 0, left: 0, maxHeight: '85vh' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' },
   title: { fontSize: '17px', fontWeight: 800, color: '#16311d', margin: 0 },
@@ -1518,12 +1597,22 @@ const modalStyles = {
   rowMobile: { gridTemplateColumns: '1fr' },
   input: { padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', width: '100%' },
   inputFull: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', marginBottom: '10px' },
+  inputError: { borderColor: '#e8a3a3', backgroundColor: '#fffaf9' },
+  fieldErrorText: { fontSize: '11.5px', color: '#b91c1c', marginTop: '-6px', marginBottom: '10px' },
   label: { display: 'block', fontSize: '12.5px', fontWeight: 600, color: '#33413a', marginBottom: '5px' },
   errorBox: { backgroundColor: '#fbeaea', border: '1px solid #f0c9c9', color: '#b91c1c', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '14px' },
   warnBox: { backgroundColor: '#fdf8f0', border: '1px solid #f0e2cf', color: '#92400e', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '14px' },
   hint: { fontSize: '12px', color: '#6b7770', marginTop: '14px', lineHeight: '1.5' },
   mapHint: { fontSize: '11.5px', color: '#9aa79d', margin: '-6px 0 8px', lineHeight: '1.4' },
   mapContainer: { height: '260px', width: '100%', borderRadius: '10px', border: '1px solid #dcdfd6', overflow: 'hidden' },
+  mapContainerActive: { border: '2px solid #2c8047' },
+  locationStatusRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginTop: '10px', flexWrap: 'wrap' },
+  locationStatusLoading: { fontSize: '12px', color: '#8a968d' },
+  locationStatusFound: { fontSize: '12.5px', color: '#2c8047', fontWeight: 600 },
+  locationStatusNotFound: { fontSize: '12px', color: '#b45309' },
+  adjustBtn: { padding: '7px 14px', borderRadius: '8px', border: '1px solid #2c8047', backgroundColor: '#fff', color: '#2c8047', fontSize: '12.5px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' },
+  adjustBtnActive: { backgroundColor: '#2c8047', color: '#fff' },
+  adjustHint: { fontSize: '11.5px', color: '#6b7770', backgroundColor: '#f5faf6', border: '1px solid #cfe0d3', borderRadius: '8px', padding: '8px 12px', marginTop: '8px' },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' },
   actionsMobile: { flexDirection: 'column-reverse' },
   btnFull: { width: '100%', boxSizing: 'border-box' },
@@ -1539,7 +1628,7 @@ const modalStyles = {
   dropdownList: { position: 'absolute', top: '100%', left: 0, right: 0, backgroundColor: 'white', border: '1px solid #dcdfd6', borderRadius: '10px', marginTop: '-6px', maxHeight: '180px', overflowY: 'auto', zIndex: 10, boxShadow: '0 4px 12px rgba(20,48,28,0.12)' },
   dropdownItem: { padding: '10px 14px', fontSize: '13px', cursor: 'pointer', color: '#33413a' },
   geocodeSpinner: { position: 'absolute', right: '12px', top: '11px', fontSize: '11px', color: '#9aa79d' },
-  geocodeError: { fontSize: '12px', color: '#b91c1c', marginTop: '-6px', marginBottom: '10px' },
+  geocodeError: { fontSize: '12px', color: '#b91c1c', marginTop: '8px' },
   geotagConfirmed: { fontSize: '12px', color: '#2c8047', fontWeight: 600, marginTop: '2px' },
 
   ownerResultsList: { border: '1px solid #dcdfd6', borderRadius: '10px', marginTop: '-6px', marginBottom: '10px', maxHeight: '220px', overflowY: 'auto' },
