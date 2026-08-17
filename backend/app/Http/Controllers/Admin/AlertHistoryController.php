@@ -37,7 +37,21 @@ class AlertHistoryController extends Controller
         if ($request->to) {
             $query->where('triggered_at', '<=', $request->to);
         }
+        if ($request->status) {
+            $query->where('status', $request->status); // existing — Severity filter (Warning/Critical)
+        }
 
+        if ($request->sensor_type) {
+            $query->where('sensor_type', $request->sensor_type);
+        }
+
+        // New — separate from severity above. 'Ongoing' = still open (resolved_at
+        // is null), 'Resolved' = closed. This is the Status filter on the page.
+        if ($request->alert_status === 'Ongoing') {
+            $query->whereNull('resolved_at');
+        } elseif ($request->alert_status === 'Resolved') {
+            $query->whereNotNull('resolved_at');
+        }
         // Search across Farm ID, Farm Owner Name, Alert Type, or Alert ID —
         // done at the query level (not after mapping) so it composes
         // correctly with the filters above and stays efficient.
