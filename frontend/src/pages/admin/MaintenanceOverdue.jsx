@@ -1,15 +1,28 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
+const FARM_SIZES = ['Small', 'Medium', 'Large']
+const MAINTENANCE_TYPES = ['Manure Clean-out']
+
 export default function MaintenanceOverdue() {
   const [search, setSearch] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const isMobile = useIsMobile()
+
+  const [barangayFilter, setBarangayFilter] = useState('')
+  const [sizeFilter, setSizeFilter] = useState('')
+  const [typeFilter, setTypeFilter] = useState('')
+
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [draftBarangay, setDraftBarangay] = useState('')
+  const [draftSize, setDraftSize] = useState('')
+  const [draftType, setDraftType] = useState('')
+  const filterRef = useRef(null)
 
   const params = {}
   if (search) params.search = search
@@ -18,9 +31,55 @@ export default function MaintenanceOverdue() {
 
   const overdueFarms = farms || []
 
-  useEffect(() => { setCurrentPage(1) }, [search, pageSize, overdueFarms.length])
+  const barangayOptions = useMemo(() => {
+    const set = new Set()
+    overdueFarms.forEach(f => { if (f.barangay) set.add(f.barangay) })
+    return [...set].sort()
+  }, [overdueFarms])
 
-  const totalItems = overdueFarms.length
+  const filteredFarms = useMemo(() => {
+    return overdueFarms.filter(f => {
+      if (barangayFilter && f.barangay !== barangayFilter) return false
+      if (sizeFilter && f.farm_size !== sizeFilter) return false
+      if (typeFilter && (f.maintenance_type || 'Manure Clean-out') !== typeFilter) return false
+      return true
+    })
+  }, [overdueFarms, barangayFilter, sizeFilter, typeFilter])
+
+  useEffect(() => { setCurrentPage(1) }, [search, pageSize, barangayFilter, sizeFilter, typeFilter, filteredFarms.length])
+
+  useEffect(() => {
+    if (!filterOpen) return
+    const handleClickOutside = (e) => {
+      if (filterRef.current && !filterRef.current.contains(e.target)) setFilterOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [filterOpen])
+
+  const openFilter = () => {
+    setDraftBarangay(barangayFilter)
+    setDraftSize(sizeFilter)
+    setDraftType(typeFilter)
+    setFilterOpen(true)
+  }
+
+  const applyFilter = () => {
+    setBarangayFilter(draftBarangay)
+    setSizeFilter(draftSize)
+    setTypeFilter(draftType)
+    setFilterOpen(false)
+  }
+
+  const resetFilter = () => {
+    setDraftBarangay('')
+    setDraftSize('')
+    setDraftType('')
+  }
+
+  const activeFilterCount = [barangayFilter, sizeFilter, typeFilter].filter(Boolean).length
+
+  const totalItems = filteredFarms.length
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
 
   useEffect(() => {
@@ -29,8 +88,8 @@ export default function MaintenanceOverdue() {
 
   const paginated = useMemo(() => {
     const start = (currentPage - 1) * pageSize
-    return overdueFarms.slice(start, start + pageSize)
-  }, [overdueFarms, currentPage, pageSize])
+    return filteredFarms.slice(start, start + pageSize)
+  }, [filteredFarms, currentPage, pageSize])
 
   const rangeStart = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1
   const rangeEnd = Math.min(currentPage * pageSize, totalItems)
@@ -40,12 +99,12 @@ export default function MaintenanceOverdue() {
       <div style={styles.header}>
         <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Overdue Maintenance</h1>
         <p style={styles.subtitle}>
-          Farms whose manure clean-out has passed both the expected interval and the 30-day grace
-          period — sorted worst first
+          Farms whose manure clean-out has passed both the expected interval and the 30-day grace period —
+          sorted worst first
         </p>
       </div>
 
-      <div style={styles.searchRow}>
+      <div style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
         <div style={styles.searchWrap}>
           <svg style={styles.searchIcon} width="16" height="16" viewBox="0 0 24 24" fill="none">
             <circle cx="11" cy="11" r="7" stroke="#9aa79d" strokeWidth="2" />
@@ -58,30 +117,69 @@ export default function MaintenanceOverdue() {
             style={styles.searchInput}
           />
           {search && (
-            <button
-              type="button"
-              onClick={() => setSearch('')}
-              style={styles.clearBtn}
-              aria-label="Clear search"
-            >
+            <button type="button" onClick={() => setSearch('')} style={styles.clearBtn} aria-label="Clear search">
               ×
             </button>
           )}
         </div>
+
+        <div style={styles.filterAnchor} ref={filterRef}>
+          <button
+            type="button"
+            onClick={() => (filterOpen ? setFilterOpen(false) : openFilter())}
+            style={{ ...styles.filterBtn, ...(activeFilterCount > 0 ? styles.filterBtnActive : {}) }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <path d="M4 5h16l-6 8v6l-4-2v-4L4 5z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+            </svg>
+            Filter
+            {activeFilterCount > 0 && <span style={styles.filterCount}>{activeFilterCount}</span>}
+          </button>
+
+          {filterOpen && (
+            <div style={{ ...styles.filterPanel, ...(isMobile ? styles.filterPanelMobile : {}) }}>
+              <div style={styles.filterPanelHeader}>
+                <span style={styles.filterPanelTitle}>Filter</span>
+                <span style={styles.filterPanelClose} onClick={() => setFilterOpen(false)}>×</span>
+              </div>
+
+              <label style={styles.filterLabel}>Barangay</label>
+              <select value={draftBarangay} onChange={e => setDraftBarangay(e.target.value)} style={styles.filterSelect}>
+                <option value="">All Barangays</option>
+                {barangayOptions.map(b => <option key={b} value={b}>{b}</option>)}
+              </select>
+
+              <label style={styles.filterLabel}>Farm Size</label>
+              <select value={draftSize} onChange={e => setDraftSize(e.target.value)} style={styles.filterSelect}>
+                <option value="">All Sizes</option>
+                {FARM_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+
+              <label style={styles.filterLabel}>Maintenance Type</label>
+              <select value={draftType} onChange={e => setDraftType(e.target.value)} style={styles.filterSelect}>
+                <option value="">All Types</option>
+                {MAINTENANCE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+
+              <div style={styles.filterActions}>
+                <button type="button" onClick={resetFilter} style={styles.filterResetBtn}>Reset</button>
+                <button type="button" onClick={applyFilter} style={styles.filterApplyBtn}>Apply</button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      {!loading && !error && (
-        <p style={styles.countText}>
-          {totalItems} farm{totalItems === 1 ? '' : 's'} overdue
-        </p>
-      )}
+      <p style={styles.countText}>
+        {totalItems} farm{totalItems === 1 ? '' : 's'} overdue
+      </p>
 
       {loading && <p style={styles.stateText}>Loading...</p>}
       {error && <p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p>}
 
       {!loading && !error && (
         <div style={styles.tableCard}>
-          {isMobile && overdueFarms.length > 0 && (
+          {isMobile && filteredFarms.length > 0 && (
             <p style={styles.scrollHint}>Swipe left/right to see all columns →</p>
           )}
           <div style={isMobile ? styles.tableScroll : undefined}>
@@ -117,13 +215,15 @@ export default function MaintenanceOverdue() {
               </tbody>
             </table>
           </div>
-          {overdueFarms.length === 0 && (
+          {filteredFarms.length === 0 && (
             <div style={styles.empty}>
-              {search ? 'No overdue farms match your search.' : 'No farms are currently overdue for a manure clean-out.'}
+              {search || barangayFilter || sizeFilter || typeFilter
+                ? 'No overdue farms match your search or filter.'
+                : 'No farms are currently overdue for a manure clean-out.'}
             </div>
           )}
 
-          {overdueFarms.length > 0 && (
+          {filteredFarms.length > 0 && (
             <Pagination
               currentPage={currentPage}
               totalPages={totalPages}
@@ -215,12 +315,11 @@ const styles = {
   titleMobile: { fontSize: '20px' },
   subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px', maxWidth: '580px', lineHeight: 1.5 },
 
-  searchRow: { marginBottom: '10px' },
-  searchWrap: { position: 'relative', width: '100%' },
-  searchIcon: {
-    position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)',
-    pointerEvents: 'none',
-  },
+  toolbar: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' },
+  toolbarMobile: { flexDirection: 'column', alignItems: 'stretch' },
+
+  searchWrap: { position: 'relative', flex: 1 },
+  searchIcon: { position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' },
   searchInput: {
     width: '100%', padding: '11px 40px 11px 40px', borderRadius: '10px',
     border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box',
@@ -233,6 +332,44 @@ const styles = {
     cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontFamily: SANS, padding: 0,
   },
+
+  filterAnchor: { position: 'relative', flexShrink: 0 },
+  filterBtn: {
+    display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 16px',
+    borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
+    color: '#33413a', fontSize: '13.5px', fontWeight: 600, cursor: 'pointer', fontFamily: SANS, whiteSpace: 'nowrap',
+  },
+  filterBtnActive: { borderColor: '#2c8047', color: '#2c8047' },
+  filterCount: {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: '#2c8047',
+    color: '#fff', fontSize: '11px', fontWeight: 700, padding: '0 4px',
+  },
+  filterPanel: {
+    position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 40,
+    backgroundColor: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px',
+    boxShadow: '0 8px 24px rgba(15,38,22,0.12)', padding: '18px', width: '280px',
+  },
+  filterPanelMobile: { right: 0, width: '260px' },
+  filterPanelHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' },
+  filterPanelTitle: { fontSize: '15px', fontWeight: 800, color: '#16311d' },
+  filterPanelClose: { fontSize: '19px', cursor: 'pointer', color: '#8a968d', lineHeight: 1 },
+  filterLabel: { display: 'block', fontSize: '12px', fontWeight: 700, color: '#4b5a50', marginBottom: '7px', marginTop: '14px' },
+  filterSelect: {
+    width: '100%', padding: '9px 12px', borderRadius: '10px', border: '1px solid #dcdfd6',
+    fontSize: '13px', color: '#33413a', backgroundColor: '#fff', cursor: 'pointer',
+    fontFamily: SANS, boxSizing: 'border-box',
+  },
+  filterActions: { display: 'flex', gap: '10px', marginTop: '20px' },
+  filterResetBtn: {
+    flex: 1, padding: '9px 0', borderRadius: '10px', border: '1px solid #dcdfd6',
+    backgroundColor: '#fff', color: '#33413a', fontSize: '13.5px', fontWeight: 600, cursor: 'pointer', fontFamily: SANS,
+  },
+  filterApplyBtn: {
+    flex: 1, padding: '9px 0', borderRadius: '10px', border: 'none',
+    backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
+  },
+
   countText: { fontSize: '12.5px', color: '#8a968d', margin: '0 0 12px', fontFamily: SANS },
 
   tableCard: { backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden' },
