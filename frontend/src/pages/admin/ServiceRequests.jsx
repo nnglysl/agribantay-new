@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
@@ -20,6 +20,7 @@ export default function ServiceRequests() {
   const isSuperAdmin = user?.role === 'super_admin'
 
   const [tab, setTab] = useState('pending')
+  const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [sortMode, setSortMode] = useState('oldest')
   const [currentPage, setCurrentPage] = useState(1)
@@ -31,6 +32,39 @@ export default function ServiceRequests() {
   const [viewRequest, setViewRequest] = useState(null)
   const isMobile = useIsMobile()
 
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [draftType, setDraftType] = useState(typeFilter)
+  const [draftSort, setDraftSort] = useState(sortMode)
+  const filterRef = useRef(null)
+
+  useEffect(() => {
+    if (!filterOpen) return
+    const handleClickOutside = (e) => {
+      if (filterRef.current && !filterRef.current.contains(e.target)) setFilterOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [filterOpen])
+
+  const openFilter = () => {
+    setDraftType(typeFilter)
+    setDraftSort(sortMode)
+    setFilterOpen(true)
+  }
+
+  const applyFilter = () => {
+    setTypeFilter(draftType)
+    setSortMode(draftSort)
+    setFilterOpen(false)
+  }
+
+  const resetFilter = () => {
+    setDraftType('')
+    setDraftSort('oldest')
+  }
+
+  const activeFilterCount = (typeFilter ? 1 : 0) + (sortMode !== 'oldest' ? 1 : 0)
+
   const params = { sort: sortMode }
   if (typeFilter) params.service_type = typeFilter
 
@@ -40,12 +74,22 @@ export default function ServiceRequests() {
   const availableTypes = isSuperAdmin ? [...ADMIN_TYPES, ...SUPER_ADMIN_ONLY_TYPES] : ADMIN_TYPES
 
   const filtered = allRequests.filter(r => {
-    if (tab === 'pending') return r.status === 'Pending'
-    if (tab === 'scheduled') return r.status === 'Scheduled'
-    return r.status === 'Completed' || r.status === 'Cancelled'
+    if (tab === 'pending' && r.status !== 'Pending') return false
+    if (tab === 'scheduled' && r.status !== 'Scheduled') return false
+    if (tab === 'history' && !(r.status === 'Completed' || r.status === 'Cancelled')) return false
+
+    if (search) {
+      const q = search.toLowerCase()
+      const haystack = [
+        r.request_number, r.service_type, r.farm_name, r.farm_owner_name, r.requested_by,
+      ].filter(Boolean).join(' ').toLowerCase()
+      if (!haystack.includes(q)) return false
+    }
+
+    return true
   })
 
-  useEffect(() => { setCurrentPage(1) }, [tab, pageSize, typeFilter, sortMode])
+  useEffect(() => { setCurrentPage(1) }, [tab, pageSize, typeFilter, sortMode, search])
 
   const totalItems = filtered.length
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
@@ -88,36 +132,80 @@ export default function ServiceRequests() {
           : 'Odor control, fly control, and other farmer-submitted service requests'}
       </p>
 
-      <div style={styles.tabs}>
-        <div style={{ ...styles.tab, ...(tab === 'pending' ? styles.tabActive : {}) }} onClick={() => setTab('pending')}>
-          Pending
-        </div>
-        <div style={{ ...styles.tab, ...(tab === 'scheduled' ? styles.tabActive : {}) }} onClick={() => setTab('scheduled')}>
-          Scheduled
-        </div>
-        <div style={{ ...styles.tab, ...(tab === 'history' ? styles.tabActive : {}) }} onClick={() => setTab('history')}>
-          History
-        </div>
-      </div>
-
-      <div style={{ ...styles.filters, ...(isMobile ? styles.filtersMobile : {}) }}>
-        <div style={styles.filterGroup}>
-          <span style={styles.filterGroupLabel}>Type</span>
-          <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={styles.sortSelect}>
-            <option value="">All Types</option>
-            {availableTypes.map(t => (
-              <option key={t} value={t}>{t.replace(' Request', '')}</option>
-            ))}
-          </select>
+      <div style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
+        <div style={styles.tabs}>
+          <div style={{ ...styles.tab, ...(tab === 'pending' ? styles.tabActive : {}) }} onClick={() => setTab('pending')}>
+            Pending
+          </div>
+          <div style={{ ...styles.tab, ...(tab === 'scheduled' ? styles.tabActive : {}) }} onClick={() => setTab('scheduled')}>
+            Scheduled
+          </div>
+          <div style={{ ...styles.tab, ...(tab === 'history' ? styles.tabActive : {}) }} onClick={() => setTab('history')}>
+            History
+          </div>
         </div>
 
-        <div style={styles.filterGroup}>
-          <span style={styles.filterGroupLabel}>Sort By</span>
-          <select value={sortMode} onChange={e => setSortMode(e.target.value)} style={styles.sortSelect}>
-            {SORT_OPTIONS.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
+        <div style={{ ...styles.toolbarRight, ...(isMobile ? styles.toolbarRightMobile : {}) }}>
+          <div style={styles.searchWrap}>
+            <svg style={styles.searchIcon} width="15" height="15" viewBox="0 0 24 24" fill="none">
+              <circle cx="11" cy="11" r="7" stroke="#9aa79d" strokeWidth="2" />
+              <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="#9aa79d" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+            <input
+              placeholder="Search request, farm, or owner..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={styles.searchInput}
+            />
+            {search && (
+              <button type="button" onClick={() => setSearch('')} style={styles.clearBtn} aria-label="Clear search">
+                ×
+              </button>
+            )}
+          </div>
+
+          <div style={styles.filterAnchor} ref={filterRef}>
+            <button
+              type="button"
+              onClick={() => (filterOpen ? setFilterOpen(false) : openFilter())}
+              style={{ ...styles.filterBtn, ...(activeFilterCount > 0 ? styles.filterBtnActive : {}) }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                <path d="M4 5h16l-6 8v6l-4-2v-4L4 5z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+              </svg>
+              Filter
+              {activeFilterCount > 0 && <span style={styles.filterCount}>{activeFilterCount}</span>}
+            </button>
+
+            {filterOpen && (
+              <div style={{ ...styles.filterPanel, ...(isMobile ? styles.filterPanelMobile : {}) }}>
+                <div style={styles.filterPanelHeader}>
+                  <span style={styles.filterPanelTitle}>Filter</span>
+                  <span style={styles.filterPanelClose} onClick={() => setFilterOpen(false)}>×</span>
+                </div>
+
+                <label style={styles.filterLabel}>Request Type</label>
+                <select value={draftType} onChange={e => setDraftType(e.target.value)} style={styles.filterSelect}>
+                  <option value="">All Types</option>
+                  {availableTypes.map(t => (
+                    <option key={t} value={t}>{t.replace(' Request', '')}</option>
+                  ))}
+                </select>
+
+                <label style={styles.filterLabel}>Sort By</label>
+                <select value={draftSort} onChange={e => setDraftSort(e.target.value)} style={styles.filterSelect}>
+                  {SORT_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+
+                <div style={styles.filterActions}>
+                  <button type="button" onClick={resetFilter} style={styles.filterResetBtn}>Reset</button>
+                  <button type="button" onClick={applyFilter} style={styles.filterApplyBtn}>Apply</button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -196,7 +284,11 @@ export default function ServiceRequests() {
             </table>
           </div>
 
-          {list.length === 0 && <div style={styles.empty}>No requests here yet.</div>}
+          {list.length === 0 && (
+            <div style={styles.empty}>
+              {search || typeFilter ? 'No requests match your search or filter.' : 'No requests here yet.'}
+            </div>
+          )}
 
           {totalItems > 0 && (
             <Pagination
@@ -484,17 +576,69 @@ const styles = {
   titleMobile: { fontSize: '20px' },
   subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px', marginBottom: '20px' },
 
-  tabs: { display: 'flex', gap: '4px', marginBottom: '16px', borderBottom: '1px solid #e7e8e0', overflowX: 'auto' },
+  toolbar: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    gap: '14px', marginBottom: '18px', borderBottom: '1px solid #e7e8e0', flexWrap: 'wrap',
+  },
+  toolbarMobile: { flexDirection: 'column', alignItems: 'stretch', gap: '12px' },
+
+  tabs: { display: 'flex', gap: '4px', overflowX: 'auto' },
   tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap' },
   tabActive: { color: '#2c8047', fontWeight: 700, borderBottom: '2px solid #2c8047' },
 
-  filters: { display: 'flex', flexWrap: 'wrap', gap: '20px', marginBottom: '18px', alignItems: 'flex-end' },
-  filtersMobile: { flexDirection: 'column', gap: '14px', alignItems: 'stretch' },
-  filterGroup: { display: 'flex', flexDirection: 'column', gap: '7px' },
-  filterGroupLabel: { fontSize: '11px', fontWeight: 700, color: '#8a968d', textTransform: 'uppercase', letterSpacing: '0.04em' },
-  sortSelect: {
-    padding: '9px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '13px',
-    color: '#33413a', backgroundColor: '#fff', cursor: 'pointer', fontFamily: SANS, minWidth: '220px',
+  toolbarRight: { display: 'flex', alignItems: 'center', gap: '10px', paddingBottom: '10px' },
+  toolbarRightMobile: { paddingBottom: '2px' },
+
+  searchWrap: { position: 'relative', width: '240px', maxWidth: '100%' },
+  searchIcon: { position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' },
+  searchInput: {
+    width: '100%', padding: '8px 34px 8px 34px', borderRadius: '10px',
+    border: '1px solid #dcdfd6', fontSize: '13px', boxSizing: 'border-box',
+    backgroundColor: '#fff', color: '#16311d', fontFamily: SANS,
+  },
+  clearBtn: {
+    position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
+    width: '18px', height: '18px', borderRadius: '50%', border: 'none',
+    backgroundColor: '#eceee7', color: '#6b7770', fontSize: '13px', lineHeight: 1,
+    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontFamily: SANS, padding: 0,
+  },
+
+  filterAnchor: { position: 'relative', flexShrink: 0 },
+  filterBtn: {
+    display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 15px',
+    borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
+    color: '#33413a', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: SANS, whiteSpace: 'nowrap',
+  },
+  filterBtnActive: { borderColor: '#2c8047', color: '#2c8047' },
+  filterCount: {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: '#2c8047',
+    color: '#fff', fontSize: '11px', fontWeight: 700, padding: '0 4px',
+  },
+  filterPanel: {
+    position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 40,
+    backgroundColor: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px',
+    boxShadow: '0 8px 24px rgba(15,38,22,0.12)', padding: '18px', width: '280px',
+  },
+  filterPanelMobile: { right: 0, width: '260px' },
+  filterPanelHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' },
+  filterPanelTitle: { fontSize: '15px', fontWeight: 800, color: '#16311d' },
+  filterPanelClose: { fontSize: '19px', cursor: 'pointer', color: '#8a968d', lineHeight: 1 },
+  filterLabel: { display: 'block', fontSize: '12px', fontWeight: 700, color: '#4b5a50', marginBottom: '7px', marginTop: '14px' },
+  filterSelect: {
+    width: '100%', padding: '9px 12px', borderRadius: '10px', border: '1px solid #dcdfd6',
+    fontSize: '13px', color: '#33413a', backgroundColor: '#fff', cursor: 'pointer',
+    fontFamily: SANS, boxSizing: 'border-box',
+  },
+  filterActions: { display: 'flex', gap: '10px', marginTop: '20px' },
+  filterResetBtn: {
+    flex: 1, padding: '9px 0', borderRadius: '10px', border: '1px solid #dcdfd6',
+    backgroundColor: '#fff', color: '#33413a', fontSize: '13.5px', fontWeight: 600, cursor: 'pointer', fontFamily: SANS,
+  },
+  filterApplyBtn: {
+    flex: 1, padding: '9px 0', borderRadius: '10px', border: 'none',
+    backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
   },
 
   tableCard: { backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden' },

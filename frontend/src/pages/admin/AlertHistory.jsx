@@ -5,25 +5,38 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
+function SearchIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9aa79d" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="7" />
+      <path d="m21 21-4.35-4.35" />
+    </svg>
+  )
+}
+
+function RefreshIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+      <polyline points="21 3 21 9 15 9" />
+    </svg>
+  )
+}
+
 export default function AlertHistory() {
-  const [alertStatusFilter, setAlertStatusFilter] = useState('') // '' | 'Ongoing' | 'Resolved'
-  const [severityFilter, setSeverityFilter] = useState('')       // '' | 'Warning' | 'Critical'
+  const [severityFilter, setSeverityFilter] = useState('') // '' | 'Warning' | 'Critical'
   const [sensorFilter, setSensorFilter] = useState('')
-  const [farmFilter, setFarmFilter] = useState('')
   const [search, setSearch] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const isMobile = useIsMobile()
 
   const params = {}
-  if (alertStatusFilter) params.alert_status = alertStatusFilter
   if (severityFilter) params.status = severityFilter
   if (sensorFilter) params.sensor_type = sensorFilter
-  if (farmFilter) params.farm_id = farmFilter
   if (search) params.search = search
 
   const { data: history, loading, error } = useCachedFetch('/admin/alert-history', params)
-  const { data: farms } = useCachedFetch('/admin/farms')
 
   const severityColor = { Warning: '#b45309', Critical: '#b91c1c' }
   const severityBg = { Warning: '#fbf1e2', Critical: '#fbeaea' }
@@ -31,7 +44,7 @@ export default function AlertHistory() {
 
   const allHistory = history || []
 
-  useEffect(() => { setCurrentPage(1) }, [alertStatusFilter, severityFilter, sensorFilter, farmFilter, search, pageSize])
+  useEffect(() => { setCurrentPage(1) }, [severityFilter, sensorFilter, search, pageSize])
 
   const totalItems = allHistory.length
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
@@ -48,12 +61,10 @@ export default function AlertHistory() {
   const rangeStart = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1
   const rangeEnd = Math.min(currentPage * pageSize, totalItems)
 
-  const hasActiveFilters = alertStatusFilter || severityFilter || sensorFilter || farmFilter || search
+  const hasActiveFilters = severityFilter || sensorFilter || search
   const clearFilters = () => {
-    setAlertStatusFilter('')
     setSeverityFilter('')
     setSensorFilter('')
-    setFarmFilter('')
     setSearch('')
   }
 
@@ -63,22 +74,15 @@ export default function AlertHistory() {
       <p style={styles.subtitle}>View past and ongoing alerts from all monitored farms.</p>
 
       <div style={{ ...styles.filtersRow, ...(isMobile ? styles.filtersRowMobile : {}) }}>
-        <input
-          placeholder="Search by farm name or owner..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{ ...styles.searchInput, ...(isMobile ? styles.searchInputMobile : {}) }}
-        />
-
-        <select
-          value={alertStatusFilter}
-          onChange={e => setAlertStatusFilter(e.target.value)}
-          style={{ ...styles.select, ...(isMobile ? styles.selectMobile : {}) }}
-        >
-          <option value="">All Status</option>
-          <option value="Ongoing">Ongoing</option>
-          <option value="Resolved">Resolved</option>
-        </select>
+        <div style={{ ...styles.searchWrap, ...(isMobile ? styles.searchWrapMobile : {}) }}>
+          <span style={styles.searchIcon}><SearchIcon /></span>
+          <input
+            placeholder="Search by farm name or owner..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={styles.searchInput}
+          />
+        </div>
 
         <select
           value={severityFilter}
@@ -99,18 +103,9 @@ export default function AlertHistory() {
           {sensorTypes.map(s => <option key={s} value={s.toLowerCase()}>{s}</option>)}
         </select>
 
-        <select
-          value={farmFilter}
-          onChange={e => setFarmFilter(e.target.value)}
-          style={{ ...styles.select, ...(isMobile ? styles.selectMobile : {}) }}
-        >
-          <option value="">All Farms</option>
-          {(farms || []).map(f => <option key={f.id} value={f.id}>{f.farm_name}</option>)}
-        </select>
-
         {hasActiveFilters && (
-          <button type="button" onClick={clearFilters} style={styles.clearBtn}>
-            Clear Filters
+          <button type="button" onClick={clearFilters} style={{ ...styles.clearBtn, ...(isMobile ? styles.clearBtnMobile : {}) }}>
+            <RefreshIcon /> Clear Filters
           </button>
         )}
       </div>
@@ -259,19 +254,25 @@ const styles = {
 
   filtersRow: { display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '18px', alignItems: 'center' },
   filtersRowMobile: { flexDirection: 'column', alignItems: 'stretch' },
+
+  searchWrap: { position: 'relative', flex: '1 1 240px', minWidth: '200px' },
+  searchWrapMobile: { flex: 'none', width: '100%' },
+  searchIcon: { position: 'absolute', left: '13px', top: '50%', transform: 'translateY(-50%)', display: 'flex', pointerEvents: 'none' },
   searchInput: {
-    flex: '1 1 220px', padding: '10px 14px', borderRadius: '10px',
+    width: '100%', padding: '10px 14px 10px 36px', borderRadius: '10px',
     border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box',
     backgroundColor: '#fff', color: '#16311d', fontFamily: SANS,
   },
-  searchInputMobile: { width: '100%' },
+
   select: { padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '13.5px', color: '#33413a', backgroundColor: '#fff', cursor: 'pointer', fontFamily: SANS },
   selectMobile: { width: '100%', boxSizing: 'border-box' },
   clearBtn: {
-    padding: '10px 14px', borderRadius: '10px', border: '1px solid #dcdfd6',
-    backgroundColor: '#fff', color: '#6b7770', fontSize: '13px', fontWeight: 600,
+    display: 'inline-flex', alignItems: 'center', gap: '6px',
+    padding: '10px 14px', borderRadius: '10px', border: '1px solid #cfe0d3',
+    backgroundColor: '#f5faf6', color: '#256b3d', fontSize: '13px', fontWeight: 700,
     cursor: 'pointer', fontFamily: SANS, whiteSpace: 'nowrap',
   },
+  clearBtnMobile: { width: '100%', justifyContent: 'center' },
 
   tableCard: { backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden' },
   scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0' },

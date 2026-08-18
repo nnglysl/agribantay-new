@@ -93,12 +93,57 @@ export default function Farms() {
   const [editFarm, setEditFarm] = useState(null)
   const [viewFarm, setViewFarm] = useState(null)
   const [confirmAction, setConfirmAction] = useState(null)
-  const [showMobileFilters, setShowMobileFilters] = useState(false)
   const isMobile = useIsMobile()
 
   const current = tabState[statusTab]
   const updateCurrent = (patch) => {
     setTabState(prev => ({ ...prev, [statusTab]: { ...prev[statusTab], ...patch } }))
+  }
+
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [draftBarangay, setDraftBarangay] = useState(current.barangayFilter)
+  const [draftSize, setDraftSize] = useState(current.sizeFilter)
+  const [draftMonitoring, setDraftMonitoring] = useState(current.monitoringFilter)
+  const [draftMonth, setDraftMonth] = useState(current.filterMonth)
+  const [draftYear, setDraftYear] = useState(current.filterYear)
+  const filterRef = useRef(null)
+
+  useEffect(() => {
+    if (!filterOpen) return
+    const handleClickOutside = (e) => {
+      if (filterRef.current && !filterRef.current.contains(e.target)) setFilterOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [filterOpen])
+
+  const openFilter = () => {
+    setDraftBarangay(current.barangayFilter)
+    setDraftSize(current.sizeFilter)
+    setDraftMonitoring(current.monitoringFilter)
+    setDraftMonth(current.filterMonth)
+    setDraftYear(current.filterYear)
+    setFilterOpen(true)
+  }
+
+  const applyFilter = () => {
+    updateCurrent({
+      barangayFilter: draftBarangay,
+      sizeFilter: draftSize,
+      monitoringFilter: draftMonitoring,
+      filterMonth: draftMonth,
+      filterYear: draftYear,
+      currentPage: 1,
+    })
+    setFilterOpen(false)
+  }
+
+  const resetFilter = () => {
+    setDraftBarangay('')
+    setDraftSize('')
+    setDraftMonitoring('')
+    setDraftMonth('')
+    setDraftYear('')
   }
 
   const params = { status: statusTab === 'active' ? 'Active' : 'Deactivated' }
@@ -213,57 +258,100 @@ export default function Farms() {
         </div>
       </div>
 
-      <div style={styles.statusTabs}>
-        <div style={{ ...styles.statusTab, ...(statusTab === 'active' ? styles.statusTabActive : {}) }} onClick={() => setStatusTab('active')}>
-          Active Farms
+      <div style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
+        <div style={styles.statusTabs}>
+          <div style={{ ...styles.statusTab, ...(statusTab === 'active' ? styles.statusTabActive : {}) }} onClick={() => setStatusTab('active')}>
+            Active Farms
+          </div>
+          <div style={{ ...styles.statusTab, ...(statusTab === 'deactivated' ? styles.statusTabActive : {}) }} onClick={() => setStatusTab('deactivated')}>
+            Deactivated Farms
+          </div>
         </div>
-        <div style={{ ...styles.statusTab, ...(statusTab === 'deactivated' ? styles.statusTabActive : {}) }} onClick={() => setStatusTab('deactivated')}>
-          Deactivated Farms
+
+        <div style={{ ...styles.toolbarRight, ...(isMobile ? styles.toolbarRightMobile : {}) }}>
+          <div style={styles.searchWrap}>
+            <svg style={styles.searchIcon} width="15" height="15" viewBox="0 0 24 24" fill="none">
+              <circle cx="11" cy="11" r="7" stroke="#9aa79d" strokeWidth="2" />
+              <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="#9aa79d" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+            <input
+              placeholder="Search farm or owner..."
+              value={current.search}
+              onChange={e => updateCurrent({ search: e.target.value, currentPage: 1 })}
+              style={styles.searchInput}
+            />
+            {current.search && (
+              <button
+                type="button"
+                onClick={() => updateCurrent({ search: '', currentPage: 1 })}
+                style={styles.clearBtn}
+                aria-label="Clear search"
+              >
+                ×
+              </button>
+            )}
+          </div>
+
+          <div style={styles.filterAnchor} ref={filterRef}>
+            <button
+              type="button"
+              onClick={() => (filterOpen ? setFilterOpen(false) : openFilter())}
+              style={{ ...styles.filterBtn, ...(activeFilterCount > 0 ? styles.filterBtnActive : {}) }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                <path d="M4 5h16l-6 8v6l-4-2v-4L4 5z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+              </svg>
+              Filter
+              {activeFilterCount > 0 && <span style={styles.filterCount}>{activeFilterCount}</span>}
+            </button>
+
+            {filterOpen && (
+              <div style={{ ...styles.filterPanel, ...(isMobile ? styles.filterPanelMobile : {}) }}>
+                <div style={styles.filterPanelHeader}>
+                  <span style={styles.filterPanelTitle}>Filter</span>
+                  <span style={styles.filterPanelClose} onClick={() => setFilterOpen(false)}>×</span>
+                </div>
+
+                <label style={styles.filterLabel}>Barangay</label>
+                <select value={draftBarangay} onChange={e => setDraftBarangay(e.target.value)} style={styles.filterSelect}>
+                  <option value="">All Barangays</option>
+                  {BARANGAYS.map(b => <option key={b} value={b}>Brgy. {b}</option>)}
+                </select>
+
+                <label style={styles.filterLabel}>Farm Size</label>
+                <select value={draftSize} onChange={e => setDraftSize(e.target.value)} style={styles.filterSelect}>
+                  <option value="">All Sizes</option>
+                  <option value="Small">Small</option>
+                  <option value="Medium">Medium</option>
+                  <option value="Large">Large</option>
+                </select>
+
+                <label style={styles.filterLabel}>Monitoring Status</label>
+                <select value={draftMonitoring} onChange={e => setDraftMonitoring(e.target.value)} style={styles.filterSelect}>
+                  <option value="">All Monitoring Status</option>
+                  {MONITORING_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+
+                <label style={styles.filterLabel}>Month</label>
+                <select value={draftMonth} onChange={e => setDraftMonth(e.target.value)} style={styles.filterSelect}>
+                  <option value="">All Months</option>
+                  {MONTHS.map((m, i) => <option key={m} value={i}>{m}</option>)}
+                </select>
+
+                <label style={styles.filterLabel}>Year</label>
+                <select value={draftYear} onChange={e => setDraftYear(e.target.value)} style={styles.filterSelect}>
+                  <option value="">All Years</option>
+                  {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+
+                <div style={styles.filterActions}>
+                  <button type="button" onClick={resetFilter} style={styles.filterResetBtn}>Reset</button>
+                  <button type="button" onClick={applyFilter} style={styles.filterApplyBtn}>Apply</button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-
-      <div style={{ ...styles.filters, ...(isMobile ? styles.filtersMobile : {}) }}>
-        <input
-          placeholder="Search farm or owner..."
-          value={current.search}
-          onChange={e => updateCurrent({ search: e.target.value, currentPage: 1 })}
-          style={styles.searchInput}
-        />
-
-        {isMobile && (
-          <button type="button" onClick={() => setShowMobileFilters(v => !v)} style={styles.filterToggleBtn}>
-            <span>Filters</span>
-            {activeFilterCount > 0 && <span style={styles.filterBadge}>{activeFilterCount}</span>}
-            <span style={styles.filterChevron}>{showMobileFilters ? '▲' : '▼'}</span>
-          </button>
-        )}
-
-        {(!isMobile || showMobileFilters) && (
-          <>
-            <select value={current.barangayFilter} onChange={e => updateCurrent({ barangayFilter: e.target.value, currentPage: 1 })} style={{ ...styles.select, ...(isMobile ? styles.selectMobile : {}) }}>
-              <option value="">All Barangays</option>
-              {BARANGAYS.map(b => <option key={b} value={b}>Brgy. {b}</option>)}
-            </select>
-            <select value={current.sizeFilter} onChange={e => updateCurrent({ sizeFilter: e.target.value, currentPage: 1 })} style={{ ...styles.select, ...(isMobile ? styles.selectMobile : {}) }}>
-              <option value="">All Sizes</option>
-              <option value="Small">Small</option>
-              <option value="Medium">Medium</option>
-              <option value="Large">Large</option>
-            </select>
-            <select value={current.monitoringFilter} onChange={e => updateCurrent({ monitoringFilter: e.target.value, currentPage: 1 })} style={{ ...styles.select, ...(isMobile ? styles.selectMobile : {}) }}>
-              <option value="">All Monitoring Status</option>
-              {MONITORING_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <select value={current.filterMonth} onChange={e => updateCurrent({ filterMonth: e.target.value, currentPage: 1 })} style={{ ...styles.select, ...(isMobile ? styles.selectMobile : {}) }}>
-              <option value="">All Months</option>
-              {MONTHS.map((m, i) => <option key={m} value={i}>{m}</option>)}
-            </select>
-            <select value={current.filterYear} onChange={e => updateCurrent({ filterYear: e.target.value, currentPage: 1 })} style={{ ...styles.select, ...(isMobile ? styles.selectMobile : {}) }}>
-              <option value="">All Years</option>
-              {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
-            </select>
-          </>
-        )}
       </div>
 
       {loading && <p>Loading...</p>}
@@ -1518,22 +1606,71 @@ const styles = {
   secondaryBtn: { display: 'inline-flex', alignItems: 'center', gap: '7px', backgroundColor: '#fff', color: '#2c8047', border: '1px solid #cfe0d3', borderRadius: '10px', padding: '10px 16px', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer' },
   btnFull: { width: '100%', boxSizing: 'border-box', justifyContent: 'center' },
 
-  statusTabs: { display: 'flex', gap: '4px', marginBottom: '18px', borderBottom: '1px solid #e7e8e0' },
-  statusTab: { padding: '10px 18px', fontSize: '14px', fontWeight: 700, color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent' },
+  toolbar: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    gap: '14px', marginBottom: '18px', borderBottom: '1px solid #e7e8e0', flexWrap: 'wrap',
+  },
+  toolbarMobile: { flexDirection: 'column', alignItems: 'stretch', gap: '12px' },
+
+  statusTabs: { display: 'flex', gap: '4px', overflowX: 'auto' },
+  statusTab: { padding: '10px 18px', fontSize: '14px', fontWeight: 700, color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap' },
   statusTabActive: { color: '#2c8047', borderBottom: '2px solid #2c8047' },
 
-  filters: { display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' },
-  filtersMobile: { flexDirection: 'column' },
-  searchInput: { flex: 1, padding: '11px 14px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', width: '100%', backgroundColor: '#fff', color: '#16311d' },
-  select: { padding: '11px 14px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '13.5px', color: '#33413a', backgroundColor: '#fff', cursor: 'pointer' },
-  selectMobile: { width: '100%', boxSizing: 'border-box' },
-  filterToggleBtn: {
-    width: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: '8px',
-    padding: '11px 14px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
-    fontSize: '14px', fontWeight: 600, color: '#33413a', cursor: 'pointer',
+  toolbarRight: { display: 'flex', alignItems: 'center', gap: '10px', paddingBottom: '10px' },
+  toolbarRightMobile: { paddingBottom: '2px' },
+
+  searchWrap: { position: 'relative', width: '240px', maxWidth: '100%' },
+  searchIcon: { position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' },
+  searchInput: {
+    width: '100%', padding: '8px 34px 8px 34px', borderRadius: '10px',
+    border: '1px solid #dcdfd6', fontSize: '13px', boxSizing: 'border-box',
+    backgroundColor: '#fff', color: '#16311d', fontFamily: 'inherit',
   },
-  filterBadge: { backgroundColor: '#2c8047', color: '#fff', fontSize: '11px', fontWeight: 700, borderRadius: '999px', padding: '1px 7px', lineHeight: '16px' },
-  filterChevron: { marginLeft: 'auto', fontSize: '11px', color: '#9aa79d' },
+  clearBtn: {
+    position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
+    width: '18px', height: '18px', borderRadius: '50%', border: 'none',
+    backgroundColor: '#eceee7', color: '#6b7770', fontSize: '13px', lineHeight: 1,
+    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontFamily: 'inherit', padding: 0,
+  },
+
+  filterAnchor: { position: 'relative', flexShrink: 0 },
+  filterBtn: {
+    display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 15px',
+    borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
+    color: '#33413a', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
+  },
+  filterBtnActive: { borderColor: '#2c8047', color: '#2c8047' },
+  filterCount: {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: '#2c8047',
+    color: '#fff', fontSize: '11px', fontWeight: 700, padding: '0 4px',
+  },
+  filterPanel: {
+    position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 40,
+    backgroundColor: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px',
+    boxShadow: '0 8px 24px rgba(15,38,22,0.12)', padding: '18px', width: '280px',
+    maxHeight: '70vh', overflowY: 'auto',
+  },
+  filterPanelMobile: { right: 0, width: '260px' },
+  filterPanelHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' },
+  filterPanelTitle: { fontSize: '15px', fontWeight: 800, color: '#16311d' },
+  filterPanelClose: { fontSize: '19px', cursor: 'pointer', color: '#8a968d', lineHeight: 1 },
+  filterLabel: { display: 'block', fontSize: '12px', fontWeight: 700, color: '#4b5a50', marginBottom: '7px', marginTop: '14px' },
+  filterSelect: {
+    width: '100%', padding: '9px 12px', borderRadius: '10px', border: '1px solid #dcdfd6',
+    fontSize: '13px', color: '#33413a', backgroundColor: '#fff', cursor: 'pointer',
+    fontFamily: 'inherit', boxSizing: 'border-box',
+  },
+  filterActions: { display: 'flex', gap: '10px', marginTop: '20px' },
+  filterResetBtn: {
+    flex: 1, padding: '9px 0', borderRadius: '10px', border: '1px solid #dcdfd6',
+    backgroundColor: '#fff', color: '#33413a', fontSize: '13.5px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+  },
+  filterApplyBtn: {
+    flex: 1, padding: '9px 0', borderRadius: '10px', border: 'none',
+    backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+  },
 
   tableCard: { backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden', padding: 0 },
   scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0' },

@@ -40,19 +40,41 @@ export default function MaintenanceOverdue() {
       <div style={styles.header}>
         <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Overdue Maintenance</h1>
         <p style={styles.subtitle}>
-          Farms whose manure clean-out has passed both the expected interval and the 30-day grace period —
-          sorted worst first
+          Farms whose manure clean-out has passed both the expected interval and the 30-day grace
+          period — sorted worst first
         </p>
       </div>
 
       <div style={styles.searchRow}>
-        <input
-          placeholder="Search by Farm ID, Farm Owner, Farm Name, or Maintenance Type..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={styles.searchInput}
-        />
+        <div style={styles.searchWrap}>
+          <svg style={styles.searchIcon} width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <circle cx="11" cy="11" r="7" stroke="#9aa79d" strokeWidth="2" />
+            <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="#9aa79d" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+          <input
+            placeholder="Search farm, owner, or farm ID..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={styles.searchInput}
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              style={styles.clearBtn}
+              aria-label="Clear search"
+            >
+              ×
+            </button>
+          )}
+        </div>
       </div>
+
+      {!loading && !error && (
+        <p style={styles.countText}>
+          {totalItems} farm{totalItems === 1 ? '' : 's'} overdue
+        </p>
+      )}
 
       {loading && <p style={styles.stateText}>Loading...</p>}
       {error && <p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p>}
@@ -193,12 +215,25 @@ const styles = {
   titleMobile: { fontSize: '20px' },
   subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px', maxWidth: '580px', lineHeight: 1.5 },
 
-  searchRow: { marginBottom: '18px' },
+  searchRow: { marginBottom: '10px' },
+  searchWrap: { position: 'relative', width: '100%' },
+  searchIcon: {
+    position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)',
+    pointerEvents: 'none',
+  },
   searchInput: {
-    width: '100%', maxWidth: '480px', padding: '11px 14px', borderRadius: '10px',
+    width: '100%', padding: '11px 40px 11px 40px', borderRadius: '10px',
     border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box',
     backgroundColor: '#fff', color: '#16311d', fontFamily: SANS,
   },
+  clearBtn: {
+    position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)',
+    width: '22px', height: '22px', borderRadius: '50%', border: 'none',
+    backgroundColor: '#eceee7', color: '#6b7770', fontSize: '15px', lineHeight: 1,
+    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontFamily: SANS, padding: 0,
+  },
+  countText: { fontSize: '12.5px', color: '#8a968d', margin: '0 0 12px', fontFamily: SANS },
 
   tableCard: { backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden' },
   scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0' },
