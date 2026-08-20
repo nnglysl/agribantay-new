@@ -48,32 +48,46 @@ function allServices(aiSuggestions) {
   return [...suggested, ...fallback]
 }
 
-const responsiveCss = `
-  .fd-hero {
-    display: flex;
-    align-items: center;
-    gap: 24px;
-  }
-  @media (max-width: 640px) {
-    .fd-hero { flex-direction: column; text-align: center; }
-  }
+// Injects the Material Symbols stylesheet once, globally, the first time
+// this component mounts — so the hero icon (health_and_safety / warning /
+// e911_emergency) always has its font available without needing to touch
+// index.html by hand. Safe to call multiple times; it checks first.
+function useMaterialSymbolsFont() {
+  useEffect(() => {
+    const id = 'material-symbols-outlined-font'
+    if (document.getElementById(id)) return
+    const link = document.createElement('link')
+    link.id = id
+    link.rel = 'stylesheet'
+    link.href = 'https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200'
+    document.head.appendChild(link)
+  }, [])
+}
 
-  .fd-conditions-grid {
+const responsiveCss = `
+  .fd-conditions-row {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 16px;
+    grid-template-columns: 260px 1fr;
+    gap: 12px;
+    align-items: stretch;
   }
   @media (max-width: 900px) {
-    .fd-conditions-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .fd-conditions-row { grid-template-columns: 1fr; }
+  }
+
+  .fd-mini-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
   }
   @media (max-width: 520px) {
-    .fd-conditions-grid { grid-template-columns: 1fr; }
+    .fd-mini-grid { grid-template-columns: 1fr; }
   }
 
   .fd-second-row {
     display: grid;
     grid-template-columns: 1.3fr 1fr 1fr;
-    gap: 16px;
+    gap: 12px;
     align-items: start;
   }
   @media (max-width: 1100px) {
@@ -85,13 +99,28 @@ const responsiveCss = `
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 12px 0;
-    border-bottom: 1px solid #f2f3ed;
+    padding: 11px 0;
+    border-bottom: 1px solid #eceee7;
   }
   .fd-service-row:last-child { border-bottom: none; }
+
+  .material-symbols-outlined {
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  }
 `
 
+// Status colors — still used for the hero card fill, the Manure Records
+// status dot/text, and the checklist bullets. The sensor card word text is
+// intentionally black/bold now rather than status-colored (see feelWord).
+const STATUS_COLOR = { Normal: '#188a4c', Warning: '#e8720c', Critical: '#d92626' }
+const BRAND_GREEN = '#1B4332'
+const TEXT_DARK = '#1f2a22'
+const TEXT_GRAY = '#6b7770'
+const BORDER_GRAY = '#e3e6de'
+
 export default function FarmerDashboard() {
+  useMaterialSymbolsFont()
+
   const { data, loading, error, refetch } = useCachedFetch('/farmer/dashboard')
   const { data: insight, loading: insightLoading, refetch: refetchInsight } = useCachedFetch('/farmer/insights')
   const { data: maintenance } = useCachedFetch('/farmer/maintenance')
@@ -108,7 +137,7 @@ export default function FarmerDashboard() {
   }, [])
 
   if (loading) return <FarmerLayout><p style={styles.stateText}>Loading...</p></FarmerLayout>
-  if (error) return <FarmerLayout><p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p></FarmerLayout>
+  if (error) return <FarmerLayout><p style={{ ...styles.stateText, color: '#d92626' }}>{error}</p></FarmerLayout>
 
   const hero = heroConfig[data.health_status] || heroConfig.Healthy
   const latestDisposal = (disposalRecords || [])[0]
@@ -132,32 +161,31 @@ export default function FarmerDashboard() {
         Here's how your farm is doing today. We'll tell you if anything needs your attention.
       </p>
 
-      {/* ---------------------------------------------------- Overall farm status */}
-      <div style={{ ...styles.heroCard, backgroundColor: hero.ring, borderColor: hero.border }}>
-        <div className="fd-hero">
-          <div style={styles.heroIconWrap}>
-            <HeroIcon name={hero.iconName} color={hero.icon} />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ ...styles.heroTitle, color: hero.icon }}>{hero.title}</div>
-            <p style={styles.heroText}>{hero.text}</p>
-          </div>
+      {/* -------------------------------- Farm status (left) + 4 sensor cards (right) */}
+      <div className="fd-conditions-row">
+        {/* Left: overall status — solid status-colored card */}
+        <div style={{ ...styles.heroCard, backgroundColor: hero.color }}>
+          <span
+            className="material-symbols-outlined"
+            style={{ fontSize: '84px', color: '#fff', lineHeight: 1 }}
+          >
+            {hero.iconName}
+          </span>
+          <div style={styles.heroTitle}>{hero.title}</div>
+          <p style={styles.heroText}>{hero.text}</p>
+        </div>
+
+        {/* Right: 2x2 grid of sensor cards */}
+        <div className="fd-mini-grid">
+          <SensorFeel type="ammonia" status={data.ammonia_status} />
+          <SensorFeel type="temperature" status={data.temperature_status} />
+          <SensorFeel type="humidity" status={data.humidity_status} />
+          <SensorFeel type="moisture" status={data.moisture_status} />
         </div>
       </div>
 
-      {/* ---------------------------------------------- Farm conditions (bilingual, no raw numbers) */}
-      <div style={styles.sectionTitle}>Your Chickens Today</div>
-      <div style={styles.sectionSub}>See how your chickens are doing based on your farm's latest sensor readings.</div>
-
-      <div className="fd-conditions-grid">
-        <SensorFeel type="ammonia" status={data.ammonia_status} />
-        <SensorFeel type="temperature" status={data.temperature_status} />
-        <SensorFeel type="humidity" status={data.humidity_status} />
-        <SensorFeel type="moisture" status={data.moisture_status} />
-      </div>
-
       {/* ------------------------------------------------------------- Second row */}
-      <div className="fd-second-row" style={{ marginTop: '20px' }}>
+      <div className="fd-second-row" style={{ marginTop: '16px' }}>
         {/* Recommendations */}
         <div style={styles.card}>
           <div style={styles.cardTitle}>Recommendations</div>
@@ -174,7 +202,9 @@ export default function FarmerDashboard() {
               <div style={styles.insightTipsList}>
                 {insight.tips.slice(0, 3).map((tip, i) => (
                   <div key={i} style={styles.insightTipRow}>
-                    <span style={styles.insightTipCheck}><CheckIcon /></span>
+                    <span style={styles.insightTipCheck}>
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+                    </span>
                     <span style={styles.insightTipText}>{bilingual(tip, insight.tips_fil?.[i])}</span>
                   </div>
                 ))}
@@ -190,7 +220,6 @@ export default function FarmerDashboard() {
           {maintenance?.status && (
             <div style={styles.manureBlock}>
               <div style={styles.manureRow}>
-                <CalendarIcon />
                 <div>
                   <div style={styles.manureRowLabel}>Last Clean-out</div>
                   <div style={styles.manureRowValue}>{maintenance.status.last_performed_at || '—'}</div>
@@ -200,7 +229,6 @@ export default function FarmerDashboard() {
 
               {latestDisposal && (
                 <div style={styles.manureRow}>
-                  <CalendarIcon />
                   <div>
                     <div style={styles.manureRowLabel}>Last Disposal</div>
                     <div style={styles.manureRowValue}>{latestDisposal.disposal_date}</div>
@@ -211,8 +239,8 @@ export default function FarmerDashboard() {
               <div style={styles.manureRow}>
                 <div style={styles.manureRowLabel}>Status</div>
               </div>
-              <span style={{ ...styles.badge, ...maintBadgeStyle(maintenance.status.status) }}>
-                <span style={{ ...styles.badgeDot, backgroundColor: maintBadgeStyle(maintenance.status.status).color }} />
+              <span style={{ ...styles.badge, color: maintTextColor(maintenance.status.status) }}>
+                <span style={{ ...styles.badgeDot, backgroundColor: maintTextColor(maintenance.status.status) }} />
                 {maintenance.status.status}
               </span>
             </div>
@@ -235,7 +263,7 @@ export default function FarmerDashboard() {
         <div style={styles.card}>
           <div style={styles.cardTitle}>Municipal Services</div>
 
-          <div style={{ marginTop: '14px' }}>
+          <div style={{ marginTop: '10px' }}>
             {allServices(insight?.service_suggestions).map((s, i) => (
               <div key={i} className="fd-service-row">
                 <div style={styles.serviceLeft}>
@@ -257,25 +285,28 @@ export default function FarmerDashboard() {
   )
 }
 
-function maintBadgeStyle(status) {
-  if (status === 'Overdue') return { backgroundColor: '#fbe3e3', color: '#b91c1c' }
-  if (status === 'Due') return { backgroundColor: '#fdf3e6', color: '#b45309' }
-  return { backgroundColor: '#eaf3ec', color: '#256b3d' }
+function maintTextColor(status) {
+  if (status === 'Overdue') return STATUS_COLOR.Critical
+  if (status === 'Due') return STATUS_COLOR.Warning
+  return STATUS_COLOR.Normal
 }
 
+// Solid status-colored hero card — background IS the status color (Normal
+// green / Warning orange / Critical red), white icon + text on top, icon
+// and heading centered.
 const heroConfig = {
   Healthy: {
-    iconName: 'check', icon: '#1B4332', ring: '#eaf3ec', border: '#cfe6d6',
+    iconName: 'health_and_safety', color: STATUS_COLOR.Normal,
     title: 'Your farm is safe',
     text: 'Everything looks comfortable for your chickens right now. Keep up the good work.',
   },
   Warning: {
-    iconName: 'alert', icon: '#b45309', ring: '#fdf3e6', border: '#f4e2c4',
+    iconName: 'warning', color: STATUS_COLOR.Warning,
     title: 'Your farm needs attention',
-    text: 'A few things could be better for your chickens. Nothing serious — small steps now will keep them healthy.',
+    text: 'Your farm needs a little attention. A few conditions need improvement to keep your chickens healthy.',
   },
   Critical: {
-    iconName: 'alert', icon: '#b91c1c', ring: '#fbe3e3', border: '#f3c9c9',
+    iconName: 'e911_emergency', color: STATUS_COLOR.Critical,
     title: 'Your farm needs attention now',
     text: 'Some conditions need your attention today to keep your chickens safe and comfortable.',
   },
@@ -305,16 +336,8 @@ const SENSOR_CONFIG = {
   },
 }
 
-function feelStyle(status) {
-  if (status === 'Critical') return { color: '#b91c1c', tint: '#fbe3e3', dot: '#b91c1c' }
-  if (status === 'Warning') return { color: '#b45309', tint: '#fdf3e6', dot: '#b45309' }
-  if (status === 'Normal') return { color: '#256b3d', tint: '#eaf3ec', dot: '#256b3d' }
-  return { color: '#6b7770', tint: '#eef0ea', dot: '#9aa79d' }
-}
-
 function SensorFeel({ type, status }) {
   const cfg = SENSOR_CONFIG[type]
-  const s = feelStyle(status)
   const wordPair = status ? cfg.words[status] : ['No reading', 'Walang datos']
   const actionPair = status ? cfg.action[status] : ['Offline', 'Offline']
   const word = bilingual(wordPair?.[0], wordPair?.[1])
@@ -322,16 +345,16 @@ function SensorFeel({ type, status }) {
   return (
     <div style={styles.feelCard}>
       <div style={styles.feelHead}>
-        <div style={{ ...styles.feelIcon, backgroundColor: s.tint }}>
-          <SensorIcon name={cfg.icon} color={s.color} />
-        </div>
+        <span style={styles.feelIconChip}>
+          <SensorIcon name={cfg.icon} />
+        </span>
         <div>
           <div style={styles.feelTitle}>{cfg.title}</div>
           <div style={styles.feelSub}>{cfg.sub}</div>
         </div>
       </div>
       <div style={styles.feelValueRow}>
-        <span style={{ ...styles.feelWord, color: s.color }}>{word}</span>
+        <span style={styles.feelWord}>{word}</span>
       </div>
       <p style={styles.feelActionText}>{action}</p>
     </div>
@@ -340,30 +363,22 @@ function SensorFeel({ type, status }) {
 
 /* ------------------------------------------------------------------------ icons */
 
-const iconBase = { fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' }
+const iconBase = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.9, strokeLinecap: 'round', strokeLinejoin: 'round' }
 
-function CheckIcon() {
-  return <svg width="13" height="13" viewBox="0 0 24 24" {...iconBase} strokeWidth="2.6"><path d="M20 6L9 17l-5-5" /></svg>
-}
-function CalendarIcon() {
-  return <svg width="16" height="16" viewBox="0 0 24 24" {...iconBase} strokeWidth="2" style={{ color: '#1B4332', flexShrink: 0, marginTop: '2px' }}><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
-}
-function HeroIcon({ name, color }) {
-  if (name === 'check') {
-    return <svg width="40" height="40" viewBox="0 0 24 24" {...iconBase} style={{ color }}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><path d="M22 4 12 14.01l-3-3" /></svg>
-  }
-  return <svg width="40" height="40" viewBox="0 0 24 24" {...iconBase} style={{ color }}><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
-}
-function SensorIcon({ name, color }) {
-  const p = { width: 21, height: 21, viewBox: '0 0 24 24', ...iconBase, strokeWidth: 1.9, style: { color } }
+// Plain black line icons — no chip/box background.
+function SensorIcon({ name }) {
+  const p = { width: 20, height: 20, viewBox: '0 0 24 24', ...iconBase, style: { color: '#000' } }
   if (name === 'wind') return <svg {...p}><path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2" /><path d="M9.6 4.6A2 2 0 1 1 11 8H2" /><path d="M12.6 19.4A2 2 0 1 0 14 16H2" /></svg>
   if (name === 'thermometer') return <svg {...p}><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z" /></svg>
   if (name === 'droplet') return <svg {...p}><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5S5 13 5 15a7 7 0 0 0 7 7z" /></svg>
   return <svg {...p}><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" /><path d="M2 21c0-3 1.85-5.36 5.08-6" /></svg>
 }
+
+// Municipal Services icons are plain brand-green line icons (not status
+// colored — these represent request types, not sensor readings).
 function ServiceIcon({ type }) {
   const t = (type || '').toLowerCase()
-  const p = { width: 18, height: 18, viewBox: '0 0 24 24', ...iconBase, strokeWidth: 1.8, style: { color: '#1B4332' } }
+  const p = { width: 15, height: 15, viewBox: '0 0 24 24', ...iconBase, strokeWidth: 1.7, style: { color: BRAND_GREEN } }
   if (t.includes('odor')) return <svg {...p}><path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2" /><path d="M9.6 4.6A2 2 0 1 1 11 8H2" /><path d="M12.6 19.4A2 2 0 1 0 14 16H2" /></svg>
   if (t.includes('fly')) return <svg {...p}><circle cx="12" cy="12" r="3" /><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8" /></svg>
   if (t.includes('vaccin')) return <svg {...p}><path d="M18 2 22 6" /><path d="M17 7 20 4l-3-3-3 3" /><path d="M8 12l8-8 4 4-8 8" /><path d="M8 12 3 17v4h4l5-5" /></svg>
@@ -378,59 +393,68 @@ const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Sego
 const styles = {
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
 
-  title: { fontSize: '24px', fontWeight: 800, letterSpacing: '-0.01em', color: '#16311d', margin: 0, fontFamily: SANS },
-  subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px', marginBottom: '22px', fontFamily: SANS, lineHeight: 1.5 },
+  title: { fontSize: '20px', fontWeight: 600, color: TEXT_DARK, margin: 0, fontFamily: SANS },
+  subtitle: { fontSize: '13px', color: TEXT_GRAY, marginTop: '4px', marginBottom: '18px', fontFamily: SANS, lineHeight: 1.5, fontWeight: 400 },
 
-  sectionTitle: { fontSize: '16px', fontWeight: 800, color: '#16311d', margin: '28px 0 4px', fontFamily: SANS },
-  sectionSub: { fontSize: '13px', color: '#8a968d', marginBottom: '14px', fontFamily: SANS },
-
+  // Solid status-colored hero card, white text, centered content, large icon.
   heroCard: {
-    border: '1px solid', borderRadius: '14px', padding: '20px 24px', fontFamily: SANS,
+    borderRadius: '8px', padding: '18px 20px', fontFamily: SANS,
+    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+    textAlign: 'center', boxSizing: 'border-box', height: '100%', color: '#fff',
   },
-  heroIconWrap: { width: '56px', height: '56px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  heroTitle: { fontSize: '17px', fontWeight: 800, letterSpacing: '-0.01em' },
-  heroText: { fontSize: '13.5px', color: '#5c6b60', lineHeight: 1.55, margin: '4px 0 0', maxWidth: '640px' },
+  heroTitle: { fontSize: '17px', fontWeight: 600, color: '#fff', marginTop: '10px' },
+  heroText: { fontSize: '12.5px', color: 'rgba(255,255,255,0.9)', lineHeight: 1.55, margin: '8px 0 0', fontWeight: 400 },
 
   card: {
-    background: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px', padding: '20px', fontFamily: SANS,
+    background: '#fff', border: `1px solid ${BORDER_GRAY}`, borderRadius: '8px', padding: '16px', fontFamily: SANS,
     display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box',
   },
-  cardTitle: { fontSize: '15px', fontWeight: 800, color: '#16311d' },
+  cardTitle: { fontSize: '13px', fontWeight: 600, color: TEXT_DARK },
 
-  recoText: { fontSize: '13.5px', color: '#33413a', lineHeight: 1.6, margin: '12px 0 0' },
-  emptyText: { fontSize: '13px', color: '#9aa79d', fontStyle: 'italic', marginTop: '14px' },
+  recoText: { fontSize: '13px', color: TEXT_DARK, lineHeight: 1.6, margin: '10px 0 0', fontWeight: 400 },
+  emptyText: { fontSize: '13px', color: '#9aa79d', fontStyle: 'italic', marginTop: '12px', fontWeight: 400 },
 
-  fullPrimaryBtnSm: { flex: 1, padding: '11px', borderRadius: '10px', border: 'none', background: '#1B4332', color: '#fff', fontFamily: SANS, fontSize: '13px', fontWeight: 700, cursor: 'pointer' },
-  outlineBtn: { flex: 1, padding: '11px', borderRadius: '10px', border: '1px solid #cfd6cf', background: '#fff', color: '#33413a', fontFamily: SANS, fontSize: '13px', fontWeight: 700, cursor: 'pointer' },
+  fullPrimaryBtnSm: { flex: 1, padding: '9px', borderRadius: '6px', border: `1px solid ${BRAND_GREEN}`, background: BRAND_GREEN, color: '#fff', fontFamily: SANS, fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
+  outlineBtn: { flex: 1, padding: '9px', borderRadius: '6px', border: `1px solid ${BORDER_GRAY}`, background: '#fff', color: TEXT_DARK, fontFamily: SANS, fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
 
-  tipsBlock: { marginTop: '18px', paddingTop: '16px', borderTop: '1px solid #f2f3ed' },
-  tipsLabel: { fontSize: '11px', fontWeight: 800, color: '#8a968d', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px' },
-  insightTipsList: { display: 'flex', flexDirection: 'column', gap: '10px' },
+  tipsBlock: { marginTop: '14px', paddingTop: '12px', borderTop: `1px solid ${BORDER_GRAY}` },
+  tipsLabel: { fontSize: '10.5px', fontWeight: 600, color: '#9aa79d', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '8px' },
+  insightTipsList: { display: 'flex', flexDirection: 'column', gap: '9px' },
   insightTipRow: { display: 'flex', alignItems: 'flex-start', gap: '9px' },
-  insightTipCheck: { width: '18px', height: '18px', borderRadius: '50%', backgroundColor: '#eaf3ec', color: '#256b3d', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '1px' },
-  insightTipText: { fontSize: '13px', color: '#33413a', lineHeight: 1.5 },
+  insightTipCheck: {
+    width: '16px', height: '16px', borderRadius: '50%', backgroundColor: STATUS_COLOR.Normal,
+    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '1px',
+  },
+  insightTipText: { fontSize: '12.5px', color: TEXT_DARK, lineHeight: 1.5, fontWeight: 400 },
 
-  manureBlock: { marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '12px' },
+  manureBlock: { marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '10px' },
   manureRow: { display: 'flex', gap: '10px', alignItems: 'flex-start' },
-  manureRowLabel: { fontSize: '12px', fontWeight: 700, color: '#5c6b60' },
-  manureRowValue: { fontSize: '14px', fontWeight: 800, color: '#16311d', marginTop: '1px' },
-  manureRowSub: { fontSize: '11.5px', color: '#8a968d', marginTop: '1px' },
-  badge: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '5px 12px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap', width: 'fit-content' },
+  manureRowLabel: { fontSize: '11.5px', fontWeight: 500, color: TEXT_GRAY },
+  manureRowValue: { fontSize: '13px', fontWeight: 600, color: TEXT_DARK, marginTop: '1px' },
+  manureRowSub: { fontSize: '11px', color: '#9aa79d', marginTop: '1px', fontWeight: 400 },
+  badge: { display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap', width: 'fit-content' },
   badgeDot: { width: '6px', height: '6px', borderRadius: '50%' },
-  manureActions: { display: 'flex', gap: '10px', marginTop: '18px' },
+  manureActions: { display: 'flex', gap: '8px', marginTop: '14px' },
 
   serviceLeft: { display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 },
-  serviceIcon: { width: '34px', height: '34px', borderRadius: '9px', background: '#eaf3ec', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  serviceName: { fontSize: '13px', fontWeight: 700, color: '#16311d' },
-  serviceReason: { fontSize: '11.5px', color: '#8a968d', marginTop: '1px', lineHeight: 1.4 },
-  serviceBtn: { flexShrink: 0, padding: '8px 14px', borderRadius: '8px', border: '1px solid #cfe0d5', background: '#fff', color: '#1B4332', fontFamily: SANS, fontSize: '12px', fontWeight: 700, cursor: 'pointer' },
+  serviceIcon: { width: '26px', height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  serviceName: { fontSize: '12.5px', fontWeight: 600, color: TEXT_DARK },
+  serviceReason: { fontSize: '11px', color: TEXT_GRAY, marginTop: '1px', lineHeight: 1.4, fontWeight: 400 },
+  serviceBtn: { flexShrink: 0, padding: '6px 12px', borderRadius: '6px', border: `1px solid ${BORDER_GRAY}`, background: '#fff', color: TEXT_DARK, fontFamily: SANS, fontSize: '11.5px', fontWeight: 600, cursor: 'pointer' },
 
-  feelCard: { background: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px', padding: '18px 20px', fontFamily: SANS },
-  feelHead: { display: 'flex', alignItems: 'center', gap: '11px' },
-  feelIcon: { width: '42px', height: '42px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  feelTitle: { fontSize: '13.5px', fontWeight: 700, color: '#16311d' },
-  feelSub: { fontSize: '11.5px', color: '#8a968d' },
+  // Sensor cards (right side, 2x2) — white card, plain black icon (no chip),
+  // green bold title, black bold status word.
+  feelCard: {
+    background: '#fff', border: `1px solid ${BORDER_GRAY}`, borderRadius: '8px', padding: '16px', fontFamily: SANS,
+  },
+  feelHead: { display: 'flex', alignItems: 'center', gap: '10px' },
+  feelIconChip: {
+    width: '28px', height: '28px',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  feelTitle: { fontSize: '13.5px', fontWeight: 700, color: BRAND_GREEN },
+  feelSub: { fontSize: '11.5px', color: TEXT_GRAY, fontWeight: 400 },
   feelValueRow: { marginTop: '14px' },
-  feelWord: { fontSize: '15.5px', fontWeight: 800, lineHeight: 1.3 },
-  feelActionText: { fontSize: '12px', color: '#5c6b60', margin: '6px 0 0', lineHeight: 1.4 },
+  feelWord: { fontSize: '15px', fontWeight: 700, color: TEXT_DARK, lineHeight: 1.3 },
+  feelActionText: { fontSize: '12px', color: TEXT_DARK, margin: '6px 0 0', lineHeight: 1.4, fontWeight: 400 },
 }

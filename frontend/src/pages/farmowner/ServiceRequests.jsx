@@ -75,7 +75,6 @@ export default function ServiceRequests() {
       <div style={{ ...styles.header, ...(isMobile ? styles.headerMobile : {}) }}>
         <div>
           <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Service Requests</h1>
-          <p style={styles.subtitle}>My requests &amp; history</p>
         </div>
         <button
           style={{ ...styles.newBtn, ...(isMobile ? styles.newBtnMobile : {}) }}
