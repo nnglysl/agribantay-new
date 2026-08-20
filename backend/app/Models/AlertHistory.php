@@ -15,12 +15,14 @@ class AlertHistory extends Model
         'value',
         'triggered_at',
         'resolved_at',
+        'safe_readings_count',
     ];
 
     protected $casts = [
-        'triggered_at' => 'datetime',
-        'resolved_at'  => 'datetime',
-        'value'        => 'float',
+        'triggered_at'        => 'datetime',
+        'resolved_at'         => 'datetime',
+        'value'               => 'float',
+        'safe_readings_count' => 'integer',
     ];
 
     public function farm()

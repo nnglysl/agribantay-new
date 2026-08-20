@@ -99,8 +99,7 @@ export default function MaintenanceOverdue() {
       <div style={styles.header}>
         <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Overdue Maintenance</h1>
         <p style={styles.subtitle}>
-          Farms whose manure clean-out has passed both the expected interval and the 30-day grace period —
-          sorted worst first
+          Farms that have exceeded their manure clean-out schedule and 30-day grace period, with the most overdue farms shown first.
         </p>
       </div>
 

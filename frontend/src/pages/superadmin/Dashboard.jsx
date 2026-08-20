@@ -149,7 +149,7 @@ function StatCard({ value, label, foot, isMobile }) {
   return (
     <div style={{ ...styles.statCard, ...(isMobile ? styles.statCardMobile : {}) }}>
       <div style={{ ...styles.statValue, ...(isMobile ? styles.statValueMobile : {}) }}>{value}</div>
-      <div style={styles.statLabel}>{label}</div>
+      <div style={{ ...styles.statLabel, ...(isMobile ? styles.statLabelMobile : {}) }}>{label}</div>
       {foot && <div style={styles.statFoot}>{foot}</div>}
     </div>
   )
@@ -161,16 +161,18 @@ const styles = {
   subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px', marginBottom: '24px' },
 
   statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '28px' },
-  statsGridMobile: { gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', marginBottom: '20px' },
+  // Matches Admin dashboard: 3 cards across in a single row, even on mobile.
+  statsGridMobile: { gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '20px' },
 
   statCard: {
     background: '#234A35', border: '1px solid #1b3a29', borderRadius: '14px', padding: '20px 22px',
   },
-  statCardMobile: { padding: '14px 16px' },
+  statCardMobile: { padding: '12px 10px', borderRadius: '12px' },
 
   statValue: { fontSize: '30px', fontWeight: 800, letterSpacing: '-0.02em', color: '#ffffff', lineHeight: 1 },
-  statValueMobile: { fontSize: '24px' },
+  statValueMobile: { fontSize: '22px' },
   statLabel: { fontSize: '13px', fontWeight: 700, color: '#eaf3ec', marginTop: '8px' },
+  statLabelMobile: { fontSize: '10.5px', marginTop: '5px', lineHeight: 1.3 },
   statFoot: { fontSize: '12px', color: '#a9c6b3', marginTop: '3px' },
 
   mapTitle: { fontSize: '15px', fontWeight: 700, color: '#16311d', marginTop: '4px', marginBottom: '12px' },
