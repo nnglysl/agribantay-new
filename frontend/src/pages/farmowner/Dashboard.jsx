@@ -109,9 +109,9 @@ const responsiveCss = `
   }
 `
 
-// Status colors — still used for the hero card fill, the Manure Records
-// status dot/text, and the checklist bullets. The sensor card word text is
-// intentionally black/bold now rather than status-colored (see feelWord).
+// Status colors — used sparingly: the hero card fill, a small severity dot
+// on each sensor card, and the Manure Records status dot/text. Never used
+// to color entire cards or large blocks of text.
 const STATUS_COLOR = { Normal: '#188a4c', Warning: '#e8720c', Critical: '#d92626' }
 const BRAND_GREEN = '#1B4332'
 const TEXT_DARK = '#1f2a22'
@@ -259,7 +259,7 @@ export default function FarmerDashboard() {
           </div>
         </div>
 
-        {/* Municipal Services */}
+        {/* Municipal Services — plain, low-key rows; not urgent alerts */}
         <div style={styles.card}>
           <div style={styles.cardTitle}>Municipal Services</div>
 
@@ -338,6 +338,7 @@ const SENSOR_CONFIG = {
 
 function SensorFeel({ type, status }) {
   const cfg = SENSOR_CONFIG[type]
+  const dotColor = STATUS_COLOR[status] || '#9aa79d'
   const wordPair = status ? cfg.words[status] : ['No reading', 'Walang datos']
   const actionPair = status ? cfg.action[status] : ['Offline', 'Offline']
   const word = bilingual(wordPair?.[0], wordPair?.[1])
@@ -354,6 +355,7 @@ function SensorFeel({ type, status }) {
         </div>
       </div>
       <div style={styles.feelValueRow}>
+        <span style={{ ...styles.feelStatusDot, backgroundColor: dotColor }} />
         <span style={styles.feelWord}>{word}</span>
       </div>
       <p style={styles.feelActionText}>{action}</p>
@@ -365,17 +367,19 @@ function SensorFeel({ type, status }) {
 
 const iconBase = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.9, strokeLinecap: 'round', strokeLinejoin: 'round' }
 
-// Plain black line icons — no chip/box background.
+// Sensor icons now match the brand green used in the card titles, so the
+// icon and title read as one consistent element.
 function SensorIcon({ name }) {
-  const p = { width: 20, height: 20, viewBox: '0 0 24 24', ...iconBase, style: { color: '#000' } }
+  const p = { width: 20, height: 20, viewBox: '0 0 24 24', ...iconBase, style: { color: BRAND_GREEN } }
   if (name === 'wind') return <svg {...p}><path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2" /><path d="M9.6 4.6A2 2 0 1 1 11 8H2" /><path d="M12.6 19.4A2 2 0 1 0 14 16H2" /></svg>
   if (name === 'thermometer') return <svg {...p}><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z" /></svg>
   if (name === 'droplet') return <svg {...p}><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5S5 13 5 15a7 7 0 0 0 7 7z" /></svg>
   return <svg {...p}><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" /><path d="M2 21c0-3 1.85-5.36 5.08-6" /></svg>
 }
 
-// Municipal Services icons are plain brand-green line icons (not status
-// colored — these represent request types, not sensor readings).
+// Municipal Services icons are plain brand-green line icons — same
+// treatment as the sensor icons, kept neutral (not status-colored) since
+// these represent request types, not sensor readings.
 function ServiceIcon({ type }) {
   const t = (type || '').toLowerCase()
   const p = { width: 15, height: 15, viewBox: '0 0 24 24', ...iconBase, strokeWidth: 1.7, style: { color: BRAND_GREEN } }
@@ -393,7 +397,7 @@ const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Sego
 const styles = {
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
 
-  title: { fontSize: '20px', fontWeight: 600, color: TEXT_DARK, margin: 0, fontFamily: SANS },
+  title: { fontSize: '20px', fontWeight: 700, color: TEXT_DARK, margin: 0, fontFamily: SANS },
   subtitle: { fontSize: '13px', color: TEXT_GRAY, marginTop: '4px', marginBottom: '18px', fontFamily: SANS, lineHeight: 1.5, fontWeight: 400 },
 
   // Solid status-colored hero card, white text, centered content, large icon.
@@ -409,7 +413,7 @@ const styles = {
     background: '#fff', border: `1px solid ${BORDER_GRAY}`, borderRadius: '8px', padding: '16px', fontFamily: SANS,
     display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box',
   },
-  cardTitle: { fontSize: '13px', fontWeight: 600, color: TEXT_DARK },
+  cardTitle: { fontSize: '13px', fontWeight: 700, color: TEXT_DARK },
 
   recoText: { fontSize: '13px', color: TEXT_DARK, lineHeight: 1.6, margin: '10px 0 0', fontWeight: 400 },
   emptyText: { fontSize: '13px', color: '#9aa79d', fontStyle: 'italic', marginTop: '12px', fontWeight: 400 },
@@ -442,8 +446,9 @@ const styles = {
   serviceReason: { fontSize: '11px', color: TEXT_GRAY, marginTop: '1px', lineHeight: 1.4, fontWeight: 400 },
   serviceBtn: { flexShrink: 0, padding: '6px 12px', borderRadius: '6px', border: `1px solid ${BORDER_GRAY}`, background: '#fff', color: TEXT_DARK, fontFamily: SANS, fontSize: '11.5px', fontWeight: 600, cursor: 'pointer' },
 
-  // Sensor cards (right side, 2x2) — white card, plain black icon (no chip),
-  // green bold title, black bold status word.
+  // Sensor cards (right side, 2x2) — white card, green icon (matches
+  // titles), black bold status word with a small status-colored dot next
+  // to it as the only severity cue.
   feelCard: {
     background: '#fff', border: `1px solid ${BORDER_GRAY}`, borderRadius: '8px', padding: '16px', fontFamily: SANS,
   },
@@ -454,7 +459,8 @@ const styles = {
   },
   feelTitle: { fontSize: '13.5px', fontWeight: 700, color: BRAND_GREEN },
   feelSub: { fontSize: '11.5px', color: TEXT_GRAY, fontWeight: 400 },
-  feelValueRow: { marginTop: '14px' },
+  feelValueRow: { marginTop: '14px', display: 'flex', alignItems: 'center', gap: '7px' },
+  feelStatusDot: { width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0 },
   feelWord: { fontSize: '15px', fontWeight: 700, color: TEXT_DARK, lineHeight: 1.3 },
   feelActionText: { fontSize: '12px', color: TEXT_DARK, margin: '6px 0 0', lineHeight: 1.4, fontWeight: 400 },
 }

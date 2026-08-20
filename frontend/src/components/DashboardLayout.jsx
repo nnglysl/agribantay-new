@@ -105,6 +105,7 @@ function NotificationBell() {
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('Today')
   const wrapRef = useRef(null)
+  const isMobile = useIsMobile()
 
   const fetchNotifications = async () => {
     setLoading(true)
@@ -132,6 +133,15 @@ function NotificationBell() {
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [open])
+
+  // Prevent the page from scrolling behind the full-width mobile panel
+  // while it's open — otherwise a background scroll can drag the sheet
+  // out of sync with the topbar on some mobile browsers.
+  useEffect(() => {
+    if (!isMobile) return
+    document.body.style.overflow = open ? 'hidden' : ''
+    return () => { document.body.style.overflow = '' }
+  }, [open, isMobile])
 
   const toggleOpen = () => {
     if (!open) fetchNotifications()
@@ -180,52 +190,68 @@ function NotificationBell() {
       </button>
 
       {open && (
-        <div style={bellStyles.dropdown}>
-          <div style={bellStyles.dropdownHeader}>
-            <span style={bellStyles.dropdownTitle}>Notifications</span>
-            {unreadCount > 0 && (
-              <span style={bellStyles.markAllBtn} onClick={handleMarkAllRead}>Mark all as read</span>
-            )}
-          </div>
+        <>
+          {/* Mobile-only backdrop — makes it obvious this is a modal panel
+              and gives an easy tap-to-dismiss target, since the panel no
+              longer sits directly under a thumb-reachable bell icon. */}
+          {isMobile && (
+            <div style={bellStyles.mobileBackdrop} onClick={() => setOpen(false)} />
+          )}
 
-          <div style={bellStyles.tabsRow}>
-            {tabs.map(tab => (
-              <span
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                style={{ ...bellStyles.tab, ...(activeTab === tab ? bellStyles.tabActive : {}) }}
-              >
-                {tab}
-              </span>
-            ))}
-          </div>
-
-          <div style={bellStyles.dropdownList}>
-            {loading && <div style={bellStyles.empty}>Loading...</div>}
-            {!loading && visibleItems.length === 0 && (
-              <div style={bellStyles.empty}>Nothing here yet.</div>
-            )}
-            {!loading && visibleItems.map(n => (
-              <div
-                key={n.id}
-                style={{ ...bellStyles.item, ...(n.is_read ? {} : bellStyles.itemUnread) }}
-                onClick={() => !n.is_read && handleMarkRead(n.id)}
-              >
-                <span style={bellStyles.itemIconWrap}>
-                  <NotificationIcon type={n.type} />
-                </span>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={bellStyles.itemTitleRow}>
-                    <span style={bellStyles.itemTitle}>{n.title}</span>
-                    {!n.is_read && <span style={bellStyles.itemDot} />}
-                  </div>
-                  <div style={bellStyles.itemMessage}>{n.message}</div>
-                  <div style={bellStyles.itemTime}>{timeAgo(n.created_at)}</div>
-                </div>
+          <div style={isMobile ? bellStyles.dropdownMobile : bellStyles.dropdown}>
+            <div style={bellStyles.dropdownHeader}>
+              <span style={bellStyles.dropdownTitle}>Notifications</span>
+              <div style={bellStyles.dropdownHeaderRight}>
+                {unreadCount > 0 && (
+                  <span style={bellStyles.markAllBtn} onClick={handleMarkAllRead}>Mark all as read</span>
+                )}
+                {isMobile && (
+                  <button type="button" onClick={() => setOpen(false)} style={bellStyles.mobileCloseBtn} aria-label="Close notifications">
+                    <IconClose color="#6b7770" />
+                  </button>
+                )}
               </div>
-            ))}
+            </div>
+
+            <div style={bellStyles.tabsRow}>
+              {tabs.map(tab => (
+                <span
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  style={{ ...bellStyles.tab, ...(activeTab === tab ? bellStyles.tabActive : {}) }}
+                >
+                  {tab}
+                </span>
+              ))}
+            </div>
+
+            <div style={{ ...bellStyles.dropdownList, ...(isMobile ? bellStyles.dropdownListMobile : {}) }}>
+              {loading && <div style={bellStyles.empty}>Loading...</div>}
+              {!loading && visibleItems.length === 0 && (
+                <div style={bellStyles.empty}>Nothing here yet.</div>
+              )}
+              {!loading && visibleItems.map(n => (
+                <div
+                  key={n.id}
+                  style={{ ...bellStyles.item, ...(n.is_read ? {} : bellStyles.itemUnread) }}
+                  onClick={() => !n.is_read && handleMarkRead(n.id)}
+                >
+                  <span style={bellStyles.itemIconWrap}>
+                    <NotificationIcon type={n.type} />
+                  </span>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={bellStyles.itemTitleRow}>
+                      <span style={bellStyles.itemTitle}>{n.title}</span>
+                      {!n.is_read && <span style={bellStyles.itemDot} />}
+                    </div>
+                    <div style={bellStyles.itemMessage}>{n.message}</div>
+                    <div style={bellStyles.itemTime}>{timeAgo(n.created_at)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   )
@@ -433,26 +459,51 @@ const bellStyles = {
     fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center',
     padding: '0 3px', fontFamily: SANS, lineHeight: 1,
   },
+
+  // Desktop: small anchored popover near the bell, unchanged from before.
   dropdown: {
     position: 'absolute', top: 'calc(100% + 10px)', right: 0, width: '360px', maxWidth: '90vw',
     backgroundColor: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px',
     boxShadow: '0 12px 32px rgba(20,48,28,0.16)', zIndex: 300, overflow: 'hidden',
   },
+
+  // Mobile: a fixed, viewport-anchored panel instead of being positioned
+  // relative to the bell — the bell sits left of the hamburger button, not
+  // at the screen edge, so anchoring to the bell's own wrapper caused the
+  // panel to be off-position. Fixed positioning with left/right insets
+  // keeps it centered and fully on-screen regardless of where the bell
+  // icon happens to sit in the topbar.
+  mobileBackdrop: {
+    position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.35)', zIndex: 290,
+  },
+  dropdownMobile: {
+    position: 'fixed', top: '64px', left: '10px', right: '10px', width: 'auto', maxWidth: 'none',
+    backgroundColor: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px',
+    boxShadow: '0 16px 40px rgba(20,48,28,0.28)', zIndex: 300, overflow: 'hidden',
+    maxHeight: 'calc(100vh - 84px)', display: 'flex', flexDirection: 'column',
+  },
+
   dropdownHeader: {
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-    padding: '14px 16px 10px',
+    padding: '14px 16px 10px', flexShrink: 0,
   },
+  dropdownHeaderRight: { display: 'flex', alignItems: 'center', gap: '10px' },
   dropdownTitle: { fontSize: '14px', fontWeight: 800, color: '#16311d', fontFamily: SANS },
-  markAllBtn: { fontSize: '11.5px', fontWeight: 700, color: '#2c8047', cursor: 'pointer', fontFamily: SANS },
+  markAllBtn: { fontSize: '11.5px', fontWeight: 700, color: '#2c8047', cursor: 'pointer', fontFamily: SANS, whiteSpace: 'nowrap' },
+  mobileCloseBtn: {
+    background: 'none', border: 'none', cursor: 'pointer', padding: '2px',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
 
-  tabsRow: { display: 'flex', gap: '4px', padding: '0 12px 12px', borderBottom: '1px solid #eceee7' },
+  tabsRow: { display: 'flex', gap: '4px', padding: '0 12px 12px', borderBottom: '1px solid #eceee7', flexShrink: 0, overflowX: 'auto' },
   tab: {
     fontSize: '12px', fontWeight: 700, color: '#9aa79d', cursor: 'pointer',
-    padding: '6px 10px', borderRadius: '999px', fontFamily: SANS,
+    padding: '6px 10px', borderRadius: '999px', fontFamily: SANS, whiteSpace: 'nowrap',
   },
   tabActive: { color: '#14301c', backgroundColor: '#eaf3ec' },
 
   dropdownList: { maxHeight: '360px', overflowY: 'auto' },
+  dropdownListMobile: { maxHeight: 'none', flex: 1 },
   empty: { padding: '28px 16px', textAlign: 'center', fontSize: '12.5px', color: '#9aa79d', fontFamily: SANS },
   item: {
     display: 'flex', gap: '11px', padding: '13px 16px', borderBottom: '1px solid #f2f3ed',

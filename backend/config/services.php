@@ -41,7 +41,9 @@ return [
         'sender_id'  => env('UNISMS_SENDER_ID', 'UNISOFT'),
     ],
     'gemini' => [
-        'api_key' => env('GEMINI_API_KEY'),
+        'api_key'   => env('GEMINI_API_KEY'),
+        'model'     => env('GEMINI_MODEL', 'gemini-3.5-flash'),
+        'cache_ttl' => env('GEMINI_CACHE_TTL', 21600), // 6 hours
     ],
 
 ];

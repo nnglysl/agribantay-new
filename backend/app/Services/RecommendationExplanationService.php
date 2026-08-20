@@ -4,6 +4,7 @@ namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * AI-Assisted Insight Layer, step 4: Recommendation Explanation.
@@ -14,42 +15,63 @@ use Illuminate\Support\Facades\Log;
  * called. Gemini's only job here is turning an already-made decision
  * into clear, readable prose for a municipal officer (English) plus a
  * Filipino translation of that same prose — never a different
- * decision, just a different language. If this call fails for any
- * reason, the system should still work fine using the structured
- * facts directly — this is a presentation layer, not a dependency for
- * the actual decision-making.
+ * decision, just a different language.
+ *
+ * Free-tier Gemini quota is only 20 requests/day per model — far too
+ * low to call on every dashboard poll (the frontend refetches insights
+ * every 60s). Responses are cached per farm, keyed by the actual
+ * diagnosis content, so Gemini is only called again when the root
+ * cause or recommendation genuinely changes — not on every refresh of
+ * an already-unchanged diagnosis.
  */
 class RecommendationExplanationService
 {
     private string $apiKey;
-    private string $model = 'gemini-3.5-flash';
+    private string $model;
+    private int $cacheTtlSeconds;
 
     public function __construct()
     {
         $this->apiKey = config('services.gemini.api_key');
+        // Confirmed working against your quota logs — do not change
+        // without first checking GET /v1beta/models?key=... to see
+        // what's actually available for this API key.
+        $this->model = config('services.gemini.model', 'gemini-3.5-flash');
+        // 6 hours: long enough to stay well under the 20/day free-tier
+        // quota even with multiple farms/pollers, short enough that a
+        // farm whose conditions actually change gets a fresh explanation
+        // the same day.
+        $this->cacheTtlSeconds = (int) config('services.gemini.cache_ttl', 21600);
+    }
+
+    public function explain(array $facts): ?array
+    {
+        $cacheKey = $this->buildCacheKey($facts);
+
+        return Cache::remember($cacheKey, $this->cacheTtlSeconds, function () use ($facts) {
+            return $this->callGemini($facts);
+        });
     }
 
     /**
-     * $facts is a plain array of already-decided information — e.g.:
-     * [
-     *   'farm_name' => 'Dela Cruz Layer Farm',
-     *   'root_cause' => 'Manure buildup',
-     *   'trend' => [...output from TrendAnalysisService...],
-     *   'recommended_action' => 'Increase manure removal frequency',
-     *   'tips' => ['Clean out manure more often', 'Improve ventilation'],
-     * ]
-     *
-     * Returns an array shaped like:
-     * [
-     *   'explanation_en'  => '...',
-     *   'explanation_fil' => '...',
-     *   'main_action_fil' => '...',
-     *   'tips_fil'        => ['...', '...'],
-     * ]
-     * or null if the call fails / key is missing — callers should fall
-     * back to showing the English structured facts only.
+     * Cache key is derived from the actual diagnosis content (root cause +
+     * recommended action + tips), not the farm ID alone — so two different
+     * farms with the identical diagnosis share one Gemini call, and a farm
+     * whose diagnosis changes gets a fresh call instead of serving a stale
+     * cached explanation for a different situation.
      */
-    public function explain(array $facts): ?array
+    private function buildCacheKey(array $facts): string
+    {
+        $signature = md5(json_encode([
+            'root_cause'         => $facts['root_cause'] ?? null,
+            'recommended_action' => $facts['recommended_action'] ?? null,
+            'tips'               => $facts['tips'] ?? [],
+        ]));
+
+        return "gemini_explanation:{$signature}";
+    }
+
+    private function callGemini(array $facts): ?array
     {
         if (empty($this->apiKey)) {
             Log::warning('Gemini API key not configured — skipping explanation generation.');
@@ -75,7 +97,17 @@ class RecommendationExplanationService
             );
 
             if (!$response->successful()) {
-                Log::warning('Gemini API request failed', ['status' => $response->status(), 'body' => $response->body()]);
+                $hint = $response->status() === 429
+                    ? ' — free-tier quota exhausted for this model today. Either wait for reset, reduce call frequency further, or upgrade billing plan.'
+                    : ($response->status() === 404
+                        ? ' — model name is likely wrong/unavailable for this API key. Run GET https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_KEY to see valid options.'
+                        : '');
+
+                Log::warning('Gemini API request failed' . $hint, [
+                    'model'  => $this->model,
+                    'status' => $response->status(),
+                    'body'   => $response->body(),
+                ]);
                 return null;
             }
 
@@ -88,8 +120,6 @@ class RecommendationExplanationService
 
             return $this->parseResponse($text, $facts);
         } catch (\Throwable $e) {
-            // Network error, timeout, etc. — fail silently and let the
-            // caller fall back to showing the structured facts directly.
             Log::error('Gemini explanation call threw an exception', ['message' => $e->getMessage()]);
             return null;
         }
@@ -97,8 +127,6 @@ class RecommendationExplanationService
 
     private function parseResponse(string $text, array $facts): ?array
     {
-        // Gemini sometimes wraps JSON in markdown fences even when
-        // response_mime_type is set — strip them defensively.
         $cleaned = trim($text);
         $cleaned = preg_replace('/^```(?:json)?\s*/', '', $cleaned);
         $cleaned = preg_replace('/\s*```$/', '', $cleaned);
