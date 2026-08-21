@@ -5,10 +5,15 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 const SENSOR_TYPES = ['Ammonia', 'Temperature', 'Humidity', 'Moisture']
+const SORT_OPTIONS = [
+  { value: 'newest', label: 'Newest Triggered First' },
+  { value: 'oldest', label: 'Oldest Triggered First' },
+]
 
 export default function AlertHistory() {
   const [severityFilter, setSeverityFilter] = useState('') // '' | 'Warning' | 'Critical'
   const [sensorFilter, setSensorFilter] = useState('')
+  const [sortMode, setSortMode] = useState('newest')
   const [search, setSearch] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
@@ -17,6 +22,7 @@ export default function AlertHistory() {
   const [filterOpen, setFilterOpen] = useState(false)
   const [draftSeverity, setDraftSeverity] = useState(severityFilter)
   const [draftSensor, setDraftSensor] = useState(sensorFilter)
+  const [draftSort, setDraftSort] = useState(sortMode)
   const filterRef = useRef(null)
 
   useEffect(() => {
@@ -31,21 +37,24 @@ export default function AlertHistory() {
   const openFilter = () => {
     setDraftSeverity(severityFilter)
     setDraftSensor(sensorFilter)
+    setDraftSort(sortMode)
     setFilterOpen(true)
   }
 
   const applyFilter = () => {
     setSeverityFilter(draftSeverity)
     setSensorFilter(draftSensor)
+    setSortMode(draftSort)
     setFilterOpen(false)
   }
 
   const resetFilter = () => {
     setDraftSeverity('')
     setDraftSensor('')
+    setDraftSort('newest')
   }
 
-  const activeFilterCount = (severityFilter ? 1 : 0) + (sensorFilter ? 1 : 0)
+  const activeFilterCount = (severityFilter ? 1 : 0) + (sensorFilter ? 1 : 0) + (sortMode !== 'newest' ? 1 : 0)
 
   const params = {}
   if (severityFilter) params.status = severityFilter
@@ -57,9 +66,20 @@ export default function AlertHistory() {
   const severityColor = { Warning: '#b45309', Critical: '#b91c1c' }
   const severityBg = { Warning: '#fbf1e2', Critical: '#fbeaea' }
 
-  const allHistory = history || []
+  const rawHistory = history || []
 
-  useEffect(() => { setCurrentPage(1) }, [severityFilter, sensorFilter, search, pageSize])
+  // The backend already returns rows ordered by triggered_at DESC (newest
+  // first), but `triggered_at` here is a pre-formatted display string
+  // (e.g. "Jul 21, 2026 8:23 AM"), not a raw timestamp — re-parsing that
+  // with `new Date()` is unreliable across browsers and can silently
+  // produce NaN, which makes Array.sort() a no-op. Since the backend
+  // ordering is already correct for "newest first", "oldest first" is
+  // just that same list reversed — no date parsing needed at all.
+  const allHistory = useMemo(() => {
+    return sortMode === 'oldest' ? [...rawHistory].reverse() : rawHistory
+  }, [rawHistory, sortMode])
+
+  useEffect(() => { setCurrentPage(1) }, [severityFilter, sensorFilter, sortMode, search, pageSize])
 
   const totalItems = allHistory.length
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
@@ -119,6 +139,13 @@ export default function AlertHistory() {
                 <span style={styles.filterPanelTitle}>Filter</span>
                 <span style={styles.filterPanelClose} onClick={() => setFilterOpen(false)}>×</span>
               </div>
+
+              <label style={styles.filterLabel}>Sort By</label>
+              <select value={draftSort} onChange={e => setDraftSort(e.target.value)} style={styles.filterSelect}>
+                {SORT_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
 
               <label style={styles.filterLabel}>Severity</label>
               <select value={draftSeverity} onChange={e => setDraftSeverity(e.target.value)} style={styles.filterSelect}>
