@@ -4,9 +4,14 @@ import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
-
 const FARM_SIZES = ['Small', 'Medium', 'Large']
-const MAINTENANCE_TYPES = ['Manure Clean-out']
+const MAINTENANCE_TYPES = ['Full Manure Clean-out']
+
+// Unified with Farms.jsx / FarmerDashboard.jsx — same palette everywhere:
+// green = compliant, orange = Overdue (still in grace period),
+// red = Non-Compliant (past the 30-day grace period).
+const STATUS_COLOR = { Overdue: '#b45309', 'Non-Compliant': '#b91c1c' }
+const STATUS_BG = { Overdue: '#fbf1e2', 'Non-Compliant': '#fbeaea' }
 
 export default function MaintenanceOverdue() {
   const [search, setSearch] = useState('')
@@ -41,7 +46,7 @@ export default function MaintenanceOverdue() {
     return overdueFarms.filter(f => {
       if (barangayFilter && f.barangay !== barangayFilter) return false
       if (sizeFilter && f.farm_size !== sizeFilter) return false
-      if (typeFilter && (f.maintenance_type || 'Manure Clean-out') !== typeFilter) return false
+      if (typeFilter && f.maintenance_type !== typeFilter) return false
       return true
     })
   }, [overdueFarms, barangayFilter, sizeFilter, typeFilter])
@@ -99,7 +104,9 @@ export default function MaintenanceOverdue() {
       <div style={styles.header}>
         <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Overdue Maintenance</h1>
         <p style={styles.subtitle}>
-          Farms that have exceeded their manure clean-out schedule and 30-day grace period, with the most overdue farms shown first.
+          Manure clean-out compliance monitoring — farms shown here have passed their expected clean-out
+          date. Overdue farms are still within the 30-day grace period; Non-Compliant farms have exceeded it.
+          SMS reminders are sent automatically once per event — no manual action needed.
         </p>
       </div>
 
@@ -170,7 +177,7 @@ export default function MaintenanceOverdue() {
       </div>
 
       <p style={styles.countText}>
-        {totalItems} farm{totalItems === 1 ? '' : 's'} overdue
+        {totalItems} farm{totalItems === 1 ? '' : 's'} requiring attention
       </p>
 
       {loading && <p style={styles.stateText}>Loading...</p>}
@@ -192,6 +199,8 @@ export default function MaintenanceOverdue() {
                   <th style={styles.th}>Farm Size</th>
                   <th style={styles.th}>Last Clean-out</th>
                   <th style={styles.th}>Days Overdue</th>
+                  <th style={styles.th}>Maintenance Status</th>
+                  <th style={styles.th}>SMS/Notification Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -209,6 +218,19 @@ export default function MaintenanceOverdue() {
                         {f.days_overdue} day{f.days_overdue === 1 ? '' : 's'}
                       </span>
                     </td>
+                    <td style={styles.td}>
+                      <span style={{
+                        ...styles.badge,
+                        color: STATUS_COLOR[f.status] || '#6b7280',
+                        backgroundColor: STATUS_BG[f.status] || '#eef1ea',
+                      }}>
+                        <span style={{ ...styles.badgeDot, backgroundColor: STATUS_COLOR[f.status] || '#6b7280' }} />
+                        {f.status}
+                      </span>
+                    </td>
+                    <td style={styles.td}>
+                      <span style={styles.smsStatusText}>{f.sms_status}</span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -217,8 +239,8 @@ export default function MaintenanceOverdue() {
           {filteredFarms.length === 0 && (
             <div style={styles.empty}>
               {search || barangayFilter || sizeFilter || typeFilter
-                ? 'No overdue farms match your search or filter.'
-                : 'No farms are currently overdue for a manure clean-out.'}
+                ? 'No farms match your search or filter.'
+                : 'No farms are currently overdue or non-compliant for manure clean-out.'}
             </div>
           )}
 
@@ -312,7 +334,7 @@ const styles = {
   header: { marginBottom: '20px' },
   title: { fontSize: '24px', fontWeight: 800, letterSpacing: '-0.015em', color: '#16311d', margin: 0 },
   titleMobile: { fontSize: '20px' },
-  subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px', maxWidth: '580px', lineHeight: 1.5 },
+  subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px', maxWidth: '640px', lineHeight: 1.5 },
 
   toolbar: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' },
   toolbarMobile: { flexDirection: 'column', alignItems: 'stretch' },
@@ -375,7 +397,7 @@ const styles = {
   scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0' },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  tableMobile: { minWidth: '900px' },
+  tableMobile: { minWidth: '1080px' },
   th: {
     textAlign: 'left', padding: '13px 20px', fontSize: '11px', fontWeight: 700, color: '#8a968d',
     borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
@@ -387,6 +409,12 @@ const styles = {
     backgroundColor: '#fbeaea', color: '#b91c1c', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
   },
   overdueBadgeDot: { width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#b91c1c', flexShrink: 0 },
+  badge: {
+    display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 11px',
+    borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
+  },
+  badgeDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
+  smsStatusText: { fontSize: '12px', color: '#6b7770' },
   empty: { padding: '32px', textAlign: 'center', color: '#9aa79d', fontSize: '14px' },
 }
 

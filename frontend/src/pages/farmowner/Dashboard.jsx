@@ -15,25 +15,12 @@ function timeAgo(dateString) {
   return `${days} day${days === 1 ? '' : 's'} ago`
 }
 
-// Renders "English text (Filipino text)" — falls back to English-only
-// when no translation is available, so nothing ever looks broken.
 function bilingual(en, fil) {
   if (!en) return null
   if (!fil) return en
   return `${en} (${fil})`
 }
 
-// The AI/root-cause engine only suggests services relevant to whatever
-// it diagnosed from the current sensor readings (e.g. manure buildup ->
-// Odor Control + Fly Control). Vaccine and Blood Test aren't tied to
-// any sensor value, so they never get suggested that way. This merges
-// in a generic fallback entry for any of the four standard services
-// the AI list didn't already include, so the farmer always sees the
-// full set to choose from.
-//
-// These type strings match the exact <option value="..."> values in
-// ServiceRequests.jsx's RequestModal — keep them in sync if that form
-// ever changes.
 const STANDARD_SERVICES = [
   { type: 'Odor Control Request', reason: 'Request help managing odor around your poultry area.' },
   { type: 'Fly Control Request', reason: 'Request help controlling flies around your farm.' },
@@ -48,10 +35,6 @@ function allServices(aiSuggestions) {
   return [...suggested, ...fallback]
 }
 
-// Injects the Material Symbols stylesheet once, globally, the first time
-// this component mounts — so the hero icon (health_and_safety / warning /
-// e911_emergency) always has its font available without needing to touch
-// index.html by hand. Safe to call multiple times; it checks first.
 function useMaterialSymbolsFont() {
   useEffect(() => {
     const id = 'material-symbols-outlined-font'
@@ -108,11 +91,7 @@ const responsiveCss = `
     font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
   }
 `
-
-// Status colors — used sparingly: the hero card fill, a small severity dot
-// on each sensor card, and the Manure Records status dot/text. Never used
-// to color entire cards or large blocks of text.
-const STATUS_COLOR = { Normal: '#188a4c', Warning: '#e8720c', Critical: '#d92626' }
+const STATUS_COLOR = { Normal: '#2c8047', Warning: '#b45309', Critical: '#b91c1c' }
 const BRAND_GREEN = '#1B4332'
 const TEXT_DARK = '#1f2a22'
 const TEXT_GRAY = '#6b7770'
@@ -137,7 +116,7 @@ export default function FarmerDashboard() {
   }, [])
 
   if (loading) return <FarmerLayout><p style={styles.stateText}>Loading...</p></FarmerLayout>
-  if (error) return <FarmerLayout><p style={{ ...styles.stateText, color: '#d92626' }}>{error}</p></FarmerLayout>
+  if (error) return <FarmerLayout><p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p></FarmerLayout>
 
   const hero = heroConfig[data.health_status] || heroConfig.Healthy
   const latestDisposal = (disposalRecords || [])[0]
@@ -146,8 +125,6 @@ export default function FarmerDashboard() {
     navigate('/farmowner/service-requests', { state: { prefillService: serviceType } })
   }
 
-  // AI recommendation shown as "English (Filipino)" — Filipino comes from
-  // the backend/Gemini translation; falls back to English-only if missing.
   const recoMainEn = insight?.main_action || insight?.explanation || null
   const recoMainFil = insight?.main_action_fil || insight?.explanation_fil || null
   const recoText = bilingual(recoMainEn, recoMainFil)
@@ -163,7 +140,6 @@ export default function FarmerDashboard() {
 
       {/* -------------------------------- Farm status (left) + 4 sensor cards (right) */}
       <div className="fd-conditions-row">
-        {/* Left: overall status — solid status-colored card */}
         <div style={{ ...styles.heroCard, backgroundColor: hero.color }}>
           <span
             className="material-symbols-outlined"
@@ -175,7 +151,6 @@ export default function FarmerDashboard() {
           <p style={styles.heroText}>{hero.text}</p>
         </div>
 
-        {/* Right: 2x2 grid of sensor cards */}
         <div className="fd-mini-grid">
           <SensorFeel type="ammonia" status={data.ammonia_status} />
           <SensorFeel type="temperature" status={data.temperature_status} />
@@ -186,7 +161,6 @@ export default function FarmerDashboard() {
 
       {/* ------------------------------------------------------------- Second row */}
       <div className="fd-second-row" style={{ marginTop: '16px' }}>
-        {/* Recommendations */}
         <div style={styles.card}>
           <div style={styles.cardTitle}>Recommendations</div>
 
@@ -213,7 +187,6 @@ export default function FarmerDashboard() {
           )}
         </div>
 
-        {/* Manure Records */}
         <div style={styles.card}>
           <div style={styles.cardTitle}>Manure Records</div>
 
@@ -259,7 +232,6 @@ export default function FarmerDashboard() {
           </div>
         </div>
 
-        {/* Municipal Services — plain, low-key rows; not urgent alerts */}
         <div style={styles.card}>
           <div style={styles.cardTitle}>Municipal Services</div>
 
@@ -286,14 +258,11 @@ export default function FarmerDashboard() {
 }
 
 function maintTextColor(status) {
-  if (status === 'Overdue') return STATUS_COLOR.Critical
-  if (status === 'Due') return STATUS_COLOR.Warning
-  return STATUS_COLOR.Normal
+  if (status === 'Non-Compliant') return STATUS_COLOR.Critical
+  if (status === 'Overdue') return STATUS_COLOR.Warning
+  return STATUS_COLOR.Normal // 'Scheduled'
 }
 
-// Solid status-colored hero card — background IS the status color (Normal
-// green / Warning orange / Critical red), white icon + text on top, icon
-// and heading centered.
 const heroConfig = {
   Healthy: {
     iconName: 'health_and_safety', color: STATUS_COLOR.Normal,
@@ -312,7 +281,6 @@ const heroConfig = {
   },
 }
 
-// Word/action pairs shown as "English (Filipino)" via bilingual()
 const SENSOR_CONFIG = {
   ammonia: {
     title: 'Fresh Air', sub: 'Ammonia & smell', icon: 'wind',
@@ -363,12 +331,8 @@ function SensorFeel({ type, status }) {
   )
 }
 
-/* ------------------------------------------------------------------------ icons */
-
 const iconBase = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.9, strokeLinecap: 'round', strokeLinejoin: 'round' }
 
-// Sensor icons now match the brand green used in the card titles, so the
-// icon and title read as one consistent element.
 function SensorIcon({ name }) {
   const p = { width: 20, height: 20, viewBox: '0 0 24 24', ...iconBase, style: { color: BRAND_GREEN } }
   if (name === 'wind') return <svg {...p}><path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2" /><path d="M9.6 4.6A2 2 0 1 1 11 8H2" /><path d="M12.6 19.4A2 2 0 1 0 14 16H2" /></svg>
@@ -377,9 +341,6 @@ function SensorIcon({ name }) {
   return <svg {...p}><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" /><path d="M2 21c0-3 1.85-5.36 5.08-6" /></svg>
 }
 
-// Municipal Services icons are plain brand-green line icons — same
-// treatment as the sensor icons, kept neutral (not status-colored) since
-// these represent request types, not sensor readings.
 function ServiceIcon({ type }) {
   const t = (type || '').toLowerCase()
   const p = { width: 15, height: 15, viewBox: '0 0 24 24', ...iconBase, strokeWidth: 1.7, style: { color: BRAND_GREEN } }
@@ -390,17 +351,12 @@ function ServiceIcon({ type }) {
   return <svg {...p}><circle cx="12" cy="12" r="9" /></svg>
 }
 
-/* ----------------------------------------------------------------------- styles */
-
 const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 const styles = {
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
-
   title: { fontSize: '20px', fontWeight: 700, color: TEXT_DARK, margin: 0, fontFamily: SANS },
   subtitle: { fontSize: '13px', color: TEXT_GRAY, marginTop: '4px', marginBottom: '18px', fontFamily: SANS, lineHeight: 1.5, fontWeight: 400 },
-
-  // Solid status-colored hero card, white text, centered content, large icon.
   heroCard: {
     borderRadius: '8px', padding: '18px 20px', fontFamily: SANS,
     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
@@ -408,19 +364,15 @@ const styles = {
   },
   heroTitle: { fontSize: '17px', fontWeight: 600, color: '#fff', marginTop: '10px' },
   heroText: { fontSize: '12.5px', color: 'rgba(255,255,255,0.9)', lineHeight: 1.55, margin: '8px 0 0', fontWeight: 400 },
-
   card: {
     background: '#fff', border: `1px solid ${BORDER_GRAY}`, borderRadius: '8px', padding: '16px', fontFamily: SANS,
     display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box',
   },
   cardTitle: { fontSize: '13px', fontWeight: 700, color: TEXT_DARK },
-
   recoText: { fontSize: '13px', color: TEXT_DARK, lineHeight: 1.6, margin: '10px 0 0', fontWeight: 400 },
   emptyText: { fontSize: '13px', color: '#9aa79d', fontStyle: 'italic', marginTop: '12px', fontWeight: 400 },
-
   fullPrimaryBtnSm: { flex: 1, padding: '9px', borderRadius: '6px', border: `1px solid ${BRAND_GREEN}`, background: BRAND_GREEN, color: '#fff', fontFamily: SANS, fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
   outlineBtn: { flex: 1, padding: '9px', borderRadius: '6px', border: `1px solid ${BORDER_GRAY}`, background: '#fff', color: TEXT_DARK, fontFamily: SANS, fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
-
   tipsBlock: { marginTop: '14px', paddingTop: '12px', borderTop: `1px solid ${BORDER_GRAY}` },
   tipsLabel: { fontSize: '10.5px', fontWeight: 600, color: '#9aa79d', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '8px' },
   insightTipsList: { display: 'flex', flexDirection: 'column', gap: '9px' },
@@ -430,7 +382,6 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '1px',
   },
   insightTipText: { fontSize: '12.5px', color: TEXT_DARK, lineHeight: 1.5, fontWeight: 400 },
-
   manureBlock: { marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '10px' },
   manureRow: { display: 'flex', gap: '10px', alignItems: 'flex-start' },
   manureRowLabel: { fontSize: '11.5px', fontWeight: 500, color: TEXT_GRAY },
@@ -439,16 +390,11 @@ const styles = {
   badge: { display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap', width: 'fit-content' },
   badgeDot: { width: '6px', height: '6px', borderRadius: '50%' },
   manureActions: { display: 'flex', gap: '8px', marginTop: '14px' },
-
   serviceLeft: { display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 },
   serviceIcon: { width: '26px', height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   serviceName: { fontSize: '12.5px', fontWeight: 600, color: TEXT_DARK },
   serviceReason: { fontSize: '11px', color: TEXT_GRAY, marginTop: '1px', lineHeight: 1.4, fontWeight: 400 },
   serviceBtn: { flexShrink: 0, padding: '6px 12px', borderRadius: '6px', border: `1px solid ${BORDER_GRAY}`, background: '#fff', color: TEXT_DARK, fontFamily: SANS, fontSize: '11.5px', fontWeight: 600, cursor: 'pointer' },
-
-  // Sensor cards (right side, 2x2) — white card, green icon (matches
-  // titles), black bold status word with a small status-colored dot next
-  // to it as the only severity cue.
   feelCard: {
     background: '#fff', border: `1px solid ${BORDER_GRAY}`, borderRadius: '8px', padding: '16px', fontFamily: SANS,
   },

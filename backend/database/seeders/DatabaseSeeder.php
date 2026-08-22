@@ -14,6 +14,7 @@ class DatabaseSeeder extends Seeder
             SensorReadingSeeder::class,
             ServiceRequestSeeder::class,
             InspectionSeeder::class,
+            OverdueMaintenanceTestSeeder::class,
         ]);
     }
 }

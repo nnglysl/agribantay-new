@@ -35,8 +35,37 @@ class FarmStatusService
         $farm->update(['current_status' => $newStatus]);
 
         $this->notify($farm, $newStatus);
-    }
 
+        if ($newStatus === 'Critical') {
+            $this->notifyAdminsOfCritical($farm);
+}
+    }
+    /**
+     * Critical sensor reading -> notify LGU/Admin so THEY can manually
+     * schedule an inspection via the existing Inspection form. Deliberately
+     * does NOT auto-create an Inspection row — InspectionController enforces
+     * one inspection system-wide per day, and picking a date/farm priority
+     * on the system's behalf isn't a decision this service should make.
+     * Naturally rate-limited: syncStatus() only calls this when current_status
+     * actually just changed to Critical, not on every reading while it stays
+     * Critical.
+     */
+    private function notifyAdminsOfCritical(Farm $farm): void
+    {
+        $admins = \App\Models\User::whereIn('role', ['admin', 'super_admin'])
+            ->where('status', 'active')
+            ->get();
+
+        foreach ($admins as $admin) {
+            \App\Models\Notification::create([
+                'user_id' => $admin->id,
+                'title'   => 'Critical Condition Detected',
+                'message' => "Critical condition detected at \"{$farm->farm_name}\" ({$farm->owner_name}). Please review and schedule an inspection.",
+                'type'    => 'Sensor Alert',
+                'is_read' => false,
+            ]);
+        }
+    }
     private function computeStatus(SensorReading $reading): string
     {
         $statuses = [

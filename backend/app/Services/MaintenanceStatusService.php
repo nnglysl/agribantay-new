@@ -9,21 +9,17 @@ use Carbon\Carbon;
 /**
  * Objective 3.2 — Maintenance Status Tracking.
  *
- * Nothing here is stored directly as a "status" — it's always computed
- * fresh from the farm's most recent Full Manure Clean-out log (or, if
- * none exists yet, from the farm's registration date) compared against
- * today. Same "calculate, don't store" pattern as TrendAnalysisService
- * and every other status in this app.
+ * Status names now match the LGU compliance workflow directly:
+ *   Scheduled     — within the expected interval (was "Up to date")
+ *   Overdue       — past due, still inside the 30-day grace period (was "Due")
+ *   Non-Compliant — past the 30-day grace period entirely (was "Overdue")
  *
- * Expected interval between clean-outs scales with farm size, since
- * larger farms accumulate manure faster:
- *
- *   Small farm  -> ~12 months (365 days)
- *   Medium farm -> ~9 months  (270 days)
- *   Large farm  -> ~6 months  (180 days)
- *
- * Once that interval passes, a farm isn't immediately "Overdue" — it
- * gets a fixed 30-day grace period ("Due") before flipping to Overdue.
+ * "Compliant" from the spec is intentionally NOT a persisted/computed
+ * state here — it's the one-time confirmation shown right when a farmer
+ * successfully logs a clean-out (see Farmer\MaintenanceController::store).
+ * The instant after logging, the real anchor date resets to today, which
+ * always computes to "Scheduled" — there's no separate ongoing state to
+ * track beyond that.
  */
 class MaintenanceStatusService
 {
@@ -42,8 +38,6 @@ class MaintenanceStatusService
             ->latest('performed_at')
             ->first();
 
-        // No log yet — count from registration date instead, so a
-        // brand-new farm isn't instantly flagged Overdue on day one.
         $anchorDate = $lastLog
             ? Carbon::parse($lastLog->performed_at)
             : Carbon::parse($farm->created_at);
@@ -55,11 +49,11 @@ class MaintenanceStatusService
         $today = Carbon::now();
 
         if ($today->lessThan($dueDate)) {
-            $status = 'Up to date';
+            $status = 'Scheduled';
         } elseif ($today->lessThan($overdueDate)) {
-            $status = 'Due';
-        } else {
             $status = 'Overdue';
+        } else {
+            $status = 'Non-Compliant';
         }
 
         return [
@@ -67,7 +61,11 @@ class MaintenanceStatusService
             'last_performed_at'      => $lastLog?->performed_at?->format('M d, Y'),
             'days_since'             => (int) round($anchorDate->diffInDays($today)),
             'expected_interval_days' => $intervalDays,
-            'days_overdue'           => $status === 'Overdue' ? (int) round($overdueDate->diffInDays($today)) : 0,
+            'days_overdue'           => $status === 'Non-Compliant' ? (int) round($overdueDate->diffInDays($today)) : 0,
+            // Exposed so callers (the compliance command, the admin
+            // report) can dedupe/reference the exact clean-out cycle
+            // this status was computed from, without recomputing it.
+            'anchor_date'            => $anchorDate->toDateString(),
         ];
     }
 }

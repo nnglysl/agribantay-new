@@ -4,16 +4,10 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Farm;
+use App\Models\MaintenanceNotification;
 use App\Services\MaintenanceStatusService;
 use Illuminate\Http\Request;
 
-/**
- * Objective 5.1 — Overdue Maintenance Monitoring. Purely a reporting
- * layer on top of objective 3.2's MaintenanceStatusService — no new
- * data, no new table. Same per-farm calculation already used in the
- * Farm Profile modal, just looped over every active farm and filtered
- * down to the ones currently Overdue, worst first.
- */
 class MaintenanceController extends Controller
 {
     public function overdue(Request $request)
@@ -24,29 +18,41 @@ class MaintenanceController extends Controller
             ->get()
             ->map(function ($farm) use ($service) {
                 $status = $service->getStatus($farm);
+
+                $event = match ($status['status']) {
+                    'Overdue'       => 'overdue_reminder',
+                    'Non-Compliant' => 'non_compliant_notice',
+                    default         => null,
+                };
+
+                $smsStatus = 'Not applicable';
+                if ($event) {
+                    $notified = MaintenanceNotification::with('smsLog')
+                        ->where('farm_id', $farm->id)
+                        ->where('event', $event)
+                        ->where('anchor_date', $status['anchor_date'])
+                        ->first();
+
+                    $smsStatus = $notified
+                        ? ($notified->smsLog?->status ?? 'Sent')
+                        : 'Pending (runs next 8:00 AM check)';
+                }
+
                 return [
                     'farm_id'           => $farm->id,
                     'farm_name'         => $farm->farm_name,
                     'owner_name'        => $farm->owner_name,
                     'barangay'          => $farm->barangay,
                     'farm_size'         => $farm->farm_size,
-                    'status'            => $status['status'],
+                    'status'            => $status['status'], // 'Overdue' | 'Non-Compliant'
                     'days_overdue'      => $status['days_overdue'],
                     'last_performed_at' => $status['last_performed_at'],
-                    // Currently always "Full Manure Clean-out" — kept as
-                    // its own field so search-by-type still works
-                    // correctly if additional maintenance types are ever
-                    // introduced later.
+                    'sms_status'        => $smsStatus,
                     'maintenance_type'  => 'Full Manure Clean-out',
                 ];
             })
-            ->filter(fn($f) => $f['status'] === 'Overdue');
+            ->filter(fn($f) => in_array($f['status'], ['Overdue', 'Non-Compliant'], true));
 
-        // Search across Farm ID, Farm Owner Name, Farm Name, or
-        // Maintenance Type — applied after the Overdue filter above,
-        // on the same small in-memory collection (this report is
-        // computed per-farm, not a simple DB query, so search happens
-        // here rather than at the query level).
         if ($request->search) {
             $s = strtolower($request->search);
             $overdueFarms = $overdueFarms->filter(function ($f) use ($s) {
