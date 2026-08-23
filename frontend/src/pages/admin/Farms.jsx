@@ -1565,9 +1565,9 @@ function InfoRow({ children, last }) {
 }
 
 function maintBadgeColor(status) {
-  if (status === 'Overdue') return '#b91c1c'
-  if (status === 'Due') return '#b45309'
-  return '#2c8047'
+  if (status === 'Non-Compliant') return '#b91c1c'
+  if (status === 'Overdue') return '#b45309'
+  return '#2c8047' // 'Scheduled'
 }
 
 function InfoCell({ label, value }) {

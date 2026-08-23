@@ -104,9 +104,7 @@ export default function MaintenanceOverdue() {
       <div style={styles.header}>
         <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Overdue Maintenance</h1>
         <p style={styles.subtitle}>
-          Manure clean-out compliance monitoring — farms shown here have passed their expected clean-out
-          date. Overdue farms are still within the 30-day grace period; Non-Compliant farms have exceeded it.
-          SMS reminders are sent automatically once per event — no manual action needed.
+          Farms that have exceeded their expected manure clean-out date.
         </p>
       </div>
 

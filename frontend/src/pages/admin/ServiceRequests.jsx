@@ -129,7 +129,7 @@ export default function ServiceRequests() {
       <p style={styles.subtitle}>
         {isSuperAdmin
           ? 'Odor control, fly control, vaccination, and blood test requests'
-          : 'Odor control, fly control, and other farmer-submitted service requests'}
+          : 'Service requests submitted by farm owners'}
       </p>
 
       <div style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>

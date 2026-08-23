@@ -540,9 +540,9 @@ export default function ManureRecords() {
 }
 
 function maintBadgeStyle(status) {
-  if (status === 'Overdue') return { backgroundColor: '#fbe3e3', color: '#b91c1c' }
-  if (status === 'Due') return { backgroundColor: '#fdf3e6', color: '#b45309' }
-  return { backgroundColor: '#eaf3ec', color: '#256b3d' }
+  if (status === 'Non-Compliant') return { backgroundColor: '#fbeaea', color: '#b91c1c' }
+  if (status === 'Overdue') return { backgroundColor: '#fbf1e2', color: '#b45309' }
+  return { backgroundColor: '#eaf3ec', color: '#2c8047' } // 'Scheduled'
 }
 
 function DetailRow({ label, value }) {
