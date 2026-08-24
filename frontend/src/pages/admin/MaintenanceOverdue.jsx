@@ -1,15 +1,12 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 const FARM_SIZES = ['Small', 'Medium', 'Large']
-const MAINTENANCE_TYPES = ['Full Manure Clean-out']
 
-// Unified with Farms.jsx / FarmerDashboard.jsx — same palette everywhere:
-// green = compliant, orange = Overdue (still in grace period),
-// red = Non-Compliant (past the 30-day grace period).
 const STATUS_COLOR = { Overdue: '#b45309', 'Non-Compliant': '#b91c1c' }
 const STATUS_BG = { Overdue: '#fbf1e2', 'Non-Compliant': '#fbeaea' }
 
@@ -18,15 +15,14 @@ export default function MaintenanceOverdue() {
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const isMobile = useIsMobile()
+  const navigate = useNavigate()
 
   const [barangayFilter, setBarangayFilter] = useState('')
   const [sizeFilter, setSizeFilter] = useState('')
-  const [typeFilter, setTypeFilter] = useState('')
 
   const [filterOpen, setFilterOpen] = useState(false)
   const [draftBarangay, setDraftBarangay] = useState('')
   const [draftSize, setDraftSize] = useState('')
-  const [draftType, setDraftType] = useState('')
   const filterRef = useRef(null)
 
   const params = {}
@@ -46,12 +42,11 @@ export default function MaintenanceOverdue() {
     return overdueFarms.filter(f => {
       if (barangayFilter && f.barangay !== barangayFilter) return false
       if (sizeFilter && f.farm_size !== sizeFilter) return false
-      if (typeFilter && f.maintenance_type !== typeFilter) return false
       return true
     })
-  }, [overdueFarms, barangayFilter, sizeFilter, typeFilter])
+  }, [overdueFarms, barangayFilter, sizeFilter])
 
-  useEffect(() => { setCurrentPage(1) }, [search, pageSize, barangayFilter, sizeFilter, typeFilter, filteredFarms.length])
+  useEffect(() => { setCurrentPage(1) }, [search, pageSize, barangayFilter, sizeFilter, filteredFarms.length])
 
   useEffect(() => {
     if (!filterOpen) return
@@ -65,24 +60,21 @@ export default function MaintenanceOverdue() {
   const openFilter = () => {
     setDraftBarangay(barangayFilter)
     setDraftSize(sizeFilter)
-    setDraftType(typeFilter)
     setFilterOpen(true)
   }
 
   const applyFilter = () => {
     setBarangayFilter(draftBarangay)
     setSizeFilter(draftSize)
-    setTypeFilter(draftType)
     setFilterOpen(false)
   }
 
   const resetFilter = () => {
     setDraftBarangay('')
     setDraftSize('')
-    setDraftType('')
   }
 
-  const activeFilterCount = [barangayFilter, sizeFilter, typeFilter].filter(Boolean).length
+  const activeFilterCount = [barangayFilter, sizeFilter].filter(Boolean).length
 
   const totalItems = filteredFarms.length
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
@@ -99,13 +91,16 @@ export default function MaintenanceOverdue() {
   const rangeStart = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1
   const rangeEnd = Math.min(currentPage * pageSize, totalItems)
 
+  // "0 days" for a farm that's actually just crossed its due date reads as
+  // confusing/alarming — this is exactly when a farm is due TODAY, not
+  // already overdue by any real amount.
+  const formatDaysOverdue = (days) => (days === 0 ? 'Due Today' : `${days} day${days === 1 ? '' : 's'}`)
+
   return (
     <AdminLayout>
       <div style={styles.header}>
         <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Overdue Maintenance</h1>
-        <p style={styles.subtitle}>
-          Farms that have exceeded their expected manure clean-out date.
-        </p>
+        <p style={styles.subtitle}>Farms that have exceeded their expected manure clean-out date.</p>
       </div>
 
       <div style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
@@ -159,12 +154,6 @@ export default function MaintenanceOverdue() {
                 {FARM_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
 
-              <label style={styles.filterLabel}>Maintenance Type</label>
-              <select value={draftType} onChange={e => setDraftType(e.target.value)} style={styles.filterSelect}>
-                <option value="">All Types</option>
-                {MAINTENANCE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-
               <div style={styles.filterActions}>
                 <button type="button" onClick={resetFilter} style={styles.filterResetBtn}>Reset</button>
                 <button type="button" onClick={applyFilter} style={styles.filterApplyBtn}>Apply</button>
@@ -190,7 +179,6 @@ export default function MaintenanceOverdue() {
             <table style={{ ...styles.table, ...(isMobile ? styles.tableMobile : {}) }}>
               <thead>
                 <tr>
-                  <th style={styles.th}>Farm ID</th>
                   <th style={styles.th}>Farm</th>
                   <th style={styles.th}>Owner</th>
                   <th style={styles.th}>Barangay</th>
@@ -198,13 +186,12 @@ export default function MaintenanceOverdue() {
                   <th style={styles.th}>Last Clean-out</th>
                   <th style={styles.th}>Days Overdue</th>
                   <th style={styles.th}>Maintenance Status</th>
-                  <th style={styles.th}>SMS/Notification Status</th>
+                  <th style={{ ...styles.th, textAlign: 'right' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {paginated.map(f => (
                   <tr key={f.farm_id}>
-                    <td style={styles.td}>#{f.farm_id}</td>
                     <td style={{ ...styles.td, fontWeight: 600, color: '#16311d' }}>{f.farm_name}</td>
                     <td style={styles.td}>{f.owner_name}</td>
                     <td style={styles.td}>{f.barangay}</td>
@@ -213,7 +200,7 @@ export default function MaintenanceOverdue() {
                     <td style={styles.td}>
                       <span style={styles.overdueBadge}>
                         <span style={styles.overdueBadgeDot} />
-                        {f.days_overdue} day{f.days_overdue === 1 ? '' : 's'}
+                        {formatDaysOverdue(f.days_overdue)}
                       </span>
                     </td>
                     <td style={styles.td}>
@@ -226,8 +213,14 @@ export default function MaintenanceOverdue() {
                         {f.status}
                       </span>
                     </td>
-                    <td style={styles.td}>
-                      <span style={styles.smsStatusText}>{f.sms_status}</span>
+                    <td style={{ ...styles.td, textAlign: 'right' }}>
+                      <button
+                        type="button"
+                        style={styles.viewBtn}
+                        onClick={() => navigate('/admin/farms', { state: { search: f.farm_name } })}
+                      >
+                        View
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -236,7 +229,7 @@ export default function MaintenanceOverdue() {
           </div>
           {filteredFarms.length === 0 && (
             <div style={styles.empty}>
-              {search || barangayFilter || sizeFilter || typeFilter
+              {search || barangayFilter || sizeFilter
                 ? 'No farms match your search or filter.'
                 : 'No farms are currently overdue or non-compliant for manure clean-out.'}
             </div>
@@ -395,7 +388,7 @@ const styles = {
   scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0' },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  tableMobile: { minWidth: '1080px' },
+  tableMobile: { minWidth: '960px' },
   th: {
     textAlign: 'left', padding: '13px 20px', fontSize: '11px', fontWeight: 700, color: '#8a968d',
     borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
@@ -412,7 +405,10 @@ const styles = {
     borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
   },
   badgeDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
-  smsStatusText: { fontSize: '12px', color: '#6b7770' },
+  viewBtn: {
+    padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600,
+    cursor: 'pointer', border: '1px solid #e3e6dd', backgroundColor: '#fff', color: '#4b5a50', whiteSpace: 'nowrap',
+  },
   empty: { padding: '32px', textAlign: 'center', color: '#9aa79d', fontSize: '14px' },
 }
 

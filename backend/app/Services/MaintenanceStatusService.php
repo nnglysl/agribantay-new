@@ -6,21 +6,6 @@ use App\Models\Farm;
 use App\Models\MaintenanceLog;
 use Carbon\Carbon;
 
-/**
- * Objective 3.2 — Maintenance Status Tracking.
- *
- * Status names now match the LGU compliance workflow directly:
- *   Scheduled     — within the expected interval (was "Up to date")
- *   Overdue       — past due, still inside the 30-day grace period (was "Due")
- *   Non-Compliant — past the 30-day grace period entirely (was "Overdue")
- *
- * "Compliant" from the spec is intentionally NOT a persisted/computed
- * state here — it's the one-time confirmation shown right when a farmer
- * successfully logs a clean-out (see Farmer\MaintenanceController::store).
- * The instant after logging, the real anchor date resets to today, which
- * always computes to "Scheduled" — there's no separate ongoing state to
- * track beyond that.
- */
 class MaintenanceStatusService
 {
     private const INTERVAL_DAYS = [
@@ -56,15 +41,23 @@ class MaintenanceStatusService
             $status = 'Non-Compliant';
         }
 
+        // Fixed: previously only Non-Compliant ever got a real number here —
+        // Overdue farms always showed 0 regardless of how far into the grace
+        // period they actually were. Now both phases compute a real value:
+        // Overdue = days since the due date (0-29, inside the grace window),
+        // Non-Compliant = days since the grace period itself ended.
+        $daysOverdue = match ($status) {
+            'Overdue'       => (int) round($dueDate->diffInDays($today)),
+            'Non-Compliant' => (int) round($overdueDate->diffInDays($today)),
+            default         => 0,
+        };
+
         return [
             'status'                 => $status,
             'last_performed_at'      => $lastLog?->performed_at?->format('M d, Y'),
             'days_since'             => (int) round($anchorDate->diffInDays($today)),
             'expected_interval_days' => $intervalDays,
-            'days_overdue'           => $status === 'Non-Compliant' ? (int) round($overdueDate->diffInDays($today)) : 0,
-            // Exposed so callers (the compliance command, the admin
-            // report) can dedupe/reference the exact clean-out cycle
-            // this status was computed from, without recomputing it.
+            'days_overdue'           => $daysOverdue,
             'anchor_date'            => $anchorDate->toDateString(),
         ];
     }
