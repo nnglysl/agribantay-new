@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
@@ -15,7 +14,6 @@ export default function MaintenanceOverdue() {
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const isMobile = useIsMobile()
-  const navigate = useNavigate()
 
   const [barangayFilter, setBarangayFilter] = useState('')
   const [sizeFilter, setSizeFilter] = useState('')
@@ -24,6 +22,8 @@ export default function MaintenanceOverdue() {
   const [draftBarangay, setDraftBarangay] = useState('')
   const [draftSize, setDraftSize] = useState('')
   const filterRef = useRef(null)
+
+  const [viewFarmId, setViewFarmId] = useState(null)
 
   const params = {}
   if (search) params.search = search
@@ -91,13 +91,17 @@ export default function MaintenanceOverdue() {
   const rangeStart = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1
   const rangeEnd = Math.min(currentPage * pageSize, totalItems)
 
-  // "0 days" for a farm that's actually just crossed its due date reads as
-  // confusing/alarming — this is exactly when a farm is due TODAY, not
-  // already overdue by any real amount.
   const formatDaysOverdue = (days) => (days === 0 ? 'Due Today' : `${days} day${days === 1 ? '' : 's'}`)
 
   return (
     <AdminLayout>
+      <style>{`
+        @keyframes agb-panel-slide-in {
+          from { transform: translateX(100%); }
+          to { transform: translateX(0); }
+        }
+      `}</style>
+
       <div style={styles.header}>
         <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Overdue Maintenance</h1>
         <p style={styles.subtitle}>Farms that have exceeded their expected manure clean-out date.</p>
@@ -217,7 +221,7 @@ export default function MaintenanceOverdue() {
                       <button
                         type="button"
                         style={styles.viewBtn}
-                        onClick={() => navigate('/admin/farms', { state: { search: f.farm_name } })}
+                        onClick={() => setViewFarmId(f.farm_id)}
                       >
                         View
                       </button>
@@ -250,7 +254,136 @@ export default function MaintenanceOverdue() {
           )}
         </div>
       )}
+
+      <MaintenanceDetailPanel farmId={viewFarmId} onClose={() => setViewFarmId(null)} isMobile={isMobile} />
     </AdminLayout>
+  )
+}
+
+// Restyled to match AgriBantay's existing conventions instead of a generic
+// icon-heavy card layout: label/value rows borrow directly from
+// ViewFarmModal's infoRow pattern (Farms.jsx), the notification list reuses
+// the same item shape as the notification bell (DashboardLayout.jsx), and
+// the clean-out table matches every other admin table's th/td styling.
+// Nothing here introduces a new visual language — it just reuses what the
+// rest of the app already looks like.
+function MaintenanceDetailPanel({ farmId, onClose, isMobile }) {
+  const { data, loading, error } = useCachedFetch(farmId ? `/admin/maintenance/${farmId}/details` : null)
+  const open = !!farmId
+
+  useEffect(() => {
+    document.body.style.overflow = open ? 'hidden' : ''
+    return () => { document.body.style.overflow = '' }
+  }, [open])
+
+  if (!open) return null
+
+  const farm = data?.farm
+  const m = data?.maintenance
+  const notifications = data?.notifications || []
+  const logs = data?.logs || []
+
+  return (
+    <>
+      <div style={panelStyles.clickCatcher} onClick={onClose} />
+      <div style={{ ...panelStyles.panel, ...(isMobile ? panelStyles.panelMobile : {}) }}>
+        <div style={panelStyles.header}>
+          <span style={panelStyles.headerTitle}>Farm Maintenance Details</span>
+          <span style={panelStyles.closeBtn} onClick={onClose}>×</span>
+        </div>
+
+        <div style={panelStyles.body}>
+          {loading && <p style={panelStyles.stateText}>Loading...</p>}
+          {error && <p style={{ ...panelStyles.stateText, color: '#b91c1c' }}>{error}</p>}
+
+          {farm && m && (
+            <>
+              <div style={panelStyles.farmSummary}>
+                <div style={panelStyles.farmName}>{farm.farm_name}</div>
+                <div style={panelStyles.farmMeta}>{farm.owner_name} · {farm.barangay}</div>
+                <span style={panelStyles.sizeBadge}>{farm.farm_size}</span>
+              </div>
+
+              <div style={panelStyles.section}>
+                <div style={panelStyles.sectionTitle}>Maintenance Overview</div>
+                <PanelRow label="Expected Clean-out Date" value={m.due_date} />
+                <PanelRow label="Last Clean-out Date" value={m.last_performed_at} />
+                <PanelRow
+                  label="Days Overdue"
+                  value={m.days_overdue === 0 ? 'Due Today' : `${m.days_overdue} day${m.days_overdue === 1 ? '' : 's'}`}
+                  valueColor={STATUS_COLOR[m.status]}
+                />
+                <PanelRow label="Maintenance Status" value={m.status} valueColor={STATUS_COLOR[m.status]} />
+                <PanelRow label="30-Day Grace Period Status" value={m.grace_status} last />
+              </div>
+
+              <div style={panelStyles.section}>
+                <div style={panelStyles.sectionTitle}>SMS / Notification History</div>
+                {notifications.length === 0 ? (
+                  <p style={panelStyles.emptyText}>No notifications sent yet for this farm.</p>
+                ) : (
+                  <div style={panelStyles.notifList}>
+                    {notifications.map((n, i) => (
+                      <div key={i} style={panelStyles.notifRow}>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={panelStyles.notifTitle}>{n.event}</div>
+                          <div style={panelStyles.notifTime}>{n.sent_at}</div>
+                        </div>
+                        <span style={{
+                          ...panelStyles.notifStatus,
+                          color: n.status === 'Sent' ? '#2c8047' : '#b91c1c',
+                        }}>
+                          {n.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={panelStyles.section}>
+                <div style={panelStyles.sectionTitle}>Manure Clean-out Records</div>
+                {logs.length === 0 ? (
+                  <p style={panelStyles.emptyText}>No clean-out records logged for this farm yet.</p>
+                ) : (
+                  <table style={panelStyles.logsTable}>
+                    <thead>
+                      <tr>
+                        <th style={panelStyles.logsTh}>Date</th>
+                        <th style={panelStyles.logsTh}>Notes</th>
+                        <th style={panelStyles.logsTh}>Recorded By</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {logs.map((log, i) => (
+                        <tr key={i}>
+                          <td style={panelStyles.logsTd}>{log.performed_at}</td>
+                          <td style={panelStyles.logsTd}>{log.notes || '—'}</td>
+                          <td style={panelStyles.logsTd}>{log.recorded_by}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div style={panelStyles.footer}>
+          <button onClick={onClose} style={panelStyles.closeFooterBtn}>Close</button>
+        </div>
+      </div>
+    </>
+  )
+}
+
+function PanelRow({ label, value, valueColor, last }) {
+  return (
+    <div style={{ ...panelStyles.row, ...(last ? panelStyles.rowLast : {}) }}>
+      <span style={panelStyles.rowLabel}>{label}</span>
+      <span style={{ ...panelStyles.rowValue, ...(valueColor ? { color: valueColor } : {}) }}>{value ?? '—'}</span>
+    </div>
   )
 }
 
@@ -427,4 +560,71 @@ const paginationStyles = {
   pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
   pageBtnActive: { backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff' },
   ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
+}
+
+const panelStyles = {
+  clickCatcher: { position: 'fixed', inset: 0, zIndex: 90, background: 'transparent' },
+  panel: {
+    position: 'fixed', top: 0, right: 0, bottom: 0, width: '420px', maxWidth: '92vw',
+    backgroundColor: '#fff', boxShadow: '-8px 0 32px rgba(15,38,22,0.14)',
+    zIndex: 100, display: 'flex', flexDirection: 'column',
+    animation: 'agb-panel-slide-in 0.22s ease-out', border: '1px solid #e7e8e0',
+  },
+  panelMobile: { width: '100%', maxWidth: '100%' },
+
+  header: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '18px 22px', borderBottom: '1px solid #e7e8e0', flexShrink: 0,
+  },
+  headerTitle: { fontSize: '15px', fontWeight: 800, color: '#16311d', fontFamily: SANS },
+  closeBtn: { fontSize: '20px', cursor: 'pointer', color: '#8a968d', lineHeight: 1 },
+
+  body: { flex: 1, overflowY: 'auto', padding: '20px 22px' },
+  stateText: { fontFamily: SANS, fontSize: '14px', color: '#6b7770' },
+
+  farmSummary: { marginBottom: '22px', paddingBottom: '18px', borderBottom: '1px solid #f0efe8' },
+  farmName: { fontSize: '16px', fontWeight: 800, color: '#16311d', fontFamily: SANS },
+  farmMeta: { fontSize: '12.5px', color: '#8a968d', marginTop: '3px', fontFamily: SANS },
+  sizeBadge: {
+    display: 'inline-block', marginTop: '9px', padding: '3px 10px', borderRadius: '999px',
+    backgroundColor: '#eaf3ec', color: '#256b3d', fontSize: '11px', fontWeight: 700, fontFamily: SANS,
+  },
+
+  section: { marginBottom: '22px' },
+  sectionTitle: {
+    fontSize: '11px', fontWeight: 700, color: '#8a968d', textTransform: 'uppercase',
+    letterSpacing: '0.05em', marginBottom: '10px', fontFamily: SANS,
+  },
+
+  row: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
+    padding: '10px 0', borderBottom: '1px solid #f2f3ed',
+  },
+  rowLast: { borderBottom: 'none' },
+  rowLabel: { fontSize: '12.5px', color: '#6b7770', fontFamily: SANS, flexShrink: 0 },
+  rowValue: { fontSize: '13px', fontWeight: 600, color: '#16311d', fontFamily: SANS, textAlign: 'right' },
+
+  emptyText: { fontSize: '12.5px', color: '#9aa79d', fontStyle: 'italic', fontFamily: SANS, margin: 0 },
+
+  notifList: { display: 'flex', flexDirection: 'column' },
+  notifRow: {
+    display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px',
+    padding: '11px 0', borderBottom: '1px solid #f2f3ed',
+  },
+  notifTitle: { fontSize: '12.5px', fontWeight: 700, color: '#16311d', fontFamily: SANS },
+  notifTime: { fontSize: '11.5px', color: '#9aa79d', marginTop: '2px', fontFamily: SANS },
+  notifStatus: { fontSize: '11.5px', fontWeight: 700, fontFamily: SANS, flexShrink: 0, whiteSpace: 'nowrap' },
+
+  logsTable: { width: '100%', borderCollapse: 'collapse' },
+  logsTh: {
+    textAlign: 'left', padding: '8px 0', fontSize: '10px', fontWeight: 700, color: '#8a968d',
+    borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.04em', fontFamily: SANS,
+  },
+  logsTd: { padding: '9px 0', fontSize: '12.5px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', fontFamily: SANS },
+
+  footer: { padding: '14px 22px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #e7e8e0', flexShrink: 0 },
+  closeFooterBtn: {
+    padding: '9px 22px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
+    color: '#33413a', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
+  },
 }

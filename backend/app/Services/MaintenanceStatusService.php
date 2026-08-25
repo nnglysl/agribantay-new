@@ -59,6 +59,8 @@ class MaintenanceStatusService
             'expected_interval_days' => $intervalDays,
             'days_overdue'           => $daysOverdue,
             'anchor_date'            => $anchorDate->toDateString(),
+            'due_date'               => $dueDate->format('M d, Y'),
+            'grace_end_date'         => $overdueDate->format('M d, Y'),
         ];
     }
 }

@@ -119,6 +119,7 @@ Route::get('/notifications', [NotificationController::class, 'index']);
         Route::get('/alert-history', [AlertHistoryController::class, 'index']);
 
         Route::get('/maintenance/overdue', [AdminMaintenanceController::class, 'overdue']);
+        Route::get('/maintenance/{farmId}/details', [AdminMaintenanceController::class, 'details']);
     });
 
     /*

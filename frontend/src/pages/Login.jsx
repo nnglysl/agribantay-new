@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import api from '../api/axios'
 import { setAuth } from '../utils/auth'
 import { useIsMobile } from '../hooks/useIsMobile'
-import loginImg from '../assets/login_imgg.png'
+import loginImg from '../assets/poultry.jpg'
 import agribantayLogo from '../assets/agribantay_logo.png'
 import agribantayName from '../assets/agribantay_name.png'
 import sanjoseBg from '../assets/sanjosebg.png'
@@ -308,8 +308,9 @@ const styles = {
   page: {
     fontFamily: SANS, color: '#1c2a20', position: 'relative', minHeight: '100vh',
     display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box',
-    backgroundImage: `linear-gradient(rgba(20,48,28,0.55), rgba(20,48,28,0.6)), url(${sanjoseBg})`,
-    backgroundSize: 'cover', backgroundPosition: 'center',
+    backgroundImage: `linear-gradient(rgba(20, 48, 28, 0.80),rgba(20, 48, 28, 0.80)), url(${sanjoseBg})`,
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
   },
   backHome: {
     position: 'fixed', top: '22px', left: '22px', zIndex: 40, display: 'inline-flex', alignItems: 'center', gap: '8px',
