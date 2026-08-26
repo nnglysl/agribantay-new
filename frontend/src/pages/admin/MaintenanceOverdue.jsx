@@ -260,13 +260,24 @@ export default function MaintenanceOverdue() {
   )
 }
 
-// Restyled to match AgriBantay's existing conventions instead of a generic
-// icon-heavy card layout: label/value rows borrow directly from
-// ViewFarmModal's infoRow pattern (Farms.jsx), the notification list reuses
-// the same item shape as the notification bell (DashboardLayout.jsx), and
-// the clean-out table matches every other admin table's th/td styling.
-// Nothing here introduces a new visual language — it just reuses what the
-// rest of the app already looks like.
+function FarmIcon() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2c8047" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 21V9l9-6 9 6v12h-6v-7H9v7H3z" />
+    </svg>
+  )
+}
+
+function WarningIcon({ color }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3 2 20h20L12 3z" />
+      <path d="M12 10v4" />
+      <circle cx="12" cy="17" r="0.6" fill={color} stroke="none" />
+    </svg>
+  )
+}
+
 function MaintenanceDetailPanel({ farmId, onClose, isMobile }) {
   const { data, loading, error } = useCachedFetch(farmId ? `/admin/maintenance/${farmId}/details` : null)
   const open = !!farmId
@@ -298,58 +309,81 @@ function MaintenanceDetailPanel({ farmId, onClose, isMobile }) {
 
           {farm && m && (
             <>
-              <div style={panelStyles.farmSummary}>
-                <div style={panelStyles.farmName}>{farm.farm_name}</div>
-                <div style={panelStyles.farmMeta}>{farm.owner_name} · {farm.barangay}</div>
-                <span style={panelStyles.sizeBadge}>{farm.farm_size}</span>
+              <div style={panelStyles.farmInfoRow}>
+                <span style={panelStyles.farmIconWrap}><FarmIcon /></span>
+                <div style={{ minWidth: 0 }}>
+                  <div style={panelStyles.farmName}>{farm.farm_name}</div>
+                  <div style={panelStyles.farmMeta}>{farm.owner_name} · {farm.barangay}</div>
+                  <span style={panelStyles.sizeBadge}>{farm.farm_size}</span>
+                </div>
               </div>
 
-              <div style={panelStyles.section}>
-                <div style={panelStyles.sectionTitle}>Maintenance Overview</div>
+              <div style={panelStyles.sectionTitle}>Maintenance Overview</div>
+              <div style={panelStyles.card}>
                 <PanelRow label="Expected Clean-out Date" value={m.due_date} />
                 <PanelRow label="Last Clean-out Date" value={m.last_performed_at} />
                 <PanelRow
                   label="Days Overdue"
                   value={m.days_overdue === 0 ? 'Due Today' : `${m.days_overdue} day${m.days_overdue === 1 ? '' : 's'}`}
-                  valueColor={STATUS_COLOR[m.status]}
                 />
-                <PanelRow label="Maintenance Status" value={m.status} valueColor={STATUS_COLOR[m.status]} />
-                <PanelRow label="30-Day Grace Period Status" value={m.grace_status} last />
+                <PanelRow
+                  label="Maintenance Status"
+                  valueNode={
+                    <span style={{
+                      ...panelStyles.statusPill,
+                      color: STATUS_COLOR[m.status] || '#6b7280',
+                      backgroundColor: STATUS_BG[m.status] || '#eef1ea',
+                    }}>
+                      {m.status}
+                    </span>
+                  }
+                />
+                <PanelRow label="Grace Period Status" value={m.grace_status} last />
               </div>
 
-              <div style={panelStyles.section}>
-                <div style={panelStyles.sectionTitle}>SMS / Notification History</div>
+              <div style={panelStyles.sectionTitle}>SMS / Notification History</div>
+              <div style={panelStyles.card}>
                 {notifications.length === 0 ? (
                   <p style={panelStyles.emptyText}>No notifications sent yet for this farm.</p>
                 ) : (
-                  <div style={panelStyles.notifList}>
-                    {notifications.map((n, i) => (
-                      <div key={i} style={panelStyles.notifRow}>
+                  notifications.map((n, i) => {
+                    const color = n.event === 'Non-Compliance Notice' ? '#b91c1c' : '#b45309'
+                    const bg = n.event === 'Non-Compliance Notice' ? '#fbeaea' : '#fbf1e2'
+                    return (
+                      <div key={i} style={{ ...panelStyles.notifRow, ...(i === notifications.length - 1 ? panelStyles.rowLast : {}) }}>
+                        <span style={{ ...panelStyles.notifIconWrap, backgroundColor: bg }}>
+                          <WarningIcon color={color} />
+                        </span>
                         <div style={{ minWidth: 0, flex: 1 }}>
-                          <div style={panelStyles.notifTitle}>{n.event}</div>
+                          <div style={panelStyles.notifTopRow}>
+                            <span style={panelStyles.notifTitle}>{n.event}</span>
+                            <span style={{ ...panelStyles.notifStatus, color: n.status === 'Sent' ? '#2c8047' : '#b91c1c' }}>
+                              {n.status}
+                            </span>
+                          </div>
+                          <div style={panelStyles.notifDesc}>{n.description}</div>
                           <div style={panelStyles.notifTime}>{n.sent_at}</div>
                         </div>
-                        <span style={{
-                          ...panelStyles.notifStatus,
-                          color: n.status === 'Sent' ? '#2c8047' : '#b91c1c',
-                        }}>
-                          {n.status}
-                        </span>
                       </div>
-                    ))}
-                  </div>
+                    )
+                  })
                 )}
               </div>
+              {notifications.length > 0 && (
+                <div style={panelStyles.viewAllRow}>
+                  View all notifications <span style={panelStyles.viewAllArrow}>›</span>
+                </div>
+              )}
 
-              <div style={panelStyles.section}>
-                <div style={panelStyles.sectionTitle}>Manure Clean-out Records</div>
+              <div style={{ ...panelStyles.sectionTitle, marginTop: '22px' }}>Manure Clean-out Records</div>
+              <div style={panelStyles.card}>
                 {logs.length === 0 ? (
                   <p style={panelStyles.emptyText}>No clean-out records logged for this farm yet.</p>
                 ) : (
                   <table style={panelStyles.logsTable}>
                     <thead>
                       <tr>
-                        <th style={panelStyles.logsTh}>Date</th>
+                        <th style={panelStyles.logsTh}>Date Cleaned</th>
                         <th style={panelStyles.logsTh}>Notes</th>
                         <th style={panelStyles.logsTh}>Recorded By</th>
                       </tr>
@@ -366,6 +400,11 @@ function MaintenanceDetailPanel({ farmId, onClose, isMobile }) {
                   </table>
                 )}
               </div>
+              {logs.length > 0 && (
+                <div style={panelStyles.viewAllRow}>
+                  View all records <span style={panelStyles.viewAllArrow}>›</span>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -378,11 +417,11 @@ function MaintenanceDetailPanel({ farmId, onClose, isMobile }) {
   )
 }
 
-function PanelRow({ label, value, valueColor, last }) {
+function PanelRow({ label, value, valueNode, last }) {
   return (
     <div style={{ ...panelStyles.row, ...(last ? panelStyles.rowLast : {}) }}>
       <span style={panelStyles.rowLabel}>{label}</span>
-      <span style={{ ...panelStyles.rowValue, ...(valueColor ? { color: valueColor } : {}) }}>{value ?? '—'}</span>
+      {valueNode ?? <span style={panelStyles.rowValue}>{value ?? '—'}</span>}
     </div>
   )
 }
@@ -565,64 +604,81 @@ const paginationStyles = {
 const panelStyles = {
   clickCatcher: { position: 'fixed', inset: 0, zIndex: 90, background: 'transparent' },
   panel: {
-    position: 'fixed', top: 0, right: 0, bottom: 0, width: '420px', maxWidth: '92vw',
+    position: 'fixed', top: 0, right: 0, bottom: 0, width: '440px', maxWidth: '92vw',
     backgroundColor: '#fff', boxShadow: '-8px 0 32px rgba(15,38,22,0.14)',
     zIndex: 100, display: 'flex', flexDirection: 'column',
-    animation: 'agb-panel-slide-in 0.22s ease-out', border: '1px solid #e7e8e0',
+    animation: 'agb-panel-slide-in 0.22s ease-out', borderLeft: '1px solid #E5E7EB',
   },
   panelMobile: { width: '100%', maxWidth: '100%' },
 
   header: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '18px 22px', borderBottom: '1px solid #e7e8e0', flexShrink: 0,
+    padding: '18px 22px', borderBottom: '1px solid #E5E7EB', flexShrink: 0,
   },
-  headerTitle: { fontSize: '15px', fontWeight: 800, color: '#16311d', fontFamily: SANS },
+  headerTitle: { fontSize: '15px', fontWeight: 800, color: '#111827', fontFamily: SANS },
   closeBtn: { fontSize: '20px', cursor: 'pointer', color: '#8a968d', lineHeight: 1 },
 
   body: { flex: 1, overflowY: 'auto', padding: '20px 22px' },
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#6b7770' },
 
-  farmSummary: { marginBottom: '22px', paddingBottom: '18px', borderBottom: '1px solid #f0efe8' },
-  farmName: { fontSize: '16px', fontWeight: 800, color: '#16311d', fontFamily: SANS },
-  farmMeta: { fontSize: '12.5px', color: '#8a968d', marginTop: '3px', fontFamily: SANS },
+  farmInfoRow: { display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '22px' },
+  farmIconWrap: {
+    width: '48px', height: '48px', borderRadius: '50%', backgroundColor: '#eaf3ec',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  farmName: { fontSize: '15.5px', fontWeight: 800, color: '#111827', fontFamily: SANS },
+  farmMeta: { fontSize: '12.5px', color: '#6b7280', marginTop: '3px', fontFamily: SANS },
   sizeBadge: {
-    display: 'inline-block', marginTop: '9px', padding: '3px 10px', borderRadius: '999px',
-    backgroundColor: '#eaf3ec', color: '#256b3d', fontSize: '11px', fontWeight: 700, fontFamily: SANS,
+    display: 'inline-block', marginTop: '8px', padding: '3px 10px', borderRadius: '999px',
+    backgroundColor: '#eaf3ec', color: '#2c8047', fontSize: '11px', fontWeight: 700, fontFamily: SANS,
   },
 
-  section: { marginBottom: '22px' },
-  sectionTitle: {
-    fontSize: '11px', fontWeight: 700, color: '#8a968d', textTransform: 'uppercase',
-    letterSpacing: '0.05em', marginBottom: '10px', fontFamily: SANS,
+  sectionTitle: { fontSize: '12.5px', fontWeight: 700, color: '#111827', marginBottom: '10px', fontFamily: SANS },
+
+  card: {
+    backgroundColor: '#fff', border: '1px solid #E5E7EB', borderRadius: '14px',
+    padding: '14px 16px', marginBottom: '8px',
   },
 
   row: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
-    padding: '10px 0', borderBottom: '1px solid #f2f3ed',
+    padding: '10px 0', borderBottom: '1px solid #F2F3F5',
   },
   rowLast: { borderBottom: 'none' },
-  rowLabel: { fontSize: '12.5px', color: '#6b7770', fontFamily: SANS, flexShrink: 0 },
-  rowValue: { fontSize: '13px', fontWeight: 600, color: '#16311d', fontFamily: SANS, textAlign: 'right' },
-
-  emptyText: { fontSize: '12.5px', color: '#9aa79d', fontStyle: 'italic', fontFamily: SANS, margin: 0 },
-
-  notifList: { display: 'flex', flexDirection: 'column' },
-  notifRow: {
-    display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px',
-    padding: '11px 0', borderBottom: '1px solid #f2f3ed',
+  rowLabel: { fontSize: '12.5px', color: '#6b7280', fontFamily: SANS, flexShrink: 0 },
+  rowValue: { fontSize: '13px', fontWeight: 600, color: '#111827', fontFamily: SANS, textAlign: 'right' },
+  statusPill: {
+    padding: '3px 10px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, fontFamily: SANS, whiteSpace: 'nowrap',
   },
-  notifTitle: { fontSize: '12.5px', fontWeight: 700, color: '#16311d', fontFamily: SANS },
-  notifTime: { fontSize: '11.5px', color: '#9aa79d', marginTop: '2px', fontFamily: SANS },
+
+  emptyText: { fontSize: '12.5px', color: '#9aa79d', fontStyle: 'italic', fontFamily: SANS, margin: '4px 0' },
+
+  notifRow: { display: 'flex', alignItems: 'flex-start', gap: '11px', padding: '12px 0', borderBottom: '1px solid #F2F3F5' },
+  notifIconWrap: {
+    width: '32px', height: '32px', borderRadius: '50%', display: 'flex',
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '1px',
+  },
+  notifTopRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' },
+  notifTitle: { fontSize: '13px', fontWeight: 700, color: '#111827', fontFamily: SANS },
   notifStatus: { fontSize: '11.5px', fontWeight: 700, fontFamily: SANS, flexShrink: 0, whiteSpace: 'nowrap' },
+  notifDesc: { fontSize: '12px', color: '#4b5563', marginTop: '3px', lineHeight: 1.4, fontFamily: SANS },
+  notifTime: { fontSize: '11px', color: '#9ca3af', marginTop: '5px', fontFamily: SANS },
+
+  viewAllRow: {
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
+    fontSize: '12.5px', fontWeight: 600, color: '#2c8047', fontFamily: SANS,
+    padding: '10px 0 18px', cursor: 'default',
+  },
+  viewAllArrow: { fontSize: '14px', lineHeight: 1 },
 
   logsTable: { width: '100%', borderCollapse: 'collapse' },
   logsTh: {
-    textAlign: 'left', padding: '8px 0', fontSize: '10px', fontWeight: 700, color: '#8a968d',
-    borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.04em', fontFamily: SANS,
+    textAlign: 'left', padding: '8px 0', fontSize: '10px', fontWeight: 700, color: '#6b7280',
+    borderBottom: '1px solid #E5E7EB', textTransform: 'uppercase', letterSpacing: '0.04em', fontFamily: SANS,
   },
-  logsTd: { padding: '9px 0', fontSize: '12.5px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', fontFamily: SANS },
+  logsTd: { padding: '9px 0', fontSize: '12.5px', color: '#111827', borderBottom: '1px solid #F2F3F5', fontFamily: SANS },
 
-  footer: { padding: '14px 22px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #e7e8e0', flexShrink: 0 },
+  footer: { padding: '14px 22px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #E5E7EB', flexShrink: 0 },
   closeFooterBtn: {
     padding: '9px 22px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
     color: '#33413a', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,

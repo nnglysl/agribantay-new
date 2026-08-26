@@ -47,7 +47,7 @@ class MaintenanceController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $overdueFarms
+            'data' => $overdueFarms,
         ]);
     }
 
@@ -69,8 +69,15 @@ class MaintenanceController extends Controller
             ->get()
             ->map(fn($n) => [
                 'event' => $n->event === 'overdue_reminder'
-                    ? 'Overdue SMS reminder'
-                    : 'Non-Compliance SMS notice',
+                    ? 'Overdue Reminder'
+                    : 'Non-Compliance Notice',
+
+                // Mirrors the exact SMS body CheckMaintenanceCompliance
+                // sends for each event — not invented copy, the real
+                // message content the farmer actually received.
+                'description' => $n->event === 'overdue_reminder'
+                    ? 'Your manure clean-out is overdue. Please clean and properly dispose of accumulated manure and update your manure record.'
+                    : 'Your manure clean-out is still overdue and has exceeded the 30-day grace period. Please complete the required clean-out and update your manure record.',
 
                 'sent_at' => $n->sent_at->format('M d, Y g:i A'),
 
@@ -85,6 +92,9 @@ class MaintenanceController extends Controller
                 'performed_at' => $log->performed_at->format('M d, Y'),
                 'notes'        => $log->notes,
 
+                // Only the farm owner ever logs their own clean-outs
+                // today — no separate "recorded by" field exists on
+                // maintenance_logs.
                 'recorded_by'  => $farm->owner_name,
             ]);
 
