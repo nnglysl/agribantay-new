@@ -1,10 +1,12 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useMonthFilter, filterByMonth } from '../../hooks/useMonthFilter'
+import { formatDate, formatDateTime } from '../../utils/formatDate'
+import { viewModalStyles as v } from '../../styles/viewModalStyles'
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
@@ -35,12 +37,13 @@ function isPastDate(date) {
 export default function Inspections() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [tab, setTab] = useState('schedule')
-  const { month: viewDate, setMonth: setViewDate, prevMonth, nextMonth, label: monthLabel } = useMonthFilter()
+  const { month: viewDate, setMonth: setViewDate, prevMonth, nextMonth } = useMonthFilter()
   const [modalDate, setModalDate] = useState(null)
   const [prefillFarm, setPrefillFarm] = useState(null)
   const [confirmCancel, setConfirmCancel] = useState(null)
   const [completeInspection, setCompleteInspection] = useState(null)
   const [viewInspection, setViewInspection] = useState(null)
+  const [rescheduleInspection, setRescheduleInspection] = useState(null)
   const isMobile = useIsMobile()
 
   const { data: inspectionsData, loading: loadingInspections, error: errorInspections, refetch: refetchInspections } = useCachedFetch('/admin/inspections')
@@ -51,13 +54,16 @@ export default function Inspections() {
   const loading = loadingInspections || loadingFarms
   const error = errorInspections || errorFarms
 
+  // Coming from a Critical farm pin on the Dashboard map: remember which
+  // farm triggered this, land on the Schedule tab — but do NOT auto-pick
+  // a date or open the modal. The Admin still has to click a day on the
+  // calendar themselves; the farm just comes pre-filled once they do.
   useEffect(() => {
     const farmId = searchParams.get('farmId')
     if (farmId && farms.length > 0) {
       const farm = farms.find(f => String(f.id) === farmId)
       if (farm) {
         setPrefillFarm(farm)
-        setModalDate(new Date())
         setTab('schedule')
       }
       setSearchParams(prev => {
@@ -89,14 +95,77 @@ export default function Inspections() {
     setPrefillFarm(null)
   }
 
-  const scheduled = inspections.filter(i => i.status === 'Scheduled')
-  const completed = inspections.filter(i => i.status === 'Completed')
-
   const statusColor = { Scheduled: '#b45309', Completed: '#256b3d', Cancelled: '#6b7280' }
 
-  const monthInspections = filterByMonth(inspections, viewDate)
-  const totalThisMonth = monthInspections.length
-  const followUpThisMonth = monthInspections.filter(i => i.inspection_type === 'Follow-up').length
+  // One shared Month + Year filter for the whole page (summary cards +
+  // Scheduled/Completed/History tables). Independent from the Schedule
+  // tab's calendar (viewDate), which keeps its own navigation untouched.
+  const now = new Date()
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [appliedMonth, setAppliedMonth] = useState(now.getMonth())
+  const [appliedYear, setAppliedYear] = useState(now.getFullYear())
+  const [appliedType, setAppliedType] = useState('')
+  const [draftMonth, setDraftMonth] = useState(now.getMonth())
+  const [draftYear, setDraftYear] = useState(now.getFullYear())
+  const [draftType, setDraftType] = useState('')
+  const filterRef = useRef(null)
+
+  useEffect(() => {
+    if (!filterOpen) return
+    const handleClickOutside = (e) => {
+      if (filterRef.current && !filterRef.current.contains(e.target)) setFilterOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [filterOpen])
+
+  const applyFilter = () => {
+    setAppliedMonth(draftMonth)
+    setAppliedYear(draftYear)
+    setAppliedType(draftType)
+    setFilterOpen(false)
+  }
+
+  const showAllFilter = () => {
+    setAppliedMonth(null)
+    setAppliedYear(null)
+    setAppliedType('')
+    setFilterOpen(false)
+  }
+
+  const filterYears = useMemo(() => {
+    const set = new Set([now.getFullYear()])
+    inspections.forEach(i => { if (i.scheduled_at) set.add(new Date(i.scheduled_at).getFullYear()) })
+    return [...set].sort((a, b) => b - a)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inspections])
+
+  const isPeriodFiltered = appliedMonth === null || appliedMonth !== now.getMonth() || appliedYear !== now.getFullYear()
+  const activeFilterCount = (isPeriodFiltered ? 1 : 0) + (appliedType ? 1 : 0)
+  const periodLabel = (appliedMonth === null || appliedYear === null)
+    ? 'All Time'
+    : new Date(appliedYear, appliedMonth, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+
+  const periodInspections = useMemo(() => {
+    let list = inspections
+    if (appliedMonth !== null && appliedYear !== null) {
+      list = filterByMonth(list, new Date(appliedYear, appliedMonth, 1))
+    }
+    if (appliedType) {
+      list = list.filter(i => i.inspection_type === appliedType)
+    }
+    return list
+  }, [inspections, appliedMonth, appliedYear, appliedType])
+
+  const scheduled = periodInspections.filter(i => i.status === 'Scheduled')
+  const completed = periodInspections.filter(i => i.status === 'Completed')
+  const history = periodInspections.filter(i => i.status === 'Completed' || i.status === 'Cancelled')
+
+  // Summary cards mirror the same active work the tables show — Scheduled
+  // + Completed — so a Cancelled inspection never inflates the counts.
+  const activeInspections = periodInspections.filter(i => i.status !== 'Cancelled')
+  const totalThisMonth = activeInspections.length
+  const followUpThisMonth = activeInspections.filter(i => i.inspection_type === 'Follow-up').length
   const generalThisMonth = totalThisMonth - followUpThisMonth
 
   return (
@@ -104,27 +173,84 @@ export default function Inspections() {
       <div style={{ ...styles.headerRow, ...(isMobile ? styles.headerRowMobile : {}) }}>
         <div>
           <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Inspections</h1>
-          <p style={styles.subtitle}>Farm inspection scheduling & records</p>
+          <p style={styles.subtitle}>Schedule, manage, and monitor farm inspections</p>
         </div>
       </div>
 
       <div style={{ ...styles.summaryGrid, ...(isMobile ? styles.summaryGridMobile : {}) }}>
-        <SummaryCard label="Total Inspections" value={totalThisMonth} sub={monthLabel} variant="green" isMobile={isMobile} />
-        <SummaryCard label="General Inspections" value={generalThisMonth} sub={monthLabel} variant="orange" isMobile={isMobile} />
-        <SummaryCard label="Follow-up Inspections" value={followUpThisMonth} sub={monthLabel} variant="yellow" isMobile={isMobile} />
+        <SummaryCard label="Total Inspections" value={totalThisMonth} sub={periodLabel} variant="green" isMobile={isMobile} />
+        <SummaryCard label="General Inspections" value={generalThisMonth} sub={periodLabel} variant="orange" isMobile={isMobile} />
+        <SummaryCard label="Follow-up Inspections" value={followUpThisMonth} sub={periodLabel} variant="yellow" isMobile={isMobile} />
       </div>
 
-      <div style={styles.tabs}>
-        {['schedule', 'scheduled', 'completed', 'history'].map(t => (
-          <div
-            key={t}
-            style={{ ...styles.tab, ...(tab === t ? styles.tabActive : {}) }}
-            onClick={() => setTab(t)}
+      <div style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
+        <div style={styles.tabs}>
+          {['schedule', 'scheduled', 'completed', 'history'].map(t => (
+            <div
+              key={t}
+              style={{ ...styles.tab, ...(tab === t ? styles.tabActive : {}) }}
+              onClick={() => setTab(t)}
+            >
+              {t.charAt(0).toUpperCase() + t.slice(1)}
+            </div>
+          ))}
+        </div>
+
+        <div style={styles.filterAnchor} ref={filterRef}>
+          <button
+            type="button"
+            onClick={() => (filterOpen ? setFilterOpen(false) : setFilterOpen(true))}
+            style={{ ...styles.filterBtn, ...(activeFilterCount > 0 ? styles.filterBtnActive : {}) }}
           >
-            {t.charAt(0).toUpperCase() + t.slice(1)}
-          </div>
-        ))}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <path d="M4 5h16l-6 8v6l-4-2v-4L4 5z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+            </svg>
+            Filter
+            {activeFilterCount > 0 && <span style={styles.filterCount}>{activeFilterCount}</span>}
+          </button>
+
+          {filterOpen && (
+            <div style={{ ...styles.filterPanel, ...(isMobile ? styles.filterPanelMobile : {}) }}>
+              <div style={styles.filterPanelHeader}>
+                <span style={styles.filterPanelTitle}>Filter</span>
+                <span style={styles.filterPanelClose} onClick={() => setFilterOpen(false)}>×</span>
+              </div>
+
+              <label style={styles.filterLabel}>Month</label>
+              <select value={draftMonth} onChange={e => setDraftMonth(Number(e.target.value))} style={styles.filterSelect}>
+                {MONTH_NAMES.map((m, i) => <option key={m} value={i}>{m}</option>)}
+              </select>
+
+              <label style={styles.filterLabel}>Year</label>
+              <select value={draftYear} onChange={e => setDraftYear(Number(e.target.value))} style={styles.filterSelect}>
+                {filterYears.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+
+              <label style={styles.filterLabel}>Inspection Type</label>
+              <select value={draftType} onChange={e => setDraftType(e.target.value)} style={styles.filterSelect}>
+                <option value="">All Types</option>
+                <option value="General Inspection">General Inspection</option>
+                <option value="Follow-up">Follow-up Inspection</option>
+              </select>
+
+              <div style={styles.filterActions}>
+                <button type="button" onClick={showAllFilter} style={styles.filterResetBtn}>Show all</button>
+                <button type="button" onClick={applyFilter} style={styles.filterApplyBtn}>Apply</button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
+
+      {tab === 'schedule' && prefillFarm && !modalDate && (
+        <div style={styles.criticalBanner}>
+          <span style={styles.criticalBannerIcon}>⚠</span>
+          <span>
+            Critical Farm Detected — <strong>{prefillFarm.farm_name}</strong>. Please select an inspection date on the calendar below.
+          </span>
+          <span style={styles.criticalBannerClose} onClick={() => setPrefillFarm(null)}>×</span>
+        </div>
+      )}
 
       {loading && <p style={styles.stateText}>Loading...</p>}
       {error && <p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p>}
@@ -141,7 +267,14 @@ export default function Inspections() {
       )}
 
       {!loading && !error && tab === 'scheduled' && (
-        <InspectionList list={scheduled} statusColor={statusColor} onCancel={handleCancel} onComplete={setCompleteInspection} isMobile={isMobile} />
+        <InspectionList
+          list={scheduled}
+          statusColor={statusColor}
+          onCancel={handleCancel}
+          onComplete={setCompleteInspection}
+          onReschedule={setRescheduleInspection}
+          isMobile={isMobile}
+        />
       )}
 
       {!loading && !error && tab === 'completed' && (
@@ -150,7 +283,7 @@ export default function Inspections() {
 
       {!loading && !error && tab === 'history' && (
         <InspectionList
-          list={inspections.filter(i => i.status === 'Completed' || i.status === 'Cancelled')}
+          list={history}
           statusColor={statusColor}
           onView={setViewInspection}
           isMobile={isMobile}
@@ -178,59 +311,70 @@ export default function Inspections() {
         />
       )}
 
-      {viewInspection && (
-        <div style={modalStyles.overlay} onClick={() => setViewInspection(null)}>
-          <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
-            <div style={modalStyles.header}>
-              <h3 style={modalStyles.title}>{viewInspection.inspection_number}</h3>
-              <span style={modalStyles.close} onClick={() => setViewInspection(null)}>×</span>
-            </div>
+      {rescheduleInspection && (
+        <RescheduleModal
+          inspection={rescheduleInspection}
+          onClose={() => setRescheduleInspection(null)}
+          onSuccess={() => { setRescheduleInspection(null); refetchInspections() }}
+          isMobile={isMobile}
+        />
+      )}
 
-            <div style={detailStyles.row}>
-              <span style={detailStyles.label}>Farm</span>
-              <span style={detailStyles.value}>{viewInspection.farm_name}</span>
-            </div>
-            <div style={detailStyles.row}>
-              <span style={detailStyles.label}>Type</span>
-              <span style={detailStyles.value}>{viewInspection.inspection_type}</span>
-            </div>
-            <div style={detailStyles.row}>
-              <span style={detailStyles.label}>Status</span>
-              <span style={detailStyles.value}>{viewInspection.status}</span>
-            </div>
-            <div style={detailStyles.row}>
-              <span style={detailStyles.label}>Scheduled</span>
-              <span style={detailStyles.value}>
-                {new Date(viewInspection.scheduled_at).toLocaleString()}
-              </span>
-            </div>
-            {viewInspection.completed_at && (
-              <div style={detailStyles.row}>
-                <span style={detailStyles.label}>Completed</span>
-                <span style={detailStyles.value}>
-                  {new Date(viewInspection.completed_at).toLocaleString()}
-                </span>
+      {viewInspection && (() => {
+        const c = statusColor[viewInspection.status] || '#6b7280'
+        const fields = [
+          { label: 'Farm', value: viewInspection.farm_name },
+          { label: 'Type', value: viewInspection.inspection_type },
+          { label: 'Scheduled By', value: viewInspection.scheduled_by_name?.trim() || '—' },
+          { label: 'Scheduled', value: formatDateTime(viewInspection.scheduled_at) },
+          ...(viewInspection.completed_at ? [{ label: 'Completed', value: formatDateTime(viewInspection.completed_at) }] : []),
+        ]
+        const hasText = viewInspection.notes || viewInspection.findings
+        return (
+          <div style={v.overlay} onClick={() => setViewInspection(null)}>
+            <div style={{ ...v.modal, ...(isMobile ? v.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
+              <div style={v.header}>
+                <div style={v.headerTitleRow}>
+                  <h3 style={v.title}>{viewInspection.inspection_number}</h3>
+                  <span style={{ ...v.badge, color: c, backgroundColor: badgeBg(viewInspection.status) }}>{viewInspection.status}</span>
+                </div>
+                <span style={v.close} onClick={() => setViewInspection(null)}>×</span>
               </div>
-            )}
-            {viewInspection.notes && (
-              <div style={detailStyles.block}>
-                <span style={detailStyles.label}>Notes</span>
-                <p style={detailStyles.text}>{viewInspection.notes}</p>
-              </div>
-            )}
-            {viewInspection.findings && (
-              <div style={detailStyles.block}>
-                <span style={detailStyles.label}>Findings</span>
-                <p style={detailStyles.text}>{viewInspection.findings}</p>
-              </div>
-            )}
 
-            <div style={modalStyles.actions}>
-              <button onClick={() => setViewInspection(null)} style={modalStyles.cancelBtn}>Close</button>
+              <span style={v.sectionLabel}>Inspection Information</span>
+              <div style={hasText ? v.grid : v.gridLast}>
+                {fields.map(f => (
+                  <div key={f.label} style={v.fieldBox}>
+                    <div style={v.fieldLabel}>{f.label}</div>
+                    <div style={v.fieldValue}>{f.value || '—'}</div>
+                  </div>
+                ))}
+              </div>
+
+              {viewInspection.notes && (
+                <>
+                  <span style={v.sectionLabel}>Notes</span>
+                  <div style={{ ...v.notesBox, marginBottom: '18px' }}>
+                    <p style={v.notes}>{viewInspection.notes}</p>
+                  </div>
+                </>
+              )}
+              {viewInspection.findings && (
+                <>
+                  <span style={v.sectionLabel}>Findings</span>
+                  <div style={v.notesBox}>
+                    <p style={v.notes}>{viewInspection.findings}</p>
+                  </div>
+                </>
+              )}
+
+              <div style={v.actions}>
+                <button onClick={() => setViewInspection(null)} style={v.closeBtn}>Close</button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {confirmCancel && (
         <div style={modalStyles.overlay} onClick={() => setConfirmCancel(null)}>
@@ -288,7 +432,7 @@ function badgeBg(status) {
   return '#eef1ea'
 }
 
-function InspectionList({ list, statusColor, onCancel, onComplete, onView, isMobile }) {
+function InspectionList({ list, statusColor, onCancel, onComplete, onReschedule, onView, isMobile }) {
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
 
@@ -311,6 +455,9 @@ function InspectionList({ list, statusColor, onCancel, onComplete, onView, isMob
       {i.status === 'Scheduled' && onComplete && (
         <span style={{ ...styles.actionBtn, ...styles.completeLink }} onClick={() => onComplete(i)}>Complete</span>
       )}
+      {i.status === 'Scheduled' && onReschedule && (
+        <span style={{ ...styles.actionBtn, ...styles.rescheduleLink }} onClick={() => onReschedule(i)}>Reschedule</span>
+      )}
       {i.status === 'Scheduled' && onCancel && (
         <span style={{ ...styles.actionBtn, ...styles.cancelLink }} onClick={() => onCancel(i)}>Cancel</span>
       )}
@@ -324,10 +471,12 @@ function InspectionList({ list, statusColor, onCancel, onComplete, onView, isMob
         <table style={{ ...styles.table, ...(isMobile ? styles.tableMobile : {}) }}>
           <thead>
             <tr>
-              <th style={styles.th}>Inspection / Farm</th>
+              <th style={styles.th}>Inspection</th>
+              <th style={styles.th}>Farm</th>
               <th style={styles.th}>Date</th>
               <th style={styles.th}>Time</th>
               <th style={styles.th}>Type</th>
+              <th style={styles.th}>Scheduled By</th>
               <th style={styles.th}>Status</th>
               <th style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
             </tr>
@@ -338,15 +487,15 @@ function InspectionList({ list, statusColor, onCancel, onComplete, onView, isMob
               return (
                 <tr key={i.id}>
                   <td style={styles.td}>
-                    <div style={styles.rowTitle}>{i.inspection_number} — {i.farm_name}</div>
-                    {i.findings && <div style={styles.rowSub}>{i.findings}</div>}
+                    <div style={styles.rowTitle}>{i.inspection_number}</div>
                   </td>
-                  <td style={styles.td}>{new Date(i.scheduled_at).toLocaleDateString()}</td>
+                  <td style={styles.td}>{i.farm_name}</td>
+                  <td style={styles.td}>{formatDate(i.scheduled_at)}</td>
                   <td style={styles.td}>{new Date(i.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
                   <td style={styles.td}>{i.inspection_type}</td>
+                  <td style={styles.td}>{i.scheduled_by_name?.trim() || '—'}</td>
                   <td style={styles.td}>
                     <span style={{ ...styles.badge, color: barColor, backgroundColor: badgeBg(i.status) }}>
-                      <span style={{ ...styles.badgeDot, backgroundColor: barColor }} />
                       {i.status}
                     </span>
                   </td>
@@ -409,7 +558,7 @@ function CalendarView({ inspections, viewDate, setViewDate, onAddSchedule, onVie
   const year = viewDate.getFullYear()
   const month = viewDate.getMonth()
   const today = new Date()
-  const [selectedDate, setSelectedDate] = useState(new Date())
+  const [selectedDate, setSelectedDate] = useState(null)
 
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const firstWeekday = new Date(year, month, 1).getDay()
@@ -561,9 +710,7 @@ function CalendarView({ inspections, viewDate, setViewDate, onAddSchedule, onVie
         <div style={styles.sidePanelHead}>
           <div style={styles.sidePanelKicker}>Selected date</div>
           <div style={styles.sidePanelDate}>
-            {selectedDate
-              ? selectedDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-              : 'Pick a date'}
+            {selectedDate ? formatDate(selectedDate) : 'Pick a date'}
           </div>
         </div>
 
@@ -675,7 +822,7 @@ function ScheduleModal({ date, farms, prefillFarm, onClose, onSuccess, isMobile,
         <p style={modalStyles.dateLabel}>Schedule Date: {dateLabel}</p>
         {prefillFarm && (
           <div style={modalStyles.prefillBanner}>
-            Pre-selected from Critical Alert: {prefillFarm.farm_name}
+            Critical Farm Detected — {prefillFarm.farm_name}. Please select an inspection date.
           </div>
         )}
 
@@ -834,6 +981,102 @@ function CompleteModal({ inspection, onClose, onSuccess, isMobile }) {
   )
 }
 
+function RescheduleModal({ inspection, onClose, onSuccess, isMobile }) {
+  const [date, setDate] = useState('')
+  const [time, setTime] = useState('09:00')
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+
+    if (!date) {
+      setError('Please select a new date.')
+      return
+    }
+    if (!reason.trim()) {
+      setError('Please explain why the inspection is being rescheduled.')
+      return
+    }
+
+    setLoading(true)
+    try {
+      await api.patch(`/admin/inspections/${inspection.id}/reschedule`, {
+        scheduled_at: `${date} ${time}:00`,
+        reason,
+      })
+      onSuccess()
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to reschedule inspection.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div style={modalStyles.overlay} onClick={onClose}>
+      <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
+        <div style={modalStyles.header}>
+          <h3 style={modalStyles.title}>Reschedule Inspection</h3>
+          <span style={modalStyles.close} onClick={onClose}>×</span>
+        </div>
+        <p style={modalStyles.dateLabel}>
+          {inspection.inspection_number} — {inspection.farm_name} · Currently scheduled {formatDateTime(inspection.scheduled_at)}
+        </p>
+
+        {inspection.previous_scheduled_at && (
+          <p style={modalStyles.contextNote}>
+            Already rescheduled once, from {formatDateTime(inspection.previous_scheduled_at)}
+            {inspection.reschedule_reason ? ` — ${inspection.reschedule_reason}` : ''}
+          </p>
+        )}
+
+        <form onSubmit={handleSubmit}>
+          {error && <div style={modalStyles.errorBox}>{error}</div>}
+
+          <label style={modalStyles.label}>Reason for Rescheduling *</label>
+          <textarea
+            value={reason}
+            onChange={e => setReason(e.target.value)}
+            style={{ ...modalStyles.input, minHeight: '80px', resize: 'vertical' }}
+            placeholder="Example: Farm was unavailable on the originally scheduled date."
+          />
+
+          <div style={{ ...modalStyles.row, ...(isMobile ? modalStyles.rowMobile : {}) }}>
+            <div>
+              <label style={modalStyles.label}>New Date *</label>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)} style={modalStyles.input} />
+            </div>
+            <div>
+              <label style={modalStyles.label}>New Time *</label>
+              <input type="time" value={time} onChange={e => setTime(e.target.value)} style={modalStyles.input} />
+            </div>
+          </div>
+
+          <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
+            >
+              {loading ? 'Saving...' : 'Reschedule Inspection'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 const styles = {
@@ -858,35 +1101,87 @@ const styles = {
   summaryPhoneLabel: { fontSize: '13px', fontWeight: 700, color: '#eaf3ec' },
   summaryPhoneValue: { fontSize: '26px', fontWeight: 800, lineHeight: 1, letterSpacing: '-0.02em', marginTop: '10px', color: '#ffffff' },
   summaryPhoneSub: { fontSize: '10px', fontWeight: 600, marginTop: '6px', color: '#a9c6b3' },
-  tabs: { display: 'flex', gap: '4px', marginBottom: '20px', borderBottom: '1px solid #e7e8e0', overflowX: 'auto' },
-  tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap' },
-  tabActive: { color: '#2c8047', fontWeight: 700, borderBottom: '2px solid #2c8047' },
+
+  toolbar: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    gap: '14px', marginBottom: '18px', borderBottom: '1px solid #e7e8e0', flexWrap: 'wrap',
+  },
+  toolbarMobile: { flexDirection: 'column', alignItems: 'stretch', gap: '12px' },
+
+  tabs: { display: 'flex', gap: '4px', overflowX: 'auto' },
+  tab: { padding: '10px 16px', fontSize: '14px', fontWeight: 700, color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap' },
+  tabActive: { color: '#2c8047', borderBottom: '2px solid #2c8047' },
+
+  filterAnchor: { position: 'relative', flexShrink: 0 },
+  filterBtn: {
+    display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 15px',
+    borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
+    color: '#33413a', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
+  },
+  filterBtnActive: { borderColor: '#2c8047', color: '#2c8047' },
+  filterCount: {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: '#2c8047',
+    color: '#fff', fontSize: '11px', fontWeight: 700, padding: '0 4px',
+  },
+  filterPanel: {
+    position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 40,
+    backgroundColor: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px',
+    boxShadow: '0 8px 24px rgba(15,38,22,0.12)', padding: '18px', width: '280px',
+    maxHeight: '70vh', overflowY: 'auto',
+  },
+  filterPanelMobile: { right: 0, width: '260px' },
+  filterPanelHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' },
+  filterPanelTitle: { fontSize: '15px', fontWeight: 800, color: '#16311d' },
+  filterPanelClose: { fontSize: '19px', cursor: 'pointer', color: '#8a968d', lineHeight: 1 },
+  filterLabel: { display: 'block', fontSize: '12px', fontWeight: 700, color: '#4b5a50', marginBottom: '7px', marginTop: '14px' },
+  filterSelect: {
+    width: '100%', padding: '9px 12px', borderRadius: '10px', border: '1px solid #dcdfd6',
+    fontSize: '13px', color: '#33413a', backgroundColor: '#fff', cursor: 'pointer',
+    fontFamily: 'inherit', boxSizing: 'border-box',
+  },
+  filterActions: { display: 'flex', gap: '10px', marginTop: '20px' },
+  filterResetBtn: {
+    flex: 1, padding: '9px 0', borderRadius: '10px', border: '1px solid #dcdfd6',
+    backgroundColor: '#fff', color: '#33413a', fontSize: '13.5px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+  },
+  filterApplyBtn: {
+    flex: 1, padding: '9px 0', borderRadius: '10px', border: 'none',
+    backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+  },
+
+  criticalBanner: {
+    display: 'flex', alignItems: 'center', gap: '10px',
+    backgroundColor: '#fbeaea', border: '1px solid #f0c9c9', color: '#b91c1c',
+    padding: '11px 16px', borderRadius: '10px', fontSize: '13px', marginBottom: '18px',
+  },
+  criticalBannerIcon: { fontSize: '15px', flexShrink: 0 },
+  criticalBannerClose: { marginLeft: 'auto', fontSize: '18px', cursor: 'pointer', lineHeight: 1, flexShrink: 0, opacity: 0.75 },
 
   tableCard: { backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden' },
   tableEmpty: { backgroundColor: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px', padding: '32px', textAlign: 'center', color: '#9aa79d', fontSize: '14px' },
   scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0' },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  tableMobile: { minWidth: '820px' },
+  tableMobile: { minWidth: '1040px' },
   th: {
     textAlign: 'left', padding: '13px 20px', fontSize: '11px', fontWeight: 700, color: '#8a968d',
     borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em',
     whiteSpace: 'nowrap', backgroundColor: '#fafbf8',
   },
   td: { padding: '13px 20px', fontSize: '13px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle' },
-  rowTitle: { fontSize: '14px', fontWeight: 700, color: '#16311d' },
-  rowSub: { fontSize: '12px', color: '#8a968d', marginTop: '3px', maxWidth: '420px' },
+  rowTitle: { fontSize: '14px', fontWeight: 400, color: '#16311d' },
 
   badge: {
     display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 11px',
     borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
   },
-  badgeDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
   actionBtn: {
     padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600,
     cursor: 'pointer', border: '1px solid #e3e6dd', backgroundColor: '#fff', whiteSpace: 'nowrap',
   },
   completeLink: { color: '#2c8047' },
+  rescheduleLink: { color: '#2f6bb0' },
   cancelLink: { color: '#b91c1c' },
   viewLink: { color: '#4b5a50' },
 
@@ -998,6 +1293,7 @@ const modalStyles = {
     backgroundColor: '#fbeaea', border: '1px solid #f0c9c9', color: '#b91c1c',
     padding: '8px 12px', borderRadius: '10px', fontSize: '12px', fontWeight: 600, marginBottom: '14px',
   },
+  contextNote: { fontSize: '12px', color: '#6b7770', backgroundColor: '#fafbf8', border: '1px solid #eceee7', borderRadius: '9px', padding: '9px 12px', marginTop: '12px', lineHeight: '1.4' },
   label: { display: 'block', fontSize: '13px', fontWeight: 600, color: '#33413a', marginBottom: '6px', marginTop: '12px' },
   input: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', fontFamily: 'inherit' },
   row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' },
@@ -1023,12 +1319,4 @@ const confirmStyles = {
   modal: { backgroundColor: '#fff', borderRadius: '16px', padding: '28px', width: '400px', maxWidth: '90%' },
   title: { fontSize: '17px', fontWeight: 800, color: '#16311d', marginTop: 0, marginBottom: '10px' },
   message: { fontSize: '14px', color: '#6b7770', lineHeight: '1.5', marginBottom: '4px' },
-}
-
-const detailStyles = {
-  row: { display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f2f3ed' },
-  label: { fontSize: '13px', color: '#6b7770', fontWeight: 500 },
-  value: { fontSize: '13px', color: '#16311d', fontWeight: 600 },
-  block: { marginTop: '14px' },
-  text: { fontSize: '13px', color: '#4b5a50', lineHeight: '1.5', marginTop: '4px' },
 }

@@ -1,8 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { BARANGAYS } from '../../constants/barangays'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
@@ -13,16 +15,6 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 })
 
-const BARANGAYS = [
-  'Aguila', 'Anus', 'Aya', 'Bagong Pook', 'Balagtasin I', 'Balagtasin II',
-  'Banay-banay I', 'Banay-banay II', 'Bigain I', 'Bigain II', 'Bigain South',
-  'Calansayan', 'Dagatan', 'Don Luis', 'Galamay-Amo', 'Lalayat',
-  'Lapolapo I', 'Lapolapo II', 'Lepote', 'Lumil', 'Mojon-Tampoy',
-  'Natunuan', 'Palanca', 'Pinagtung-Ulan', 'Poblacion Barangay I',
-  'Poblacion Barangay II', 'Poblacion Barangay III', 'Poblacion Barangay IV',
-  'Sabang', 'Salaban', 'Santo Cristo', 'Taysan', 'Tugtug',
-]
-
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
 const MONTHS = [
@@ -30,7 +22,7 @@ const MONTHS = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ]
 
-const MONITORING_STATUSES = ['Normal', 'Warning', 'Critical', 'Offline']
+const MONITORING_STATUSES = ['Safe', 'Warning', 'Critical', 'Offline']
 
 const SAN_JOSE_CENTER = [13.8797, 121.0989]
 const SAN_JOSE_VIEWBOX = '120.95,13.95,121.15,13.80'
@@ -82,6 +74,7 @@ function getInitials(name) {
 }
 
 export default function Farms() {
+  const navigate = useNavigate()
   const [statusTab, setStatusTab] = useState('active')
   const [tabState, setTabState] = useState({
     active: emptyTabState(),
@@ -90,9 +83,7 @@ export default function Farms() {
 
   const [showRegisterModal, setShowRegisterModal] = useState(false)
   const [showAddFarmModal, setShowAddFarmModal] = useState(false)
-  const [editFarm, setEditFarm] = useState(null)
   const [viewFarm, setViewFarm] = useState(null)
-  const [confirmAction, setConfirmAction] = useState(null)
   const isMobile = useIsMobile()
 
   const current = tabState[statusTab]
@@ -209,36 +200,8 @@ export default function Farms() {
   const rangeStart = totalItems === 0 ? 0 : (safePage - 1) * current.pageSize + 1
   const rangeEnd = Math.min(safePage * current.pageSize, totalItems)
 
-  const handleDeactivate = (farm) => {
-    setConfirmAction({
-      title: 'Deactivate Farm',
-      message: `Are you sure you want to deactivate ${farm.farm_name}? The farm owner will lose access until reactivated.`,
-      confirmLabel: 'Deactivate',
-      danger: true,
-      onConfirm: async () => {
-        await api.patch(`/admin/farms/${farm.id}/deactivate`)
-        setConfirmAction(null)
-        refetch()
-      },
-    })
-  }
-
-  const handleActivate = (farm) => {
-    setConfirmAction({
-      title: 'Activate Farm',
-      message: `Reactivate ${farm.farm_name}? The farm owner will regain access.`,
-      confirmLabel: 'Activate',
-      danger: false,
-      onConfirm: async () => {
-        await api.patch(`/admin/farms/${farm.id}/activate`)
-        setConfirmAction(null)
-        refetch()
-      },
-    })
-  }
-
-  const monitoringColor = { Normal: '#256b3d', Warning: '#b45309', Critical: '#b91c1c', Offline: '#6b7280' }
-  const monitoringBg = { Normal: '#eaf3ec', Warning: '#fbf1e2', Critical: '#fbeaea', Offline: '#eef1ea' }
+  const monitoringColor = { Safe: '#256b3d', Warning: '#b45309', Critical: '#b91c1c', Offline: '#6b7280' }
+  const monitoringBg = { Safe: '#eaf3ec', Warning: '#fbf1e2', Critical: '#fbeaea', Offline: '#eef1ea' }
   const activeFilterCount = [current.barangayFilter, current.sizeFilter, current.monitoringFilter, current.filterMonth !== '' || current.filterYear].filter(Boolean).length
 
   return (
@@ -246,7 +209,7 @@ export default function Farms() {
       <div style={{ ...styles.header, ...(isMobile ? styles.headerMobile : {}) }}>
         <div>
           <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Farms</h1>
-          <p style={styles.subtitle}>All registered farm owners & farms</p>
+          <p style={styles.subtitle}>All Registered Farms and Owners</p>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', ...(isMobile ? { flexDirection: 'column', width: '100%' } : {}) }}>
           <button style={{ ...styles.secondaryBtn, ...(isMobile ? styles.btnFull : {}) }} onClick={() => setShowAddFarmModal(true)}>
@@ -409,13 +372,7 @@ export default function Farms() {
                     </td>
                     <td style={styles.td}>
                       <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
-                        <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => setViewFarm(f)}>View</span>
-                        <span style={{ ...styles.actionBtn, ...styles.editBtn }} onClick={() => setEditFarm(f)}>Edit</span>
-                        {statusTab === 'active' ? (
-                          <span style={{ ...styles.actionBtn, ...styles.deactivateBtn }} onClick={() => handleDeactivate(f)}>Deactivate</span>
-                        ) : (
-                          <span style={{ ...styles.actionBtn, ...styles.activateBtn }} onClick={() => handleActivate(f)}>Activate</span>
-                        )}
+                        <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => navigate(`/admin/farms/${f.id}`)}>View</span>
                       </div>
                     </td>
                   </tr>
@@ -451,27 +408,6 @@ export default function Farms() {
         <AddFarmModal isMobile={isMobile} onClose={() => setShowAddFarmModal(false)} onSuccess={() => { setShowAddFarmModal(false); refetch() }} />
       )}
 
-      {editFarm && (
-        <EditModal farm={editFarm} isMobile={isMobile} onClose={() => setEditFarm(null)} onSuccess={() => { setEditFarm(null); refetch() }} />
-      )}
-
-      {confirmAction && (
-        <div style={modalStyles.overlay} onClick={() => setConfirmAction(null)}>
-          <div style={{ ...confirmStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
-            <h3 style={confirmStyles.title}>{confirmAction.title}</h3>
-            <p style={confirmStyles.message}>{confirmAction.message}</p>
-            <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
-              <button onClick={() => setConfirmAction(null)} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>Cancel</button>
-              <button
-                onClick={confirmAction.onConfirm}
-                style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}), backgroundColor: confirmAction.danger ? '#b91c1c' : '#2c8047' }}
-              >
-                {confirmAction.confirmLabel}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </AdminLayout>
   )
 }
@@ -973,7 +909,7 @@ function Label({ text, required }) {
 }
 
 function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
-  const [geocodeStatus, setGeocodeStatus] = useState('idle') // 'idle' | 'loading' | 'found' | 'notfound'
+  const [geocodeStatus, setGeocodeStatus] = useState('idle')
   const [adjustMode, setAdjustMode] = useState(false)
   const debounceRef = useRef(null)
 
@@ -1165,99 +1101,6 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
   )
 }
 
-function EditModal({ farm, onClose, onSuccess, isMobile }) {
-  const [form, setForm] = useState({
-    farm_name: farm.farm_name,
-    lot_number: '',
-    street: '',
-    barangay: farm.barangay,
-    landmark: '',
-    mobile_number: farm.mobile_number || '',
-    email: farm.email || '',
-    farm_size: farm.farm_size,
-  })
-  const [profilePhoto, setProfilePhoto] = useState(null)
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-
-  const update = (key) => (e) => setForm({ ...form, [key]: e.target.value })
-
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    setError('')
-    setLoading(true)
-    try {
-      const formData = new FormData()
-      formData.append('_method', 'PUT')
-      Object.entries(form).forEach(([key, value]) => {
-        if (value !== '' && value != null) formData.append(key, value)
-      })
-      if (profilePhoto) formData.append('profile_photo', profilePhoto)
-
-      await api.post(`/admin/farms/${farm.id}`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-      onSuccess()
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to update farm.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <div style={modalStyles.overlay} onClick={onClose}>
-      <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
-        <div style={modalStyles.header}>
-          <h3 style={modalStyles.title}>Edit — {farm.owner_name}</h3>
-          <span style={modalStyles.close} onClick={onClose}>×</span>
-        </div>
-
-        <form onSubmit={handleSubmit}>
-          {error && <div style={modalStyles.errorBox}>{error}</div>}
-
-          <ProfilePhotoUpload file={profilePhoto} setFile={setProfilePhoto} existingUrl={farm.profile_photo_url} />
-
-          <Label text="Farm Name" required />
-          <input placeholder="Farm Name" value={form.farm_name} onChange={update('farm_name')} style={modalStyles.inputFull} required />
-
-          <div style={{ ...modalStyles.row, ...(isMobile ? modalStyles.rowMobile : {}) }}>
-            <input placeholder="Lot No. (optional)" value={form.lot_number} onChange={update('lot_number')} style={modalStyles.input} />
-            <input placeholder="Street (optional)" value={form.street} onChange={update('street')} style={modalStyles.input} />
-          </div>
-
-          <Label text="Barangay" required />
-          <select value={form.barangay} onChange={update('barangay')} style={modalStyles.inputFull} required>
-            {BARANGAYS.map(b => <option key={b} value={b}>Brgy. {b}</option>)}
-          </select>
-
-          <input placeholder="Landmark (optional)" value={form.landmark} onChange={update('landmark')} style={modalStyles.inputFull} />
-
-          <Label text="Farm Size" required />
-          <select value={form.farm_size} onChange={update('farm_size')} style={modalStyles.inputFull} required>
-            <option value="Small">Small (below 10,000 layers)</option>
-            <option value="Medium">Medium (10,000–50,000 layers)</option>
-            <option value="Large">Large (above 50,000 layers)</option>
-          </select>
-
-          <Label text="Mobile Number" required />
-          <input placeholder="Mobile Number" value={form.mobile_number} onChange={update('mobile_number')} style={modalStyles.inputFull} required />
-
-          <Label text="Email Address" />
-          <input type="email" placeholder="Optional" value={form.email} onChange={update('email')} style={modalStyles.inputFull} />
-
-          <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
-            <button type="button" onClick={onClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>Cancel</button>
-            <button type="submit" disabled={loading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
-              {loading ? 'Saving...' : 'Save Changes'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
 function Lightbox({ src, alt, onClose }) {
   const handleOverlayClick = (e) => {
     e.stopPropagation()
@@ -1277,6 +1120,39 @@ function Lightbox({ src, alt, onClose }) {
   )
 }
 
+function RecordDetailModal({ title, rows, photoUrl, onPhotoClick, onClose }) {
+  return (
+    <div style={modalStyles.overlay} onClick={onClose}>
+      <div style={modalStyles.modal} onClick={e => e.stopPropagation()}>
+        <div style={modalStyles.header}>
+          <h3 style={modalStyles.title}>{title}</h3>
+          <span style={modalStyles.close} onClick={onClose}>×</span>
+        </div>
+
+        {photoUrl && (
+          <img
+            src={photoUrl}
+            alt="Record"
+            style={detailRowStyles.photo}
+            onClick={onPhotoClick}
+          />
+        )}
+
+        {rows.map(r => (
+          <div key={r.label} style={detailRowStyles.row}>
+            <span style={detailRowStyles.label}>{r.label}</span>
+            <span style={detailRowStyles.value}>{r.value ?? '—'}</span>
+          </div>
+        ))}
+
+        <div style={modalStyles.actions}>
+          <button onClick={onClose} style={modalStyles.cancelBtn}>Close</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ViewFarmModal({ farmId, onClose, isMobile }) {
   const { data: farm, loading, error } = useCachedFetch(`/admin/farms/${farmId}`)
   const [lightboxImage, setLightboxImage] = useState(null)
@@ -1285,6 +1161,22 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
   const [cleanoutPage, setCleanoutPage] = useState(1)
   const [disposalPage, setDisposalPage] = useState(1)
   const [inspectionPage, setInspectionPage] = useState(1)
+
+  // Sort/filter state — these apply to the currently loaded page of each tab
+  // (see note above: these endpoints paginate server-side, so sorting only
+  // reorders what's already fetched, not the farm's entire history).
+  const [cleanoutSort, setCleanoutSort] = useState('desc')
+  const [cleanoutViewLog, setCleanoutViewLog] = useState(null)
+
+  const [disposalSort, setDisposalSort] = useState({ field: 'disposal_date', dir: 'desc' })
+  const [disposalMethodFilter, setDisposalMethodFilter] = useState('')
+  const [disposalSearch, setDisposalSearch] = useState('')
+  const [disposalViewRecord, setDisposalViewRecord] = useState(null)
+
+  const [inspectionSort, setInspectionSort] = useState({ field: 'date', dir: 'desc' })
+  const [inspectionStatusFilter, setInspectionStatusFilter] = useState('')
+  const [inspectionSearch, setInspectionSearch] = useState('')
+  const [inspectionViewRecord, setInspectionViewRecord] = useState(null)
 
   const { data: cleanoutData, loading: cleanoutLoading } = useCachedFetch(
     activeTab === 'cleanout' ? `/admin/farms/${farmId}/maintenance-logs` : null, { page: cleanoutPage }
@@ -1296,18 +1188,89 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
     activeTab === 'inspections' ? `/admin/farms/${farmId}/inspection-records` : null, { page: inspectionPage }
   )
 
+  const sortedCleanoutLogs = useMemo(() => {
+    const list = cleanoutData?.logs || []
+    return [...list].sort((a, b) => {
+      const da = new Date(a.performed_at || 0)
+      const db = new Date(b.performed_at || 0)
+      return cleanoutSort === 'asc' ? da - db : db - da
+    })
+  }, [cleanoutData, cleanoutSort])
+
+  const disposalMethods = useMemo(() => {
+    const list = disposalData?.records || []
+    return [...new Set(list.map(r => r.disposal_method).filter(Boolean))]
+  }, [disposalData])
+
+  const filteredSortedDisposal = useMemo(() => {
+    let list = disposalData?.records || []
+    if (disposalMethodFilter) list = list.filter(r => r.disposal_method === disposalMethodFilter)
+    if (disposalSearch.trim()) {
+      const q = disposalSearch.trim().toLowerCase()
+      list = list.filter(r => [r.buyer_name, r.notes].filter(Boolean).join(' ').toLowerCase().includes(q))
+    }
+    return [...list].sort((a, b) => {
+      let av, bv
+      if (disposalSort.field === 'quantity') {
+        av = Number(a.quantity) || 0
+        bv = Number(b.quantity) || 0
+      } else {
+        av = new Date(a.disposal_date || 0)
+        bv = new Date(b.disposal_date || 0)
+      }
+      const result = av > bv ? 1 : av < bv ? -1 : 0
+      return disposalSort.dir === 'asc' ? result : -result
+    })
+  }, [disposalData, disposalMethodFilter, disposalSort])
+
+  const toggleDisposalSort = (field) => {
+    setDisposalSort(s => (s.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' }))
+  }
+
+  const inspectionStatuses = useMemo(() => {
+    const list = inspectionData?.inspections || []
+    return [...new Set(list.map(i => i.status).filter(Boolean))]
+  }, [inspectionData])
+
+  const inspectionDateValue = (i) => i.completed_at || i.scheduled_at || null
+
+    const filteredSortedInspections = useMemo(() => {
+    let list = inspectionData?.inspections || []
+    if (inspectionStatusFilter) list = list.filter(i => i.status === inspectionStatusFilter)
+    if (inspectionSearch.trim()) {
+      const q = inspectionSearch.trim().toLowerCase()
+      list = list.filter(i => (i.inspection_type || '').toLowerCase().includes(q))
+    }
+    return [...list].sort((a, b) => {
+      let av, bv
+      if (inspectionSort.field === 'type') {
+        av = a.inspection_type || ''
+        bv = b.inspection_type || ''
+      } else {
+        av = new Date(inspectionDateValue(a) || 0)
+        bv = new Date(inspectionDateValue(b) || 0)
+      }
+      const result = av > bv ? 1 : av < bv ? -1 : 0
+      return inspectionSort.dir === 'asc' ? result : -result
+    })
+  }, [inspectionData, inspectionStatusFilter, inspectionSearch, inspectionSort])
+      
+  const toggleInspectionSort = (field) => {
+    setInspectionSort(s => (s.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' }))
+  }
+
   const reading = farm?.sensor_readings?.[0] ?? farm?.sensorReadings?.[0] ?? null
   const initials = farm ? getInitials(farm.owner_name) : ''
   const isActive = farm?.status === 'Active'
   const isSensorOnline = !!reading
-  const riskLevel = farm?.current_status || (reading ? 'Normal' : null)
+  const riskLevel = farm?.current_status || (reading ? 'Safe' : null)
 
   const { data: insight, loading: insightLoading } = useCachedFetch(
     reading ? `/admin/farms/${farmId}/root-cause` : null
   )
 
   const STATUS = {
-    Normal:   { color: '#256b3d', bg: '#eaf3ec', border: '#cfe0d3' },
+    Safe:     { color: '#256b3d', bg: '#eaf3ec', border: '#cfe0d3' },
     Warning:  { color: '#b45309', bg: '#fbf1e2', border: '#f0e2cf' },
     Critical: { color: '#b91c1c', bg: '#fbeaea', border: '#f0c9c9' },
     Offline:  { color: '#6b7280', bg: '#eef1ea', border: '#e0e3da' },
@@ -1319,6 +1282,7 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
     { key: 'cleanout', label: 'Manure Clean-out' },
     { key: 'disposal', label: 'Manure Disposal' },
     { key: 'inspections', label: 'Inspections' },
+    { key: 'devices', label: 'Devices' },
   ]
 
   return (
@@ -1366,7 +1330,6 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
             </div>
 
             <div style={profileStyles.body}>
-
               {activeTab === 'info' && (
                 <>
                   <Section title="Farm Information">
@@ -1457,16 +1420,34 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                   )}
                   {!cleanoutLoading && cleanoutData?.logs?.length > 0 && (
                     <>
-                      <div style={profileStyles.logsList}>
-                        {cleanoutData.logs.map(log => (
-                          <div key={log.id} style={profileStyles.logRow}>
-                            <img src={log.photo_url} alt="Clean-out proof" style={profileStyles.logThumb} onClick={() => setLightboxImage(log.photo_url)} />
-                            <div style={{ minWidth: 0 }}>
-                              <div style={profileStyles.logDate}>{log.performed_at}</div>
-                              <div style={profileStyles.logNote}>{log.notes || 'No notes provided'}</div>
-                            </div>
-                          </div>
-                        ))}
+                      <div style={tableStyles.wrap}>
+                        <table style={tableStyles.table}>
+                          <thead>
+                            <tr>
+                              <th
+                                style={{ ...tableStyles.th, ...tableStyles.thSortable }}
+                                onClick={() => setCleanoutSort(s => (s === 'asc' ? 'desc' : 'asc'))}
+                              >
+                                Date {cleanoutSort === 'asc' ? '▲' : '▼'}
+                              </th>
+                              <th style={tableStyles.th}>Notes</th>
+                              <th style={{ ...tableStyles.th, textAlign: 'right' }}>Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {sortedCleanoutLogs.map(log => (
+                              <tr key={log.id}>
+                                <td style={tableStyles.td}>{log.performed_at}</td>
+                                <td style={tableStyles.td}>
+                                  <span style={tableStyles.truncate}>{log.notes || '—'}</span>
+                                </td>
+                                <td style={{ ...tableStyles.td, textAlign: 'right' }}>
+                                  <span style={tableStyles.viewLink} onClick={() => setCleanoutViewLog(log)}>View</span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                       <TabPagination currentPage={cleanoutData.current_page} lastPage={cleanoutData.last_page} onPageChange={setCleanoutPage} />
                     </>
@@ -1482,15 +1463,61 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                   )}
                   {!disposalLoading && disposalData?.records?.length > 0 && (
                     <>
-                      <div style={profileStyles.logsList}>
-                        {disposalData.records.map(r => (
-                          <div key={r.id} style={profileStyles.textRow}>
-                            <div style={profileStyles.logDate}>{r.disposal_date} — {r.disposal_method}</div>
-                            <div style={profileStyles.logNote}>
-                              {r.quantity} kg{r.buyer_name ? ` · ${r.buyer_name}` : ''}{r.notes ? ` · ${r.notes}` : ''}
-                            </div>
-                          </div>
-                        ))}
+                     {disposalMethods.length > 1 && (
+                        <div style={tableStyles.filterRow}>
+                          <input
+                            type="text"
+                            placeholder="Search..."
+                            value={disposalSearch}
+                            onChange={e => setDisposalSearch(e.target.value)}
+                            style={tableStyles.filterSelect}
+                          />
+                          <select
+                            value={disposalMethodFilter}
+                            onChange={e => setDisposalMethodFilter(e.target.value)}
+                            style={tableStyles.filterSelect}
+                          >
+                            <option value="">All Methods</option>
+                            {disposalMethods.map(m => <option key={m} value={m}>{m}</option>)}
+                          </select>
+                        </div>
+                      )}
+
+                      <div style={tableStyles.wrap}>
+                        <table style={tableStyles.table}>
+                          <thead>
+                            <tr>
+                              <th
+                                style={{ ...tableStyles.th, ...tableStyles.thSortable }}
+                                onClick={() => toggleDisposalSort('disposal_date')}
+                              >
+                                Date {disposalSort.field === 'disposal_date' && (disposalSort.dir === 'asc' ? '▲' : '▼')}
+                              </th>
+                              <th style={tableStyles.th}>Method</th>
+                              <th style={tableStyles.th}>Buyer</th>
+                              <th
+                                style={{ ...tableStyles.th, ...tableStyles.thSortable }}
+                                onClick={() => toggleDisposalSort('quantity')}
+                              >
+                                Quantity {disposalSort.field === 'quantity' && (disposalSort.dir === 'asc' ? '▲' : '▼')}
+                              </th>
+                              <th style={{ ...tableStyles.th, textAlign: 'right' }}>Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredSortedDisposal.map(r => (
+                              <tr key={r.id}>
+                                <td style={tableStyles.td}>{r.disposal_date}</td>
+                                <td style={tableStyles.td}>{r.disposal_method}</td>
+                                <td style={tableStyles.td}>{r.buyer_name || '—'}</td>
+                                <td style={tableStyles.td}>{r.quantity} kg</td>
+                                <td style={{ ...tableStyles.td, textAlign: 'right' }}>
+                                  <span style={tableStyles.viewLink} onClick={() => setDisposalViewRecord(r)}>View</span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                       <TabPagination currentPage={disposalData.current_page} lastPage={disposalData.last_page} onPageChange={setDisposalPage} />
                     </>
@@ -1506,30 +1533,77 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                   )}
                   {!inspectionLoading && inspectionData?.inspections?.length > 0 && (
                     <>
-                      <div style={profileStyles.logsList}>
-                        {inspectionData.inspections.map(i => {
-                          const done = i.status === 'Completed'
-                          return (
-                            <div key={i.id} style={profileStyles.inspectionRow}>
-                              <div style={{ minWidth: 0 }}>
-                                <div style={profileStyles.logDate}>{i.inspection_type}</div>
-                                <div style={profileStyles.logNote}>
-                                  {done ? `Completed ${i.completed_at}` : `Scheduled ${i.scheduled_at}`}
-                                </div>
-                              </div>
-                              <span style={{
-                                ...profileStyles.miniPill,
-                                color: done ? '#256b3d' : '#b45309',
-                                backgroundColor: done ? '#eaf3ec' : '#fbf1e2',
-                              }}>{i.status}</span>
-                            </div>
-                          )
-                        })}
+                     {inspectionStatuses.length > 1 && (
+                        <div style={tableStyles.filterRow}>
+                          <input
+                            type="text"
+                            placeholder="Search..."
+                            value={inspectionSearch}
+                            onChange={e => setInspectionSearch(e.target.value)}
+                            style={tableStyles.filterSelect}
+                          />
+                          <select
+                            value={inspectionStatusFilter}
+                            onChange={e => setInspectionStatusFilter(e.target.value)}
+                            style={tableStyles.filterSelect}
+                          >
+                            <option value="">All Statuses</option>
+                            {inspectionStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                        </div>
+                      )}
+
+                      <div style={tableStyles.wrap}>
+                        <table style={tableStyles.table}>
+                          <thead>
+                            <tr>
+                              <th
+                                style={{ ...tableStyles.th, ...tableStyles.thSortable }}
+                                onClick={() => toggleInspectionSort('type')}
+                              >
+                                Type {inspectionSort.field === 'type' && (inspectionSort.dir === 'asc' ? '▲' : '▼')}
+                              </th>
+                              <th style={tableStyles.th}>Status</th>
+                              <th
+                                style={{ ...tableStyles.th, ...tableStyles.thSortable }}
+                                onClick={() => toggleInspectionSort('date')}
+                              >
+                                Date {inspectionSort.field === 'date' && (inspectionSort.dir === 'asc' ? '▲' : '▼')}
+                              </th>
+                              <th style={{ ...tableStyles.th, textAlign: 'right' }}>Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredSortedInspections.map(i => {
+                              const done = i.status === 'Completed'
+                              return (
+                                <tr key={i.id}>
+                                  <td style={tableStyles.td}>{i.inspection_type}</td>
+                                  <td style={tableStyles.td}>
+                                    <span style={{
+                                      ...profileStyles.miniPill,
+                                      color: done ? '#256b3d' : '#b45309',
+                                      backgroundColor: done ? '#eaf3ec' : '#fbf1e2',
+                                    }}>{i.status}</span>
+                                  </td>
+                                  <td style={tableStyles.td}>{done ? i.completed_at : i.scheduled_at}</td>
+                                  <td style={{ ...tableStyles.td, textAlign: 'right' }}>
+                                    <span style={tableStyles.viewLink} onClick={() => setInspectionViewRecord(i)}>View</span>
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
                       </div>
                       <TabPagination currentPage={inspectionData.current_page} lastPage={inspectionData.last_page} onPageChange={setInspectionPage} />
                     </>
                   )}
                 </Section>
+              )}
+
+              {activeTab === 'devices' && (
+                <DevicesTab farmId={farm.id} />
               )}
 
             </div>
@@ -1542,6 +1616,252 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
       </div>
 
       {lightboxImage && <Lightbox src={lightboxImage} alt="Clean-out proof" onClose={() => setLightboxImage(null)} />}
+
+      {cleanoutViewLog && (
+        <RecordDetailModal
+          title="Clean-out Record"
+          photoUrl={cleanoutViewLog.photo_url}
+          onPhotoClick={() => setLightboxImage(cleanoutViewLog.photo_url)}
+          onClose={() => setCleanoutViewLog(null)}
+          rows={[
+            { label: 'Date Performed', value: cleanoutViewLog.performed_at },
+            { label: 'Notes', value: cleanoutViewLog.notes || '—' },
+          ]}
+        />
+      )}
+
+      {disposalViewRecord && (
+        <RecordDetailModal
+          title="Disposal Record"
+          onClose={() => setDisposalViewRecord(null)}
+          rows={[
+            { label: 'Date', value: disposalViewRecord.disposal_date },
+            { label: 'Method', value: disposalViewRecord.disposal_method },
+            { label: 'Buyer', value: disposalViewRecord.buyer_name || '—' },
+            { label: 'Quantity', value: `${disposalViewRecord.quantity} kg` },
+            { label: 'Notes', value: disposalViewRecord.notes || '—' },
+          ]}
+        />
+      )}
+
+      {inspectionViewRecord && (
+        <RecordDetailModal
+          title="Inspection Record"
+          onClose={() => setInspectionViewRecord(null)}
+          rows={[
+            { label: 'Type', value: inspectionViewRecord.inspection_type },
+            { label: 'Status', value: inspectionViewRecord.status },
+            {
+              label: inspectionViewRecord.status === 'Completed' ? 'Completed' : 'Scheduled',
+              value: inspectionViewRecord.status === 'Completed' ? inspectionViewRecord.completed_at : inspectionViewRecord.scheduled_at,
+            },
+          ]}
+        />
+      )}
+    </div>
+  )
+}
+
+function DevicesTab({ farmId }) {
+  const { data: sensors, loading, error, refetch } = useCachedFetch(`/admin/farms/${farmId}/sensors`)
+  const [showRegister, setShowRegister] = useState(false)
+  const [editSensor, setEditSensor] = useState(null)
+
+  const list = sensors || []
+
+  return (
+    <Section title="Registered Devices">
+      <div style={{ marginBottom: '14px' }}>
+        <button type="button" style={styles.secondaryBtn} onClick={() => setShowRegister(true)}>
+          + Register Device
+        </button>
+      </div>
+
+      {loading && <div style={profileStyles.empty}>Loading devices...</div>}
+      {error && <div style={{ ...profileStyles.empty, color: '#b91c1c' }}>{error}</div>}
+
+      {!loading && !error && list.length === 0 && (
+        <div style={profileStyles.empty}>No devices registered for this farm yet.</div>
+      )}
+
+      {!loading && !error && list.length > 0 && (
+        <div style={profileStyles.logsList}>
+          {list.map(s => (
+            <div key={s.id} style={devicesStyles.row}>
+              <div style={{ minWidth: 0 }}>
+                <div style={devicesStyles.rowTop}>
+                  <span style={devicesStyles.deviceName}>{s.sensor_code}</span>
+                  <span style={{
+                    ...devicesStyles.statusPill,
+                    color: s.status === 'Active' ? '#2c8047' : '#6b7280',
+                    backgroundColor: s.status === 'Active' ? '#eaf3ec' : '#f0f1ec',
+                  }}>
+                    {s.status}
+                  </span>
+                </div>
+                <div style={devicesStyles.rowSub}>
+                  {s.device_key}
+                </div>
+                <div style={devicesStyles.rowMeta}>
+                  Installed {s.installed_at}
+                  {s.last_seen_at && ` · Last seen ${s.last_seen_at}`}
+                </div>
+              </div>
+              <button type="button" style={devicesStyles.editBtn} onClick={() => setEditSensor(s)}>
+                Edit
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showRegister && (
+        <RegisterDeviceModal
+          farmId={farmId}
+          onClose={() => setShowRegister(false)}
+          onSuccess={() => { setShowRegister(false); refetch() }}
+        />
+      )}
+
+      {editSensor && (
+        <EditDeviceModal
+          sensor={editSensor}
+          onClose={() => setEditSensor(null)}
+          onSuccess={() => { setEditSensor(null); refetch() }}
+        />
+      )}
+    </Section>
+  )
+}
+
+function RegisterDeviceModal({ farmId, onClose, onSuccess }) {
+  const [deviceKey, setDeviceKey] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [registered, setRegistered] = useState(null) // holds { sensor_code, device_key, ... } after success
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+    try {
+      const res = await api.post('/admin/sensors', { farm_id: farmId, device_key: deviceKey })
+      setRegistered(res.data.data)
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to register device.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDone = () => {
+    onSuccess()
+  }
+
+  return (
+    <div style={modalStyles.overlay} onClick={registered ? undefined : onClose}>
+      <div style={modalStyles.modal} onClick={e => e.stopPropagation()}>
+        {!registered ? (
+          <>
+            <div style={modalStyles.header}>
+              <h3 style={modalStyles.title}>Register Device</h3>
+              <span style={modalStyles.close} onClick={onClose}>×</span>
+            </div>
+
+            <form onSubmit={handleSubmit}>
+              {error && <div style={modalStyles.errorBox}>{error}</div>}
+
+              <label style={modalStyles.label}>Device Key *</label>
+              <input
+                value={deviceKey}
+                onChange={e => setDeviceKey(e.target.value)}
+                placeholder="e.g. AGB-AVL0FQW2ZEOP4INCQC17OWGQUR1U7ZAY"
+                style={modalStyles.inputFull}
+                required
+                autoFocus
+              />
+              <p style={devicesStyles.hint}>
+                Enter the device_key printed/labeled on the physical sensor unit.
+              </p>
+
+              <div style={modalStyles.actions}>
+                <button type="button" onClick={onClose} style={modalStyles.cancelBtn}>Cancel</button>
+                <button type="submit" disabled={loading} style={modalStyles.submitBtn}>
+                  {loading ? 'Registering...' : 'Register Device'}
+                </button>
+              </div>
+            </form>
+          </>
+        ) : (
+          <>
+            <div style={modalStyles.header}>
+              <h3 style={modalStyles.title}>Device Registered</h3>
+            </div>
+
+            <div style={devicesStyles.successBox}>
+              <div style={devicesStyles.successLabel}>Sensor Code</div>
+              <div style={devicesStyles.successCode}>{registered.sensor_code}</div>
+              <p style={devicesStyles.successHint}>
+                Write or print this code on the device's sticker now, so it's identifiable in the field without needing to look up the system.
+              </p>
+            </div>
+
+            <div style={modalStyles.actions}>
+              <button type="button" onClick={handleDone} style={modalStyles.submitBtn}>Done</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function EditDeviceModal({ sensor, onClose, onSuccess }) {
+  const [status, setStatus] = useState(sensor.status)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+    try {
+      await api.put(`/admin/sensors/${sensor.id}`, { status })
+      onSuccess()
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to update device.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div style={modalStyles.overlay} onClick={onClose}>
+      <div style={modalStyles.modal} onClick={e => e.stopPropagation()}>
+        <div style={modalStyles.header}>
+          <h3 style={modalStyles.title}>Edit Device</h3>
+          <span style={modalStyles.close} onClick={onClose}>×</span>
+        </div>
+
+        <p style={devicesStyles.hint}>{sensor.sensor_code} · {sensor.device_key}</p>
+
+        <form onSubmit={handleSubmit}>
+          {error && <div style={modalStyles.errorBox}>{error}</div>}
+
+          <label style={modalStyles.label}>Status</label>
+          <select value={status} onChange={e => setStatus(e.target.value)} style={modalStyles.inputFull}>
+            <option value="Active">Active</option>
+            <option value="Inactive">Inactive</option>
+          </select>
+
+          <div style={modalStyles.actions}>
+            <button type="button" onClick={onClose} style={modalStyles.cancelBtn}>Cancel</button>
+            <button type="submit" disabled={loading} style={modalStyles.submitBtn}>
+              {loading ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }
@@ -1567,7 +1887,7 @@ function InfoRow({ children, last }) {
 function maintBadgeColor(status) {
   if (status === 'Non-Compliant') return '#b91c1c'
   if (status === 'Overdue') return '#b45309'
-  return '#2c8047' // 'Scheduled'
+  return '#2c8047'
 }
 
 function InfoCell({ label, value }) {
@@ -1688,9 +2008,6 @@ const styles = {
   badgeDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
   actionBtn: { padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer', border: '1px solid #e3e6dd', backgroundColor: '#fff', whiteSpace: 'nowrap' },
   viewBtn: { color: '#4b5a50' },
-  editBtn: { color: '#2c8047' },
-  deactivateBtn: { color: '#b91c1c' },
-  activateBtn: { color: '#2c8047' },
   empty: { padding: '32px', textAlign: 'center', color: '#9aa79d', fontSize: '14px' },
 }
 
@@ -1706,6 +2023,25 @@ const paginationStyles = {
   pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
   pageBtnActive: { backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff' },
   ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
+}
+
+const tableStyles = {
+  wrap: { overflowX: 'auto', marginTop: '14px', border: '1px solid #eceee7', borderRadius: '10px' },
+  table: { width: '100%', borderCollapse: 'collapse' },
+  th: { textAlign: 'left', padding: '10px 14px', fontSize: '10.5px', fontWeight: 700, color: '#8a968d', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid #eceee7', backgroundColor: '#fafbf8', whiteSpace: 'nowrap' },
+  thSortable: { cursor: 'pointer', userSelect: 'none' },
+  td: { padding: '11px 14px', fontSize: '12.5px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top' },
+  truncate: { display: 'block', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  viewLink: { fontSize: '12px', fontWeight: 700, color: '#2c8047', cursor: 'pointer' },
+  filterRow: { display: 'flex', gap: '10px', alignItems: 'center', marginTop: '14px', marginBottom: '4px', flexWrap: 'wrap' },
+  filterSelect: { padding: '7px 10px', borderRadius: '8px', border: '1px solid #dcdfd6', fontSize: '12.5px', color: '#33413a', backgroundColor: '#fff', fontFamily: 'inherit' },
+}
+
+const detailRowStyles = {
+  row: { display: 'flex', justifyContent: 'space-between', gap: '12px', padding: '10px 0', borderBottom: '1px solid #f2f3ed' },
+  label: { fontSize: '13px', color: '#6b7770', fontWeight: 500, flexShrink: 0 },
+  value: { fontSize: '13px', color: '#16311d', fontWeight: 600, textAlign: 'right' },
+  photo: { width: '100%', borderRadius: '10px', marginBottom: '14px', cursor: 'zoom-in', display: 'block' },
 }
 
 const modalStyles = {
@@ -1784,20 +2120,13 @@ const modalStyles = {
   photoUploadBtn: { fontSize: '12px', fontWeight: 700, color: '#2c8047', cursor: 'pointer', marginTop: '4px', display: 'inline-block' },
 }
 
-const confirmStyles = {
-  modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '400px', maxWidth: '90%' },
-  title: { fontSize: '17px', fontWeight: 800, color: '#16311d', marginTop: 0, marginBottom: '10px' },
-  message: { fontSize: '14px', color: '#6b7770', lineHeight: '1.5', marginBottom: '4px' },
-}
-
 const profileStyles = {
   overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '16px', boxSizing: 'border-box' },
-  modal: { backgroundColor: '#fff', borderRadius: '16px', width: '820px', maxWidth: '94vw', maxHeight: '92vh', overflowY: 'auto', border: '1px solid #e7e8e0', position: 'relative' },
-  modalMobile: { width: '100%', maxWidth: '100%', borderRadius: '16px 16px 0 0', position: 'fixed', bottom: 0, left: 0, maxHeight: '92vh' },
+  modal: { backgroundColor: '#fff', borderRadius: '16px', width: '820px', maxWidth: '94vw', height: '680px', maxHeight: '92vh', display: 'flex', flexDirection: 'column', border: '1px solid #e7e8e0', position: 'relative', overflow: 'hidden' },
+  modalMobile: { width: '100%', maxWidth: '100%', height: 'auto', borderRadius: '16px 16px 0 0', position: 'fixed', bottom: 0, left: 0, maxHeight: '92vh' },
   stateMsg: { padding: '48px 24px', textAlign: 'center', color: '#6b7770', fontSize: '14px' },
 
-  header: { display: 'flex', alignItems: 'center', gap: '18px', padding: '24px 28px', borderBottom: '1px solid #f0efe8' },
-  headerMobile: { padding: '18px 18px', gap: '12px' },
+  header: { display: 'flex', alignItems: 'center', gap: '18px', padding: '24px 28px', borderBottom: '1px solid #f0efe8', flexShrink: 0 },  headerMobile: { padding: '18px 18px', gap: '12px' },
   avatarWrap: { width: '84px', height: '84px', borderRadius: '50%', flexShrink: 0, overflow: 'hidden', backgroundColor: '#eaf3ec', border: '1px solid #d6e5da', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   avatarImg: { width: '100%', height: '100%', objectFit: 'cover' },
   avatarInitials: { fontSize: '26px', fontWeight: 700, color: '#2c8047', letterSpacing: '0.02em' },
@@ -1808,11 +2137,11 @@ const profileStyles = {
   pillDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
   closeBtn: { width: '30px', height: '30px', borderRadius: '8px', border: '1px solid #eceee7', backgroundColor: '#fff', color: '#8a968d', fontSize: '17px', lineHeight: 1, cursor: 'pointer', flexShrink: 0 },
 
-  tabsRow: { display: 'flex', gap: '26px', padding: '0 28px', borderBottom: '1px solid #f0efe8', overflowX: 'auto' },
+  tabsRow: { display: 'flex', gap: '26px', padding: '0 28px', borderBottom: '1px solid #f0efe8', overflowX: 'auto', flexShrink: 0 },
   tab: { border: 'none', background: 'none', padding: '14px 0 12px', fontFamily: 'inherit', fontSize: '13px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', color: '#8a968d', borderBottom: '2px solid transparent', marginBottom: '-1px' },
   tabActive: { color: '#2c8047', borderBottom: '2px solid #2c8047' },
 
-  body: { padding: '4px 28px 8px' },
+  body: { padding: '4px 28px 8px', flex: 1, overflowY: 'auto' },
 
   section: { padding: '20px 0', borderBottom: '1px solid #f0efe8' },
   sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' },
@@ -1861,8 +2190,26 @@ const profileStyles = {
   tabPagerBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   tabPagerInfo: { fontSize: '11.5px', color: '#8a968d' },
 
-  footer: { padding: '14px 28px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #f0efe8' },
+  footer: { padding: '14px 28px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #f0efe8', flexShrink: 0 },
   closeFooterBtn: { padding: '9px 22px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#33413a', fontSize: '13px', fontWeight: 700, cursor: 'pointer' },
+}
+
+const devicesStyles = {
+  row: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', padding: '13px 0', borderBottom: '1px solid #f2f3ed' },
+  rowTop: { display: 'flex', alignItems: 'center', gap: '9px' },
+  deviceName: { fontSize: '14px', fontWeight: 700, color: '#16311d', fontFamily: 'monospace' },
+  statusPill: { fontSize: '10.5px', fontWeight: 700, padding: '2px 9px', borderRadius: '999px' },
+  rowSub: { fontSize: '12px', color: '#6b7770', marginTop: '3px', fontFamily: 'monospace' },
+  rowMeta: { fontSize: '11.5px', color: '#9aa79d', marginTop: '3px' },
+  editBtn: { flexShrink: 0, padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer', border: '1px solid #e3e6dd', backgroundColor: '#fff', color: '#4b5a50' },
+  hint: { fontSize: '11.5px', color: '#9aa79d', margin: '4px 0 10px', lineHeight: 1.4 },
+  successBox: {
+    backgroundColor: '#eaf3ec', border: '1px solid #cfe0d3', borderRadius: '12px',
+    padding: '18px', textAlign: 'center', marginBottom: '6px',
+  },
+  successLabel: { fontSize: '11px', fontWeight: 700, color: '#5c8a6b', textTransform: 'uppercase', letterSpacing: '0.05em' },
+  successCode: { fontSize: '24px', fontWeight: 800, color: '#1f5a34', fontFamily: 'monospace', margin: '8px 0', letterSpacing: '0.03em' },
+  successHint: { fontSize: '12px', color: '#4b5a50', lineHeight: 1.5, margin: 0 },
 }
 
 const lightboxStyles = {

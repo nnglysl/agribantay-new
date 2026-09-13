@@ -4,71 +4,104 @@ namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Cache;
+use App\Models\AiRecommendation;
 
 /**
  * AI-Assisted Insight Layer, step 4: Recommendation Explanation.
  *
- * Important boundary: this service NEVER decides severity, root cause,
- * or priority — those are already decided deterministically by
- * TrendAnalysisService and the Root Cause engine before this is ever
- * called. Gemini's only job here is turning an already-made decision
- * into clear, readable prose for a municipal officer (English) plus a
- * Filipino translation of that same prose — never a different
- * decision, just a different language.
+ * Generation is now once-per-calendar-day per farm, persisted in
+ * ai_recommendations — NOT a rolling cache with a TTL. A farm gets at
+ * most one Gemini call per day, regardless of how many times its
+ * sensors report or how many times the dashboard is loaded, UNLESS
+ * FarmStatusService flags it via markForRefresh() when the farm
+ * transitions into Critical — that bypasses the daily gate exactly
+ * once, for that one urgent regeneration.
  *
- * Free-tier Gemini quota is only 20 requests/day per model — far too
- * low to call on every dashboard poll (the frontend refetches insights
- * every 60s). Responses are cached per farm, keyed by the actual
- * diagnosis content, so Gemini is only called again when the root
- * cause or recommendation genuinely changes — not on every refresh of
- * an already-unchanged diagnosis.
+ * $facts MUST include 'farm_id' now — added by InsightController
+ * alongside the existing keys (farm_name, root_cause, trend,
+ * recommended_action, tips) it already builds before calling explain().
  */
 class RecommendationExplanationService
 {
     private string $apiKey;
     private string $model;
-    private int $cacheTtlSeconds;
 
     public function __construct()
     {
         $this->apiKey = config('services.gemini.api_key');
-        // Confirmed working against your quota logs — do not change
-        // without first checking GET /v1beta/models?key=... to see
-        // what's actually available for this API key.
-        $this->model = config('services.gemini.model', 'gemini-3.5-flash');
-        // 6 hours: long enough to stay well under the 20/day free-tier
-        // quota even with multiple farms/pollers, short enough that a
-        // farm whose conditions actually change gets a fresh explanation
-        // the same day.
-        $this->cacheTtlSeconds = (int) config('services.gemini.cache_ttl', 21600);
+        $this->model  = config('services.gemini.model', 'gemini-3.5-flash');
     }
 
     public function explain(array $facts): ?array
     {
-        $cacheKey = $this->buildCacheKey($facts);
+        $farmId = $facts['farm_id'] ?? null;
 
-        return Cache::remember($cacheKey, $this->cacheTtlSeconds, function () use ($facts) {
+        if (!$farmId) {
+            // Can't gate per-farm without a farm_id — fail safe by calling
+            // Gemini directly rather than silently caching nothing forever.
+            Log::warning('RecommendationExplanationService::explain() called without farm_id — daily caching skipped for this call.');
             return $this->callGemini($facts);
-        });
+        }
+
+        $record = AiRecommendation::firstOrNew(['farm_id' => $farmId]);
+
+        $isFresh = $record->exists
+            && !$record->force_refresh
+            && $record->generated_date?->isToday();
+
+        if ($isFresh) {
+            return [
+                'explanation_en'  => $record->explanation_en,
+                'explanation_fil' => $record->explanation_fil,
+                'main_action_fil' => $record->main_action_fil,
+                'tips_fil'        => $record->tips_fil,
+            ];
+        }
+
+        $result = $this->callGemini($facts);
+
+        if ($result) {
+            $record->fill([
+                'explanation_en'  => $result['explanation_en'],
+                'explanation_fil' => $result['explanation_fil'],
+                'main_action_fil' => $result['main_action_fil'],
+                'tips_fil'        => $result['tips_fil'],
+                'generated_date'  => now()->toDateString(),
+                'force_refresh'   => false,
+            ])->save();
+
+            return $result;
+        }
+
+        // Gemini call failed (rate limit, bad model, network error, etc.)
+        // — per spec, keep showing the last saved recommendation instead
+        // of dropping to nothing, if one exists.
+        if ($record->exists) {
+            Log::warning("Gemini regeneration failed for farm {$farmId} — serving last saved recommendation instead.");
+            return [
+                'explanation_en'  => $record->explanation_en,
+                'explanation_fil' => $record->explanation_fil,
+                'main_action_fil' => $record->main_action_fil,
+                'tips_fil'        => $record->tips_fil,
+            ];
+        }
+
+        return null;
     }
 
     /**
-     * Cache key is derived from the actual diagnosis content (root cause +
-     * recommended action + tips), not the farm ID alone — so two different
-     * farms with the identical diagnosis share one Gemini call, and a farm
-     * whose diagnosis changes gets a fresh call instead of serving a stale
-     * cached explanation for a different situation.
+     * Called by FarmStatusService the instant a farm's status transitions
+     * INTO Critical. Doesn't call Gemini itself — just flags the row so
+     * the NEXT /farmer/insights request (which already has fresh $facts
+     * built from the current Critical reading) regenerates immediately
+     * instead of waiting for tomorrow's daily cycle.
      */
-    private function buildCacheKey(array $facts): string
+    public function markForRefresh(int $farmId): void
     {
-        $signature = md5(json_encode([
-            'root_cause'         => $facts['root_cause'] ?? null,
-            'recommended_action' => $facts['recommended_action'] ?? null,
-            'tips'               => $facts['tips'] ?? [],
-        ]));
-
-        return "gemini_explanation:{$signature}";
+        AiRecommendation::updateOrCreate(
+            ['farm_id' => $farmId],
+            ['force_refresh' => true]
+        );
     }
 
     private function callGemini(array $facts): ?array
@@ -98,9 +131,9 @@ class RecommendationExplanationService
 
             if (!$response->successful()) {
                 $hint = $response->status() === 429
-                    ? ' — free-tier quota exhausted for this model today. Either wait for reset, reduce call frequency further, or upgrade billing plan.'
+                    ? ' — free-tier quota exhausted for this model today.'
                     : ($response->status() === 404
-                        ? ' — model name is likely wrong/unavailable for this API key. Run GET https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_KEY to see valid options.'
+                        ? ' — model name is likely wrong/unavailable for this API key.'
                         : '');
 
                 Log::warning('Gemini API request failed' . $hint, [
@@ -118,14 +151,14 @@ class RecommendationExplanationService
                 return null;
             }
 
-            return $this->parseResponse($text, $facts);
+            return $this->parseResponse($text);
         } catch (\Throwable $e) {
             Log::error('Gemini explanation call threw an exception', ['message' => $e->getMessage()]);
             return null;
         }
     }
 
-    private function parseResponse(string $text, array $facts): ?array
+    private function parseResponse(string $text): ?array
     {
         $cleaned = trim($text);
         $cleaned = preg_replace('/^```(?:json)?\s*/', '', $cleaned);

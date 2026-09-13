@@ -22,11 +22,16 @@ class User extends Authenticatable
         'role',
         'status',
         'must_change_password',
+        'legal_acknowledged_at',
     ];
 
     protected $hidden = [
         'password',
         'remember_token',
+    ];
+
+    protected $casts = [
+        'legal_acknowledged_at' => 'datetime',
     ];
 
     public function getFullNameAttribute(): string

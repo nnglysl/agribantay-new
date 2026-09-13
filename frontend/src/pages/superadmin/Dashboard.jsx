@@ -25,8 +25,8 @@ export default function SuperAdminDashboard() {
     .filter(i => i.status === 'Scheduled')
     .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
 
-  const totalAdmins = (accounts || []).filter(a => a.role === 'admin').length
-  const totalVets = (accounts || []).filter(a => a.role === 'vet').length
+  const totalAdmins = (accounts || []).filter(a => a.role === 'admin' && a.status === 'active').length
+  const totalVets = (accounts || []).filter(a => a.role === 'vet' && a.status === 'active').length
   const pendingAdminServices = adminReportData?.service_summary?.pending ?? 0
   const pendingVetServices = vetReportData?.total_pending ?? 0
 
@@ -55,10 +55,15 @@ export default function SuperAdminDashboard() {
           monthLabel={monthLabel}
           onPrevMonth={prevMonth}
           onNextMonth={nextMonth}
+          variant="needsAttention"
+          pendingRequestBreakdown={[
+            { label: 'Vet Assistance requests', count: pendingVetServices },
+            { label: 'Odor Control requests', count: pendingAdminServices },
+          ]}
         />
       </div>
       <p style={styles.mapNote}>
-        Note: Critical Alerts reflect live sensor status and aren't affected by the month filter above — only Inspections are month-scoped.
+        Critical alerts show the current sensor status.
       </p>
 
       {modalOpen === 'critical' && (

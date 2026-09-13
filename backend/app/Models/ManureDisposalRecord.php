@@ -11,6 +11,7 @@ class ManureDisposalRecord extends Model
     protected $fillable = [
         'farm_id',
         'disposal_method',
+        'other_method_detail',
         'quantity',
         'buyer_name',
         'disposal_date',

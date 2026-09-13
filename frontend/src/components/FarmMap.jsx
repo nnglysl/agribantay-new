@@ -207,7 +207,7 @@ export const WORLD_RING = [[85, -180], [85, 180], [-85, 180], [-85, -180]]
 
 const statusColor = {
   Safe: '#2c8047',
-  Moderate: '#d9880f',
+  Warning: '#d9880f',
   Critical: '#c0392b',
 }
 
@@ -229,14 +229,39 @@ function findFarm(item, farms) {
   return farms.find(f => f.farm_name === item.farm_name)
 }
 
-export default function FarmMap({ farms = [], alerts = [], inspections = [], serviceRequests = [], onSeeAllAlerts, onSeeAllInspections, onSeeAllServiceRequests, monthLabel, onPrevMonth, onNextMonth }) {
+function timeAgo(dateStr) {
+  if (!dateStr) return ''
+  const diffMs = Date.now() - new Date(dateStr).getTime()
+  const mins = Math.floor(diffMs / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`
+  const days = Math.floor(hours / 24)
+  return `${days} day${days === 1 ? '' : 's'} ago`
+}
+
+function criticalSensorLabel(sensor) {
+  if (!sensor) return 'Critical condition'
+  const value = `${sensor.value ?? '—'}${sensor.unit}`
+  return sensor.type === 'Ammonia' ? `Ammonia level (${value})` : `${sensor.type} (${value})`
+}
+
+export default function FarmMap({
+  farms = [], alerts = [], inspections = [], serviceRequests = [],
+  onSeeAllAlerts, onSeeAllInspections, onSeeAllServiceRequests, monthLabel, onPrevMonth, onNextMonth,
+  variant = 'tabs', pendingRequestBreakdown = [],
+}) {
   const mapRef = useRef(null)
   const containerRef = useRef(null)
   const markersRef = useRef([])
   const listRef = useRef(null)
   const navigate = useNavigate()
   const isMobile = useIsMobile()
-  const [mode, setMode] = useState('alerts')
+  const isNeedsAttention = variant === 'needsAttention'
+  const [tabMode, setTabMode] = useState('alerts')
+  const mode = isNeedsAttention ? 'alerts' : tabMode
+  const setMode = setTabMode
   const [visibleCount, setVisibleCount] = useState(3)
 
   useEffect(() => {
@@ -295,7 +320,12 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], ser
 
       if (mode === 'alerts') {
         color = statusColor[farm.current_status] || '#9ca3af'
-        tooltip = `${farm.farm_name} — ${farm.current_status || 'Unknown'}`
+        // Super Admin's map is oversight-only — the hover tooltip carries
+        // more identifying detail (owner, location) since it's the only
+        // way they can look up a farm on this map at all.
+        tooltip = isNeedsAttention
+          ? `<strong>${farm.farm_name}</strong><br/>Owner: ${farm.owner_name || '—'}<br/>Location: ${farm.barangay || '—'}<br/>Status: ${farm.current_status || 'Unknown'}`
+          : `${farm.farm_name} — ${farm.current_status || 'Unknown'}`
       } else if (mode === 'inspection') {
         inspection = inspections.find(i => findFarm(i, farms)?.id === farm.id)
         color = inspection ? inspectionTypeColor(inspection.inspection_type) : '#d4d8cf'
@@ -327,7 +357,12 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], ser
         .addTo(mapRef.current)
         .bindTooltip(tooltip, { direction: 'top', offset: [0, -8] })
 
-      if (mode === 'alerts' && farm.current_status === 'Critical') {
+      if (isNeedsAttention) {
+        // Super Admin's map is for municipality-wide monitoring and
+        // oversight only — pins are inert on click (no popup, no
+        // navigation to farm details or scheduling). Identifying info is
+        // hover-only, via the tooltip above.
+      } else if (mode === 'alerts' && farm.current_status === 'Critical') {
         marker.on('click', () => {
           navigate(`/admin/inspections?farmId=${farm.id}`)
         })
@@ -343,7 +378,7 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], ser
 
       markersRef.current.push(marker)
     })
-  }, [farms, inspections, serviceRequests, mode, navigate])
+  }, [farms, inspections, serviceRequests, mode, navigate, isNeedsAttention])
 
   const focusFarm = (farm) => {
     if (!mapRef.current || !farm || farm.latitude == null || farm.longitude == null) return
@@ -376,8 +411,6 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], ser
   const visibleItems = listItems.slice(0, visibleCount)
   const hiddenCount = Math.max(0, listItems.length - visibleItems.length)
 
-  // Fit as many rows as the list container can show, then hide the rest.
-  // Alerts rows are taller (they include the sensor table), so use a per-mode row height.
   const ITEM_HEIGHT = mode === 'alerts' ? 92 : 60
   const recomputeFit = useCallback(() => {
     const el = listRef.current
@@ -406,8 +439,8 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], ser
           <div style={styles.legendTitle}>{mode === 'alerts' ? 'Alert status' : mode === 'inspection' ? 'Inspection type' : 'Service request'}</div>
           {mode === 'alerts' && (
             <>
-              <LegendRow color={statusColor.Safe} label="Normal" />
-              <LegendRow color={statusColor.Moderate} label="Warning" />
+              <LegendRow color={statusColor.Safe} label="Safe" />
+              <LegendRow color={statusColor.Warning} label="Warning" />
               <LegendRow color={statusColor.Critical} label="Critical" />
             </>
           )}
@@ -427,7 +460,66 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], ser
         </div>
       </div>
 
-      <div style={{ ...styles.side, ...(isMobile ? styles.sideMobile : {}) }}>
+      <div style={{ ...styles.side, ...(isNeedsAttention ? styles.sideWide : {}), ...(isMobile ? styles.sideMobile : {}) }}>
+        {isNeedsAttention ? (
+          <div style={styles.naWrap}>
+            <div style={styles.naTitle}>Summary</div>
+            <div style={styles.naSubtitle}>View the latest farm updates and activities.</div>
+
+            <div style={styles.naSection}>
+              <div style={styles.naSectionHead}>
+                <span style={styles.naSectionLabel}>Critical Alerts</span>
+                <div style={styles.naHeadRight}>
+                  <span style={{ ...styles.naCount, ...styles.naCountRed }}>{alertItems.length}</span>
+                  {alertItems.length > 3 && (
+                    <button type="button" style={styles.naViewAll} onClick={() => onSeeAllAlerts?.()}>View all →</button>
+                  )}
+                </div>
+              </div>
+              {alertItems.length === 0 ? (
+                <div style={styles.empty}>No critical alerts right now.</div>
+              ) : alertItems.slice(0, 3).map((f, idx, arr) => {
+                const critical = (f.all_sensors || []).find(s => s.critical)
+                return (
+                  <div
+                    key={f.farm_id ?? f.farm_name}
+                    style={{ ...styles.naItem, ...(idx === arr.length - 1 ? styles.naItemLast : {}) }}
+                    onClick={() => focusFarm(findFarm(f, farms))}
+                  >
+                    <div style={styles.naItemText}>
+                      <div style={styles.naItemTitle}>{f.farm_name}</div>
+                      <div style={styles.naItemSub}>{criticalSensorLabel(critical)}</div>
+                    </div>
+                    <span style={styles.naTimeAgo}>{timeAgo(f.reading_at)}</span>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div style={styles.naSection}>
+              <div style={styles.naSectionHead}>
+                <span style={styles.naSectionLabel}>Pending Service Requests</span>
+                <div style={styles.naHeadRight}>
+                  <span style={styles.naCount}>
+                    {pendingRequestBreakdown.reduce((sum, g) => sum + (g.count || 0), 0)}
+                  </span>
+                  {pendingRequestBreakdown.length > 3 && (
+                    <button type="button" style={styles.naViewAll} onClick={() => onSeeAllServiceRequests?.()}>View all →</button>
+                  )}
+                </div>
+              </div>
+              {pendingRequestBreakdown.length === 0 ? (
+                <div style={styles.empty}>No pending service requests.</div>
+              ) : pendingRequestBreakdown.slice(0, 3).map((g, idx, arr) => (
+                <div key={g.label} style={{ ...styles.naItem, ...(idx === arr.length - 1 ? styles.naItemLast : {}) }}>
+                  <span style={styles.naItemTitle}>{g.label}</span>
+                  <span style={styles.naGroupCount}>{g.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+        <>
         <div style={styles.sideTabsWrap}>
           <div style={styles.sideTabs}>
             <button onClick={() => setMode('alerts')} style={{ ...styles.sideTab, ...(mode === 'alerts' ? styles.sideTabActive : {}) }}>Alerts</button>
@@ -548,6 +640,8 @@ export default function FarmMap({ farms = [], alerts = [], inspections = [], ser
             See all ({hiddenCount} more)
           </button>
         )}
+        </>
+        )}
       </div>
     </div>
   )
@@ -569,6 +663,7 @@ const styles = {
   mapCol: { position: 'relative', flex: 1, minWidth: 0, borderRadius: '14px', overflow: 'hidden', border: '1px solid #e7e8e0', isolation: 'isolate' },
 
   side: { width: '300px', flexShrink: 0, display: 'flex', flexDirection: 'column', background: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px', overflow: 'hidden' },
+  sideWide: { width: '420px' },
   sideMobile: { width: '100%' },
 
   sideTabsWrap: { padding: '12px', borderBottom: '1px solid #eceee7' },
@@ -608,6 +703,27 @@ const styles = {
   sensorCellValueCritical: { color: '#c0392b' },
 
   seeAll: { border: 'none', borderTop: '1px solid #eceee7', background: 'transparent', color: '#2c8047', fontSize: '12px', fontWeight: 700, padding: '12px', cursor: 'pointer', fontFamily: 'inherit' },
+
+  // "Summary" variant — plain white cards with subtle borders, no colored blocks or icons.
+  naWrap: { display: 'flex', flexDirection: 'column', overflowY: 'auto', flex: 1, minHeight: 0, padding: '22px 24px' },
+  naTitle: { fontSize: '19px', fontWeight: 800, color: '#16311d' },
+  naSubtitle: { fontSize: '12.5px', color: '#8a968d', marginTop: '4px', marginBottom: '18px' },
+
+  naSection: { border: '1px solid #eceee7', borderRadius: '12px', padding: '16px 20px', marginBottom: '16px' },
+  naSectionHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #eceee7', paddingBottom: '10px', marginBottom: '4px' },
+  naSectionLabel: { fontSize: '13.5px', fontWeight: 700, color: '#16311d' },
+  naHeadRight: { display: 'flex', alignItems: 'center', gap: '12px' },
+  naCount: { fontSize: '13.5px', fontWeight: 800, color: '#16311d' },
+  naCountRed: { color: '#c0392b' },
+  naViewAll: { border: 'none', background: 'none', padding: 0, color: '#2c8047', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' },
+
+  naItem: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '14px', padding: '10px 0', borderBottom: '1px solid #f2f3ed', cursor: 'pointer' },
+  naItemLast: { borderBottom: 'none', paddingBottom: 0 },
+  naItemText: { minWidth: 0 },
+  naItemTitle: { fontSize: '13px', fontWeight: 500, color: '#16311d', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  naItemSub: { fontSize: '11.5px', color: '#8a968d', marginTop: '2px' },
+  naTimeAgo: { fontSize: '11.5px', color: '#8a968d', whiteSpace: 'nowrap', flexShrink: 0 },
+  naGroupCount: { fontSize: '13px', fontWeight: 700, color: '#16311d' },
 
   legend: { position: 'absolute', left: '14px', bottom: '14px', zIndex: 1001, background: '#fff', border: '1px solid #e7e8e0', borderRadius: '12px', padding: '11px 13px', boxShadow: '0 4px 14px rgba(20,48,28,0.14)', minWidth: '150px' },
   legendMobile: { padding: '9px 11px', minWidth: '120px' },

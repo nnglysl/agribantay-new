@@ -3,12 +3,27 @@ import api from '../api/axios'
 
 const cache = new Map()
 
+// Several endpoints (e.g. /admin/service-requests) deliberately return
+// different data for the same URL depending on who's asking — Admin vs
+// Super Admin, for instance. Folding the active session's role into the
+// cache key means a response cached under one identity can never be
+// served to another, even if some login/logout path forgets to call
+// clearAllCache(). Reads storage directly (not utils/auth.js) to avoid a
+// circular import, since auth.js itself calls clearAllCache() below.
+function currentRoleKey() {
+  try {
+    return localStorage.getItem('role') || sessionStorage.getItem('role') || ''
+  } catch {
+    return ''
+  }
+}
+
 export function useCachedFetch(url, params = {}) {
   // url can now be falsy (null/undefined/'') to mean "don't fetch at all" —
   // e.g. a component conditionally fetching a second resource only for
   // certain roles. Every existing caller passes a real url string, so
   // this doesn't change behavior for anything already using this hook.
-  const cacheKey = url ? url + JSON.stringify(params) : null
+  const cacheKey = url ? `${currentRoleKey()}::${url}${JSON.stringify(params)}` : null
   const hasCached = cacheKey ? cache.has(cacheKey) : false
 
   const [data, setData] = useState(hasCached ? cache.get(cacheKey) : null)
@@ -80,4 +95,26 @@ export function useCachedFetch(url, params = {}) {
   }
 
   return { data, loading, isRefetching, error, refetch }
+}
+
+// Clears every cached entry whose URL starts with `prefix`. Use this after a
+// mutation so other already-visited pages/components sharing this module's
+// cache (e.g. a list view) don't keep serving stale data — refetch() alone
+// only clears the cache key for the hook instance that calls it.
+// Keys are stored as `${role}::${url}${params}` (see currentRoleKey above),
+// so the role prefix has to be stripped before matching against `prefix`.
+export function invalidateCache(prefix) {
+  for (const key of cache.keys()) {
+    const url = key.includes('::') ? key.slice(key.indexOf('::') + 2) : key
+    if (url.startsWith(prefix)) cache.delete(key)
+  }
+}
+
+// Wipes the entire cache — call this on login/logout. Many endpoints (e.g.
+// a farm's Service Requests tab) return role-dependent data from the exact
+// same URL, so if one user logs out and a different one logs in within the
+// same tab without a full page reload, a stale response cached under the
+// previous identity would otherwise keep being served.
+export function clearAllCache() {
+  cache.clear()
 }

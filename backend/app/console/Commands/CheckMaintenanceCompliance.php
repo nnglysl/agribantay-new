@@ -27,7 +27,13 @@ class CheckMaintenanceCompliance extends Command
     public function handle(MaintenanceStatusService $statusService, SmsService $sms)
     {
         $farms  = Farm::where('status', 'Active')->get();
-        $admins = User::whereIn('role', ['admin', 'super_admin'])->where('status', 'active')->get();
+        // 'overdue_reminder' is a routine operational nudge — Admin's own
+        // day-to-day queue, not something Super Admin needs to see for
+        // every farm. 'non_compliant_notice' is the escalated case (past
+        // the grace period), which does belong in Super Admin's system-wide
+        // view too.
+        $admins      = User::where('role', 'admin')->where('status', 'active')->get();
+        $superAdmins = User::where('role', 'super_admin')->where('status', 'active')->get();
 
         $sentCount = 0;
 
@@ -41,7 +47,7 @@ class CheckMaintenanceCompliance extends Command
             };
 
             if (!$event) {
-                continue; // 'Scheduled' — nothing to notify about
+                continue; // 'Compliant' — nothing to notify about
             }
 
             $alreadySent = MaintenanceNotification::where('farm_id', $farm->id)
@@ -80,9 +86,13 @@ class CheckMaintenanceCompliance extends Command
                 ]);
             }
 
-            foreach ($admins as $admin) {
+            $recipients = $event === 'non_compliant_notice'
+                ? $admins->merge($superAdmins)
+                : $admins;
+
+            foreach ($recipients as $recipient) {
                 Notification::create([
-                    'user_id' => $admin->id,
+                    'user_id' => $recipient->id,
                     'title'   => $event === 'overdue_reminder'
                         ? 'Farm Overdue: Manure Clean-out'
                         : 'Farm Non-Compliant: Manure Clean-out',

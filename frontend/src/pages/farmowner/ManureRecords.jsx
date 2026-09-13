@@ -2,6 +2,7 @@ import { useState } from 'react'
 import FarmerLayout from '../../components/FarmerLayout'
 import api from '../../api/axios'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { viewModalStyles as v } from '../../styles/viewModalStyles'
 
 const responsiveCss = `
   .mr-tabs {
@@ -50,6 +51,9 @@ const responsiveCss = `
   .mr-table-wrap {
     width: 100%;
     overflow-x: auto;
+    margin-top: 14px;
+    border: 1px solid #eceee7;
+    border-radius: 10px;
   }
   .mr-table {
     width: 100%;
@@ -63,28 +67,34 @@ const responsiveCss = `
     justify-content: space-between;
     flex-wrap: wrap;
     gap: 10px;
-    margin-top: 14px;
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid #f0efe8;
   }
 
   .mr-modal-card {
     background: white;
-    border-radius: 14px;
+    border-radius: 16px;
+    padding: 26px;
+    box-sizing: border-box;
     width: 100%;
     max-width: 440px;
-    max-height: 85vh;
+    max-height: 90vh;
     overflow-y: auto;
     box-shadow: 0 12px 32px rgba(15,38,22,0.18);
   }
   @media (max-width: 640px) {
     .mr-modal-card {
       max-width: 100%;
-      border-radius: 14px 14px 0 0;
+      border-radius: 16px 16px 0 0;
       position: fixed;
       bottom: 0; left: 0; right: 0;
       max-height: 90vh;
     }
   }
 `
+
+const RECENT_LIMIT = 5
 
 export default function ManureRecords() {
   const { data: maintenance, loading: maintenanceLoading, refetch: refetchMaintenance } = useCachedFetch('/farmer/maintenance')
@@ -101,6 +111,7 @@ export default function ManureRecords() {
 
   const [showDisposalForm, setShowDisposalForm] = useState(false)
   const [disposalMethod, setDisposalMethod] = useState('Sold')
+  const [disposalCustomMethod, setDisposalCustomMethod] = useState('')
   const [disposalQuantity, setDisposalQuantity] = useState('')
   const [disposalBuyerName, setDisposalBuyerName] = useState('')
   const [disposalDate, setDisposalDate] = useState('')
@@ -120,10 +131,16 @@ export default function ManureRecords() {
       return
     }
 
+    if (disposalMethod === 'Other' && !disposalCustomMethod.trim()) {
+      setDisposalError('Please specify the disposal method.')
+      return
+    }
+
     setDisposalSubmitting(true)
     try {
       await api.post('/farmer/disposal-records', {
         disposal_method: disposalMethod,
+        other_method_detail: disposalMethod === 'Other' ? disposalCustomMethod.trim() : null,
         quantity: disposalQuantity,
         buyer_name: disposalMethod === 'Sold' ? disposalBuyerName : null,
         disposal_date: disposalDate,
@@ -131,6 +148,7 @@ export default function ManureRecords() {
       })
       setShowDisposalForm(false)
       setDisposalMethod('Sold')
+      setDisposalCustomMethod('')
       setDisposalQuantity('')
       setDisposalBuyerName('')
       setDisposalDate('')
@@ -178,8 +196,8 @@ export default function ManureRecords() {
     return <FarmerLayout><p style={styles.stateText}>Loading...</p></FarmerLayout>
   }
 
-  const recentMaintLogs = (maintenance?.recent_logs || []).slice(0, 5)
-  const recentDisposalRecords = (disposalRecords || []).slice(0, 5)
+  const recentMaintLogs = (maintenance?.recent_logs || []).slice(0, RECENT_LIMIT)
+  const recentDisposalRecords = (disposalRecords || []).slice(0, RECENT_LIMIT)
 
   return (
     <FarmerLayout>
@@ -209,36 +227,27 @@ export default function ManureRecords() {
         <>
           <div className="mr-stats-grid">
             <div style={styles.statCard}>
-              <span style={styles.statIconCircle}><CalendarIcon /></span>
-              <div>
-                <div style={styles.statMiniLabel}>Last clean-out</div>
-                <div style={styles.statValueSm}>{maintenance?.status?.last_performed_at || 'Never'}</div>
-                <div style={styles.statSubLabel}>{maintenance?.status?.days_since ?? '—'} days ago</div>
-              </div>
+              <div style={styles.statMiniLabel}>Last clean-out</div>
+              <div style={styles.statValueSm}>{maintenance?.status?.last_performed_at || 'Never'}</div>
+              <div style={styles.statSubLabel}>{maintenance?.status?.days_since ?? '—'} days ago</div>
             </div>
 
             <div style={styles.statCard}>
-              <span style={styles.statIconCircle}><BroomIcon /></span>
-              <div>
-                <div style={styles.statMiniLabel}>Recommended frequency</div>
-                <div style={styles.statValueSm}>
-                  Every ~{maintenance?.status?.expected_interval_days ? Math.round(maintenance.status.expected_interval_days / 30) : '—'} mo.
-                </div>
-                <div style={styles.statSubLabel}>Based on your farm size</div>
+              <div style={styles.statMiniLabel}>Recommended frequency</div>
+              <div style={styles.statValueSm}>
+                Every ~{maintenance?.status?.expected_interval_days ? Math.round(maintenance.status.expected_interval_days / 30) : '—'} mo.
               </div>
+              <div style={styles.statSubLabel}>Based on your farm size</div>
             </div>
 
             <div style={styles.statCard}>
-              <span style={styles.statIconCircle}><ShieldIcon /></span>
-              <div>
-                <div style={styles.statMiniLabel}>Status</div>
-                {maintenance?.status && (
-                  <span style={{ ...styles.badge, ...maintBadgeStyle(maintenance.status.status) }}>
-                    <span style={{ ...styles.badgeDot, backgroundColor: maintBadgeStyle(maintenance.status.status).color }} />
-                    {maintenance.status.status}
-                  </span>
-                )}
-              </div>
+              <div style={styles.statMiniLabel}>Status</div>
+              {maintenance?.status && (
+                <span style={{ ...styles.badge, ...maintBadgeStyle(maintenance.status.status) }}>
+                  <span style={{ ...styles.badgeDot, backgroundColor: maintBadgeStyle(maintenance.status.status).color }} />
+                  {maintenance.status.status}
+                </span>
+              )}
             </div>
           </div>
 
@@ -267,13 +276,9 @@ export default function ManureRecords() {
                           <td style={styles.tdStrong}>{log.performed_at}</td>
                           <td style={styles.td}>{log.notes || '—'}</td>
                           <td style={{ ...styles.td, textAlign: 'right' }}>
-                            <button
-                              style={styles.viewBtn}
-                              onClick={() => setViewRecord({ type: 'cleanout', record: log })}
-                              aria-label="View clean-out record"
-                            >
-                              <EyeIcon />
-                            </button>
+                            <span style={styles.viewBtn} onClick={() => setViewRecord({ type: 'cleanout', record: log })}>
+                              View
+                            </span>
                           </td>
                         </tr>
                       ))}
@@ -282,12 +287,17 @@ export default function ManureRecords() {
                 </div>
                 <div className="mr-pagination">
                   <span style={styles.paginationText}>
-                    Showing 1 to {recentMaintLogs.length} of {recentMaintLogs.length} entries
+                    Showing 1–{recentMaintLogs.length} of {recentMaintLogs.length}
                   </span>
                   <div style={styles.pagerBtns}>
+                    <select value={RECENT_LIMIT} disabled style={styles.pageSizeSelect}>
+                      <option value={RECENT_LIMIT}>{RECENT_LIMIT} / page</option>
+                    </select>
+                    <button style={styles.pagerBtn} disabled>«</button>
                     <button style={styles.pagerBtn} disabled>‹</button>
                     <button style={styles.pagerBtnActive}>1</button>
                     <button style={styles.pagerBtn} disabled>›</button>
+                    <button style={styles.pagerBtn} disabled>»</button>
                   </div>
                 </div>
               </>
@@ -326,17 +336,13 @@ export default function ManureRecords() {
                     {recentDisposalRecords.map(r => (
                       <tr key={r.id}>
                         <td style={styles.tdStrong}>{r.disposal_date}</td>
-                        <td style={styles.td}>{r.disposal_method}</td>
+                        <td style={styles.td}>{r.disposal_method === 'Other' ? (r.other_method_detail || 'Other') : r.disposal_method}</td>
                         <td style={styles.td}>{r.buyer_name || '—'}</td>
                         <td style={styles.tdStrong}>{r.quantity} kg</td>
                         <td style={{ ...styles.td, textAlign: 'right' }}>
-                          <button
-                            style={styles.viewBtn}
-                            onClick={() => setViewRecord({ type: 'disposal', record: r })}
-                            aria-label="View disposal record"
-                          >
-                            <EyeIcon />
-                          </button>
+                          <span style={styles.viewBtn} onClick={() => setViewRecord({ type: 'disposal', record: r })}>
+                            View
+                          </span>
                         </td>
                       </tr>
                     ))}
@@ -345,12 +351,17 @@ export default function ManureRecords() {
               </div>
               <div className="mr-pagination">
                 <span style={styles.paginationText}>
-                  Showing 1 to {recentDisposalRecords.length} of {recentDisposalRecords.length} entries
+                  Showing 1–{recentDisposalRecords.length} of {recentDisposalRecords.length}
                 </span>
                 <div style={styles.pagerBtns}>
+                  <select value={RECENT_LIMIT} disabled style={styles.pageSizeSelect}>
+                    <option value={RECENT_LIMIT}>{RECENT_LIMIT} / page</option>
+                  </select>
+                  <button style={styles.pagerBtn} disabled>«</button>
                   <button style={styles.pagerBtn} disabled>‹</button>
                   <button style={styles.pagerBtnActive}>1</button>
                   <button style={styles.pagerBtn} disabled>›</button>
+                  <button style={styles.pagerBtn} disabled>»</button>
                 </div>
               </div>
             </>
@@ -406,7 +417,8 @@ export default function ManureRecords() {
                 style={{
                   ...styles.primaryBtnInline,
                   width: 'auto',
-                  padding: '11px 20px',
+                  padding: '9px 16px',
+                  fontSize: '13.5px',
                   opacity: (maintenanceSubmitting || !maintenanceDate || !maintenancePhoto) ? 0.6 : 1,
                   cursor: (maintenanceSubmitting || !maintenanceDate || !maintenancePhoto) ? 'not-allowed' : 'pointer',
                 }}
@@ -426,13 +438,30 @@ export default function ManureRecords() {
             <label style={styles.formLabel}>Disposal method *</label>
             <select
               value={disposalMethod}
-              onChange={e => setDisposalMethod(e.target.value)}
+              onChange={e => {
+                setDisposalMethod(e.target.value)
+                if (e.target.value !== 'Other') setDisposalCustomMethod('')
+              }}
               style={styles.formInput}
             >
               <option value="Sold">Sold</option>
               <option value="Composted on-site">Composted on-site</option>
               <option value="Other">Other</option>
             </select>
+
+            {disposalMethod === 'Other' && (
+              <>
+                <label style={styles.formLabel}>Specify disposal method *</label>
+                <input
+                  type="text"
+                  value={disposalCustomMethod}
+                  onChange={e => setDisposalCustomMethod(e.target.value)}
+                  placeholder="e.g. Given away to neighboring farm"
+                  style={styles.formInput}
+                  required
+                />
+              </>
+            )}
 
             <label style={styles.formLabel}>Quantity (kg) *</label>
             <input
@@ -487,13 +516,14 @@ export default function ManureRecords() {
               </button>
               <button
                 type="submit"
-                disabled={disposalSubmitting || !disposalQuantity || !disposalDate}
+                disabled={disposalSubmitting || !disposalQuantity || !disposalDate || (disposalMethod === 'Other' && !disposalCustomMethod.trim())}
                 style={{
                   ...styles.primaryBtnInline,
                   width: 'auto',
-                  padding: '11px 20px',
-                  opacity: (disposalSubmitting || !disposalQuantity || !disposalDate) ? 0.6 : 1,
-                  cursor: (disposalSubmitting || !disposalQuantity || !disposalDate) ? 'not-allowed' : 'pointer',
+                  padding: '9px 16px',
+                  fontSize: '13.5px',
+                  opacity: (disposalSubmitting || !disposalQuantity || !disposalDate || (disposalMethod === 'Other' && !disposalCustomMethod.trim())) ? 0.6 : 1,
+                  cursor: (disposalSubmitting || !disposalQuantity || !disposalDate || (disposalMethod === 'Other' && !disposalCustomMethod.trim())) ? 'not-allowed' : 'pointer',
                 }}
               >
                 {disposalSubmitting ? 'Saving...' : 'Save record'}
@@ -504,36 +534,36 @@ export default function ManureRecords() {
       )}
 
       {viewRecord && viewRecord.type === 'cleanout' && (
-        <Modal title="Clean-out Details" onClose={() => setViewRecord(null)}>
-          <div style={styles.viewDetail}>
-            <DetailRow label="Date performed" value={viewRecord.record.performed_at} />
-            <DetailRow label="Notes" value={viewRecord.record.notes || '—'} />
-            {viewRecord.record.photo_url && (
-              <div>
-                <div style={styles.formLabel}>Photo</div>
-                <img
-                  src={viewRecord.record.photo_url}
-                  alt="Clean-out"
-                  style={styles.viewPhoto}
-                />
-              </div>
-            )}
-          </div>
-        </Modal>
+        <RecordDetailModal
+          title="Clean-out Details"
+          photoUrl={viewRecord.record.photo_url}
+          onClose={() => setViewRecord(null)}
+          rows={[
+            { label: 'Date Performed', value: viewRecord.record.performed_at },
+            { label: 'Notes', value: viewRecord.record.notes },
+          ]}
+        />
       )}
 
       {viewRecord && viewRecord.type === 'disposal' && (
-        <Modal title="Disposal Record Details" onClose={() => setViewRecord(null)}>
-          <div style={styles.viewDetail}>
-            <DetailRow label="Date" value={viewRecord.record.disposal_date} />
-            <DetailRow label="Disposal method" value={viewRecord.record.disposal_method} />
-            {viewRecord.record.disposal_method === 'Sold' && (
-              <DetailRow label="Buyer" value={viewRecord.record.buyer_name || '—'} />
-            )}
-            <DetailRow label="Quantity" value={`${viewRecord.record.quantity} kg`} />
-            <DetailRow label="Notes" value={viewRecord.record.notes || '—'} />
-          </div>
-        </Modal>
+        <RecordDetailModal
+          title="Disposal Record Details"
+          onClose={() => setViewRecord(null)}
+          rows={[
+            { label: 'Date', value: viewRecord.record.disposal_date },
+            {
+              label: 'Disposal Method',
+              value: viewRecord.record.disposal_method === 'Other'
+                ? (viewRecord.record.other_method_detail || 'Other')
+                : viewRecord.record.disposal_method,
+            },
+            ...(viewRecord.record.disposal_method === 'Sold'
+              ? [{ label: 'Buyer', value: viewRecord.record.buyer_name }]
+              : []),
+            { label: 'Quantity', value: `${viewRecord.record.quantity} kg` },
+            { label: 'Notes', value: viewRecord.record.notes },
+          ]}
+        />
       )}
     </FarmerLayout>
   )
@@ -542,14 +572,50 @@ export default function ManureRecords() {
 function maintBadgeStyle(status) {
   if (status === 'Non-Compliant') return { backgroundColor: '#fbeaea', color: '#b91c1c' }
   if (status === 'Overdue') return { backgroundColor: '#fbf1e2', color: '#b45309' }
-  return { backgroundColor: '#eaf3ec', color: '#2c8047' } // 'Scheduled'
+  return { backgroundColor: '#eaf3ec', color: '#2c8047' } // 'Compliant'
 }
 
-function DetailRow({ label, value }) {
+function RecordDetailModal({ title, rows, photoUrl, onClose }) {
+  // "Notes" is free text, not a fixed field — gets the larger bordered
+  // notes box instead of sitting in the field grid like the rest.
+  const fieldRows = rows.filter(r => r.label !== 'Notes')
+  const notesRow = rows.find(r => r.label === 'Notes')
+
   return (
-    <div style={styles.detailRow}>
-      <div style={styles.detailLabel}>{label}</div>
-      <div style={styles.detailValue}>{value}</div>
+    <div style={v.overlay} onClick={onClose}>
+      <div style={v.modal} onClick={e => e.stopPropagation()}>
+        <div style={v.header}>
+          <h3 style={v.title}>{title}</h3>
+          <span style={v.close} onClick={onClose}>×</span>
+        </div>
+
+        {photoUrl && (
+          <img src={photoUrl} alt="Record" style={styles.recordModalPhoto} />
+        )}
+
+        <span style={v.sectionLabel}>Record Details</span>
+        <div style={notesRow ? v.grid : v.gridLast}>
+          {fieldRows.map(r => (
+            <div key={r.label} style={v.fieldBox}>
+              <div style={v.fieldLabel}>{r.label}</div>
+              <div style={v.fieldValue}>{r.value ?? '—'}</div>
+            </div>
+          ))}
+        </div>
+
+        {notesRow && (
+          <>
+            <span style={v.sectionLabel}>Notes</span>
+            <div style={v.notesBox}>
+              <p style={v.notes}>{notesRow.value || 'No notes provided.'}</p>
+            </div>
+          </>
+        )}
+
+        <div style={v.actions}>
+          <button onClick={onClose} style={v.closeBtn}>Close</button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -559,28 +625,13 @@ function Modal({ title, onClose, children }) {
     <div style={styles.modalOverlay} onClick={onClose}>
       <div className="mr-modal-card" onClick={e => e.stopPropagation()}>
         <div style={styles.modalHeader}>
-          <p style={styles.modalTitle}>{title}</p>
-          <button style={styles.modalCloseBtn} onClick={onClose} aria-label="Close">×</button>
+          <h3 style={styles.modalTitle}>{title}</h3>
+          <span style={styles.modalCloseBtn} onClick={onClose}>×</span>
         </div>
-        <div style={styles.modalBody}>{children}</div>
+        {children}
       </div>
     </div>
   )
-}
-
-const iconBase = { fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round' }
-
-function CalendarIcon() {
-  return <svg width="17" height="17" viewBox="0 0 24 24" {...iconBase} strokeWidth="2" style={{ color: '#1B4332' }}><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
-}
-function BroomIcon() {
-  return <svg width="17" height="17" viewBox="0 0 24 24" {...iconBase} strokeWidth="2" style={{ color: '#1B4332' }}><path d="M3 21l6-6M13 3l8 8-6 6-8-8z" /><path d="M9 13l-4 4" /></svg>
-}
-function ShieldIcon() {
-  return <svg width="17" height="17" viewBox="0 0 24 24" {...iconBase} strokeWidth="2" style={{ color: '#1B4332' }}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
-}
-function EyeIcon() {
-  return <svg width="16" height="16" viewBox="0 0 24 24" {...iconBase} strokeWidth="2" style={{ color: '#5c6b60' }}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
 }
 
 const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
@@ -604,13 +655,16 @@ const styles = {
   cardTitle: { fontSize: '15px', fontWeight: 800, color: '#16311d' },
   cardSub: { fontSize: '12.5px', color: '#8a968d', marginTop: '2px' },
 
-  statCard: { display: 'flex', alignItems: 'flex-start', gap: '10px', border: '1px solid #e7e8e0', borderRadius: '12px', padding: '14px', background: '#fff' },
-  statIconCircle: { width: '38px', height: '38px', borderRadius: '50%', background: '#eaf3ec', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  statMiniLabel: { fontSize: '11.5px', fontWeight: 700, color: '#5c6b60' },
-  statValueSm: { fontSize: '15.5px', fontWeight: 800, color: '#16311d', marginTop: '2px' },
-  statSubLabel: { fontSize: '11.5px', color: '#8a968d', fontWeight: 600, marginTop: '1px' },
+  statCard: {
+    display: 'flex', flexDirection: 'column', gap: '2px',
+    borderRadius: '14px', padding: '16px 18px',
+    background: '#1B4332', fontFamily: SANS,
+  },
+  statMiniLabel: { fontSize: '11.5px', fontWeight: 700, color: '#9dc4ac' },
+  statValueSm: { fontSize: '16px', fontWeight: 800, color: '#fff', marginTop: '3px' },
+  statSubLabel: { fontSize: '11.5px', color: '#a9c9b5', fontWeight: 600, marginTop: '2px' },
 
-  badge: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap', width: 'fit-content', marginTop: '3px' },
+  badge: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap', width: 'fit-content', marginTop: '5px' },
   badgeDot: { width: '6px', height: '6px', borderRadius: '50%' },
 
   primaryBtnInline: { flexShrink: 0, padding: '12px 22px', borderRadius: '10px', border: 'none', background: '#1B4332', color: '#fff', fontFamily: SANS, fontSize: '14px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' },
@@ -619,33 +673,48 @@ const styles = {
   emptyText: { fontSize: '13px', color: '#9aa79d', fontStyle: 'italic', margin: 0 },
 
   table: { width: '100%', borderCollapse: 'collapse' },
-  th: { textAlign: 'left', fontSize: '11.5px', fontWeight: 700, color: '#8a968d', textTransform: 'uppercase', letterSpacing: '0.03em', padding: '8px 10px', borderBottom: '1px solid #eceee6' },
-  td: { fontSize: '13px', color: '#5c6b60', padding: '10px', borderBottom: '1px solid #f2f3ed' },
-  tdStrong: { fontSize: '13px', fontWeight: 700, color: '#16311d', padding: '10px', borderBottom: '1px solid #f2f3ed', whiteSpace: 'nowrap' },
+  th: {
+    textAlign: 'left', padding: '10px 14px', fontSize: '10.5px', fontWeight: 700, color: '#8a968d',
+    textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid #eceee7',
+    backgroundColor: '#fafbf8', whiteSpace: 'nowrap',
+  },
+  td: { padding: '11px 14px', fontSize: '12.5px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top' },
+  tdStrong: { padding: '11px 14px', fontSize: '12.5px', fontWeight: 700, color: '#16311d', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top', whiteSpace: 'nowrap' },
 
-  viewBtn: { width: '30px', height: '30px', borderRadius: '8px', border: '1px solid #e2e4dc', background: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' },
+  viewBtn: {
+    display: 'inline-block', padding: '6px 13px', borderRadius: '8px',
+    fontSize: '12.5px', fontWeight: 600, cursor: 'pointer',
+    border: '1px solid #e3e6dd', backgroundColor: '#fff', color: '#4b5a50', whiteSpace: 'nowrap',
+  },
 
-  paginationText: { fontSize: '12.5px', color: '#8a968d' },
-  pagerBtns: { display: 'flex', gap: '6px' },
-  pagerBtn: { width: '28px', height: '28px', borderRadius: '7px', border: '1px solid #e2e4dc', background: '#fff', color: '#9aa79d', fontSize: '13px', cursor: 'not-allowed' },
-  pagerBtnActive: { width: '28px', height: '28px', borderRadius: '7px', border: '1px solid #1B4332', background: '#1B4332', color: '#fff', fontSize: '13px', fontWeight: 700, cursor: 'default' },
+  paginationText: { fontSize: '12.5px', color: '#8a968d', whiteSpace: 'nowrap', fontFamily: SANS },
+  pagerBtns: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
+  pageSizeSelect: {
+    padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6',
+    fontSize: '12.5px', color: '#4b5a50', marginRight: '6px', fontFamily: SANS, backgroundColor: '#fff',
+  },
+  pagerBtn: {
+    minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px',
+    border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50',
+    fontSize: '13px', fontFamily: SANS, opacity: 0.4, cursor: 'not-allowed',
+  },
+  pagerBtnActive: {
+    minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px',
+    border: '1px solid #2c8047', backgroundColor: '#2c8047', color: '#fff',
+    fontSize: '12.5px', fontWeight: 600, fontFamily: SANS, cursor: 'default',
+  },
 
   form: { display: 'flex', flexDirection: 'column', gap: '4px' },
-  formError: { backgroundColor: '#fdf2f2', border: '1px solid #f3c9c9', color: '#b91c1c', padding: '10px 14px', borderRadius: '9px', fontSize: '13px', marginBottom: '8px' },
-  formLabel: { fontSize: '12.5px', fontWeight: 600, color: '#33413a', marginTop: '10px', marginBottom: '4px' },
+  formError: { backgroundColor: '#fbeaea', border: '1px solid #f0c9c9', color: '#b91c1c', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '10px' },
+  formLabel: { display: 'block', fontSize: '12.5px', fontWeight: 600, color: '#33413a', marginTop: '12px', marginBottom: '5px' },
   formInput: { width: '100%', padding: '9px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '13.5px', boxSizing: 'border-box', fontFamily: SANS, color: '#16311d' },
-  formActions: { display: 'flex', gap: '10px', marginTop: '16px' },
-  cancelBtn: { padding: '11px 18px', borderRadius: '10px', border: '1px solid #d9dcd4', backgroundColor: 'white', fontSize: '14px', fontWeight: 600, color: '#33413a', cursor: 'pointer', fontFamily: SANS },
+  formActions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' },
+  cancelBtn: { padding: '9px 16px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff', fontSize: '13.5px', fontWeight: 600, color: '#33413a', cursor: 'pointer', fontFamily: SANS },
 
-  viewDetail: { display: 'flex', flexDirection: 'column', gap: '2px' },
-  detailRow: { display: 'flex', flexDirection: 'column', gap: '2px', padding: '10px 0', borderBottom: '1px solid #f2f3ed' },
-  detailLabel: { fontSize: '11.5px', fontWeight: 700, color: '#8a968d', textTransform: 'uppercase', letterSpacing: '0.03em' },
-  detailValue: { fontSize: '14px', fontWeight: 600, color: '#16311d' },
-  viewPhoto: { width: '100%', borderRadius: '10px', marginTop: '4px', border: '1px solid #e7e8e0' },
+  recordModalPhoto: { width: '100%', borderRadius: '10px', marginBottom: '14px', display: 'block' },
 
   modalOverlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '16px' },
-  modalHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f2f3ed', position: 'sticky', top: 0, backgroundColor: 'white', borderRadius: '14px 14px 0 0' },
+  modalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' },
   modalTitle: { fontSize: '16px', fontWeight: 800, color: '#16311d', margin: 0 },
-  modalCloseBtn: { background: 'none', border: 'none', fontSize: '22px', lineHeight: 1, color: '#9aa79d', cursor: 'pointer', padding: '2px 6px' },
-  modalBody: { padding: '18px 20px 20px' },
+  modalCloseBtn: { fontSize: '20px', cursor: 'pointer', color: '#8a968d', lineHeight: 1 },
 }

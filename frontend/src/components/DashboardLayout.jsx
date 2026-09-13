@@ -43,7 +43,6 @@ function IconMenu({ color }) {
 function IconClose({ color }) {
   return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round"><path d="M18 6L6 18" /><path d="M6 6l12 12" /></svg>
 }
-
 const iconMap = {
   dashboard: IconGrid, farms: IconFarm, inspections: IconInspections,
   serviceRequests: IconServiceRequests, requests: IconRequests, vaccination: IconVaccination,
@@ -59,25 +58,9 @@ function timeAgo(dateStr) {
   const hours = Math.floor(mins / 60)
   if (hours < 24) return `${hours}h ago`
   const days = Math.floor(hours / 24)
-  return `${days}d ago`
-}
-
-function groupByRecency(notifications) {
-  const now = new Date()
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const startOfWeek = new Date(startOfToday)
-  startOfWeek.setDate(startOfWeek.getDate() - 7)
-
-  const groups = { Today: [], 'This Week': [], Earlier: [] }
-
-  notifications.forEach(n => {
-    const created = new Date(n.created_at)
-    if (created >= startOfToday) groups.Today.push(n)
-    else if (created >= startOfWeek) groups['This Week'].push(n)
-    else groups.Earlier.push(n)
-  })
-
-  return groups
+  if (days === 1) return 'Yesterday'
+  if (days < 7) return `${days}d ago`
+  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 function NotificationIcon({ type }) {
@@ -89,6 +72,7 @@ function NotificationIcon({ type }) {
       return <svg {...common}><rect x="5" y="4" width="14" height="17" rx="1.5" /><path d="M9 9h6M9 13h6M9 17h3" /></svg>
     case 'Vet Assigned':
       return <svg {...common}><path d="M18.5 8.5l-3 3M14 6l4 4M8 12l4 4M5 15l-1.5 4.5L8 18l7-7-3-3-7 7z" /></svg>
+    case 'Inspection Scheduled':
     case 'Inspection Completed':
       return <svg {...common}><rect x="5" y="4" width="14" height="17" rx="1.5" /><path d="M9 9l1.7 1.7L14 7.5" /></svg>
     case 'maintenance_overdue':
@@ -103,7 +87,7 @@ function NotificationBell() {
   const [notifications, setNotifications] = useState([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [loading, setLoading] = useState(false)
-  const [activeTab, setActiveTab] = useState('Today')
+  const [activeTab, setActiveTab] = useState('all')
   const wrapRef = useRef(null)
   const isMobile = useIsMobile()
 
@@ -168,9 +152,10 @@ function NotificationBell() {
     }
   }
 
-  const grouped = groupByRecency(notifications)
-  const tabs = ['Today', 'This Week', 'Earlier']
-  const visibleItems = grouped[activeTab] || []
+  const visibleItems = activeTab === 'unread' ? notifications.filter(n => !n.is_read) : notifications
+  const emptyMessage = notifications.length === 0
+    ? 'No notifications yet'
+    : 'No unread notifications'
 
   return (
     <div ref={wrapRef} style={bellStyles.wrap}>
@@ -214,21 +199,24 @@ function NotificationBell() {
             </div>
 
             <div style={bellStyles.tabsRow}>
-              {tabs.map(tab => (
-                <span
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  style={{ ...bellStyles.tab, ...(activeTab === tab ? bellStyles.tabActive : {}) }}
-                >
-                  {tab}
-                </span>
-              ))}
+              <span
+                onClick={() => setActiveTab('all')}
+                style={{ ...bellStyles.tab, ...(activeTab === 'all' ? bellStyles.tabActive : {}) }}
+              >
+                All Notifications
+              </span>
+              <span
+                onClick={() => setActiveTab('unread')}
+                style={{ ...bellStyles.tab, ...(activeTab === 'unread' ? bellStyles.tabActive : {}) }}
+              >
+                Unread ({unreadCount})
+              </span>
             </div>
 
             <div style={{ ...bellStyles.dropdownList, ...(isMobile ? bellStyles.dropdownListMobile : {}) }}>
               {loading && <div style={bellStyles.empty}>Loading...</div>}
               {!loading && visibleItems.length === 0 && (
-                <div style={bellStyles.empty}>Nothing here yet.</div>
+                <div style={bellStyles.empty}>{emptyMessage}</div>
               )}
               {!loading && visibleItems.map(n => (
                 <div
@@ -292,7 +280,7 @@ export default function DashboardLayout({ children, navItems = [], roleLabel = '
 
   return (
     <div style={styles.wrapper}>
-      <style>{`
+       <style>{`
         @media print {
           .no-print { display: none !important; }
           body, .print-reset { background: #fff !important; margin: 0 !important; padding: 0 !important; }
@@ -300,6 +288,8 @@ export default function DashboardLayout({ children, navItems = [], roleLabel = '
         .agb-nav-item { transition: background-color .14s ease, color .14s ease; }
         .agb-nav-item:hover { background-color: rgba(255,255,255,0.06); }
         .agb-logout:hover { background-color: rgba(230,180,85,0.12); }
+                * { scrollbar-width: none; }
+        ::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
       `}</style>
 
       {isMobile && sidebarOpen && (
@@ -462,7 +452,7 @@ const bellStyles = {
 
   // Desktop: small anchored popover near the bell, unchanged from before.
   dropdown: {
-    position: 'absolute', top: 'calc(100% + 10px)', right: 0, width: '360px', maxWidth: '90vw',
+    position: 'absolute', top: 'calc(100% + 10px)', right: 0, width: '400px', maxWidth: '90vw',
     backgroundColor: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px',
     boxShadow: '0 12px 32px rgba(20,48,28,0.16)', zIndex: 300, overflow: 'hidden',
   },
@@ -495,12 +485,15 @@ const bellStyles = {
     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
 
-  tabsRow: { display: 'flex', gap: '4px', padding: '0 12px 12px', borderBottom: '1px solid #eceee7', flexShrink: 0, overflowX: 'auto' },
-  tab: {
-    fontSize: '12px', fontWeight: 700, color: '#9aa79d', cursor: 'pointer',
-    padding: '6px 10px', borderRadius: '999px', fontFamily: SANS, whiteSpace: 'nowrap',
+  tabsRow: {
+    display: 'flex', alignItems: 'center', gap: '18px',
+    padding: '0 16px 12px', borderBottom: '1px solid #eceee7', flexShrink: 0, overflowX: 'auto',
   },
-  tabActive: { color: '#14301c', backgroundColor: '#eaf3ec' },
+  tab: {
+    fontSize: '13px', fontWeight: 700, color: '#9aa79d', cursor: 'pointer',
+    padding: '0 0 4px', fontFamily: SANS, whiteSpace: 'nowrap', borderBottom: '2px solid transparent',
+  },
+  tabActive: { color: '#2c8047', borderBottom: '2px solid #2c8047' },
 
   dropdownList: { maxHeight: '360px', overflowY: 'auto' },
   dropdownListMobile: { maxHeight: 'none', flex: 1 },

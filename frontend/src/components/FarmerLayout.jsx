@@ -1,10 +1,10 @@
 import DashboardLayout from './DashboardLayout'
 
 const navItems = [
-  { label: 'Dashboard', path: '/farmowner/dashboard', icon: 'dashboard' },
-  { label: 'Manure Records', path: '/farmowner/manure-records', icon: 'requests' },
-  { label: 'Service requests', path: '/farmowner/service-requests', icon: 'requests' },
-  { label: 'Settings', path: '/farmowner/settings', icon: 'settings' },
+  { label: 'Dashboard', path: '/farmowner/dashboard', icon: 'dashboard', section: 'Overview' },
+  { label: 'Manure Records', path: '/farmowner/manure-records', icon: 'requests', section: 'Management' },
+  { label: 'Service requests', path: '/farmowner/service-requests', icon: 'requests', section: 'Management' },
+  { label: 'Settings', path: '/farmowner/settings', icon: 'settings', section: 'System' },
 ]
 
 export default function FarmerLayout({ children }) {

@@ -21,9 +21,6 @@ class AuthController extends Controller
             'remember' => 'sometimes|boolean',
         ]);
 
-        // login_type is sent by the frontend as a hint, but we re-detect
-        // server-side rather than trusting it blindly — this is the same
-        // filter_var check as before, just kept as the source of truth.
         $isEmail = filter_var($request->login, FILTER_VALIDATE_EMAIL);
 
         $user = $isEmail
@@ -42,9 +39,6 @@ class AuthController extends Controller
             ], 403);
         }
 
-        // "Remember me" controls how long the Sanctum token stays valid.
-        // Checked -> 30 days. Unchecked -> 12 hours, so an abandoned
-        // session on a public/shared computer doesn't stay valid indefinitely.
         $remember = $request->boolean('remember');
         $expiresAt = $remember ? now()->addDays(30) : now()->addHours(12);
 
@@ -60,6 +54,7 @@ class AuthController extends Controller
                 'email'                 => $user->email,
                 'role'                  => $user->role,
                 'must_change_password'  => $user->must_change_password,
+                'legal_acknowledged_at' => $user->legal_acknowledged_at,
             ],
         ]);
     }
@@ -78,8 +73,8 @@ class AuthController extends Controller
 
     public function changePassword(Request $request)
     {
-            $request->validate([
-                'new_password' => [
+        $request->validate([
+            'new_password' => [
                 'required',
                 'confirmed',
                 'min:8',
@@ -105,12 +100,35 @@ class AuthController extends Controller
     }
 
     /**
+     * Authenticated endpoint. Called from the first-login Terms & Privacy
+     * acknowledgment modal once the user checks the box and clicks
+     * "Agree and Continue". Stamps legal_acknowledged_at with the current
+     * timestamp so the modal is never shown again for this account.
+     */
+    public function acknowledgeLegal(Request $request)
+    {
+        $user = $request->user();
+        $user->legal_acknowledged_at = now();
+        $user->save();
+
+        return response()->json([
+            'legal_acknowledged_at' => $user->legal_acknowledged_at,
+        ]);
+    }
+
+    /**
      * Public, unauthenticated endpoint. Accepts either an email or a mobile
-     * number in `login`, and if a matching account exists, generates a new
-     * temporary password and sends it via email or SMS depending on which
-     * one matched. Always returns a generic success message regardless of
-     * whether the login matched, so this endpoint can't be used to check
-     * which accounts exist.
+     * number in `login` to LOOK UP the account (a user might not remember
+     * which one they registered with) — but once the account is found,
+     * the DELIVERY channel is chosen from the account's own data, not from
+     * which field they typed into. This keeps behavior consistent with
+     * account creation's "email is the primary channel when both exist"
+     * rule: an owner with both an email and a phone always gets the reset
+     * via email, even if they typed their phone number into this field.
+     *
+     * Always returns a generic success message regardless of whether the
+     * login matched, so this endpoint can't be used to check which
+     * accounts exist.
      */
     public function forgotPassword(Request $request)
     {
@@ -118,15 +136,17 @@ class AuthController extends Controller
             'login' => 'required|string',
         ]);
 
-        $isEmail = filter_var($request->login, FILTER_VALIDATE_EMAIL);
+        $isEmailInput = filter_var($request->login, FILTER_VALIDATE_EMAIL);
 
-        $genericMessage = $isEmail
-            ? 'If an account exists for that email address, a temporary password has been sent.'
-            : 'If an account exists for that mobile number, a temporary password has been sent via SMS.';
-
-        $user = $isEmail
+        $user = $isEmailInput
             ? User::where('email', $request->login)->first()
             : User::where('mobile_number', $request->login)->first();
+
+        // Generic message no longer needs to guess the channel from the
+        // input — it's now always accurate ("we'll use whatever's on the
+        // account"), so a single wording covers both cases without
+        // revealing which channel a given account actually has.
+        $genericMessage = 'If an account exists, a temporary password has been sent to the registered email or mobile number on file.';
 
         if (!$user || $user->status === 'inactive') {
             return response()->json([
@@ -143,18 +163,16 @@ class AuthController extends Controller
         ]);
 
         $delivered = false;
+        $usedEmail = (bool) $user->email;
 
-        if ($isEmail) {
+        if ($usedEmail) {
             try {
-                Mail::to($user->email)->send(new TempPasswordMail($user, $tempPassword));
+                Mail::to($user->email)->send(new TempPasswordMail($user, $tempPassword, 'reset'));
                 $delivered = true;
             } catch (\Throwable $e) {
-                // Swallow the exception rather than leaking mail-server
-                // details to the client — the generic message still returns
-                // success so we don't reveal whether the account exists.
                 report($e);
             }
-        } else {
+        } elseif ($user->mobile_number) {
             $smsMessage = "AgriBantay password reset. Your temporary password: {$tempPassword}. You will be asked to set a new password on your next login.";
 
             $delivered = app(SmsService::class)->send(
@@ -164,12 +182,15 @@ class AuthController extends Controller
                 $user->id
             );
         }
+        // else: matched account has neither email nor phone — shouldn't
+        // happen given mobile_number is required at registration, but
+        // left as a safe no-op rather than throwing if it ever does.
 
         ActivityLog::create([
             'user_id' => $user->id,
             'role'    => $user->role,
             'action'  => 'Password Reset Requested',
-            'details' => "Password reset requested via forgot-password ({$user->first_name} {$user->last_name}) — " . ($isEmail ? 'email' : 'SMS'),
+            'details' => "Password reset requested via forgot-password ({$user->first_name} {$user->last_name}) — " . ($usedEmail ? 'email' : 'SMS'),
             'type'    => 'Account',
         ]);
 

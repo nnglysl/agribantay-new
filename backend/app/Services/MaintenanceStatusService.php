@@ -34,7 +34,7 @@ class MaintenanceStatusService
         $today = Carbon::now();
 
         if ($today->lessThan($dueDate)) {
-            $status = 'Scheduled';
+            $status = 'Compliant';
         } elseif ($today->lessThan($overdueDate)) {
             $status = 'Overdue';
         } else {

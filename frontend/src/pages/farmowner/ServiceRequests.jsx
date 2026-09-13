@@ -4,6 +4,7 @@ import api from '../../api/axios'
 import FarmerLayout from '../../components/FarmerLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { formatDate as formatDateFull } from '../../utils/formatDate'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
@@ -22,9 +23,7 @@ function statusBadge(status) {
 // across the table and the mobile card fallback.
 function formatDate(value, fallback = '—') {
   if (!value) return fallback
-  return new Date(value).toLocaleDateString('en-PH', {
-    year: 'numeric', month: 'short', day: 'numeric',
-  })
+  return formatDateFull(value)
 }
 
 export default function ServiceRequests() {
@@ -117,7 +116,7 @@ export default function ServiceRequests() {
                     <div style={styles.cardMobileTop}>
                       <div style={{ minWidth: 0 }}>
                         <div style={styles.cardTitle}>{r.service_type}</div>
-                        {r.assigned_to && <div style={styles.cardMeta}>{r.assigned_to}</div>}
+                        {r.accepted_by && <div style={styles.cardMeta}>{r.accepted_by}</div>}
                       </div>
                       <div style={{ ...styles.badge, ...sb, ...styles.badgeMobile }}>
                         <span style={{ ...styles.badgeDot, backgroundColor: sb.color }} />

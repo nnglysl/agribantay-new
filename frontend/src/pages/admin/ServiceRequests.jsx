@@ -1,19 +1,39 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
+import ServiceRequestDetailsModal from '../../components/ServiceRequestDetailsModal'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { getUser } from '../../utils/auth'
+import { formatDate, formatDateTime } from '../../utils/formatDate'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
 const ADMIN_TYPES = ['Odor Control Request', 'Fly Control Request']
 const SUPER_ADMIN_ONLY_TYPES = ['Vaccine Request', 'Blood Test Request']
 
+const BIRD_ESTIMATES = {
+  Small: 'Below 10,000 layers',
+  Medium: '10,000–50,000 layers',
+  Large: 'Above 50,000 layers',
+}
+
 const SORT_OPTIONS = [
   { value: 'oldest', label: 'Oldest Request First (Default)' },
   { value: 'newest', label: 'Newest Request First' },
 ]
+
+// Same established colors as FarmMap's REQUEST_COLORS / Vet's own
+// requestTypeColor — reused, not invented, so the two Service Requests
+// pages read as one system.
+function requestTypeColor(type) {
+  if (type === 'Fly Control Request') return '#d9880f'
+  if (type === 'Blood Test Request') return '#2f6bb0'
+  return '#2c8047'
+}
+function requestTypeLabel(type) {
+  return type ? type.replace(' Request', '') : '—'
+}
 
 export default function ServiceRequests() {
   const user = getUser()
@@ -30,6 +50,7 @@ export default function ServiceRequests() {
   const [confirmComplete, setConfirmComplete] = useState(null)
   const [completeNotes, setCompleteNotes] = useState('')
   const [viewRequest, setViewRequest] = useState(null)
+  const [rescheduleTarget, setRescheduleTarget] = useState(null)
   const isMobile = useIsMobile()
 
   const [filterOpen, setFilterOpen] = useState(false)
@@ -76,7 +97,7 @@ export default function ServiceRequests() {
   const filtered = allRequests.filter(r => {
     if (tab === 'pending' && r.status !== 'Pending') return false
     if (tab === 'scheduled' && r.status !== 'Scheduled') return false
-    if (tab === 'history' && !(r.status === 'Completed' || r.status === 'Cancelled')) return false
+    if (tab === 'completed' && r.status !== 'Completed') return false
 
     if (search) {
       const q = search.toLowerCase()
@@ -106,7 +127,7 @@ export default function ServiceRequests() {
   const rangeStart = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1
   const rangeEnd = Math.min(currentPage * pageSize, totalItems)
 
-  const statusColor = { Pending: '#b45309', Scheduled: '#2c8047', Completed: '#256b3d', Cancelled: '#6b7280' }
+  const statusColor = { Pending: '#b45309', Scheduled: '#2f6bb0', Completed: '#256b3d', Cancelled: '#6b7280' }
 
   const handleDeclineAction = async () => {
     await api.patch(`/admin/service-requests/${confirmDecline.id}/decline`)
@@ -128,8 +149,8 @@ export default function ServiceRequests() {
       <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Service Requests</h1>
       <p style={styles.subtitle}>
         {isSuperAdmin
-          ? 'Odor control, fly control, vaccination, and blood test requests'
-          : 'Service requests submitted by farm owners'}
+          ? 'Monitor all service requests across registered farms.'
+          : 'Manage odor and fly control requests'}
       </p>
 
       <div style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
@@ -140,8 +161,8 @@ export default function ServiceRequests() {
           <div style={{ ...styles.tab, ...(tab === 'scheduled' ? styles.tabActive : {}) }} onClick={() => setTab('scheduled')}>
             Scheduled
           </div>
-          <div style={{ ...styles.tab, ...(tab === 'history' ? styles.tabActive : {}) }} onClick={() => setTab('history')}>
-            History
+          <div style={{ ...styles.tab, ...(tab === 'completed' ? styles.tabActive : {}) }} onClick={() => setTab('completed')}>
+            Completed
           </div>
         </div>
 
@@ -223,9 +244,10 @@ export default function ServiceRequests() {
               <thead>
                 <tr>
                   <th style={styles.th}>Request No.</th>
-                  <th style={styles.th}>Service</th>
                   <th style={styles.th}>Farm</th>
+                  <th style={styles.th}>Type</th>
                   <th style={styles.th}>Farm Owner</th>
+                  <th style={styles.th}>Date</th>
                   <th style={styles.th}>Status</th>
                   <th style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
                 </tr>
@@ -233,26 +255,39 @@ export default function ServiceRequests() {
               <tbody>
                 {list.map(r => {
                   const c = statusColor[r.status] || '#6b7280'
+                  const typeColor = requestTypeColor(r.service_type)
                   return (
                     <tr key={r.id}>
                       <td style={styles.td}>
                         <span style={styles.reqNumberCell}>{r.request_number || '—'}</span>
                       </td>
                       <td style={styles.td}>
-                        <div style={styles.serviceType}>{r.service_type}</div>
-                        {r.notes && <div style={styles.notes}>{r.notes}</div>}
+                        <div style={styles.farmName}>{r.farm_name}</div>
+                        <div style={styles.farmMeta}>
+                          {r.barangay} · {BIRD_ESTIMATES[r.farm_size] || 'Size unknown'}
+                        </div>
                       </td>
-                      <td style={styles.td}>{r.farm_name}</td>
+                      <td style={styles.td}>
+                        <span style={{ ...styles.typeText, color: typeColor }}>
+                          {requestTypeLabel(r.service_type)}
+                        </span>
+                      </td>
                       <td style={styles.td}>{r.farm_owner_name || r.requested_by}</td>
                       <td style={styles.td}>
+                        {r.completed_at
+                          ? formatDate(r.completed_at)
+                          : r.scheduled_at
+                          ? formatDate(r.scheduled_at)
+                          : '—'}
+                      </td>
+                      <td style={styles.td}>
                         <span style={{ ...styles.badge, color: c, backgroundColor: badgeBg(r.status) }}>
-                          <span style={{ ...styles.badgeDot, backgroundColor: c }} />
                           {r.status}
                         </span>
                       </td>
                       <td style={styles.td}>
                         <div style={styles.actionGroup}>
-                          {r.status === 'Pending' && (
+                          {!isSuperAdmin && r.status === 'Pending' && (
                             <>
                               <span style={{ ...styles.actionBtn, ...styles.acceptBtn }} onClick={() => setAcceptTarget(r)}>
                                 Accept
@@ -262,15 +297,20 @@ export default function ServiceRequests() {
                               </span>
                             </>
                           )}
-                          {r.status === 'Scheduled' && (
-                            <span
-                              style={{ ...styles.actionBtn, ...styles.completeBtn }}
-                              onClick={() => { setConfirmComplete(r); setCompleteNotes('') }}
-                            >
-                              Mark Completed
-                            </span>
+                          {!isSuperAdmin && r.status === 'Scheduled' && (
+                            <>
+                              <span
+                                style={{ ...styles.actionBtn, ...styles.completeBtn }}
+                                onClick={() => { setConfirmComplete(r); setCompleteNotes('') }}
+                              >
+                                Mark Completed
+                              </span>
+                              <span style={{ ...styles.actionBtn, ...styles.rescheduleBtn }} onClick={() => setRescheduleTarget(r)}>
+                                Reschedule
+                              </span>
+                            </>
                           )}
-                          {(r.status === 'Completed' || r.status === 'Cancelled') && (
+                          {(isSuperAdmin || r.status === 'Completed') && (
                             <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => setViewRequest(r)}>
                               View
                             </span>
@@ -358,64 +398,20 @@ export default function ServiceRequests() {
         </div>
       )}
       {viewRequest && (
-        <div style={modalStyles.overlay} onClick={() => setViewRequest(null)}>
-          <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
-            <div style={modalStyles.header}>
-              <h3 style={modalStyles.title}>{viewRequest.request_number || 'Service Request'}</h3>
-              <span style={modalStyles.close} onClick={() => setViewRequest(null)}>×</span>
-            </div>
+        <ServiceRequestDetailsModal
+          request={{ ...viewRequest, owner_name: viewRequest.farm_owner_name || viewRequest.requested_by }}
+          isMobile={isMobile}
+          onClose={() => setViewRequest(null)}
+        />
+      )}
 
-            <div style={detailStyles.row}>
-              <span style={detailStyles.label}>Service Type</span>
-              <span style={detailStyles.value}>{viewRequest.service_type}</span>
-            </div>
-            <div style={detailStyles.row}>
-              <span style={detailStyles.label}>Farm</span>
-              <span style={detailStyles.value}>{viewRequest.farm_name}</span>
-            </div>
-            <div style={detailStyles.row}>
-              <span style={detailStyles.label}>Farm Owner</span>
-              <span style={detailStyles.value}>{viewRequest.farm_owner_name || viewRequest.requested_by}</span>
-            </div>
-            <div style={detailStyles.row}>
-              <span style={detailStyles.label}>Status</span>
-              <span style={detailStyles.value}>{viewRequest.status}</span>
-            </div>
-            {viewRequest.assigned_to && (
-              <div style={detailStyles.row}>
-                <span style={detailStyles.label}>Assigned To</span>
-                <span style={detailStyles.value}>{viewRequest.assigned_to}</span>
-              </div>
-            )}
-            {viewRequest.scheduled_at && (
-              <div style={detailStyles.row}>
-                <span style={detailStyles.label}>Scheduled</span>
-                <span style={detailStyles.value}>{new Date(viewRequest.scheduled_at).toLocaleString()}</span>
-              </div>
-            )}
-            {viewRequest.completed_at && (
-              <div style={detailStyles.row}>
-                <span style={detailStyles.label}>Completed</span>
-                <span style={detailStyles.value}>{new Date(viewRequest.completed_at).toLocaleString()}</span>
-              </div>
-            )}
-            <div style={detailStyles.row}>
-              <span style={detailStyles.label}>Submitted</span>
-              <span style={detailStyles.value}>{new Date(viewRequest.created_at).toLocaleString()}</span>
-            </div>
-
-            {viewRequest.notes && (
-              <div style={detailStyles.block}>
-                <span style={detailStyles.label}>Notes</span>
-                <p style={detailStyles.text}>{viewRequest.notes}</p>
-              </div>
-            )}
-
-            <div style={modalStyles.actions}>
-              <button onClick={() => setViewRequest(null)} style={modalStyles.cancelBtn}>Close</button>
-            </div>
-          </div>
-        </div>
+      {rescheduleTarget && (
+        <RescheduleModal
+          request={rescheduleTarget}
+          isMobile={isMobile}
+          onClose={() => setRescheduleTarget(null)}
+          onSuccess={() => { setRescheduleTarget(null); refetch() }}
+        />
       )}
     </AdminLayout>
   )
@@ -423,6 +419,7 @@ export default function ServiceRequests() {
 
 function badgeBg(status) {
   if (status === 'Pending') return '#fbf1e2'
+  if (status === 'Scheduled') return '#e8eff8'
   if (status === 'Cancelled') return '#eef1ea'
   return '#eaf3ec'
 }
@@ -568,6 +565,112 @@ function AcceptModal({ request, onClose, onSuccess, isMobile }) {
   )
 }
 
+function RescheduleModal({ request, onClose, onSuccess, isMobile }) {
+  const [date, setDate] = useState('')
+  const [time, setTime] = useState('09:00')
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+
+    if (!date) {
+      setError('Please select a new date.')
+      return
+    }
+    if (!reason.trim()) {
+      setError('Please explain why the visit was not completed.')
+      return
+    }
+
+    setLoading(true)
+    try {
+      await api.patch(`/admin/service-requests/${request.id}/reschedule`, {
+        scheduled_at: `${date} ${time}:00`,
+        reason,
+      })
+      onSuccess()
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to reschedule request.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div style={modalStyles.overlay} onClick={onClose}>
+      <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
+        <div style={modalStyles.header}>
+          <h3 style={modalStyles.title}>Reschedule Service Request</h3>
+          <span style={modalStyles.close} onClick={onClose}>×</span>
+        </div>
+
+        <div style={detailStyles.block}>
+          <span style={detailStyles.sectionLabel}>Request Information</span>
+          <div style={detailStyles.row}>
+            <span style={detailStyles.label}>Farm Name</span>
+            <span style={detailStyles.value}>{request.farm_name}</span>
+          </div>
+          <div style={detailStyles.row}>
+            <span style={detailStyles.label}>Farm Owner</span>
+            <span style={detailStyles.value}>{request.farm_owner_name || request.requested_by}</span>
+          </div>
+          <div style={detailStyles.row}>
+            <span style={detailStyles.label}>Service Type</span>
+            <span style={detailStyles.value}>{requestTypeLabel(request.service_type)}</span>
+          </div>
+          <div style={{ ...detailStyles.row, borderBottom: 'none' }}>
+            <span style={detailStyles.label}>Current Scheduled Date</span>
+            <span style={detailStyles.value}>{request.scheduled_at ? formatDateTime(request.scheduled_at) : '—'}</span>
+          </div>
+        </div>
+
+        {request.previous_scheduled_at && (
+          <p style={modalStyles.contextNote}>
+            Already rescheduled once, from {formatDateTime(request.previous_scheduled_at)}
+            {request.reschedule_reason ? ` — ${request.reschedule_reason}` : ''}
+          </p>
+        )}
+
+        <form onSubmit={handleSubmit}>
+          {error && <div style={modalStyles.errorBox}>{error}</div>}
+
+          <label style={modalStyles.label}>Reason for Rescheduling</label>
+          <textarea
+            value={reason}
+            onChange={e => setReason(e.target.value)}
+            style={{ ...modalStyles.input, minHeight: '80px', resize: 'vertical' }}
+            placeholder="Example: Farm visit was not completed due to schedule conflict / farm was unavailable during the scheduled visit."
+          />
+
+          <label style={modalStyles.label}>New Schedule</label>
+          <div style={{ ...modalStyles.row, ...(isMobile ? modalStyles.rowMobile : {}) }}>
+            <div>
+              <label style={modalStyles.label}>New Date *</label>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)} style={modalStyles.input} />
+            </div>
+            <div>
+              <label style={modalStyles.label}>New Time *</label>
+              <input type="time" value={time} onChange={e => setTime(e.target.value)} style={modalStyles.input} />
+            </div>
+          </div>
+
+          <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
+            <button type="button" onClick={onClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
+              Cancel
+            </button>
+            <button type="submit" disabled={loading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
+              {loading ? 'Saving...' : 'Reschedule Request'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 const styles = {
@@ -645,7 +748,7 @@ const styles = {
   scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0' },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  tableMobile: { minWidth: '860px' },
+  tableMobile: { minWidth: '960px' },
   th: {
     textAlign: 'left', padding: '13px 20px', fontSize: '11px', fontWeight: 700, color: '#8a968d',
     borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
@@ -653,13 +756,15 @@ const styles = {
   },
   td: { padding: '13px 20px', fontSize: '13px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top' },
   reqNumberCell: { fontSize: '12.5px', color: '#4b5a50', fontFamily: 'monospace' },
-  serviceType: { fontSize: '14px', fontWeight: 700, color: '#16311d' },
-  notes: { fontSize: '12px', color: '#8a968d', marginTop: '4px', maxWidth: '260px' },
+  farmName: { fontSize: '14px', fontWeight: 700, color: '#16311d' },
+  farmMeta: { fontSize: '12px', color: '#8a968d', marginTop: '2px' },
+  // Plain colored text, no pill/background/border/icon.
+  typeText: { fontSize: '13px', fontWeight: 600 },
+  // Status keeps its colored pill background — just no dot.
   badge: {
-    display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 11px',
+    display: 'inline-flex', alignItems: 'center', padding: '4px 11px',
     borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
   },
-  badgeDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
   actionGroup: { display: 'flex', gap: '6px', whiteSpace: 'nowrap', justifyContent: 'flex-end' },
   actionBtn: {
     padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600,
@@ -668,6 +773,7 @@ const styles = {
   acceptBtn: { color: '#2c8047' },
   declineBtn: { color: '#b91c1c' },
   completeBtn: { color: '#2c8047' },
+  rescheduleBtn: { color: '#2f6bb0' },
   viewBtn: { color: '#4b5a50' },
   empty: { padding: '32px', textAlign: 'center', color: '#9aa79d', fontSize: '14px' },
 }
@@ -698,6 +804,8 @@ const modalStyles = {
   close: { fontSize: '22px', cursor: 'pointer', color: '#8a968d' },
   dateLabel: { fontSize: '13px', color: '#6b7770', marginBottom: '16px' },
   label: { display: 'block', fontSize: '13px', fontWeight: 600, color: '#33413a', marginBottom: '6px', marginTop: '12px' },
+  helperText: { fontSize: '12px', color: '#8a968d', marginTop: '0', marginBottom: '8px', lineHeight: '1.4' },
+  contextNote: { fontSize: '12px', color: '#6b7770', backgroundColor: '#fafbf8', border: '1px solid #eceee7', borderRadius: '9px', padding: '9px 12px', marginTop: '12px', lineHeight: '1.4' },
   input: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', fontFamily: 'inherit' },
   row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' },
   rowMobile: { gridTemplateColumns: '1fr' },
@@ -720,5 +828,6 @@ const detailStyles = {
   label: { fontSize: '13px', color: '#6b7770', fontWeight: 500 },
   value: { fontSize: '13px', color: '#16311d', fontWeight: 600, textAlign: 'right' },
   block: { marginTop: '14px' },
+  sectionLabel: { display: 'block', fontSize: '11px', fontWeight: 700, color: '#8a968d', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' },
   text: { fontSize: '13px', color: '#4b5a50', lineHeight: '1.5', marginTop: '4px' },
 }

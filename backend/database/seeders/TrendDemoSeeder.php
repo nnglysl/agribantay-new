@@ -117,13 +117,13 @@ class TrendDemoSeeder extends Seeder
     {
         if ($value >= $criticalAt) return 'Critical';
         if ($value >= $warningAt) return 'Warning';
-        return 'Normal';
+        return 'Safe';
     }
 
     private function tempStatus(float $value): string
     {
         if ($value > 35 || $value < 18) return 'Critical';
         if ($value > 32 || $value < 22) return 'Warning';
-        return 'Normal';
+        return 'Safe';
     }
 }

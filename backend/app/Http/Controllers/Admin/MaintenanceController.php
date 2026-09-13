@@ -102,10 +102,14 @@ class MaintenanceController extends Controller
             'success' => true,
             'data' => [
                 'farm' => [
-                    'farm_name'  => $farm->farm_name,
-                    'owner_name' => $farm->owner_name,
-                    'barangay'   => $farm->barangay,
-                    'farm_size'  => $farm->farm_size,
+                    'id'            => $farm->id,
+                    'farm_name'     => $farm->farm_name,
+                    'farm_type'     => $farm->farm_type,
+                    'owner_name'    => $farm->owner_name,
+                    'mobile_number' => $farm->mobile_number,
+                    'barangay'      => $farm->barangay,
+                    'farm_size'     => $farm->farm_size,
+                    'created_at'    => $farm->created_at->format('M d, Y'),
                 ],
 
                 'maintenance' => [

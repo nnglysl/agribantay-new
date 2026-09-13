@@ -99,11 +99,11 @@ class SensorIngestController extends Controller
         if ($isTemperature) {
             if ($value > $criticalAt || $value < 18) return 'Critical';
             if ($value > $warningAt || $value < 22) return 'Warning';
-            return 'Normal';
+            return 'Safe';
         }
 
         if ($value >= $criticalAt) return 'Critical';
         if ($value >= $warningAt) return 'Warning';
-        return 'Normal';
+        return 'Safe';
     }
 }

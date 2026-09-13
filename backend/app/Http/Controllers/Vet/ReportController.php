@@ -25,9 +25,10 @@ class ReportController extends Controller
 
         $baseQuery = function () use ($isSuperAdmin) {
             $q = ServiceRequest::whereIn('service_type', self::VET_SERVICE_TYPES);
-            if (!$isSuperAdmin) {
-                $q->where('assigned_to', Auth::id());
+            if (! $isSuperAdmin) {
+                $q->where('accepted_by', Auth::id());
             }
+
             return $q;
         };
 
@@ -38,33 +39,34 @@ class ReportController extends Controller
         $farmsCovered = $baseQuery()->where('status', 'Completed')->distinct('farm_id')->count('farm_id');
 
         $completedServices = $baseQuery()
-            ->with(['farm', 'assignedTo'])
+            ->with(['farm', 'acceptedBy'])
             ->where('status', 'Completed')
             ->latest('completed_at')
             ->get()
-            ->map(fn($r) => [
-                'id'           => $r->request_number,
+            ->map(fn ($r) => [
+                'id' => $r->request_number,
                 'service_type' => $r->service_type,
-                'farm_name'    => $r->farm->farm_name,
-                'owner_name'   => $r->farm->owner_name,
-                'barangay'     => $r->farm->barangay,
-                'farm_size'    => $r->farm->farm_size,
+                'farm_name' => $r->farm->farm_name,
+                'owner_name' => $r->farm->owner_name,
+                'barangay' => $r->farm->barangay,
+                'farm_size' => $r->farm->farm_size,
                 'completed_at' => $r->completed_at?->format('M d, Y'),
-                'notes'        => $r->notes,
-                'status'       => $r->status,
+                'completed_at_raw' => $r->completed_at?->toIso8601String(),
+                'notes' => $r->notes,
+                'status' => $r->status,
                 // Only meaningful/shown when viewed by Super Admin, since
                 // a regular Vet's own report is implicitly all their own.
-                'vet_name'     => $isSuperAdmin
-                    ? trim(($r->assignedTo->first_name ?? '') . ' ' . ($r->assignedTo->last_name ?? ''))
+                'vet_name' => $isSuperAdmin
+                    ? trim(($r->acceptedBy->first_name ?? '').' '.($r->acceptedBy->last_name ?? ''))
                     : null,
             ]);
 
         return response()->json([
             'success' => true,
             'data' => [
-                'total_completed'    => $totalCompleted,
-                'total_pending'      => $totalPending,
-                'farms_covered'      => $farmsCovered,
+                'total_completed' => $totalCompleted,
+                'total_pending' => $totalPending,
+                'farms_covered' => $farmsCovered,
                 'completed_services' => $completedServices,
             ],
         ]);

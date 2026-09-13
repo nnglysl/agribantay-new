@@ -11,6 +11,8 @@ use App\Http\Controllers\Admin\ActivityLogController;
 use App\Http\Controllers\Admin\AlertHistoryController;
 use App\Http\Controllers\Admin\MaintenanceController as AdminMaintenanceController;
 use App\Http\Controllers\Admin\ReportController;
+use App\Http\Controllers\Admin\GeneratedReportController;
+use App\Http\Controllers\Admin\SensorController;
 use App\Http\Controllers\Farmer\DashboardController as FarmerDashboardController;
 use App\Http\Controllers\Farmer\ServiceRequestController as FarmerServiceRequestController;
 use App\Http\Controllers\Farmer\RecommendationController as FarmerRecommendationController;
@@ -21,26 +23,34 @@ use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\Vet\DashboardController as VetDashboardController;
 use App\Http\Controllers\Vet\VaccinationRequestController;
 use App\Http\Controllers\Vet\ReportController as VetReportController;
+use App\Http\Controllers\Vet\GeneratedReportController as VetGeneratedReportController;
 use App\Http\Controllers\SensorIngestController;
 use App\Http\Controllers\SuperAdmin\AccountController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\PasswordResetController;
 
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/sensor-readings', [SensorIngestController::class, 'store']);
 Route::post('/forgot-password', [App\Http\Controllers\AuthController::class, 'forgotPassword']);
 
+Route::post('/password/otp/request', [PasswordResetController::class, 'requestOtp']);
+Route::post('/password/otp/verify', [PasswordResetController::class, 'verifyOtp']);
+Route::post('/password/reset', [PasswordResetController::class, 'resetPassword']);
+
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
     Route::post('/change-password', [AuthController::class, 'changePassword']);
+    Route::post('/acknowledge-legal', [AuthController::class, 'acknowledgeLegal']);
 
     Route::get('/settings', [SettingsController::class, 'show']);
     Route::put('/settings/profile', [SettingsController::class, 'updateProfile']);
     Route::put('/settings/password', [SettingsController::class, 'updatePassword']);
 
-Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::get('/notifications', [NotificationController::class, 'index']);
     Route::patch('/notifications/{id}/read', [NotificationController::class, 'markRead']);
     Route::patch('/notifications/read-all', [NotificationController::class, 'markAllRead']);
+
     /*
     |--------------------------------------------------------------------------
     | Veterinarian routes (role: vet)
@@ -52,8 +62,13 @@ Route::get('/notifications', [NotificationController::class, 'index']);
         Route::patch('/vaccination-requests/{id}/accept', [VaccinationRequestController::class, 'accept']);
         Route::patch('/vaccination-requests/{id}/decline', [VaccinationRequestController::class, 'decline']);
         Route::patch('/vaccination-requests/{id}/complete', [VaccinationRequestController::class, 'complete']);
-        Route::post('/vaccination-requests/{id}/note', [VaccinationRequestController::class, 'addNote']);
+        Route::patch('/vaccination-requests/{id}/reschedule', [VaccinationRequestController::class, 'reschedule']);
         Route::get('/reports', [VetReportController::class, 'index']);
+        Route::get('/generated-reports', [VetGeneratedReportController::class, 'index']);
+        Route::get('/generated-reports/{generatedReport}', [VetGeneratedReportController::class, 'show']);
+        Route::get('/farms', [\App\Http\Controllers\Vet\FarmController::class, 'index']);
+        Route::get('/farms/{id}', [\App\Http\Controllers\Vet\FarmController::class, 'show']);
+        Route::get('/farms/{id}/service-requests', [\App\Http\Controllers\Vet\FarmController::class, 'serviceRequests']);
     });
 
     /*
@@ -102,19 +117,34 @@ Route::get('/notifications', [NotificationController::class, 'index']);
         Route::get('/farms/{id}/maintenance-logs', [FarmController::class, 'maintenanceLogs']);
         Route::get('/farms/{id}/disposal-records', [FarmController::class, 'disposalRecords']);
         Route::get('/farms/{id}/inspection-records', [FarmController::class, 'inspectionRecords']);
+        Route::get('/farms/{id}/service-requests', [FarmController::class, 'serviceRequests']);
+
+        // Sensor/device registration — powers the Devices tab on the Farm
+        // Details page. Kept separate from the /farms/{id}/... routes
+        // above since sensors have their own store/update actions rather
+        // than being nested farm sub-resources like maintenance-logs etc.
+        Route::get('/farms/{id}/sensors', [SensorController::class, 'index']);
+        Route::post('/sensors', [SensorController::class, 'store']);
+        Route::put('/sensors/{id}', [SensorController::class, 'update']);
 
         Route::get('/inspections', [InspectionController::class, 'index']);
         Route::post('/inspections', [InspectionController::class, 'store']);
         Route::patch('/inspections/{id}/cancel', [InspectionController::class, 'cancel']);
         Route::patch('/inspections/{id}/complete', [InspectionController::class, 'complete']);
+        Route::patch('/inspections/{id}/reschedule', [InspectionController::class, 'reschedule']);
 
         Route::get('/service-requests', [ServiceRequestController::class, 'index']);
         Route::patch('/service-requests/{id}/accept', [ServiceRequestController::class, 'accept']);
         Route::patch('/service-requests/{id}/decline', [ServiceRequestController::class, 'decline']);
         Route::patch('/service-requests/{id}/complete', [ServiceRequestController::class, 'complete']);
+        Route::patch('/service-requests/{id}/reschedule', [ServiceRequestController::class, 'reschedule']);
         Route::patch('/service-requests/{id}/cancel', [ServiceRequestController::class, 'cancel']);
 
         Route::get('/reports', [ReportController::class, 'index']);
+
+        Route::get('/generated-reports', [GeneratedReportController::class, 'index']);
+        Route::post('/generated-reports', [GeneratedReportController::class, 'store']);
+        Route::get('/generated-reports/{generatedReport}', [GeneratedReportController::class, 'show']);
 
         Route::get('/alert-history', [AlertHistoryController::class, 'index']);
 
@@ -130,6 +160,7 @@ Route::get('/notifications', [NotificationController::class, 'index']);
     */
     Route::middleware('role:super_admin')->prefix('superadmin')->group(function () {
         Route::get('/accounts', [AccountController::class, 'index']);
+        Route::get('/accounts/{id}', [AccountController::class, 'show']);
         Route::post('/accounts', [AccountController::class, 'store']);
         Route::put('/accounts/{id}', [AccountController::class, 'update']);
         Route::patch('/accounts/{id}/activate', [AccountController::class, 'activate']);

@@ -10,17 +10,20 @@ class ServiceRequest extends Model
         'request_number',
         'farm_id',
         'requested_by',
-        'assigned_to',
+        'accepted_by',
         'service_type',
         'notes',
         'status',
         'priority',
         'scheduled_at',
+        'previous_scheduled_at',
+        'reschedule_reason',
         'completed_at',
     ];
 
     protected $casts = [
         'scheduled_at' => 'datetime',
+        'previous_scheduled_at' => 'datetime',
         'completed_at' => 'datetime',
     ];
 
@@ -34,8 +37,8 @@ class ServiceRequest extends Model
         return $this->belongsTo(User::class, 'requested_by');
     }
 
-    public function assignedTo()
+    public function acceptedBy()
     {
-        return $this->belongsTo(User::class, 'assigned_to');
+        return $this->belongsTo(User::class, 'accepted_by');
     }
 }

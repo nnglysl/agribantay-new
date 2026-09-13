@@ -1,3 +1,5 @@
+import { clearAllCache } from '../hooks/useCachedFetch'
+
 const TOKEN_KEY = 'token'
 const USER_KEY = 'user'
 const ROLE_KEY = 'role'
@@ -21,6 +23,12 @@ export const setAuth = (token, user, remember = true) => {
   store.setItem(TOKEN_KEY, token)
   store.setItem(USER_KEY, JSON.stringify(user))
   store.setItem(ROLE_KEY, user.role)
+
+  // A previous session (possibly a different user/role) may have left
+  // role-dependent responses cached under the same URL — e.g. a farm's
+  // Service Requests tab returns different data for Admin vs Super Admin
+  // from the identical endpoint. Never carry that across identities.
+  clearAllCache()
 }
 
 export const getToken = () =>
@@ -47,6 +55,7 @@ export const clearAuth = () => {
   sessionStorage.removeItem(TOKEN_KEY)
   sessionStorage.removeItem(USER_KEY)
   sessionStorage.removeItem(ROLE_KEY)
+  clearAllCache()
 }
 
 export const isAuthenticated = () => !!getToken()

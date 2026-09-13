@@ -47,12 +47,12 @@ class RecommendationController extends Controller
         $barangayIssue = SensorReading::whereHas('farm', function ($q) use ($farm) {
                 $q->where('barangay', $farm->barangay)->where('id', '!=', $farm->id);
             })
-            ->where('humidity_status', '!=', 'Normal')
+            ->where('humidity_status', '!=', 'Safe')
             ->exists();
 
         $this->evaluate($farm, 'Community Alert', 'Regional',
             $barangayIssue,
-            $barangayIssue ? 'Warning' : 'Normal',
+            $barangayIssue ? 'Warning' : 'Safe',
             "Nearby farms in {$farm->barangay} reported similar humidity patterns this week.",
             'This may be linked to a regional weather pattern — monitor your readings closely.',
             'Compare your dashboard trend chart with the past 48 hours of data.'

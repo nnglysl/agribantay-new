@@ -46,8 +46,7 @@ export default function AdminDashboard() {
         onNextMonth={nextMonth}
       />
       <p style={styles.mapNote}>
-        Note: Critical Alerts reflect live sensor status and aren't affected by the month filter above — only Inspections are month-scoped.
-      </p>
+Note: Critical Alerts show the current sensor status. Only Inspections are filtered by month.      </p>
 
       {modalOpen === 'critical' && (
         <ListModal title="Critical Alerts" onClose={() => setModalOpen(null)} isMobile={isMobile}>

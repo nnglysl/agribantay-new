@@ -33,6 +33,12 @@ class Sensor extends Model
             if (!$sensor->sensor_code) {
                 $sensor->sensor_code = static::generateSensorCode($sensor->installed_at);
             }
+
+            // label ("Device Name") is always system-generated, never
+            // Admin-entered — see generateDeviceName() below. Any caller-
+            // supplied value is intentionally overwritten so there is no
+            // path to a manually-typed or duplicate Device Name.
+            $sensor->label = static::generateDeviceName($sensor->farm_id, $sensor->installed_at);
         });
     }
 
@@ -56,6 +62,30 @@ class Sensor extends Model
         }
 
         return $code;
+    }
+
+    /**
+     * Format: SFN + farm_id (zero-padded to at least 2 digits) + DDMMYY
+     * (installation date), e.g. SFN01210726 for farm #1's device installed
+     * on 21 July 2026. Unlike generateSensorCode() above, the farm id makes
+     * this unique across farms even when several farms install a device on
+     * the exact same date — a plain date-only code would collide there. A
+     * letter suffix (B, C, D...) still covers the remaining edge case of
+     * the *same* farm registering more than one device on the same day.
+     */
+    public static function generateDeviceName(int $farmId, $date): string
+    {
+        $date = $date instanceof Carbon ? $date : Carbon::parse($date);
+        $base = 'SFN' . str_pad((string) $farmId, 2, '0', STR_PAD_LEFT) . $date->format('dmy');
+
+        $name = $base;
+        $suffix = 65; // ASCII 'A'
+        while (static::where('label', $name)->exists()) {
+            $name = $base . chr($suffix);
+            $suffix++;
+        }
+
+        return $name;
     }
 
     public function farm()

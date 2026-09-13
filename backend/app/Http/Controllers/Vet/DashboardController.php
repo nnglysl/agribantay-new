@@ -12,7 +12,7 @@ class DashboardController extends Controller
     {
         $vetId = Auth::id();
 
-        $baseQuery = fn() => ServiceRequest::where('assigned_to', $vetId)
+        $baseQuery = fn() => ServiceRequest::where('accepted_by', $vetId)
             ->whereIn('service_type', ['Vaccine Request', 'Blood Test Request']);
 
         $assignedRequests = $baseQuery()->count();
@@ -23,7 +23,7 @@ class DashboardController extends Controller
 
         $pending = ServiceRequest::whereIn('service_type', ['Vaccine Request', 'Blood Test Request'])
             ->where('status', 'Pending')
-            ->whereNull('assigned_to')
+            ->whereNull('accepted_by')
             ->count();
 
         $completed = $baseQuery()->where('status', 'Completed')->count();
@@ -92,7 +92,7 @@ class DashboardController extends Controller
         // Pending requests don't have a scheduled_at yet. Farm coordinates are
         // included here since neither scheduledVaccinations nor assignedFarms
         // carry them.
-        $mapRequests = ServiceRequest::where('assigned_to', $vetId)
+        $mapRequests = ServiceRequest::where('accepted_by', $vetId)
             ->whereIn('service_type', ['Vaccine Request', 'Blood Test Request'])
             ->where('status', 'Scheduled')
             ->with('farm')

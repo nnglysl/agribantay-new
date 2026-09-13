@@ -1,8 +1,10 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import api from '../../api/axios'
 import VetLayout from '../../components/VetLayout'
+import ServiceRequestDetailsModal from '../../components/ServiceRequestDetailsModal'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { formatDate, formatDateTime } from '../../utils/formatDate'
 
 const BIRD_ESTIMATES = {
   'Small': 'Below 10,000 layers',
@@ -68,7 +70,7 @@ function getRangeBounds(rangeKey, customFrom, customTo) {
 }
 
 export default function VaccinationRequests() {
-  const [tab, setTab] = useState('scheduled')
+  const [tab, setTab] = useState('pending')
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
   const [sortMode, setSortMode] = useState('oldest')
@@ -78,10 +80,10 @@ export default function VaccinationRequests() {
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [acceptTarget, setAcceptTarget] = useState(null)
-  const [noteTarget, setNoteTarget] = useState(null)
-  const [viewTarget, setViewTarget] = useState(null)
+  const [detailsTarget, setDetailsTarget] = useState(null)
   const [confirmDecline, setConfirmDecline] = useState(null)
-  const [confirmComplete, setConfirmComplete] = useState(null)
+  const [completeTarget, setCompleteTarget] = useState(null)
+  const [rescheduleTarget, setRescheduleTarget] = useState(null)
   const isMobile = useIsMobile()
 
   const [filterOpen, setFilterOpen] = useState(false)
@@ -148,12 +150,6 @@ export default function VaccinationRequests() {
     refetch()
   }
 
-  const handleCompleteAction = async () => {
-    await api.patch(`/vet/vaccination-requests/${confirmComplete.id}/complete`)
-    setConfirmComplete(null)
-    refetch()
-  }
-
   const [rangeStart, rangeEnd] = useMemo(
     () => getRangeBounds(range, customFrom, customTo),
     [range, customFrom, customTo]
@@ -169,7 +165,19 @@ export default function VaccinationRequests() {
     })
   }, [requestData.completed, rangeStart, rangeEnd])
 
-  const baseList = tab === 'scheduled' ? requestData.scheduled : filteredCompleted
+  // The backend still groups Pending + Scheduled together under one
+  // "scheduled" key — split them client-side so the page can show a
+  // dedicated Pending tab without touching the API response shape.
+  const pendingList = useMemo(
+    () => (requestData.scheduled || []).filter(r => r.status === 'Pending'),
+    [requestData.scheduled]
+  )
+  const scheduledList = useMemo(
+    () => (requestData.scheduled || []).filter(r => r.status === 'Scheduled'),
+    [requestData.scheduled]
+  )
+
+  const baseList = tab === 'pending' ? pendingList : tab === 'scheduled' ? scheduledList : filteredCompleted
 
   // First Come, First Served — sorts by submission date (created_at) if
   // available, falling back to id order if the backend hasn't been
@@ -219,11 +227,17 @@ export default function VaccinationRequests() {
 
   return (
     <VetLayout>
-      <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Vaccination &amp; Blood Test Requests</h1>
-      <p style={styles.subtitle}>Scheduling &amp; records for both request types</p>
+      <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Service Requests</h1>
+      <p style={styles.subtitle}>Manage vaccination and blood test requests</p>
 
       <div style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
         <div style={styles.tabs}>
+          <div
+            style={{ ...styles.tab, ...(tab === 'pending' ? styles.tabActive : {}) }}
+            onClick={() => setTab('pending')}
+          >
+            Pending
+          </div>
           <div
             style={{ ...styles.tab, ...(tab === 'scheduled' ? styles.tabActive : {}) }}
             onClick={() => setTab('scheduled')}
@@ -366,53 +380,51 @@ export default function VaccinationRequests() {
                         <div style={styles.farmMeta}>
                           {r.barangay} · {BIRD_ESTIMATES[r.farm_size] || 'Size unknown'}
                         </div>
-                        {r.notes && <div style={styles.notes}>{r.notes}</div>}
                       </td>
                       <td style={styles.td}>
-                        <span style={{ ...styles.typeTag, color: typeColor, backgroundColor: `${typeColor}18` }}>
+                        <span style={{ ...styles.typeText, color: typeColor }}>
                           {requestTypeLabel(r.service_type)}
                         </span>
                       </td>
                       <td style={styles.td}>{r.owner_name}</td>
                       <td style={styles.td}>
                         {r.completed_at
-                          ? new Date(r.completed_at).toLocaleDateString()
+                          ? formatDate(r.completed_at)
                           : r.scheduled_at
-                          ? new Date(r.scheduled_at).toLocaleDateString()
+                          ? formatDate(r.scheduled_at)
                           : '—'}
                       </td>
                       <td style={styles.td}>
                         <span style={{ ...styles.badge, color: c, backgroundColor: badgeBg(r.status) }}>
-                          <span style={{ ...styles.badgeDot, backgroundColor: c }} />
                           {r.status}
                         </span>
                       </td>
                       <td style={styles.td}>
                         <div style={styles.actionGroup}>
-                          {r.status === 'Completed' && (
-                            <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => setViewTarget(r)}>
-                              View
-                            </span>
-                          )}
                           {r.status === 'Pending' && (
                             <>
-                              <span style={{ ...styles.actionBtn, ...styles.acceptBtn }} onClick={() => setAcceptTarget(r)}>
+                              <span style={{ ...styles.actionBtn, ...styles.primaryAcceptBtn }} onClick={() => setAcceptTarget(r)}>
                                 Accept
                               </span>
-                              <span style={{ ...styles.actionBtn, ...styles.declineBtn }} onClick={() => setConfirmDecline(r)}>
+                              <span style={{ ...styles.actionBtn, ...styles.primaryDeclineBtn }} onClick={() => setConfirmDecline(r)}>
                                 Decline
                               </span>
                             </>
                           )}
                           {r.status === 'Scheduled' && (
                             <>
-                              <span style={{ ...styles.actionBtn, ...styles.noteBtn }} onClick={() => setNoteTarget(r)}>
-                                Add Note
-                              </span>
-                              <span style={{ ...styles.actionBtn, ...styles.completeBtn }} onClick={() => setConfirmComplete(r)}>
+                              <span style={{ ...styles.actionBtn, ...styles.primaryCompleteBtn }} onClick={() => setCompleteTarget(r)}>
                                 Complete
                               </span>
+                              <span style={{ ...styles.actionBtn, ...styles.rescheduleBtn }} onClick={() => setRescheduleTarget(r)}>
+                                Reschedule
+                              </span>
                             </>
+                          )}
+                          {r.status === 'Completed' && (
+                            <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => setDetailsTarget(r)}>
+                              View
+                            </span>
                           )}
                           {r.status === 'Cancelled' && <span style={styles.noAction}>—</span>}
                         </div>
@@ -457,21 +469,11 @@ export default function VaccinationRequests() {
         />
       )}
 
-      {noteTarget && (
-        <NoteModal
-          request={noteTarget}
+      {detailsTarget && (
+        <ServiceRequestDetailsModal
+          request={detailsTarget}
           isMobile={isMobile}
-          onClose={() => setNoteTarget(null)}
-          onSuccess={() => { setNoteTarget(null); refetch() }}
-        />
-      )}
-
-      {viewTarget && (
-        <FarmHistoryModal
-          farm={viewTarget}
-          allRequests={[...(requestData.scheduled || []), ...(requestData.completed || [])]}
-          isMobile={isMobile}
-          onClose={() => setViewTarget(null)}
+          onClose={() => setDetailsTarget(null)}
         />
       )}
 
@@ -492,21 +494,22 @@ export default function VaccinationRequests() {
         </div>
       )}
 
-      {confirmComplete && (
-        <div style={modalStyles.overlay} onClick={() => setConfirmComplete(null)}>
-          <div style={{ ...confirmStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
-            <h3 style={confirmStyles.title}>Complete {requestTypeLabel(confirmComplete.service_type)}</h3>
-            <p style={confirmStyles.message}>
-              Mark the {requestTypeLabel(confirmComplete.service_type).toLowerCase()} at {confirmComplete.farm_name} as completed?
-            </p>
-            <div style={modalStyles.actions}>
-              <button onClick={() => setConfirmComplete(null)} style={modalStyles.cancelBtn}>Cancel</button>
-              <button onClick={handleCompleteAction} style={{ ...modalStyles.submitBtn, backgroundColor: '#2c8047' }}>
-                Mark Completed
-              </button>
-            </div>
-          </div>
-        </div>
+      {completeTarget && (
+        <CompleteModal
+          request={completeTarget}
+          isMobile={isMobile}
+          onClose={() => setCompleteTarget(null)}
+          onSuccess={() => { setCompleteTarget(null); refetch() }}
+        />
+      )}
+
+      {rescheduleTarget && (
+        <RescheduleModal
+          request={rescheduleTarget}
+          isMobile={isMobile}
+          onClose={() => setRescheduleTarget(null)}
+          onSuccess={() => { setRescheduleTarget(null); refetch() }}
+        />
       )}
     </VetLayout>
   )
@@ -583,10 +586,204 @@ function Pagination({
   )
 }
 
+// Reached only via "View" on a Completed request — a read-only look back at
+// what happened, including the vet's own Visit Notes & Insights recorded at
+// completion time and, if the visit was ever rescheduled along the way, that
+// history too.
+function CompleteModal({ request, onClose, onSuccess, isMobile }) {
+  const [notes, setNotes] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+
+    if (!notes.trim()) {
+      setError('Please document what happened during the farm visit.')
+      return
+    }
+
+    setLoading(true)
+    try {
+      await api.patch(`/vet/vaccination-requests/${request.id}/complete`, { notes })
+      onSuccess()
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to complete request.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div style={modalStyles.overlay} onClick={onClose}>
+      <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
+        <div style={modalStyles.header}>
+          <h3 style={modalStyles.title}>Complete Service Request</h3>
+          <span style={modalStyles.close} onClick={onClose}>×</span>
+        </div>
+
+        <div style={detailStyles.block}>
+          <span style={detailStyles.sectionLabel}>Request Information</span>
+          <div style={detailStyles.row}>
+            <span style={detailStyles.label}>Farm Name</span>
+            <span style={detailStyles.value}>{request.farm_name}</span>
+          </div>
+          <div style={detailStyles.row}>
+            <span style={detailStyles.label}>Farm Owner</span>
+            <span style={detailStyles.value}>{request.owner_name}</span>
+          </div>
+          <div style={detailStyles.row}>
+            <span style={detailStyles.label}>Service Type</span>
+            <span style={detailStyles.value}>{requestTypeLabel(request.service_type)}</span>
+          </div>
+          <div style={detailStyles.row}>
+            <span style={detailStyles.label}>Scheduled Date</span>
+            <span style={detailStyles.value}>{request.scheduled_at ? formatDateTime(request.scheduled_at) : '—'}</span>
+          </div>
+          <div style={{ ...detailStyles.row, borderBottom: 'none' }}>
+            <span style={detailStyles.label}>Request Status</span>
+            <span style={detailStyles.value}>{request.status}</span>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          {error && <div style={modalStyles.errorBox}>{error}</div>}
+
+          <label style={modalStyles.label}>Visit Notes &amp; Insights</label>
+          <p style={modalStyles.helperText}>
+            Record your observations, actions taken, findings, and recommendations during the farm visit.
+          </p>
+          <textarea
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            style={{ ...modalStyles.input, minHeight: '130px', resize: 'vertical' }}
+            placeholder="Example: Inspected the poultry area and checked the reported concern. Recommended improving ventilation and cleaning the affected area..."
+          />
+
+          <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
+            <button type="button" onClick={onClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
+              Cancel
+            </button>
+            <button type="submit" disabled={loading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
+              {loading ? 'Saving...' : 'Complete Request'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function RescheduleModal({ request, onClose, onSuccess, isMobile }) {
+  const [date, setDate] = useState('')
+  const [time, setTime] = useState('09:00')
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+
+    if (!date) {
+      setError('Please select a new date.')
+      return
+    }
+    if (!reason.trim()) {
+      setError('Please explain why the visit was not completed.')
+      return
+    }
+
+    setLoading(true)
+    try {
+      await api.patch(`/vet/vaccination-requests/${request.id}/reschedule`, {
+        scheduled_at: `${date} ${time}:00`,
+        reason,
+      })
+      onSuccess()
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to reschedule request.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div style={modalStyles.overlay} onClick={onClose}>
+      <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
+        <div style={modalStyles.header}>
+          <h3 style={modalStyles.title}>Reschedule Service Request</h3>
+          <span style={modalStyles.close} onClick={onClose}>×</span>
+        </div>
+
+        <div style={detailStyles.block}>
+          <span style={detailStyles.sectionLabel}>Request Information</span>
+          <div style={detailStyles.row}>
+            <span style={detailStyles.label}>Farm Name</span>
+            <span style={detailStyles.value}>{request.farm_name}</span>
+          </div>
+          <div style={detailStyles.row}>
+            <span style={detailStyles.label}>Farm Owner</span>
+            <span style={detailStyles.value}>{request.owner_name}</span>
+          </div>
+          <div style={detailStyles.row}>
+            <span style={detailStyles.label}>Service Type</span>
+            <span style={detailStyles.value}>{requestTypeLabel(request.service_type)}</span>
+          </div>
+          <div style={{ ...detailStyles.row, borderBottom: 'none' }}>
+            <span style={detailStyles.label}>Current Scheduled Date</span>
+            <span style={detailStyles.value}>{request.scheduled_at ? formatDateTime(request.scheduled_at) : '—'}</span>
+          </div>
+        </div>
+
+        {request.previous_scheduled_at && (
+          <p style={modalStyles.contextNote}>
+            Already rescheduled once, from {formatDateTime(request.previous_scheduled_at)}
+            {request.reschedule_reason ? ` — ${request.reschedule_reason}` : ''}
+          </p>
+        )}
+
+        <form onSubmit={handleSubmit}>
+          {error && <div style={modalStyles.errorBox}>{error}</div>}
+
+          <label style={modalStyles.label}>Reason for Rescheduling</label>
+          <textarea
+            value={reason}
+            onChange={e => setReason(e.target.value)}
+            style={{ ...modalStyles.input, minHeight: '80px', resize: 'vertical' }}
+            placeholder="Example: Farm visit was not completed due to schedule conflict / farm was unavailable during the scheduled visit."
+          />
+
+          <label style={modalStyles.label}>New Schedule</label>
+          <div style={{ ...modalStyles.row, ...(isMobile ? modalStyles.rowMobile : {}) }}>
+            <div>
+              <label style={modalStyles.label}>New Date *</label>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)} style={modalStyles.input} />
+            </div>
+            <div>
+              <label style={modalStyles.label}>New Time *</label>
+              <input type="time" value={time} onChange={e => setTime(e.target.value)} style={modalStyles.input} />
+            </div>
+          </div>
+
+          <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
+            <button type="button" onClick={onClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
+              Cancel
+            </button>
+            <button type="submit" disabled={loading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
+              {loading ? 'Saving...' : 'Reschedule Request'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 function AcceptModal({ request, onClose, onSuccess, isMobile }) {
   const [date, setDate] = useState('')
   const [time, setTime] = useState('09:00')
-  const [notes, setNotes] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -603,7 +800,6 @@ function AcceptModal({ request, onClose, onSuccess, isMobile }) {
     try {
       await api.patch(`/vet/vaccination-requests/${request.id}/accept`, {
         scheduled_at: `${date} ${time}:00`,
-        notes,
       })
       onSuccess()
     } catch (err) {
@@ -636,14 +832,6 @@ function AcceptModal({ request, onClose, onSuccess, isMobile }) {
             </div>
           </div>
 
-          <label style={modalStyles.label}>Notes (optional)</label>
-          <textarea
-            value={notes}
-            onChange={e => setNotes(e.target.value)}
-            style={{ ...modalStyles.input, minHeight: '70px', resize: 'vertical' }}
-            placeholder="Vaccine type/dosage, blood test panel, or special instructions"
-          />
-
           <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
             <button type="button" onClick={onClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
               Cancel
@@ -653,231 +841,6 @@ function AcceptModal({ request, onClose, onSuccess, isMobile }) {
             </button>
           </div>
         </form>
-      </div>
-    </div>
-  )
-}
-
-function NoteModal({ request, onClose, onSuccess, isMobile }) {
-  const [notes, setNotes] = useState(request.notes || '')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    setError('')
-
-    if (!notes.trim()) {
-      setError('Please enter a note.')
-      return
-    }
-
-    setLoading(true)
-    try {
-      await api.post(`/vet/vaccination-requests/${request.id}/note`, { notes })
-      onSuccess()
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to save note.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <div style={modalStyles.overlay} onClick={onClose}>
-      <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
-        <div style={modalStyles.header}>
-          <h3 style={modalStyles.title}>Add Note</h3>
-          <span style={modalStyles.close} onClick={onClose}>×</span>
-        </div>
-        <p style={modalStyles.dateLabel}>Note about this farm visit</p>
-
-        <form onSubmit={handleSubmit}>
-          {error && <div style={modalStyles.errorBox}>{error}</div>}
-
-          <textarea
-            value={notes}
-            onChange={e => setNotes(e.target.value)}
-            style={{ ...modalStyles.input, minHeight: '100px', resize: 'vertical' }}
-            placeholder="e.g. Newcastle disease vaccine administered. All birds healthy. No adverse reactions observed."
-          />
-
-          <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
-            <button type="button" onClick={onClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
-              Cancel
-            </button>
-            <button type="submit" disabled={loading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
-              {loading ? 'Saving...' : 'Save Note'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-const HISTORY_BATCH = 4
-
-function FarmHistoryModal({ farm, allRequests, onClose, isMobile }) {
-  const [expandedId, setExpandedId] = useState(null)
-  const [visibleCount, setVisibleCount] = useState(HISTORY_BATCH)
-  const statusColor = { Pending: '#b45309', Scheduled: '#2f6bb0', Completed: '#2c8047', Cancelled: '#6b7280' }
-
-  const farmRecords = allRequests
-    .filter(r => (farm.farm_id ? r.farm_id === farm.farm_id : r.farm_name === farm.farm_name && r.owner_name === farm.owner_name))
-    .sort((a, b) => {
-      const dateA = new Date(a.completed_at || a.scheduled_at || 0)
-      const dateB = new Date(b.completed_at || b.scheduled_at || 0)
-      return dateB - dateA
-    })
-
-  const completedCount = farmRecords.filter(r => r.status === 'Completed').length
-  const initials = (farm.farm_name || '?').split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('')
-
-  const visibleRecords = farmRecords.slice(0, visibleCount)
-  const remaining = Math.max(0, farmRecords.length - visibleRecords.length)
-
-  const toggleExpand = (id) => setExpandedId(prev => (prev === id ? null : id))
-
-  return (
-    <div style={modalStyles.overlay} onClick={onClose}>
-      <div style={{ ...historyStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
-
-        {/* HEADER */}
-        <div style={historyStyles.accentBar} />
-        <div style={historyStyles.header}>
-          <div style={historyStyles.avatar}>{initials}</div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={historyStyles.farmName}>{farm.farm_name}</div>
-            <div style={historyStyles.ownerName}>{farm.owner_name}</div>
-          </div>
-          <button style={historyStyles.closeX} onClick={onClose} aria-label="Close">×</button>
-        </div>
-
-        {/* BODY */}
-        <div style={historyStyles.body}>
-
-          {/* FARM & OWNER */}
-          <div style={historyStyles.sectionHead}>
-            <span style={historyStyles.sectionIcon}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 11l9-8 9 8" /><path d="M5 10v10h14V10" /></svg>
-            </span>
-            <span style={historyStyles.sectionTitle}>Farm &amp; Owner</span>
-          </div>
-          <div style={{ ...historyStyles.infoGrid, ...(isMobile ? historyStyles.infoGridMobile : {}) }}>
-            <div>
-              <div style={historyStyles.infoLabel}>Barangay</div>
-              <div style={historyStyles.infoValue}>{farm.barangay || '—'}</div>
-            </div>
-            <div>
-              <div style={historyStyles.infoLabel}>Farm Size</div>
-              <div style={historyStyles.infoValue}>
-                {farm.farm_size || '—'} <span style={historyStyles.infoValueSub}>({BIRD_ESTIMATES[farm.farm_size] || '—'})</span>
-              </div>
-            </div>
-            <div>
-              <div style={historyStyles.infoLabel}>Total Records</div>
-              <div style={historyStyles.infoValue}>{farmRecords.length}</div>
-            </div>
-            <div>
-              <div style={historyStyles.infoLabel}>Completed</div>
-              <div style={historyStyles.infoValue}>{completedCount}</div>
-            </div>
-          </div>
-
-          {/* REQUEST HISTORY */}
-          <div style={historyStyles.sectionHead}>
-            <span style={historyStyles.sectionIcon}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
-            </span>
-            <span style={historyStyles.sectionTitle}>Request History</span>
-          </div>
-
-          {farmRecords.length === 0 ? (
-            <div style={historyStyles.emptyBox}>
-              <p style={{ fontSize: '13px', color: '#9aa79d', margin: 0 }}>No records found.</p>
-            </div>
-          ) : (
-            <>
-              <div style={historyStyles.recordList}>
-                {visibleRecords.map(r => {
-                  const isExpanded = expandedId === r.id
-                  const color = statusColor[r.status] || '#8a968d'
-                  return (
-                    <div
-                      key={r.id}
-                      style={{ ...historyStyles.recordCard, borderColor: isExpanded ? color : '#e7e8e0' }}
-                      onClick={() => toggleExpand(r.id)}
-                    >
-                      <div style={historyStyles.recordTop}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span style={{ ...historyStyles.recordBadge, backgroundColor: color }}>{r.status}</span>
-                          <span style={{ ...historyStyles.recordTypeTag, color: requestTypeColor(r.service_type) }}>
-                            {requestTypeLabel(r.service_type)}
-                          </span>
-                        </div>
-                        <span style={historyStyles.recordDateRow}>
-                          <span style={historyStyles.recordDate}>
-                            {r.completed_at
-                              ? new Date(r.completed_at).toLocaleDateString()
-                              : r.scheduled_at
-                              ? new Date(r.scheduled_at).toLocaleDateString()
-                              : '—'}
-                          </span>
-                          <span style={{ ...historyStyles.chevron, transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>▾</span>
-                        </span>
-                      </div>
-
-                      {!isExpanded && r.notes && <p style={historyStyles.recordNotes}>{r.notes}</p>}
-
-                      {isExpanded && (
-                        <div style={historyStyles.expandedBox}>
-                          {r.scheduled_at && (
-                            <div style={historyStyles.expandedRow}>
-                              <span style={historyStyles.expandedLabel}>Scheduled</span>
-                              <span style={historyStyles.expandedValue}>{new Date(r.scheduled_at).toLocaleString()}</span>
-                            </div>
-                          )}
-                          {r.completed_at && (
-                            <div style={historyStyles.expandedRow}>
-                              <span style={historyStyles.expandedLabel}>Completed</span>
-                              <span style={historyStyles.expandedValue}>{new Date(r.completed_at).toLocaleString()}</span>
-                            </div>
-                          )}
-                          <div style={historyStyles.expandedRow}>
-                            <span style={historyStyles.expandedLabel}>Status</span>
-                            <span style={historyStyles.expandedValue}>{r.status}</span>
-                          </div>
-                          {r.notes ? (
-                            <div style={{ marginTop: '8px' }}>
-                              <span style={historyStyles.expandedLabel}>Notes</span>
-                              <p style={historyStyles.expandedNotes}>{r.notes}</p>
-                            </div>
-                          ) : (
-                            <p style={historyStyles.expandedNotes}>No notes recorded.</p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-
-              {remaining > 0 && (
-                <button
-                  style={historyStyles.seeMore}
-                  onClick={() => setVisibleCount(c => c + HISTORY_BATCH)}
-                >
-                  See more ({remaining} remaining)
-                </button>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* FOOTER */}
-        <div style={historyStyles.footer}>
-          <button onClick={onClose} style={historyStyles.closeBtn}>Close</button>
-        </div>
       </div>
     </div>
   )
@@ -974,24 +937,25 @@ const styles = {
   reqNumberCell: { fontSize: '12.5px', color: '#4b5a50', fontFamily: 'monospace' },
   farmName: { fontSize: '14px', fontWeight: 700, color: '#16311d' },
   farmMeta: { fontSize: '12px', color: '#8a968d', marginTop: '2px' },
-  notes: { fontSize: '12px', color: '#8a968d', marginTop: '4px', maxWidth: '240px' },
-  typeTag: {
-    fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '999px', whiteSpace: 'nowrap',
-  },
+  // Plain colored text, no pill/background/border/icon.
+  typeText: { fontSize: '13px', fontWeight: 600 },
+  // Status keeps its colored pill background — just no dot.
   badge: {
-    display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 11px',
+    display: 'inline-flex', alignItems: 'center', padding: '4px 11px',
     borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
   },
-  badgeDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
-  actionGroup: { display: 'flex', gap: '6px', whiteSpace: 'nowrap', justifyContent: 'flex-end' },
+  actionGroup: { display: 'flex', gap: '6px', alignItems: 'center', whiteSpace: 'nowrap', justifyContent: 'flex-end' },
+  // Same button treatment used everywhere else in AgriBantay (Farms,
+  // Manage Accounts): one neutral bordered/white pill shape, differentiated
+  // only by text color — never a filled background.
   actionBtn: {
     padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600,
     cursor: 'pointer', border: '1px solid #e3e6dd', backgroundColor: '#fff', whiteSpace: 'nowrap',
   },
-  acceptBtn: { color: '#2c8047' },
-  declineBtn: { color: '#b91c1c' },
-  noteBtn: { color: '#2f6bb0' },
-  completeBtn: { color: '#2c8047' },
+  primaryAcceptBtn: { color: '#2c8047' },
+  primaryDeclineBtn: { color: '#b91c1c' },
+  primaryCompleteBtn: { color: '#2c8047' },
+  rescheduleBtn: { color: '#2f6bb0' },
   viewBtn: { color: '#4b5a50' },
   noAction: { color: '#c4cabd' },
   empty: { padding: '32px', textAlign: 'center', color: '#9aa79d', fontSize: '14px' },
@@ -1023,6 +987,8 @@ const modalStyles = {
   close: { fontSize: '22px', cursor: 'pointer', color: '#8a968d' },
   dateLabel: { fontSize: '13px', color: '#6b7770', marginBottom: '16px' },
   label: { display: 'block', fontSize: '13px', fontWeight: 600, color: '#33413a', marginBottom: '6px', marginTop: '12px' },
+  helperText: { fontSize: '12px', color: '#8a968d', marginTop: '0', marginBottom: '8px', lineHeight: '1.4' },
+  contextNote: { fontSize: '12px', color: '#6b7770', backgroundColor: '#fafbf8', border: '1px solid #eceee7', borderRadius: '9px', padding: '9px 12px', marginTop: '12px', lineHeight: '1.4' },
   input: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', fontFamily: 'inherit' },
   row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' },
   rowMobile: { gridTemplateColumns: '1fr' },
@@ -1040,62 +1006,12 @@ const confirmStyles = {
   message: { fontSize: '14px', color: '#6b7770', lineHeight: '1.5', marginBottom: '4px' },
 }
 
-const historyStyles = {
-  modal: {
-    fontFamily: SANS, backgroundColor: '#fff', borderRadius: '16px', width: '560px', maxWidth: '90%',
-    maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative',
-    border: '1px solid #e7e8e0', boxShadow: '0 24px 70px rgba(15,38,22,0.28)',
-  },
-
-  accentBar: { height: '6px', background: '#1f5a34', flexShrink: 0 },
-
-  header: { display: 'flex', alignItems: 'center', gap: '14px', padding: '20px 24px', borderBottom: '1px solid #f0efe8', flexShrink: 0 },
-  avatar: {
-    width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#eaf3ec', border: '1px solid #d6e5da',
-    color: '#2c8047', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px',
-    fontWeight: 800, letterSpacing: '0.02em', flexShrink: 0,
-  },
-  farmName: { fontSize: '19px', fontWeight: 800, color: '#16311d', letterSpacing: '-0.01em', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
-  ownerName: { fontSize: '13px', color: '#7b8a80', marginTop: '3px' },
-  closeX: {
-    width: '30px', height: '30px', borderRadius: '8px', border: '1px solid #eceee7', background: '#fff',
-    color: '#8a968d', fontSize: '17px', lineHeight: 1, cursor: 'pointer', flexShrink: 0,
-  },
-
-  body: { padding: '6px 24px 12px', overflowY: 'auto', flex: 1, minHeight: 0 },
-
-  sectionHead: { display: 'flex', alignItems: 'center', gap: '10px', padding: '20px 0 4px' },
-  sectionIcon: { width: '26px', height: '26px', borderRadius: '8px', background: '#2c8047', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  sectionTitle: { fontSize: '14px', fontWeight: 800, color: '#16311d' },
-
-  infoGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: '16px 28px', padding: '14px 0 20px', borderBottom: '1px solid #f0efe8' },
-  infoGridMobile: { gridTemplateColumns: '1fr' },
-  infoLabel: { fontSize: '10.5px', color: '#9aa79d', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '5px' },
-  infoValue: { fontSize: '13.5px', color: '#16311d', fontWeight: 600, lineHeight: 1.4 },
-  infoValueSub: { fontSize: '11px', color: '#6b7770', fontWeight: 500 },
-
-  emptyBox: { backgroundColor: '#fafbf8', borderRadius: '12px', padding: '24px', textAlign: 'center', border: '1px solid #eceee7', marginTop: '14px' },
-  recordList: { display: 'flex', flexDirection: 'column', gap: '10px', padding: '14px 0 4px' },
-  recordCard: { backgroundColor: '#fff', borderRadius: '12px', padding: '12px 14px', border: '1.5px solid #e7e8e0', cursor: 'pointer', transition: 'border-color 0.15s ease' },
-  recordTop: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' },
-  recordBadge: { padding: '3px 10px', borderRadius: '999px', color: '#fff', fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap' },
-  recordTypeTag: { fontSize: '10.5px', fontWeight: 700 },
-  recordDateRow: { display: 'flex', alignItems: 'center', gap: '6px' },
-  recordDate: { fontSize: '12px', color: '#6b7770' },
-  chevron: { fontSize: '12px', color: '#9aa79d', transition: 'transform 0.15s ease', display: 'inline-block' },
-  recordNotes: { fontSize: '13px', color: '#33413a', marginTop: '8px', marginBottom: 0, lineHeight: 1.4 },
-  expandedBox: { backgroundColor: '#fafbf8', borderRadius: '10px', padding: '12px 14px', marginTop: '10px', border: '1px solid #eceee7' },
-  expandedRow: { display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '12px' },
-  expandedLabel: { color: '#8a968d', fontWeight: 600 },
-  expandedValue: { color: '#16311d', fontWeight: 600 },
-  expandedNotes: { fontSize: '13px', color: '#33413a', marginTop: '4px', marginBottom: 0, lineHeight: 1.4 },
-
-seeMore: {
-    width: '100%', marginTop: '12px', padding: '11px', borderRadius: '10px',
-    border: '1px solid #dcdfd6', background: '#fff', color: '#2c8047',
-    fontFamily: SANS, fontSize: '12.5px', fontWeight: 700, cursor: 'pointer',
-  },
-  
-  footer: { padding: '14px 24px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #f0efe8', flexShrink: 0 },
-  closeBtn: { fontFamily: SANS, padding: '9px 22px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#33413a', fontSize: '13px', fontWeight: 700, cursor: 'pointer' },
+const detailStyles = {
+  row: { display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f2f3ed' },
+  label: { fontSize: '13px', color: '#6b7770', fontWeight: 500 },
+  value: { fontSize: '13px', color: '#16311d', fontWeight: 600, textAlign: 'right' },
+  block: { marginTop: '14px' },
+  sectionLabel: { display: 'block', fontSize: '11px', fontWeight: 700, color: '#8a968d', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' },
+  text: { fontSize: '13px', color: '#4b5a50', lineHeight: '1.5', marginTop: '4px' },
 }
+

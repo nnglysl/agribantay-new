@@ -19,12 +19,13 @@ class DashboardController extends Controller
         $totalVets         = User::where('role', 'vet')->count();
         $activeRequests    = ServiceRequest::whereIn('status', ['Pending', 'Scheduled'])->count();
         $resolvedRequests  = ServiceRequest::where('status', 'Completed')->count();
-        $criticalAlerts    = SensorReading::where(function ($q) {
-            $q->where('ammonia_status', 'Critical')
-              ->orWhere('temperature_status', 'Critical')
-              ->orWhere('humidity_status', 'Critical')
-              ->orWhere('moisture_status', 'Critical');
-        })->count();
+
+        // Fixed: previously counted every historical sensor_readings row
+        // that was ever Critical, which never shrinks since readings are
+        // append-only. Now counts farms currently in Critical status —
+        // the same source of truth FarmMap.jsx already uses for pin
+        // colors, so this number and the map agree.
+        $criticalAlerts = Farm::where('current_status', 'Critical')->count();
 
         $upcomingInspections = Inspection::with('farm')
             ->where('status', 'Scheduled')
@@ -40,10 +41,6 @@ class DashboardController extends Controller
                 'status'          => $i->status,
             ]);
 
-
-        // Fly & Odor Control Overview — aggregated across all farms,
-        // not per-farm detail. Reuses the same service_type values
-        // ServiceRequestController already validates against.
         $flyOdorTypes = ['Fly Control Request', 'Odor Control Request'];
 
         $flyOdorSummary = [
@@ -56,18 +53,21 @@ class DashboardController extends Controller
             'odor_count' => ServiceRequest::where('service_type', 'Odor Control Request')->count(),
         ];
 
-        $criticalFarms = SensorReading::with('farm')
-            ->where(function ($q) {
-                $q->where('ammonia_status', 'Critical')
-                  ->orWhere('temperature_status', 'Critical')
-                  ->orWhere('humidity_status', 'Critical')
-                  ->orWhere('moisture_status', 'Critical');
-            })
+        // Fixed: was querying SensorReading directly for any row that was
+        // ever Critical (unbounded, append-only history — the source of
+        // the duplicate "Hernan's Farm" rows and the map/sidebar
+        // disagreement). Now starts from Farm.current_status — the exact
+        // same field FarmMap.jsx reads for pin colors — so a farm can
+        // only ever appear here if it's ACTUALLY Critical right now, and
+        // it appears exactly once, using its single latest reading for
+        // the per-sensor breakdown.
+        $criticalFarms = Farm::where('current_status', 'Critical')
             ->get()
-            ->map(function ($r) {
-                // All four readings, always — each tagged with whether
-                // it's the one(s) actually driving this farm's Critical
-                // status, so the UI can highlight just those.
+            ->map(function ($farm) {
+                $r = SensorReading::where('farm_id', $farm->id)->latest()->first();
+
+                if (!$r) return null;
+
                 $allSensors = [
                     ['type' => 'Ammonia',     'value' => $r->ammonia,     'unit' => 'ppm', 'critical' => $r->ammonia_status === 'Critical'],
                     ['type' => 'Temperature', 'value' => $r->temperature, 'unit' => '°C',  'critical' => $r->temperature_status === 'Critical'],
@@ -78,14 +78,17 @@ class DashboardController extends Controller
                 $criticalCount = count(array_filter($allSensors, fn($s) => $s['critical']));
 
                 return [
-                    'farm_id'          => $r->farm_id,
-                    'farm_name'        => $r->farm->farm_name,
+                    'farm_id'          => $farm->id,
+                    'farm_name'        => $farm->farm_name,
                     'all_sensors'      => $allSensors,
                     'critical_count'   => $criticalCount,
                     'ammonia'          => $r->ammonia,
                     'ammonia_status'   => $r->ammonia_status,
+                    'reading_at'       => $r->created_at?->toIso8601String(),
                 ];
-            });
+            })
+            ->filter() // drops any null (farm marked Critical but has no readings yet — shouldn't happen, but defensive)
+            ->values();
 
         return response()->json([
             'success' => true,

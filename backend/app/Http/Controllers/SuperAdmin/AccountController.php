@@ -65,6 +65,28 @@ class AccountController extends Controller
         return response()->json(['success' => true, 'data' => $accounts]);
     }
 
+    public function show(int $id)
+    {
+        if ($blocked = $this->guardSuperAdmin()) return $blocked;
+
+        $account = User::whereIn('role', self::MANAGEABLE_ROLES)->findOrFail($id);
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'id'                => $account->id,
+                'first_name'        => $account->first_name,
+                'last_name'         => $account->last_name,
+                'email'             => $account->email,
+                'mobile_number'     => $account->mobile_number,
+                'role'              => $account->role,
+                'status'            => $account->status,
+                'profile_photo_url' => $account->profile_photo_path ? asset('storage/' . $account->profile_photo_path) : null,
+                'created_at'        => $account->created_at?->toIso8601String(),
+            ],
+        ]);
+    }
+
     /**
      * Accepts a single 'contact' field — either an email or a mobile
      * number — same pattern as Login and Farm Owner registration.

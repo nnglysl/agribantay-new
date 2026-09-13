@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
@@ -10,6 +11,7 @@ const STATUS_COLOR = { Overdue: '#b45309', 'Non-Compliant': '#b91c1c' }
 const STATUS_BG = { Overdue: '#fbf1e2', 'Non-Compliant': '#fbeaea' }
 
 export default function MaintenanceOverdue() {
+  const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
@@ -22,8 +24,6 @@ export default function MaintenanceOverdue() {
   const [draftBarangay, setDraftBarangay] = useState('')
   const [draftSize, setDraftSize] = useState('')
   const filterRef = useRef(null)
-
-  const [viewFarmId, setViewFarmId] = useState(null)
 
   const params = {}
   if (search) params.search = search
@@ -104,7 +104,7 @@ export default function MaintenanceOverdue() {
 
       <div style={styles.header}>
         <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Overdue Maintenance</h1>
-        <p style={styles.subtitle}>Farms that have exceeded their expected manure clean-out date.</p>
+        <p style={styles.subtitle}>Farms with overdue manure clean-out</p>
       </div>
 
       <div style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
@@ -203,7 +203,6 @@ export default function MaintenanceOverdue() {
                     <td style={styles.td}>{f.last_performed_at || 'Never logged'}</td>
                     <td style={styles.td}>
                       <span style={styles.overdueBadge}>
-                        <span style={styles.overdueBadgeDot} />
                         {formatDaysOverdue(f.days_overdue)}
                       </span>
                     </td>
@@ -213,7 +212,6 @@ export default function MaintenanceOverdue() {
                         color: STATUS_COLOR[f.status] || '#6b7280',
                         backgroundColor: STATUS_BG[f.status] || '#eef1ea',
                       }}>
-                        <span style={{ ...styles.badgeDot, backgroundColor: STATUS_COLOR[f.status] || '#6b7280' }} />
                         {f.status}
                       </span>
                     </td>
@@ -221,7 +219,7 @@ export default function MaintenanceOverdue() {
                       <button
                         type="button"
                         style={styles.viewBtn}
-                        onClick={() => setViewFarmId(f.farm_id)}
+                        onClick={() => navigate(`/admin/maintenance/overdue/${f.farm_id}`)}
                       >
                         View
                       </button>
@@ -254,175 +252,7 @@ export default function MaintenanceOverdue() {
           )}
         </div>
       )}
-
-      <MaintenanceDetailPanel farmId={viewFarmId} onClose={() => setViewFarmId(null)} isMobile={isMobile} />
     </AdminLayout>
-  )
-}
-
-function FarmIcon() {
-  return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2c8047" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 21V9l9-6 9 6v12h-6v-7H9v7H3z" />
-    </svg>
-  )
-}
-
-function WarningIcon({ color }) {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3 2 20h20L12 3z" />
-      <path d="M12 10v4" />
-      <circle cx="12" cy="17" r="0.6" fill={color} stroke="none" />
-    </svg>
-  )
-}
-
-function MaintenanceDetailPanel({ farmId, onClose, isMobile }) {
-  const { data, loading, error } = useCachedFetch(farmId ? `/admin/maintenance/${farmId}/details` : null)
-  const open = !!farmId
-
-  useEffect(() => {
-    document.body.style.overflow = open ? 'hidden' : ''
-    return () => { document.body.style.overflow = '' }
-  }, [open])
-
-  if (!open) return null
-
-  const farm = data?.farm
-  const m = data?.maintenance
-  const notifications = data?.notifications || []
-  const logs = data?.logs || []
-
-  return (
-    <>
-      <div style={panelStyles.clickCatcher} onClick={onClose} />
-      <div style={{ ...panelStyles.panel, ...(isMobile ? panelStyles.panelMobile : {}) }}>
-        <div style={panelStyles.header}>
-          <span style={panelStyles.headerTitle}>Farm Maintenance Details</span>
-          <span style={panelStyles.closeBtn} onClick={onClose}>×</span>
-        </div>
-
-        <div style={panelStyles.body}>
-          {loading && <p style={panelStyles.stateText}>Loading...</p>}
-          {error && <p style={{ ...panelStyles.stateText, color: '#b91c1c' }}>{error}</p>}
-
-          {farm && m && (
-            <>
-              <div style={panelStyles.farmInfoRow}>
-                <span style={panelStyles.farmIconWrap}><FarmIcon /></span>
-                <div style={{ minWidth: 0 }}>
-                  <div style={panelStyles.farmName}>{farm.farm_name}</div>
-                  <div style={panelStyles.farmMeta}>{farm.owner_name} · {farm.barangay}</div>
-                  <span style={panelStyles.sizeBadge}>{farm.farm_size}</span>
-                </div>
-              </div>
-
-              <div style={panelStyles.sectionTitle}>Maintenance Overview</div>
-              <div style={panelStyles.card}>
-                <PanelRow label="Expected Clean-out Date" value={m.due_date} />
-                <PanelRow label="Last Clean-out Date" value={m.last_performed_at} />
-                <PanelRow
-                  label="Days Overdue"
-                  value={m.days_overdue === 0 ? 'Due Today' : `${m.days_overdue} day${m.days_overdue === 1 ? '' : 's'}`}
-                />
-                <PanelRow
-                  label="Maintenance Status"
-                  valueNode={
-                    <span style={{
-                      ...panelStyles.statusPill,
-                      color: STATUS_COLOR[m.status] || '#6b7280',
-                      backgroundColor: STATUS_BG[m.status] || '#eef1ea',
-                    }}>
-                      {m.status}
-                    </span>
-                  }
-                />
-                <PanelRow label="Grace Period Status" value={m.grace_status} last />
-              </div>
-
-              <div style={panelStyles.sectionTitle}>SMS / Notification History</div>
-              <div style={panelStyles.card}>
-                {notifications.length === 0 ? (
-                  <p style={panelStyles.emptyText}>No notifications sent yet for this farm.</p>
-                ) : (
-                  notifications.map((n, i) => {
-                    const color = n.event === 'Non-Compliance Notice' ? '#b91c1c' : '#b45309'
-                    const bg = n.event === 'Non-Compliance Notice' ? '#fbeaea' : '#fbf1e2'
-                    return (
-                      <div key={i} style={{ ...panelStyles.notifRow, ...(i === notifications.length - 1 ? panelStyles.rowLast : {}) }}>
-                        <span style={{ ...panelStyles.notifIconWrap, backgroundColor: bg }}>
-                          <WarningIcon color={color} />
-                        </span>
-                        <div style={{ minWidth: 0, flex: 1 }}>
-                          <div style={panelStyles.notifTopRow}>
-                            <span style={panelStyles.notifTitle}>{n.event}</span>
-                            <span style={{ ...panelStyles.notifStatus, color: n.status === 'Sent' ? '#2c8047' : '#b91c1c' }}>
-                              {n.status}
-                            </span>
-                          </div>
-                          <div style={panelStyles.notifDesc}>{n.description}</div>
-                          <div style={panelStyles.notifTime}>{n.sent_at}</div>
-                        </div>
-                      </div>
-                    )
-                  })
-                )}
-              </div>
-              {notifications.length > 0 && (
-                <div style={panelStyles.viewAllRow}>
-                  View all notifications <span style={panelStyles.viewAllArrow}>›</span>
-                </div>
-              )}
-
-              <div style={{ ...panelStyles.sectionTitle, marginTop: '22px' }}>Manure Clean-out Records</div>
-              <div style={panelStyles.card}>
-                {logs.length === 0 ? (
-                  <p style={panelStyles.emptyText}>No clean-out records logged for this farm yet.</p>
-                ) : (
-                  <table style={panelStyles.logsTable}>
-                    <thead>
-                      <tr>
-                        <th style={panelStyles.logsTh}>Date Cleaned</th>
-                        <th style={panelStyles.logsTh}>Notes</th>
-                        <th style={panelStyles.logsTh}>Recorded By</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {logs.map((log, i) => (
-                        <tr key={i}>
-                          <td style={panelStyles.logsTd}>{log.performed_at}</td>
-                          <td style={panelStyles.logsTd}>{log.notes || '—'}</td>
-                          <td style={panelStyles.logsTd}>{log.recorded_by}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-              {logs.length > 0 && (
-                <div style={panelStyles.viewAllRow}>
-                  View all records <span style={panelStyles.viewAllArrow}>›</span>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        <div style={panelStyles.footer}>
-          <button onClick={onClose} style={panelStyles.closeFooterBtn}>Close</button>
-        </div>
-      </div>
-    </>
-  )
-}
-
-function PanelRow({ label, value, valueNode, last }) {
-  return (
-    <div style={{ ...panelStyles.row, ...(last ? panelStyles.rowLast : {}) }}>
-      <span style={panelStyles.rowLabel}>{label}</span>
-      {valueNode ?? <span style={panelStyles.rowValue}>{value ?? '—'}</span>}
-    </div>
   )
 }
 
@@ -568,15 +398,13 @@ const styles = {
   },
   td: { padding: '13px 20px', fontSize: '13px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle' },
   overdueBadge: {
-    display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 11px', borderRadius: '999px',
+    display: 'inline-flex', alignItems: 'center', padding: '4px 11px', borderRadius: '999px',
     backgroundColor: '#fbeaea', color: '#b91c1c', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
   },
-  overdueBadgeDot: { width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#b91c1c', flexShrink: 0 },
   badge: {
-    display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 11px',
+    display: 'inline-flex', alignItems: 'center', padding: '4px 11px',
     borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
   },
-  badgeDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
   viewBtn: {
     padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600,
     cursor: 'pointer', border: '1px solid #e3e6dd', backgroundColor: '#fff', color: '#4b5a50', whiteSpace: 'nowrap',
@@ -599,88 +427,4 @@ const paginationStyles = {
   pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
   pageBtnActive: { backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff' },
   ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
-}
-
-const panelStyles = {
-  clickCatcher: { position: 'fixed', inset: 0, zIndex: 90, background: 'transparent' },
-  panel: {
-    position: 'fixed', top: 0, right: 0, bottom: 0, width: '440px', maxWidth: '92vw',
-    backgroundColor: '#fff', boxShadow: '-8px 0 32px rgba(15,38,22,0.14)',
-    zIndex: 100, display: 'flex', flexDirection: 'column',
-    animation: 'agb-panel-slide-in 0.22s ease-out', borderLeft: '1px solid #E5E7EB',
-  },
-  panelMobile: { width: '100%', maxWidth: '100%' },
-
-  header: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '18px 22px', borderBottom: '1px solid #E5E7EB', flexShrink: 0,
-  },
-  headerTitle: { fontSize: '15px', fontWeight: 800, color: '#111827', fontFamily: SANS },
-  closeBtn: { fontSize: '20px', cursor: 'pointer', color: '#8a968d', lineHeight: 1 },
-
-  body: { flex: 1, overflowY: 'auto', padding: '20px 22px' },
-  stateText: { fontFamily: SANS, fontSize: '14px', color: '#6b7770' },
-
-  farmInfoRow: { display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '22px' },
-  farmIconWrap: {
-    width: '48px', height: '48px', borderRadius: '50%', backgroundColor: '#eaf3ec',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-  },
-  farmName: { fontSize: '15.5px', fontWeight: 800, color: '#111827', fontFamily: SANS },
-  farmMeta: { fontSize: '12.5px', color: '#6b7280', marginTop: '3px', fontFamily: SANS },
-  sizeBadge: {
-    display: 'inline-block', marginTop: '8px', padding: '3px 10px', borderRadius: '999px',
-    backgroundColor: '#eaf3ec', color: '#2c8047', fontSize: '11px', fontWeight: 700, fontFamily: SANS,
-  },
-
-  sectionTitle: { fontSize: '12.5px', fontWeight: 700, color: '#111827', marginBottom: '10px', fontFamily: SANS },
-
-  card: {
-    backgroundColor: '#fff', border: '1px solid #E5E7EB', borderRadius: '14px',
-    padding: '14px 16px', marginBottom: '8px',
-  },
-
-  row: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
-    padding: '10px 0', borderBottom: '1px solid #F2F3F5',
-  },
-  rowLast: { borderBottom: 'none' },
-  rowLabel: { fontSize: '12.5px', color: '#6b7280', fontFamily: SANS, flexShrink: 0 },
-  rowValue: { fontSize: '13px', fontWeight: 600, color: '#111827', fontFamily: SANS, textAlign: 'right' },
-  statusPill: {
-    padding: '3px 10px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, fontFamily: SANS, whiteSpace: 'nowrap',
-  },
-
-  emptyText: { fontSize: '12.5px', color: '#9aa79d', fontStyle: 'italic', fontFamily: SANS, margin: '4px 0' },
-
-  notifRow: { display: 'flex', alignItems: 'flex-start', gap: '11px', padding: '12px 0', borderBottom: '1px solid #F2F3F5' },
-  notifIconWrap: {
-    width: '32px', height: '32px', borderRadius: '50%', display: 'flex',
-    alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '1px',
-  },
-  notifTopRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' },
-  notifTitle: { fontSize: '13px', fontWeight: 700, color: '#111827', fontFamily: SANS },
-  notifStatus: { fontSize: '11.5px', fontWeight: 700, fontFamily: SANS, flexShrink: 0, whiteSpace: 'nowrap' },
-  notifDesc: { fontSize: '12px', color: '#4b5563', marginTop: '3px', lineHeight: 1.4, fontFamily: SANS },
-  notifTime: { fontSize: '11px', color: '#9ca3af', marginTop: '5px', fontFamily: SANS },
-
-  viewAllRow: {
-    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
-    fontSize: '12.5px', fontWeight: 600, color: '#2c8047', fontFamily: SANS,
-    padding: '10px 0 18px', cursor: 'default',
-  },
-  viewAllArrow: { fontSize: '14px', lineHeight: 1 },
-
-  logsTable: { width: '100%', borderCollapse: 'collapse' },
-  logsTh: {
-    textAlign: 'left', padding: '8px 0', fontSize: '10px', fontWeight: 700, color: '#6b7280',
-    borderBottom: '1px solid #E5E7EB', textTransform: 'uppercase', letterSpacing: '0.04em', fontFamily: SANS,
-  },
-  logsTd: { padding: '9px 0', fontSize: '12.5px', color: '#111827', borderBottom: '1px solid #F2F3F5', fontFamily: SANS },
-
-  footer: { padding: '14px 22px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid #E5E7EB', flexShrink: 0 },
-  closeFooterBtn: {
-    padding: '9px 22px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
-    color: '#33413a', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
-  },
 }

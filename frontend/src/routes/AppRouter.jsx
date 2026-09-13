@@ -5,6 +5,13 @@ import { isAuthenticated, getRole } from '../utils/auth'
 const LandingPage = lazy(() => import('../pages/LandingPage'))
 const Login = lazy(() => import('../pages/Login'))
 const ChangePassword = lazy(() => import('../pages/ChangePassword'))
+const ForgotPassword = lazy(() => import('../pages/ForgotPassword'))
+const EnterAccountInfo = lazy(() => import('../pages/EnterAccountInfo'))
+const VerifyCode = lazy(() => import('../pages/VerifyCode'))
+const ResetPassword = lazy(() => import('../pages/ResetPassword'))
+const PasswordResetSuccess = lazy(() => import('../pages/PasswordResetSuccess'))
+const TermsOfService = lazy(() => import('../pages/TermsOfService'))
+const PrivacyPolicy = lazy(() => import('../pages/DataPolicy'))
 
 const FarmerDashboard = lazy(() => import('../pages/farmowner/Dashboard'))
 const ServiceRequests = lazy(() => import('../pages/farmowner/ServiceRequests'))
@@ -15,20 +22,29 @@ const AdminDashboard = lazy(() => import('../pages/admin/Dashboard'))
 const Farms = lazy(() => import('../pages/admin/Farms'))
 const Inspections = lazy(() => import('../pages/admin/Inspections'))
 const AdminServiceRequests = lazy(() => import('../pages/admin/ServiceRequests'))
-const ActivityLogs = lazy(() => import('../pages/admin/ActivityLogs'))
+const ActivityLogs = lazy(() => import('../pages/superadmin/ActivityLogs'))
 const Reports = lazy(() => import('../pages/admin/Reports'))
 const AdminSettings = lazy(() => import('../pages/admin/Settings'))
 const AlertHistory = lazy(() => import('../pages/admin/AlertHistory'))
 const MaintenanceOverdue = lazy(() => import('../pages/admin/MaintenanceOverdue'))
+const FarmMaintenanceDetails = lazy(() => import('../pages/admin/FarmMaintenanceDetails'))
+const FarmDetails = lazy(() => import('../pages/admin/FarmDetails'))
 
 // Manage Accounts (Admin + Vet) is now exclusive to Super Admin — the old
 // /admin/veterinarians route + regular Admin's access to it is gone.
 // Same underlying component/file, just re-gated and re-routed.
 const ManageAccounts = lazy(() => import('../pages/superadmin/ManageAccounts'))
+const AccountDetails = lazy(() => import('../pages/superadmin/AccountDetails'))
 const SuperAdminReports = lazy(() => import('../pages/superadmin/Reports'))
 const SuperAdminDashboard = lazy(() => import('../pages/superadmin/Dashboard'))
+const SuperAdminFarms = lazy(() => import('../pages/superadmin/Farms'))
+const SuperAdminFarmDetails = lazy(() => import('../pages/superadmin/FarmDetails'))
+const SuperAdminInspections = lazy(() => import('../pages/superadmin/Inspections'))
+const SuperAdminServiceRequests = lazy(() => import('../pages/superadmin/ServiceRequests'))
 
 const VetDashboard = lazy(() => import('../pages/vet/Dashboard'))
+const VetFarms = lazy(() => import('../pages/vet/Farms'))
+const VetFarmDetails = lazy(() => import('../pages/vet/FarmDetails'))
 const VaccinationRequests = lazy(() => import('../pages/vet/VaccinationRequests'))
 const VetReports = lazy(() => import('../pages/vet/Reports'))
 const VetSettings = lazy(() => import('../pages/vet/Settings'))
@@ -66,7 +82,14 @@ export default function AppRouter() {
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<Login />} />
-
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/forgot-password/:channel" element={<EnterAccountInfo />} />
+          <Route path="/verify-code" element={<VerifyCode />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/password-reset-success" element={<PasswordResetSuccess />} />
+          <Route path="/terms" element={<TermsOfService />} />
+          <Route path="/privacy" element={<PrivacyPolicy />} />
+          
           <Route path="/change-password" element={
             <ProtectedRoute>
               <ChangePassword />
@@ -82,6 +105,11 @@ export default function AppRouter() {
           <Route path="/admin/farms" element={
             <ProtectedRoute role="admin">
               <Farms />
+            </ProtectedRoute>
+          } />
+          <Route path="/admin/farms/:farmId" element={
+            <ProtectedRoute role="admin">
+              <FarmDetails />
             </ProtectedRoute>
           } />
           <Route path="/admin/inspections" element={
@@ -109,6 +137,11 @@ export default function AppRouter() {
               <MaintenanceOverdue />
             </ProtectedRoute>
           } />
+          <Route path="/admin/maintenance/overdue/:farmId" element={
+            <ProtectedRoute role="admin">
+              <FarmMaintenanceDetails />
+            </ProtectedRoute>
+          } />
           <Route path="/admin/settings" element={
             <ProtectedRoute role="admin">
               <AdminSettings />
@@ -126,6 +159,11 @@ export default function AppRouter() {
               <ManageAccounts />
             </ProtectedRoute>
           } />
+          <Route path="/superadmin/accounts/:id" element={
+            <ProtectedRoute role="super_admin">
+              <AccountDetails />
+            </ProtectedRoute>
+          } />
           <Route path="/superadmin/reports" element={
             <ProtectedRoute role="super_admin">
               <SuperAdminReports />
@@ -134,6 +172,26 @@ export default function AppRouter() {
           <Route path="/superadmin/activity-logs" element={
             <ProtectedRoute role="super_admin">
               <ActivityLogs />
+            </ProtectedRoute>
+          } />
+          <Route path="/superadmin/farms" element={
+            <ProtectedRoute role="super_admin">
+              <SuperAdminFarms />
+            </ProtectedRoute>
+          } />
+          <Route path="/superadmin/farms/:farmId" element={
+            <ProtectedRoute role="super_admin">
+              <SuperAdminFarmDetails />
+            </ProtectedRoute>
+          } />
+          <Route path="/superadmin/inspections" element={
+            <ProtectedRoute role="super_admin">
+              <SuperAdminInspections />
+            </ProtectedRoute>
+          } />
+          <Route path="/superadmin/service-requests" element={
+            <ProtectedRoute role="super_admin">
+              <SuperAdminServiceRequests />
             </ProtectedRoute>
           } />
 
@@ -163,6 +221,16 @@ export default function AppRouter() {
           <Route path="/vet/dashboard" element={
             <ProtectedRoute role="vet">
               <VetDashboard />
+            </ProtectedRoute>
+          } />
+          <Route path="/vet/farms" element={
+            <ProtectedRoute role="vet">
+              <VetFarms />
+            </ProtectedRoute>
+          } />
+          <Route path="/vet/farms/:farmId" element={
+            <ProtectedRoute role="vet">
+              <VetFarmDetails />
             </ProtectedRoute>
           } />
           <Route path="/vet/vaccination-requests" element={

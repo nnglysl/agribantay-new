@@ -75,7 +75,12 @@ class InsightController extends Controller
             $preventiveActions['sensor_actions']
         );
 
+        // The only change in this file — farm_id lets
+        // RecommendationExplanationService gate Gemini calls to once
+        // per calendar day per farm (persisted in ai_recommendations),
+        // instead of calling Gemini on every single request.
         $translated = app(RecommendationExplanationService::class)->explain([
+            'farm_id'            => $farm->id,
             'farm_name'          => $farm->farm_name,
             'root_cause'         => $diagnosis['root_cause'],
             'trend'              => $trend,

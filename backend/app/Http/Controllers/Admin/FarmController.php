@@ -17,15 +17,18 @@ use App\Services\MaintenanceStatusService;
 use App\Models\MaintenanceLog;
 use App\Models\ManureDisposalRecord;
 use App\Models\Inspection;
+use App\Models\ServiceRequest;
+use App\Mail\TempPasswordMail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Mail;
 
 class FarmController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Farm::with(['user', 'sensorReadings' => function ($q) {
+        $query = Farm::with(['user', 'sensors', 'sensorReadings' => function ($q) {
             $q->latest()->limit(1)->with('sensor');
         }]);
 
@@ -61,7 +64,11 @@ class FarmController extends Controller
 
         $farms = $farms->map(function ($farm) {
             $latestReading = $farm->sensorReadings->first();
-            $sensor = $latestReading?->sensor;
+            // Prefer the sensor that's actually communicating (via the latest
+            // reading); fall back to the most recently registered device so a
+            // farm's Device Name still shows up before its first reading ever
+            // comes in, instead of staying blank until then.
+            $sensor = $latestReading?->sensor ?? $farm->sensors->sortByDesc('installed_at')->first();
 
             return [
                 'id'          => $farm->id,
@@ -81,7 +88,7 @@ class FarmController extends Controller
                 'farm_area_unit' => $farm->farm_area_unit,
                 'status'      => $farm->status,
                 'current_status' => $farm->current_status,
-                'device_name' => $sensor?->label ?? $sensor?->sensor_code ?? null,
+                'device_name' => $sensor?->label ?: $sensor?->sensor_code,
                 'ammonia'     => $latestReading?->ammonia,
                 'ammonia_status' => $latestReading?->ammonia_status,
                 'sensor_status'  => $farm->current_status ?? 'Offline',
@@ -109,6 +116,7 @@ class FarmController extends Controller
                 'id'             => $f->id,
                 'farm_name'      => $f->farm_name,
                 'owner_name'     => $f->owner_name,
+                'barangay'       => $f->barangay,
                 'latitude'       => $f->latitude,
                 'longitude'      => $f->longitude,
                 'current_status' => $f->current_status,
@@ -144,6 +152,15 @@ class FarmController extends Controller
         return $coordinates;
     }
 
+    /**
+     * Temp password delivery: email if the new owner has one (Laravel
+     * Mail via TempPasswordMail), SMS otherwise (existing SmsService) —
+     * never both. Same rule as FarmOwnerController::store(). This branch
+     * currently has no live frontend caller (RegisterModal/AddFarmModal
+     * both always pass farm_owner_id for an owner created via the
+     * dedicated registration step), but is kept consistent in case that
+     * ever changes.
+     */
     public function store(Request $request)
     {
         $request->validate([
@@ -152,6 +169,7 @@ class FarmController extends Controller
             'first_name'    => 'required_without:farm_owner_id|string',
             'last_name'     => 'required_without:farm_owner_id|string',
             'mobile_number' => 'required_without:farm_owner_id|string|unique:users,mobile_number',
+            'email'         => 'nullable|email|unique:users,email',
 
             'farm_name'     => 'required|string',
             'farm_type'     => 'nullable|string',
@@ -168,6 +186,8 @@ class FarmController extends Controller
         ]);
 
         $smsSent = null;
+        $delivered = null;
+        $contactMethod = null;
 
         if ($request->farm_owner_id) {
             $user = User::where('id', $request->farm_owner_id)
@@ -180,20 +200,34 @@ class FarmController extends Controller
                 'first_name'           => $request->first_name,
                 'last_name'            => $request->last_name,
                 'mobile_number'        => $request->mobile_number,
+                'email'                => $request->email,
                 'password'             => bcrypt($tempPassword),
                 'role'                 => 'farm_owner',
                 'status'               => 'active',
                 'must_change_password' => true,
             ]);
 
-            $smsMessage = "Welcome to AgriBantay, {$request->first_name}! Your account is ready. Temporary password: {$tempPassword}. You will be asked to set a new password on your first visit to the AgriBantay portal.";
+            if ($user->email) {
+                try {
+                    Mail::to($user->email)->send(new TempPasswordMail($user, $tempPassword, 'welcome'));
+                    $delivered = true;
+                } catch (\Throwable $e) {
+                    report($e);
+                    $delivered = false;
+                }
+                $contactMethod = 'email';
+            } else {
+                $smsMessage = "Welcome to AgriBantay, {$request->first_name}! Your account is ready. Temporary password: {$tempPassword}. You will be asked to set a new password on your first visit to the AgriBantay portal.";
 
-            $smsSent = app(SmsService::class)->send(
-                $request->mobile_number,
-                $smsMessage,
-                'Account Creation',
-                $user->id
-            );
+                $smsSent = app(SmsService::class)->send(
+                    $request->mobile_number,
+                    $smsMessage,
+                    'Account Creation',
+                    $user->id
+                );
+                $delivered = $smsSent;
+                $contactMethod = 'sms';
+            }
         }
 
         if ($request->filled('latitude') && $request->filled('longitude')) {
@@ -240,17 +274,20 @@ class FarmController extends Controller
 
         ActivityLog::create([
             'user_id' => Auth::id(),
-            'role'    => 'admin',
+            'role'    => Auth::user()->role,
             'action'  => $request->farm_owner_id ? 'Added Farm to Existing Owner' : 'Created Farm Owner Account',
-            'details' => "{$farm->farm_name} — {$user->first_name} {$user->last_name}",
+            'details' => "{$farm->farm_name} — {$user->first_name} {$user->last_name}"
+                . ($contactMethod ? " — temp password sent via {$contactMethod}" : ''),
             'type'    => 'Farm',
         ]);
 
         return response()->json([
-            'success'  => true,
-            'message'  => 'Farm registered successfully.',
-            'sms_sent' => $smsSent,
-            'data'     => ['user' => $user, 'farm' => $farm],
+            'success'        => true,
+            'message'        => 'Farm registered successfully.',
+            'sms_sent'       => $smsSent,
+            'delivered'      => $delivered,
+            'contact_method' => $contactMethod,
+            'data'           => ['user' => $user, 'farm' => $farm],
         ]);
     }
 
@@ -272,7 +309,7 @@ class FarmController extends Controller
 
         ActivityLog::create([
             'user_id' => Auth::id(),
-            'role'    => 'admin',
+            'role'    => Auth::user()->role,
             'action'  => 'Resent temporary password',
             'details' => "Resent SMS to {$user->first_name} {$user->last_name}",
             'type'    => 'Account',
@@ -290,7 +327,12 @@ class FarmController extends Controller
             'user',
             'poultryHouses',
             'inspections',
-            'sensors.poultryHouse',
+            'sensors' => function ($q) {
+                // Most recently registered/installed device first, so the
+                // frontend can just take sensors[0] as "the" primary device
+                // for farms with a single sensor.
+                $q->orderByDesc('installed_at')->with('poultryHouse');
+            },
             'sensorReadings' => function ($q) {
                 $q->latest()->limit(1)->with('sensor.poultryHouse');
             },
@@ -375,12 +417,13 @@ class FarmController extends Controller
             'success' => true,
             'data' => [
                 'records' => $records->getCollection()->map(fn($r) => [
-                    'id'              => $r->id,
-                    'disposal_method' => $r->disposal_method,
-                    'quantity'        => $r->quantity,
-                    'buyer_name'      => $r->buyer_name,
-                    'disposal_date'   => $r->disposal_date->format('M d, Y'),
-                    'notes'           => $r->notes,
+                    'id'                => $r->id,
+                    'disposal_method'   => $r->disposal_method,
+                    'quantity'          => $r->quantity,
+                    'buyer_name'        => $r->buyer_name,
+                    'disposal_date'     => $r->disposal_date->format('M d, Y'),
+                    'disposal_date_raw' => $r->disposal_date->toDateString(),
+                    'notes'             => $r->notes,
                 ]),
                 'current_page' => $records->currentPage(),
                 'last_page'    => $records->lastPage(),
@@ -389,9 +432,6 @@ class FarmController extends Controller
         ]);
     }
 
-    /**
-     * Paginated inspection records — powers the Inspections tab.
-     */
     public function inspectionRecords(Request $request, int $id)
     {
         Farm::findOrFail($id);
@@ -406,15 +446,66 @@ class FarmController extends Controller
             'success' => true,
             'data' => [
                 'inspections' => $inspections->getCollection()->map(fn($i) => [
-                    'id'              => $i->id,
-                    'inspection_type' => $i->inspection_type,
-                    'status'          => $i->status,
-                    'scheduled_at'    => $i->scheduled_at?->format('M d, Y'),
-                    'completed_at'    => $i->completed_at?->format('M d, Y'),
+                    'id'                  => $i->id,
+                    'inspection_type'     => $i->inspection_type,
+                    'status'              => $i->status,
+                    'scheduled_at'        => $i->scheduled_at?->format('M d, Y'),
+                    'scheduled_at_raw'    => $i->scheduled_at?->toIso8601String(),
+                    'completed_at'        => $i->completed_at?->format('M d, Y'),
+                    'completed_at_raw'    => $i->completed_at?->toIso8601String(),
                 ]),
                 'current_page' => $inspections->currentPage(),
                 'last_page'    => $inspections->lastPage(),
                 'total'        => $inspections->total(),
+            ],
+        ]);
+    }
+
+    // Vaccine/Blood Test requests are handled by the Vet role — kept out of
+    // the Admin-visible list here for the same reason as
+    // Admin\ServiceRequestController::VET_ONLY_TYPES. Super Admin sees all.
+    private const VET_ONLY_TYPES = ['Vaccine Request', 'Blood Test Request'];
+
+    /**
+     * View-only service request history for a single farm — powers the Farm
+     * Details "Service Requests" tab. No create/edit/assign actions here;
+     * those remain in the main Admin > Service Requests module.
+     */
+    public function serviceRequests(Request $request, int $id)
+    {
+        Farm::findOrFail($id);
+
+        $perPage = min((int) $request->input('per_page', 10), 50);
+
+        $query = ServiceRequest::where('farm_id', $id)->with('acceptedBy');
+
+        if (Auth::user()?->role === 'super_admin') {
+            // Super Admin's per-farm view is a completed-service history,
+            // not a working queue — Pending/Scheduled requests are still
+            // actionable and belong in the main Service Requests module.
+            $query->where('status', 'Completed');
+        } else {
+            $query->whereNotIn('service_type', self::VET_ONLY_TYPES);
+        }
+
+        $requests = $query->orderByDesc('created_at')->paginate($perPage);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'requests' => $requests->getCollection()->map(fn($r) => [
+                    'id'                => $r->id,
+                    'request_type'      => $r->service_type,
+                    'request_date'      => $r->created_at?->format('M d, Y'),
+                    'request_date_raw'  => $r->created_at?->toIso8601String(),
+                    'status'            => $r->status,
+                    'accepted_by'       => $r->acceptedBy ? $r->acceptedBy->first_name . ' ' . $r->acceptedBy->last_name : null,
+                    'completed_at'      => $r->completed_at?->format('M d, Y'),
+                    'completed_at_raw'  => $r->completed_at?->toIso8601String(),
+                ]),
+                'current_page' => $requests->currentPage(),
+                'last_page'    => $requests->lastPage(),
+                'total'        => $requests->total(),
             ],
         ]);
     }
@@ -535,7 +626,7 @@ class FarmController extends Controller
 
         ActivityLog::create([
             'user_id' => Auth::id(),
-            'role'    => 'admin',
+            'role'    => Auth::user()->role,
             'action'  => 'Updated Farm',
             'details' => "Updated farm: {$farm->farm_name}",
             'type'    => 'Farm',
@@ -548,14 +639,33 @@ class FarmController extends Controller
         ]);
     }
 
+    /**
+     * Only Super Admin may deactivate/activate a farm owner's account —
+     * regular Admin can view/create/edit but not deactivate. Enforced here
+     * (not via route middleware) because /farms/{id} view/edit endpoints in
+     * the same route group must stay available to both roles.
+     */
+    private function guardSuperAdminOnly(): ?\Illuminate\Http\JsonResponse
+    {
+        if (Auth::user()?->role !== 'super_admin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only Super Admin can deactivate or activate a farm account.',
+            ], 403);
+        }
+        return null;
+    }
+
     public function deactivate(int $id)
     {
+        if ($blocked = $this->guardSuperAdminOnly()) return $blocked;
+
         $farm = Farm::findOrFail($id);
         $farm->update(['status' => 'Deactivated']);
 
         ActivityLog::create([
             'user_id' => Auth::id(),
-            'role'    => 'admin',
+            'role'    => Auth::user()->role,
             'action'  => 'Deactivated Farm',
             'details' => "Deactivated farm: {$farm->farm_name}",
             'type'    => 'Farm',
@@ -566,6 +676,8 @@ class FarmController extends Controller
 
     public function activate(int $id)
     {
+        if ($blocked = $this->guardSuperAdminOnly()) return $blocked;
+
         $farm = Farm::findOrFail($id);
         $farm->update(['status' => 'Active']);
 

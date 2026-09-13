@@ -7,9 +7,11 @@ use App\Models\User;
 use App\Models\Farm;
 use App\Models\ActivityLog;
 use App\Services\SmsService;
+use App\Mail\TempPasswordMail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Mail;
 
 class FarmOwnerController extends Controller
 {
@@ -46,8 +48,18 @@ class FarmOwnerController extends Controller
 
     /**
      * Step 1 of registration: create the owner account only.
-     * Mobile Number is required (used for login and SMS delivery of the
-     * temp password); Email and Profile Photo are optional.
+     * Mobile Number is required (used for login); Email and Profile
+     * Photo are optional.
+     *
+     * Temp password delivery channel:
+     *   - Email present            -> Laravel Mail (TempPasswordMail, 'welcome')
+     *   - No email, phone present  -> existing SMS (unchanged behavior)
+     *   - Both present             -> email only, per spec (no duplicate send)
+     *   - Neither present          -> currently unreachable, since
+     *     mobile_number is a required field on this form. Left in
+     *     defensively in case that validation rule is ever relaxed —
+     *     if it ever is reached, the Admin gets told explicitly rather
+     *     than the request silently succeeding with nothing sent.
      */
     public function store(Request $request)
     {
@@ -80,29 +92,51 @@ class FarmOwnerController extends Controller
             'must_change_password' => true,
         ]);
 
-        $smsMessage = "Welcome to AgriBantay, {$request->first_name}! Your account is ready. Temporary password: {$tempPassword}. You will be asked to set a new password on your first visit to the AgriBantay portal.";
+        $contactMethod = null;
+        $delivered = false;
 
-        $smsSent = app(SmsService::class)->send(
-            $request->mobile_number,
-            $smsMessage,
-            'Account Creation',
-            $user->id
-        );
+        if ($user->email) {
+            try {
+                Mail::to($user->email)->send(new TempPasswordMail($user, $tempPassword, 'welcome'));
+                $delivered = true;
+            } catch (\Throwable $e) {
+                // Don't leak SMTP details to the Admin — log it server-side
+                // and let the response's `delivered: false` flag surface
+                // the failure in the UI instead.
+                report($e);
+            }
+            $contactMethod = 'email';
+        } elseif ($user->mobile_number) {
+            $smsMessage = "Welcome to AgriBantay, {$request->first_name}! Your account is ready. Temporary password: {$tempPassword}. You will be asked to set a new password on your first visit to the AgriBantay portal.";
+
+            $delivered = app(SmsService::class)->send(
+                $request->mobile_number,
+                $smsMessage,
+                'Account Creation',
+                $user->id
+            );
+            $contactMethod = 'sms';
+        }
+        // else: no email, no phone — $contactMethod stays null, $delivered
+        // stays false. Frontend should surface this as "no way to notify
+        // this owner" rather than implying success.
 
         ActivityLog::create([
             'user_id' => Auth::id(),
-            'role'    => 'admin',
+            'role'    => Auth::user()->role,
             'action'  => 'Created Farm Owner Account',
-            'details' => "Created owner account for {$user->first_name} {$user->last_name}",
+            'details' => "Created owner account for {$user->first_name} {$user->last_name}"
+                . ($contactMethod ? " — temp password sent via {$contactMethod}" : " — no contact method available, temp password not sent"),
             'type'    => 'Account',
         ]);
 
         return response()->json([
-            'success'  => true,
-            'message'  => 'Farm owner registered successfully.',
-            'id'       => $user->id,
-            'delivered'=> $smsSent,
-            'data'     => $user,
+            'success'        => true,
+            'message'        => 'Farm owner registered successfully.',
+            'id'             => $user->id,
+            'delivered'      => $delivered,
+            'contact_method' => $contactMethod, // 'email' | 'sms' | null — frontend uses this to word the confirmation/warning correctly
+            'data'           => $user,
         ]);
     }
 }

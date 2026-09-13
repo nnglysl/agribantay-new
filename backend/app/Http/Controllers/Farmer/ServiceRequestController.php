@@ -6,17 +6,21 @@ use App\Http\Controllers\Controller;
 use App\Models\Farm;
 use App\Models\ServiceRequest;
 use App\Models\ActivityLog;
+use App\Models\Notification;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 class ServiceRequestController extends Controller
 {
+    private const VET_ONLY_TYPES = ['Vaccine Request', 'Blood Test Request'];
+
     public function index()
     {
         $farm = Farm::where('user_id', Auth::id())->firstOrFail();
 
-        $requests = ServiceRequest::with('assignedTo')
+        $requests = ServiceRequest::with('acceptedBy')
             ->where('farm_id', $farm->id)
             ->latest()
             ->get()
@@ -27,7 +31,7 @@ class ServiceRequestController extends Controller
                 'notes'          => $r->notes,
                 'status'         => $r->status,
                 'priority'       => $r->priority,
-                'assigned_to'    => $r->assignedTo ? $r->assignedTo->first_name . ' ' . $r->assignedTo->last_name : null,
+                'accepted_by'    => $r->acceptedBy ? $r->acceptedBy->first_name . ' ' . $r->acceptedBy->last_name : null,
                 'scheduled_at'   => $r->scheduled_at,
                 'completed_at'   => $r->completed_at,
                 'created_at'     => $r->created_at,
@@ -88,6 +92,25 @@ class ServiceRequestController extends Controller
             'details' => "{$serviceRequest->request_number} — {$farm->farm_name}",
             'type'    => 'Request',
         ]);
+
+        // Vaccine/Blood Test requests are handled exclusively by Vets;
+        // Odor/Fly Control by (regular) Admins — matches who can actually
+        // accept each type, so nobody gets notified about a request they
+        // have no way to act on.
+        $isVetOnly = in_array($request->service_type, self::VET_ONLY_TYPES, true);
+        $recipients = User::where('role', $isVetOnly ? 'vet' : 'admin')
+            ->where('status', 'active')
+            ->get();
+
+        foreach ($recipients as $recipient) {
+            Notification::create([
+                'user_id' => $recipient->id,
+                'title'   => 'New Service Request',
+                'message' => "New {$request->service_type} from \"{$farm->farm_name}\" ({$farm->owner_name}).",
+                'type'    => 'Request Update',
+                'is_read' => false,
+            ]);
+        }
 
         return response()->json([
             'success' => true,

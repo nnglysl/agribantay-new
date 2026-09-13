@@ -46,7 +46,7 @@ class DashboardController extends Controller
                 'farm_name'             => $farm->farm_name,
                 'barangay'              => $farm->barangay,
                 'health_score'          => $healthScore,
-                'health_status'         => $healthScore >= 70 ? 'Healthy' : ($healthScore >= 40 ? 'Warning' : 'Critical'),
+                'health_status'         => $healthScore >= 70 ? 'Safe' : ($healthScore >= 40 ? 'Warning' : 'Critical'),
                 'ammonia'               => $latestReading?->ammonia,
                 'ammonia_status'        => $latestReading?->ammonia_status,
                 'temperature'           => $latestReading?->temperature,

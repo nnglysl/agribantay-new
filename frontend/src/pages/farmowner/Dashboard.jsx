@@ -1,38 +1,11 @@
-import { useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import FarmerLayout from '../../components/FarmerLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
-
-function timeAgo(dateString) {
-  const seconds = Math.floor((new Date() - new Date(dateString)) / 1000)
-
-  if (seconds < 60) return 'just now'
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`
-  const days = Math.floor(hours / 24)
-  return `${days} day${days === 1 ? '' : 's'} ago`
-}
 
 function bilingual(en, fil) {
   if (!en) return null
   if (!fil) return en
   return `${en} (${fil})`
-}
-
-const STANDARD_SERVICES = [
-  { type: 'Odor Control Request', reason: 'Request help managing odor around your poultry area.' },
-  { type: 'Fly Control Request', reason: 'Request help controlling flies around your farm.' },
-  { type: 'Vaccine Request', reason: 'Request a vaccine visit for your chickens.' },
-  { type: 'Blood Test Request', reason: 'Request a blood test for your chickens.' },
-]
-
-function allServices(aiSuggestions) {
-  const suggested = aiSuggestions || []
-  const suggestedTypes = new Set(suggested.map(s => s.type))
-  const fallback = STANDARD_SERVICES.filter(s => !suggestedTypes.has(s.type))
-  return [...suggested, ...fallback]
 }
 
 function useMaterialSymbolsFont() {
@@ -48,63 +21,95 @@ function useMaterialSymbolsFont() {
 }
 
 const responsiveCss = `
-  .fd-conditions-row {
+  .fd-sensor-grid {
     display: grid;
-    grid-template-columns: 260px 1fr;
-    gap: 12px;
-    align-items: stretch;
-  }
-  @media (max-width: 900px) {
-    .fd-conditions-row { grid-template-columns: 1fr; }
-  }
-
-  .fd-mini-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px;
   }
-  @media (max-width: 520px) {
-    .fd-mini-grid { grid-template-columns: 1fr; }
+  @media (max-width: 820px) {
+    .fd-sensor-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 420px) {
+    .fd-sensor-grid { grid-template-columns: 1fr; }
   }
 
-  .fd-second-row {
-    display: grid;
-    grid-template-columns: 1.3fr 1fr 1fr;
-    gap: 12px;
-    align-items: start;
-  }
-  @media (max-width: 1100px) {
-    .fd-second-row { grid-template-columns: 1fr; }
-  }
-
-  .fd-service-row {
+  .fd-banner {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 11px 0;
-    border-bottom: 1px solid #eceee7;
+    gap: 16px;
+    flex-wrap: wrap;
   }
-  .fd-service-row:last-child { border-bottom: none; }
+  @media (max-width: 560px) {
+    .fd-banner { align-items: flex-start; }
+  }
 
   .material-symbols-outlined {
     font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
   }
+
+  .fd-reco-row:last-child { border-bottom: none; }
 `
-const STATUS_COLOR = { Normal: '#2c8047', Warning: '#b45309', Critical: '#b91c1c' }
+
+const STATUS_COLOR = { Safe: '#2c8047', Warning: '#b45309', Critical: '#b91c1c' }
 const BRAND_GREEN = '#1B4332'
-const TEXT_DARK = '#1f2a22'
+const TEXT_DARK = '#16311d'
 const TEXT_GRAY = '#6b7770'
-const BORDER_GRAY = '#e3e6de'
+const BORDER_GRAY = '#e7e8e0'
+
+// The farmer-friendly words/actions below are the EXISTING condition text
+// already shown elsewhere in the app — keyed by the same Safe/Warning/
+// Critical status the backend already computes per sensor. `unit`/`decimals`
+// are only added here to format the raw reading value; they don't affect
+// which word/action is chosen — that's still driven entirely by `status`.
+const SENSOR_CONFIG = {
+  ammonia: {
+    label: 'Ammonia', unit: ' ppm', decimals: 1,
+    words: { Safe: ['Fresh & clean', 'Sariwa'], Warning: ['A little stuffy', 'Medyo mabaho'], Critical: ['Very stuffy', 'Napakabaho'] },
+    action: { Safe: ['All good', 'Ayos naman'], Warning: ['Needs airing out', 'Linisin nang mas madalas'], Critical: ['Air it out now', 'Linisin agad'] },
+  },
+  temperature: {
+    label: 'Temperature', unit: '°C', decimals: 1,
+    words: { Safe: ['Just right', 'Tamang-tama'], Warning: ['Warm', 'Mainit'], Critical: ['Too hot', 'Sobrang init'] },
+    action: { Safe: ['All good', 'Ayos naman'], Warning: ['Add shade or fans', 'Magbigay ng lilim o bentilador'], Critical: ['Cool it down now', 'Palamigin agad'] },
+  },
+  humidity: {
+    label: 'Humidity', unit: '%', decimals: 0,
+    words: { Safe: ['Comfortable', 'Normal'], Warning: ['A bit humid', 'Medyo mataas'], Critical: ['Very humid', 'Sobrang halumigmig'] },
+    action: { Safe: ['All good', 'Ayos naman'], Warning: ['Improve airflow', 'Palakasin ang bentilasyon'], Critical: ['Improve airflow now', 'Bentilasyon agad'] },
+  },
+  moisture: {
+    label: 'Moisture', unit: '%', decimals: 0,
+    words: { Safe: ['Just right', 'Normal'], Warning: ['A bit off', 'Medyo may problema'], Critical: ['Needs attention', 'Kailangan ng atensyon'] },
+    action: { Safe: ['All good', 'Wala pang dapat alalahanin'], Warning: ['Check the bedding', 'Tingnan ang lupa'], Critical: ['Check it now', 'Tingnan agad ang lupa'] },
+  },
+}
+
+const heroConfig = {
+  Safe: {
+    iconName: 'health_and_safety', color: STATUS_COLOR.Safe,
+    title: 'Your farm is doing well',
+    text: 'Everything looks comfortable for your chickens right now. Keep up the good work.',
+  },
+  Warning: {
+    iconName: 'warning', color: STATUS_COLOR.Warning,
+    title: 'Your farm needs attention',
+    text: 'A few conditions need improvement to keep your chickens healthy.',
+  },
+  Critical: {
+    iconName: 'e911_emergency', color: STATUS_COLOR.Critical,
+    title: 'Your farm needs attention now',
+    text: 'Some conditions need your attention today to keep your chickens safe.',
+  },
+}
+
+const RECOMMENDATIONS_ANCHOR = 'fd-recommendations'
 
 export default function FarmerDashboard() {
   useMaterialSymbolsFont()
+  const [showAllRecos, setShowAllRecos] = useState(false)
 
   const { data, loading, error, refetch } = useCachedFetch('/farmer/dashboard')
-  const { data: insight, loading: insightLoading, refetch: refetchInsight } = useCachedFetch('/farmer/insights')
-  const { data: maintenance } = useCachedFetch('/farmer/maintenance')
-  const { data: disposalRecords } = useCachedFetch('/farmer/disposal-records')
-  const navigate = useNavigate()
+  const { data: insight, refetch: refetchInsight } = useCachedFetch('/farmer/insights')
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -118,295 +123,168 @@ export default function FarmerDashboard() {
   if (loading) return <FarmerLayout><p style={styles.stateText}>Loading...</p></FarmerLayout>
   if (error) return <FarmerLayout><p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p></FarmerLayout>
 
-  const hero = heroConfig[data.health_status] || heroConfig.Healthy
-  const latestDisposal = (disposalRecords || [])[0]
-
-  const goToServiceRequest = (serviceType) => {
-    navigate('/farmowner/service-requests', { state: { prefillService: serviceType } })
-  }
+  const hero = heroConfig[data.health_status] || heroConfig.Safe
 
   const recoMainEn = insight?.main_action || insight?.explanation || null
   const recoMainFil = insight?.main_action_fil || insight?.explanation_fil || null
-  const recoText = bilingual(recoMainEn, recoMainFil)
+  const recoMain = bilingual(recoMainEn, recoMainFil)
+
+  const recoItems = []
+  if (recoMain) recoItems.push(recoMain)
+  if (insight?.tips?.length) {
+    insight.tips.forEach((tip, i) => {
+      const text = bilingual(tip, insight.tips_fil?.[i])
+      if (text) recoItems.push(text)
+    })
+  }
+
+  const VISIBLE_LIMIT = 3
+  const visibleRecoItems = showAllRecos ? recoItems : recoItems.slice(0, VISIBLE_LIMIT)
+  const hasMoreRecos = recoItems.length > VISIBLE_LIMIT
 
   return (
     <FarmerLayout>
       <style>{responsiveCss}</style>
 
       <h1 style={styles.title}>Welcome back, {data.farm_name ? data.farm_name.split(' ')[0] : ''}</h1>
-      <p style={styles.subtitle}>
-        Here's how your farm is doing today. We'll tell you if anything needs your attention.
-      </p>
 
-      {/* -------------------------------- Farm status (left) + 4 sensor cards (right) */}
-      <div className="fd-conditions-row">
-        <div style={{ ...styles.heroCard, backgroundColor: hero.color }}>
-          <span
-            className="material-symbols-outlined"
-            style={{ fontSize: '84px', color: '#fff', lineHeight: 1 }}
-          >
-            {hero.iconName}
-          </span>
-          <div style={styles.heroTitle}>{hero.title}</div>
-          <p style={styles.heroText}>{hero.text}</p>
-        </div>
-
-        <div className="fd-mini-grid">
-          <SensorFeel type="ammonia" status={data.ammonia_status} />
-          <SensorFeel type="temperature" status={data.temperature_status} />
-          <SensorFeel type="humidity" status={data.humidity_status} />
-          <SensorFeel type="moisture" status={data.moisture_status} />
+      {/* --------------------------------------------------- Main alert banner */}
+      <div className="fd-banner" style={{ ...styles.banner, backgroundColor: hero.color }}>
+        <span
+          className="material-symbols-outlined"
+          style={{ fontSize: '38px', color: '#fff', lineHeight: 1, flexShrink: 0 }}
+        >
+          {hero.iconName}
+        </span>
+        <div style={{ flex: 1, minWidth: '200px' }}>
+          <div style={styles.bannerTitle}>{hero.title}</div>
+          <p style={styles.bannerText}>{hero.text}</p>
         </div>
       </div>
 
-      {/* ------------------------------------------------------------- Second row */}
-      <div className="fd-second-row" style={{ marginTop: '16px' }}>
-        <div style={styles.card}>
-          <div style={styles.cardTitle}>Recommendations</div>
+      {/* --------------------------------------------------------- Farm Conditions */}
+      <h2 style={styles.sectionTitle}>Farm Conditions</h2>
+      <div className="fd-sensor-grid">
+        <SensorCard type="ammonia" value={data.ammonia} status={data.ammonia_status} />
+        <SensorCard type="temperature" value={data.temperature} status={data.temperature_status} />
+        <SensorCard type="humidity" value={data.humidity} status={data.humidity_status} />
+        <SensorCard type="moisture" value={data.moisture} status={data.moisture_status} />
+      </div>
 
-          {!insightLoading && insight?.available && recoText ? (
-            <p style={styles.recoText}>{recoText}</p>
-          ) : (
-            <p style={styles.emptyText}>No recommendations right now — your farm looks good.</p>
-          )}
+      {/* ------------------------------------------------------- What You Should Do */}
+      <div id={RECOMMENDATIONS_ANCHOR} style={styles.card}>
+        <div style={styles.cardTitle}>What You Should Do</div>
 
-          {insight?.tips?.length > 0 && (
-            <div style={styles.tipsBlock}>
-              <div style={styles.tipsLabel}>Things to keep in mind</div>
-              <div style={styles.insightTipsList}>
-                {insight.tips.slice(0, 3).map((tip, i) => (
-                  <div key={i} style={styles.insightTipRow}>
-                    <span style={styles.insightTipCheck}>
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
-                    </span>
-                    <span style={styles.insightTipText}>{bilingual(tip, insight.tips_fil?.[i])}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div style={styles.card}>
-          <div style={styles.cardTitle}>Manure Records</div>
-
-          {maintenance?.status && (
-            <div style={styles.manureBlock}>
-              <div style={styles.manureRow}>
-                <div>
-                  <div style={styles.manureRowLabel}>Last Clean-out</div>
-                  <div style={styles.manureRowValue}>{maintenance.status.last_performed_at || '—'}</div>
-                  <div style={styles.manureRowSub}>{maintenance.status.days_since ?? '—'} days ago</div>
-                </div>
-              </div>
-
-              {latestDisposal && (
-                <div style={styles.manureRow}>
-                  <div>
-                    <div style={styles.manureRowLabel}>Last Disposal</div>
-                    <div style={styles.manureRowValue}>{latestDisposal.disposal_date}</div>
-                  </div>
-                </div>
-              )}
-
-              <div style={styles.manureRow}>
-                <div style={styles.manureRowLabel}>Status</div>
-              </div>
-              <span style={{ ...styles.badge, color: maintTextColor(maintenance.status.status) }}>
-                <span style={{ ...styles.badgeDot, backgroundColor: maintTextColor(maintenance.status.status) }} />
-                {maintenance.status.status}
-              </span>
-            </div>
-          )}
-
-          <div style={styles.manureActions}>
-            <button
-              style={styles.outlineBtn}
-              onClick={() => navigate('/farmowner/manure-records', { state: { openCleanoutForm: true } })}
-            >
-              Log Clean-out
-            </button>
-            <button style={styles.fullPrimaryBtnSm} onClick={() => navigate('/farmowner/manure-records')}>
-              View Records
-            </button>
-          </div>
-        </div>
-
-        <div style={styles.card}>
-          <div style={styles.cardTitle}>Municipal Services</div>
-
-          <div style={{ marginTop: '10px' }}>
-            {allServices(insight?.service_suggestions).map((s, i) => (
-              <div key={i} className="fd-service-row">
-                <div style={styles.serviceLeft}>
-                  <span style={styles.serviceIcon}><ServiceIcon type={s.type} /></span>
-                  <div>
-                    <div style={styles.serviceName}>{s.type.replace(' Request', '')}</div>
-                    <div style={styles.serviceReason}>{s.reason}</div>
-                  </div>
-                </div>
-                <button style={styles.serviceBtn} onClick={() => goToServiceRequest(s.type)}>
-                  Request
-                </button>
+        {visibleRecoItems.length > 0 ? (
+          <div style={styles.recoList}>
+            {visibleRecoItems.map((item, i) => (
+              <div key={i} className="fd-reco-row" style={styles.recoRow}>
+                <span style={styles.recoBullet} />
+                <span style={styles.recoRowText}>{item}</span>
               </div>
             ))}
           </div>
-        </div>
+        ) : (
+          <p style={styles.emptyText}>No recommendations right now — your farm looks good.</p>
+        )}
+
+        {hasMoreRecos && !showAllRecos && (
+          <button style={styles.viewAllBtn} onClick={() => setShowAllRecos(true)}>
+            View All Recommendations
+          </button>
+        )}
       </div>
     </FarmerLayout>
   )
 }
 
-function maintTextColor(status) {
-  if (status === 'Non-Compliant') return STATUS_COLOR.Critical
-  if (status === 'Overdue') return STATUS_COLOR.Warning
-  return STATUS_COLOR.Normal // 'Scheduled'
+function formatReading(value, decimals) {
+  const n = Number(value)
+  if (Number.isNaN(n)) return null
+  return n.toFixed(decimals)
 }
 
-const heroConfig = {
-  Healthy: {
-    iconName: 'health_and_safety', color: STATUS_COLOR.Normal,
-    title: 'Your farm is safe',
-    text: 'Everything looks comfortable for your chickens right now. Keep up the good work.',
-  },
-  Warning: {
-    iconName: 'warning', color: STATUS_COLOR.Warning,
-    title: 'Your farm needs attention',
-    text: 'Your farm needs a little attention. A few conditions need improvement to keep your chickens healthy.',
-  },
-  Critical: {
-    iconName: 'e911_emergency', color: STATUS_COLOR.Critical,
-    title: 'Your farm needs attention now',
-    text: 'Some conditions need your attention today to keep your chickens safe and comfortable.',
-  },
-}
-
-const SENSOR_CONFIG = {
-  ammonia: {
-    title: 'Fresh Air', sub: 'Ammonia & smell', icon: 'wind',
-    words: { Normal: ['Fresh & clean', 'Sariwa'], Warning: ['A little stuffy', 'Medyo mabaho'], Critical: ['Very stuffy', 'Napakabaho'] },
-    action: { Normal: ['All good', 'Ayos naman'], Warning: ['Needs airing out', 'Linisin nang mas madalas'], Critical: ['Air it out now', 'Linisin agad'] },
-  },
-  temperature: {
-    title: 'Warmth', sub: 'Temperature', icon: 'thermometer',
-    words: { Normal: ['Just right', 'Tamang-tama'], Warning: ['Warm', 'Mainit'], Critical: ['Too hot', 'Sobrang init'] },
-    action: { Normal: ['All good', 'Ayos naman'], Warning: ['Add shade or fans', 'Magbigay ng lilim o bentilador'], Critical: ['Cool it down now', 'Palamigin agad'] },
-  },
-  humidity: {
-    title: 'Air Moisture', sub: 'Humidity', icon: 'droplet',
-    words: { Normal: ['Comfortable', 'Normal'], Warning: ['A bit humid', 'Medyo mataas'], Critical: ['Very humid', 'Sobrang halumigmig'] },
-    action: { Normal: ['All good', 'Ayos naman'], Warning: ['Improve airflow', 'Palakasin ang bentilasyon'], Critical: ['Improve airflow now', 'Bentilasyon agad'] },
-  },
-  moisture: {
-    title: 'Bedding', sub: 'Ground moisture', icon: 'leaf',
-    words: { Normal: ['Just right', 'Normal'], Warning: ['A bit off', 'Medyo may problema'], Critical: ['Needs attention', 'Kailangan ng atensyon'] },
-    action: { Normal: ['All good', 'Wala pang dapat alalahanin'], Warning: ['Check the bedding', 'Tingnan ang lupa'], Critical: ['Check it now', 'Tingnan agad ang lupa'] },
-  },
-}
-
-function SensorFeel({ type, status }) {
+function SensorCard({ type, value, status }) {
   const cfg = SENSOR_CONFIG[type]
   const dotColor = STATUS_COLOR[status] || '#9aa79d'
   const wordPair = status ? cfg.words[status] : ['No reading', 'Walang datos']
   const actionPair = status ? cfg.action[status] : ['Offline', 'Offline']
   const word = bilingual(wordPair?.[0], wordPair?.[1])
   const action = bilingual(actionPair?.[0], actionPair?.[1])
+  const formatted = formatReading(value, cfg.decimals)
+  const badgeLabel = status || null
+
   return (
-    <div style={styles.feelCard}>
-      <div style={styles.feelHead}>
-        <span style={styles.feelIconChip}>
-          <SensorIcon name={cfg.icon} />
-        </span>
-        <div>
-          <div style={styles.feelTitle}>{cfg.title}</div>
-          <div style={styles.feelSub}>{cfg.sub}</div>
+    <div style={styles.sensorCard}>
+      <div style={styles.sensorHead}>
+        <div style={styles.sensorLabel}>{cfg.label}</div>
+        <div style={styles.sensorHeadRight}>
+          {badgeLabel && (
+            <span style={{ ...styles.statusBadge, color: dotColor, backgroundColor: `${dotColor}18` }}>
+              {badgeLabel}
+            </span>
+          )}
+          <div style={styles.sensorReading}>{formatted !== null ? `${formatted}${cfg.unit}` : '—'}</div>
         </div>
       </div>
-      <div style={styles.feelValueRow}>
-        <span style={{ ...styles.feelStatusDot, backgroundColor: dotColor }} />
-        <span style={styles.feelWord}>{word}</span>
+      <div style={styles.sensorValueRow}>
+        <span style={{ ...styles.sensorStatusDot, backgroundColor: dotColor }} />
+        <span style={styles.sensorWord}>{word}</span>
       </div>
-      <p style={styles.feelActionText}>{action}</p>
+      <p style={styles.sensorActionText}>{action}</p>
     </div>
   )
-}
-
-const iconBase = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.9, strokeLinecap: 'round', strokeLinejoin: 'round' }
-
-function SensorIcon({ name }) {
-  const p = { width: 20, height: 20, viewBox: '0 0 24 24', ...iconBase, style: { color: BRAND_GREEN } }
-  if (name === 'wind') return <svg {...p}><path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2" /><path d="M9.6 4.6A2 2 0 1 1 11 8H2" /><path d="M12.6 19.4A2 2 0 1 0 14 16H2" /></svg>
-  if (name === 'thermometer') return <svg {...p}><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z" /></svg>
-  if (name === 'droplet') return <svg {...p}><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5S5 13 5 15a7 7 0 0 0 7 7z" /></svg>
-  return <svg {...p}><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" /><path d="M2 21c0-3 1.85-5.36 5.08-6" /></svg>
-}
-
-function ServiceIcon({ type }) {
-  const t = (type || '').toLowerCase()
-  const p = { width: 15, height: 15, viewBox: '0 0 24 24', ...iconBase, strokeWidth: 1.7, style: { color: BRAND_GREEN } }
-  if (t.includes('odor')) return <svg {...p}><path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2" /><path d="M9.6 4.6A2 2 0 1 1 11 8H2" /><path d="M12.6 19.4A2 2 0 1 0 14 16H2" /></svg>
-  if (t.includes('fly')) return <svg {...p}><circle cx="12" cy="12" r="3" /><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8" /></svg>
-  if (t.includes('vaccin')) return <svg {...p}><path d="M18 2 22 6" /><path d="M17 7 20 4l-3-3-3 3" /><path d="M8 12l8-8 4 4-8 8" /><path d="M8 12 3 17v4h4l5-5" /></svg>
-  if (t.includes('blood')) return <svg {...p}><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5S5 13 5 15a7 7 0 0 0 7 7z" /></svg>
-  return <svg {...p}><circle cx="12" cy="12" r="9" /></svg>
 }
 
 const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 const styles = {
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
-  title: { fontSize: '20px', fontWeight: 700, color: TEXT_DARK, margin: 0, fontFamily: SANS },
-  subtitle: { fontSize: '13px', color: TEXT_GRAY, marginTop: '4px', marginBottom: '18px', fontFamily: SANS, lineHeight: 1.5, fontWeight: 400 },
-  heroCard: {
-    borderRadius: '8px', padding: '18px 20px', fontFamily: SANS,
-    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-    textAlign: 'center', boxSizing: 'border-box', height: '100%', color: '#fff',
+  title: { fontSize: '25px', fontWeight: 800, letterSpacing: '-0.01em', color: TEXT_DARK, margin: '0 0 20px', fontFamily: SANS },
+
+  banner: {
+    borderRadius: '14px', padding: '20px 22px', fontFamily: SANS, marginBottom: '28px', boxSizing: 'border-box',
   },
-  heroTitle: { fontSize: '17px', fontWeight: 600, color: '#fff', marginTop: '10px' },
-  heroText: { fontSize: '12.5px', color: 'rgba(255,255,255,0.9)', lineHeight: 1.55, margin: '8px 0 0', fontWeight: 400 },
+  bannerTitle: { fontSize: '17px', fontWeight: 800, color: '#fff' },
+  bannerText: { fontSize: '13px', color: 'rgba(255,255,255,0.92)', lineHeight: 1.5, margin: '4px 0 0', fontWeight: 400 },
+
+  sectionTitle: { fontSize: '16px', fontWeight: 800, color: TEXT_DARK, margin: '0 0 12px', fontFamily: SANS },
+
+  sensorCard: {
+    background: '#fff', border: `1px solid ${BORDER_GRAY}`, borderRadius: '14px', padding: '18px', fontFamily: SANS, boxSizing: 'border-box',
+  },
+  sensorHead: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' },
+  sensorLabel: { fontSize: '13.5px', fontWeight: 700, color: BRAND_GREEN },
+  sensorHeadRight: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '5px' },
+  statusBadge: {
+    fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', whiteSpace: 'nowrap',
+  },
+  sensorReading: { fontSize: '14px', fontWeight: 500, color: TEXT_GRAY, flexShrink: 0, whiteSpace: 'nowrap' },
+  sensorValueRow: { marginTop: '14px', display: 'flex', alignItems: 'center', gap: '7px' },
+  sensorStatusDot: { width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0 },
+  sensorWord: { fontSize: '15px', fontWeight: 600, color: TEXT_DARK, lineHeight: 1.3 },
+  sensorActionText: { fontSize: '12px', color: TEXT_DARK, margin: '6px 0 0', lineHeight: 1.4, fontWeight: 400 },
+
   card: {
-    background: '#fff', border: `1px solid ${BORDER_GRAY}`, borderRadius: '8px', padding: '16px', fontFamily: SANS,
-    display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box',
+    background: '#fff', border: `1px solid ${BORDER_GRAY}`, borderRadius: '14px', padding: '22px', fontFamily: SANS,
+    marginTop: '24px', boxSizing: 'border-box',
   },
-  cardTitle: { fontSize: '13px', fontWeight: 700, color: TEXT_DARK },
-  recoText: { fontSize: '13px', color: TEXT_DARK, lineHeight: 1.6, margin: '10px 0 0', fontWeight: 400 },
+  cardTitle: { fontSize: '16px', fontWeight: 800, color: TEXT_DARK },
   emptyText: { fontSize: '13px', color: '#9aa79d', fontStyle: 'italic', marginTop: '12px', fontWeight: 400 },
-  fullPrimaryBtnSm: { flex: 1, padding: '9px', borderRadius: '6px', border: `1px solid ${BRAND_GREEN}`, background: BRAND_GREEN, color: '#fff', fontFamily: SANS, fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
-  outlineBtn: { flex: 1, padding: '9px', borderRadius: '6px', border: `1px solid ${BORDER_GRAY}`, background: '#fff', color: TEXT_DARK, fontFamily: SANS, fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
-  tipsBlock: { marginTop: '14px', paddingTop: '12px', borderTop: `1px solid ${BORDER_GRAY}` },
-  tipsLabel: { fontSize: '10.5px', fontWeight: 600, color: '#9aa79d', textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '8px' },
-  insightTipsList: { display: 'flex', flexDirection: 'column', gap: '9px' },
-  insightTipRow: { display: 'flex', alignItems: 'flex-start', gap: '9px' },
-  insightTipCheck: {
-    width: '16px', height: '16px', borderRadius: '50%', backgroundColor: STATUS_COLOR.Normal,
-    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '1px',
+
+  recoList: { display: 'flex', flexDirection: 'column', marginTop: '12px' },
+  recoRow: {
+    display: 'flex', alignItems: 'flex-start', gap: '12px',
+    padding: '13px 0', borderBottom: `1px solid ${BORDER_GRAY}`,
   },
-  insightTipText: { fontSize: '12.5px', color: TEXT_DARK, lineHeight: 1.5, fontWeight: 400 },
-  manureBlock: { marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '10px' },
-  manureRow: { display: 'flex', gap: '10px', alignItems: 'flex-start' },
-  manureRowLabel: { fontSize: '11.5px', fontWeight: 500, color: TEXT_GRAY },
-  manureRowValue: { fontSize: '13px', fontWeight: 600, color: TEXT_DARK, marginTop: '1px' },
-  manureRowSub: { fontSize: '11px', color: '#9aa79d', marginTop: '1px', fontWeight: 400 },
-  badge: { display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap', width: 'fit-content' },
-  badgeDot: { width: '6px', height: '6px', borderRadius: '50%' },
-  manureActions: { display: 'flex', gap: '8px', marginTop: '14px' },
-  serviceLeft: { display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 },
-  serviceIcon: { width: '26px', height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  serviceName: { fontSize: '12.5px', fontWeight: 600, color: TEXT_DARK },
-  serviceReason: { fontSize: '11px', color: TEXT_GRAY, marginTop: '1px', lineHeight: 1.4, fontWeight: 400 },
-  serviceBtn: { flexShrink: 0, padding: '6px 12px', borderRadius: '6px', border: `1px solid ${BORDER_GRAY}`, background: '#fff', color: TEXT_DARK, fontFamily: SANS, fontSize: '11.5px', fontWeight: 600, cursor: 'pointer' },
-  feelCard: {
-    background: '#fff', border: `1px solid ${BORDER_GRAY}`, borderRadius: '8px', padding: '16px', fontFamily: SANS,
+  recoBullet: {
+    width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#2c8047',
+    flexShrink: 0, marginTop: '6px',
   },
-  feelHead: { display: 'flex', alignItems: 'center', gap: '10px' },
-  feelIconChip: {
-    width: '28px', height: '28px',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  recoRowText: { fontSize: '14px', color: TEXT_DARK, lineHeight: 1.5, fontWeight: 500 },
+
+  viewAllBtn: {
+    marginTop: '18px', padding: '10px 18px', borderRadius: '10px', border: `1px solid ${BORDER_GRAY}`,
+    background: '#fff', color: TEXT_DARK, fontFamily: SANS, fontSize: '13px', fontWeight: 700, cursor: 'pointer',
   },
-  feelTitle: { fontSize: '13.5px', fontWeight: 700, color: BRAND_GREEN },
-  feelSub: { fontSize: '11.5px', color: TEXT_GRAY, fontWeight: 400 },
-  feelValueRow: { marginTop: '14px', display: 'flex', alignItems: 'center', gap: '7px' },
-  feelStatusDot: { width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0 },
-  feelWord: { fontSize: '15px', fontWeight: 700, color: TEXT_DARK, lineHeight: 1.3 },
-  feelActionText: { fontSize: '12px', color: TEXT_DARK, margin: '6px 0 0', lineHeight: 1.4, fontWeight: 400 },
 }

@@ -1,8 +1,24 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { roleBadgeStyle } from '../../utils/roleBadgeStyle'
+
+const ROLE_OPTIONS = [
+  { value: 'all', label: 'All' },
+  { value: 'admin', label: 'Admins' },
+  { value: 'vet', label: 'Veterinarians' },
+]
+
+function IconFilter() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
+      <path d="M4 5h16l-6.5 7.5v6L10.5 21v-8.5z" />
+    </svg>
+  )
+}
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
@@ -11,6 +27,7 @@ function emptyTabState() {
 }
 
 export default function ManageAccounts() {
+  const navigate = useNavigate()
   const [statusTab, setStatusTab] = useState('active')
   const [tabState, setTabState] = useState({
     active: emptyTabState(),
@@ -18,13 +35,38 @@ export default function ManageAccounts() {
   })
 
   const [showRegisterModal, setShowRegisterModal] = useState(false)
-  const [viewTarget, setViewTarget] = useState(null)
-  const [resetTarget, setResetTarget] = useState(null)
-  const [resetResult, setResetResult] = useState(null)
   const [confirmAction, setConfirmAction] = useState(null)
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [draftRole, setDraftRole] = useState('all')
+  const filterRef = useRef(null)
   const isMobile = useIsMobile()
 
   const current = tabState[statusTab]
+
+  useEffect(() => {
+    if (!filterOpen) return
+    const onClickOutside = (e) => {
+      if (filterRef.current && !filterRef.current.contains(e.target)) setFilterOpen(false)
+    }
+    document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [filterOpen])
+
+  const openFilter = () => {
+    setDraftRole(current.roleTab)
+    setFilterOpen(true)
+  }
+
+  const applyRoleFilter = () => {
+    updateCurrent({ roleTab: draftRole, currentPage: 1 })
+    setFilterOpen(false)
+  }
+
+  const resetFilter = () => {
+    setDraftRole('all')
+  }
+
+  const activeFilterCount = current.roleTab !== 'all' ? 1 : 0
 
   const updateCurrent = (patch) => {
     setTabState(prev => ({ ...prev, [statusTab]: { ...prev[statusTab], ...patch } }))
@@ -79,29 +121,12 @@ export default function ManageAccounts() {
     })
   }
 
-  const handleResetPassword = (acc) => {
-    setConfirmAction({
-      title: 'Reset Password',
-      message: `Generate a new temporary password for ${acc.first_name} ${acc.last_name}? Their current password will stop working immediately.`,
-      confirmLabel: 'Reset Password',
-      danger: false,
-      onConfirm: async () => {
-        const res = await api.post(`/superadmin/accounts/${acc.id}/reset-password`)
-        setConfirmAction(null)
-        setResetResult({ name: `${acc.first_name} ${acc.last_name}`, password: res.data.temp_password })
-        refetch()
-      },
-    })
-  }
-
-  const roleBadgeColor = { admin: '#234A35', vet: '#8a5a1f' }
-
   return (
     <AdminLayout>
       <div style={{ ...styles.header, ...(isMobile ? styles.headerMobile : {}) }}>
         <div>
           <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Manage Accounts</h1>
-          <p style={styles.subtitle}>Admin and Veterinarian accounts — Super Admin only</p>
+          <p style={styles.subtitle}>Create and manage Admin and Veterinarian accounts</p>
         </div>
         <button
           style={{ ...styles.newBtn, ...(isMobile ? styles.btnFull : {}) }}
@@ -111,46 +136,72 @@ export default function ManageAccounts() {
         </button>
       </div>
 
-      <div style={styles.statusTabs}>
-        <div
-          style={{ ...styles.statusTab, ...(statusTab === 'active' ? styles.statusTabActive : {}) }}
-          onClick={() => handleStatusTabChange('active')}
-        >
-          Active Users
+      <div style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
+        <div style={styles.statusTabs}>
+          <div
+            style={{ ...styles.statusTab, ...(statusTab === 'active' ? styles.statusTabActive : {}) }}
+            onClick={() => handleStatusTabChange('active')}
+          >
+            Active Users
+          </div>
+          <div
+            style={{ ...styles.statusTab, ...(statusTab === 'deactivated' ? styles.statusTabActive : {}) }}
+            onClick={() => handleStatusTabChange('deactivated')}
+          >
+            Deactivated Users
+          </div>
         </div>
-        <div
-          style={{ ...styles.statusTab, ...(statusTab === 'deactivated' ? styles.statusTabActive : {}) }}
-          onClick={() => handleStatusTabChange('deactivated')}
-        >
-          Deactivated Users
-        </div>
-      </div>
 
-      <div style={{ ...styles.filters, ...(isMobile ? styles.filtersMobile : {}) }}>
-        <input
-          placeholder="Search name, email, or contact..."
-          value={current.search}
-          onChange={e => updateCurrent({ search: e.target.value, currentPage: 1 })}
-          style={styles.searchInput}
-        />
-        <div style={styles.roleTabs}>
-          <div
-            style={{ ...styles.roleTab, ...(current.roleTab === 'all' ? styles.roleTabActive : {}) }}
-            onClick={() => updateCurrent({ roleTab: 'all', currentPage: 1 })}
-          >
-            All
+        <div style={{ ...styles.toolbarRight, ...(isMobile ? styles.toolbarRightMobile : {}) }}>
+          <div style={styles.searchWrap}>
+            <svg style={styles.searchIcon} width="15" height="15" viewBox="0 0 24 24" fill="none">
+              <circle cx="11" cy="11" r="7" stroke="#9aa79d" strokeWidth="2" />
+              <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="#9aa79d" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+            <input
+              placeholder="Search name, email, or contact..."
+              value={current.search}
+              onChange={e => updateCurrent({ search: e.target.value, currentPage: 1 })}
+              style={styles.searchInput}
+            />
+            {current.search && (
+              <button type="button" onClick={() => updateCurrent({ search: '', currentPage: 1 })} style={styles.clearBtn} aria-label="Clear search">
+                ×
+              </button>
+            )}
           </div>
-          <div
-            style={{ ...styles.roleTab, ...(current.roleTab === 'admin' ? styles.roleTabActive : {}) }}
-            onClick={() => updateCurrent({ roleTab: 'admin', currentPage: 1 })}
-          >
-            Admins
-          </div>
-          <div
-            style={{ ...styles.roleTab, ...(current.roleTab === 'vet' ? styles.roleTabActive : {}) }}
-            onClick={() => updateCurrent({ roleTab: 'vet', currentPage: 1 })}
-          >
-            Veterinarians
+
+          <div style={styles.filterAnchor} ref={filterRef}>
+            <button
+              type="button"
+              onClick={() => (filterOpen ? setFilterOpen(false) : openFilter())}
+              style={{ ...styles.filterBtn, ...(activeFilterCount > 0 ? styles.filterBtnActive : {}) }}
+            >
+              <IconFilter />
+              Filter
+              {activeFilterCount > 0 && <span style={styles.filterCount}>{activeFilterCount}</span>}
+            </button>
+
+            {filterOpen && (
+              <div style={{ ...styles.filterPanel, ...(isMobile ? styles.filterPanelMobile : {}) }}>
+                <div style={styles.filterPanelHeader}>
+                  <span style={styles.filterPanelTitle}>Filter</span>
+                  <span style={styles.filterPanelClose} onClick={() => setFilterOpen(false)}>×</span>
+                </div>
+
+                <label style={styles.filterLabel}>Role</label>
+                <select value={draftRole} onChange={e => setDraftRole(e.target.value)} style={styles.filterSelect}>
+                  {ROLE_OPTIONS.map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+
+                <div style={styles.filterActions}>
+                  <button type="button" onClick={resetFilter} style={styles.filterResetBtn}>Reset</button>
+                  <button type="button" onClick={applyRoleFilter} style={styles.filterApplyBtn}>Apply</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -189,7 +240,7 @@ export default function ManageAccounts() {
                     </td>
                     <td style={styles.td}>{acc.first_name} {acc.last_name}</td>
                     <td style={styles.td}>
-                      <span style={{ ...styles.roleBadge, backgroundColor: roleBadgeColor[acc.role] || '#6b7280' }}>
+                      <span style={{ ...styles.roleBadge, ...roleBadgeStyle(acc.role) }}>
                         {acc.role === 'admin' ? 'Admin' : 'Veterinarian'}
                       </span>
                     </td>
@@ -197,8 +248,7 @@ export default function ManageAccounts() {
                     <td style={styles.td}>{acc.mobile_number || '—'}</td>
                     <td style={styles.td}>
                       <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                        <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => setViewTarget(acc)}>View</span>
-                        <span style={{ ...styles.actionBtn, ...styles.resetBtn }} onClick={() => handleResetPassword(acc)}>Reset Password</span>
+                        <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => navigate(`/superadmin/accounts/${acc.id}`)}>View</span>
                         {statusTab === 'active' ? (
                           <span style={{ ...styles.actionBtn, ...styles.deactivateBtn }} onClick={() => handleDeactivate(acc)}>Deactivate</span>
                         ) : (
@@ -241,16 +291,6 @@ export default function ManageAccounts() {
         />
       )}
 
-      {viewTarget && (
-        <ViewEditModal
-          account={viewTarget}
-          isMobile={isMobile}
-          onClose={() => setViewTarget(null)}
-          onSaved={(updated) => { setViewTarget(updated); refetch() }}
-          roleBadgeColor={roleBadgeColor}
-        />
-      )}
-
       {confirmAction && (
         <div style={modalStyles.overlay} onClick={() => setConfirmAction(null)}>
           <div style={{ ...confirmStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
@@ -269,20 +309,6 @@ export default function ManageAccounts() {
         </div>
       )}
 
-      {resetResult && (
-        <div style={modalStyles.overlay} onClick={() => setResetResult(null)}>
-          <div style={{ ...confirmStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
-            <h3 style={confirmStyles.title}>Temporary Password</h3>
-            <p style={confirmStyles.message}>
-              For <strong>{resetResult.name}</strong> — shown once, relay this to them directly:
-            </p>
-            <div style={styles.tempPasswordBox}>{resetResult.password}</div>
-            <div style={modalStyles.actions}>
-              <button onClick={() => setResetResult(null)} style={modalStyles.submitBtn}>Done</button>
-            </div>
-          </div>
-        </div>
-      )}
     </AdminLayout>
   )
 }
@@ -422,7 +448,7 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
           <input placeholder="Mobile number" value={form.contact_number} onChange={update('contact_number')} style={modalStyles.inputFull} />
 
           <p style={modalStyles.hint}>
-            Provide at least one — email or mobile number. A temporary password will be generated automatically and sent via whichever was provided (email if both are filled). The account holder must change it on their first login.
+            Enter at least one email or mobile number. If both are provided, the temporary password will be sent to the email address. The user must change it on their first login.
           </p>
 
           <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
@@ -432,176 +458,6 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
             <button type="submit" disabled={loading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
               {loading ? 'Creating...' : 'Create Account'}
             </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
-function IconUserSmall() {
-  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
-}
-
-function ViewEditModal({ account, onClose, onSaved, isMobile, roleBadgeColor }) {
-  const [isEditing, setIsEditing] = useState(false)
-  const [fullName, setFullName] = useState(`${account.first_name} ${account.last_name}`.trim())
-  const [email, setEmail] = useState(account.email || '')
-  const [contactNumber, setContactNumber] = useState(account.mobile_number || '')
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
-  const [loading, setLoading] = useState(false)
-
-  const isActive = account.status === 'active'
-  const initials = ((account.first_name?.[0] || '') + (account.last_name?.[0] || '')).toUpperCase()
-  const roleLabel = account.role === 'admin' ? 'Admin' : 'Veterinarian'
-
-  const handleCancelEdit = () => {
-    setFullName(`${account.first_name} ${account.last_name}`.trim())
-    setEmail(account.email || '')
-    setContactNumber(account.mobile_number || '')
-    setIsEditing(false)
-    setError('')
-  }
-
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    if (!isEditing) return // hard guard — this should only ever run from the Save Changes button
-    setError('')
-    setSuccess('')
-    setLoading(true)
-    try {
-      const res = await api.put(`/superadmin/accounts/${account.id}`, {
-        full_name: fullName,
-        email,
-        contact_number: contactNumber,
-      })
-      setSuccess('Account updated successfully.')
-      setIsEditing(false)
-      onSaved(res.data.data ? { ...account, ...res.data.data, mobile_number: contactNumber, email } : { ...account, email, mobile_number: contactNumber })
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to update account.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const fieldStyle = (editing) => ({
-    ...profileStyles.fieldBox,
-    ...(editing ? profileStyles.fieldBoxEditable : {}),
-  })
-
-  return (
-    <div style={profileStyles.overlay} onClick={onClose}>
-      <div style={{ ...profileStyles.modal, ...(isMobile ? profileStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
-        <div style={profileStyles.accentBar} />
-
-        <div style={{ ...profileStyles.header, ...(isMobile ? profileStyles.headerMobile : {}) }}>
-          <div style={profileStyles.avatarWrap}>
-            {account.profile_photo_url ? (
-              <img src={account.profile_photo_url} alt={fullName} style={profileStyles.avatarImg} />
-            ) : (
-              <span style={profileStyles.avatarInitials}>{initials || '—'}</span>
-            )}
-          </div>
-          <div style={profileStyles.headerText}>
-            <div style={profileStyles.ownerNameLarge}>{account.first_name} {account.last_name}</div>
-            <div style={profileStyles.roleRow}>
-              <span style={{ ...styles.roleBadge, backgroundColor: roleBadgeColor[account.role] || '#6b7280' }}>
-                {roleLabel}
-              </span>
-            </div>
-          </div>
-          <span style={{
-            ...profileStyles.statusPill,
-            color: isActive ? '#2c8047' : '#6b7280',
-            backgroundColor: isActive ? '#eaf3ec' : '#f0f1ec',
-          }}>
-            <span style={{ ...profileStyles.pillDot, backgroundColor: isActive ? '#2c8047' : '#6b7280' }} />
-            {isActive ? 'Active' : 'Deactivated'}
-          </span>
-          <button style={profileStyles.closeBtn} onClick={onClose} aria-label="Close">×</button>
-        </div>
-
-        <form onSubmit={handleSubmit}>
-          <div style={profileStyles.body}>
-            <div style={profileStyles.section}>
-              <div style={profileStyles.sectionHeader}>
-                <div style={profileStyles.sectionTitleRow}>
-                  <span style={profileStyles.sectionIcon}><IconUserSmall /></span>
-                  <span style={profileStyles.sectionTitle}>Account Information</span>
-                </div>
-                {isEditing && <span style={profileStyles.editingTag}>Editing</span>}
-              </div>
-
-              {error && <div style={profileStyles.errorBox}>{error}</div>}
-              {success && <div style={profileStyles.successBox}>{success}</div>}
-
-              <div style={profileStyles.fieldGrid}>
-                <div style={profileStyles.fieldGroup}>
-                  <label style={profileStyles.fieldLabel}>Full Name</label>
-                  <input
-                    value={fullName}
-                    onChange={e => setFullName(e.target.value)}
-                    disabled={!isEditing}
-                    style={fieldStyle(isEditing)}
-                  />
-                </div>
-                <div style={profileStyles.fieldGroup}>
-                  <label style={profileStyles.fieldLabel}>Email Address</label>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={e => setEmail(e.target.value)}
-                    disabled={!isEditing}
-                    style={fieldStyle(isEditing)}
-                  />
-                </div>
-                <div style={profileStyles.fieldGroup}>
-                  <label style={profileStyles.fieldLabel}>Mobile Number</label>
-                  <input
-                    value={contactNumber}
-                    onChange={e => setContactNumber(e.target.value)}
-                    disabled={!isEditing}
-                    style={fieldStyle(isEditing)}
-                  />
-                </div>
-                <div style={profileStyles.fieldGroup}>
-                  <label style={profileStyles.fieldLabel}>Status</label>
-                  <div style={{
-                    ...profileStyles.fieldBox,
-                    color: isActive ? '#2c8047' : '#6b7280',
-                    fontWeight: 700,
-                  }}>
-                    {isActive ? 'Active' : 'Deactivated'}
-                  </div>
-                </div>
-              </div>
-
-              <p style={profileStyles.note}>
-                Profile photo is set by the account holder in their own Settings and cannot be changed here.
-              </p>
-            </div>
-          </div>
-
-          <div style={profileStyles.footer}>
-            {isEditing ? (
-              <>
-                <button type="button" onClick={handleCancelEdit} style={profileStyles.footerCancelBtn} disabled={loading}>
-                  Cancel
-                </button>
-                <button type="submit" disabled={loading} style={profileStyles.footerPrimaryBtn}>
-                  {loading ? 'Saving...' : 'Save Changes'}
-                </button>
-              </>
-            ) : (
-              <>
-                <button type="button" onClick={onClose} style={profileStyles.footerCancelBtn}>Close</button>
-                <button type="button" onClick={() => { setIsEditing(true); setSuccess('') }} style={profileStyles.footerPrimaryBtn}>
-                  Edit
-                </button>
-              </>
-            )}
           </div>
         </form>
       </div>
@@ -625,22 +481,73 @@ const styles = {
   },
   btnFull: { width: '100%', boxSizing: 'border-box' },
 
-  statusTabs: { display: 'flex', gap: '4px', marginBottom: '18px', borderBottom: '1px solid #e7e8e0' },
+  toolbar: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    gap: '14px', marginBottom: '18px', borderBottom: '1px solid #e7e8e0', flexWrap: 'wrap',
+  },
+  toolbarMobile: { flexDirection: 'column', alignItems: 'stretch', gap: '12px' },
+
+  statusTabs: { display: 'flex', gap: '4px', overflowX: 'auto' },
   statusTab: {
     padding: '10px 18px', fontSize: '14px', fontWeight: 700, color: '#6b7770',
-    cursor: 'pointer', borderBottom: '2px solid transparent', fontFamily: SANS,
+    cursor: 'pointer', borderBottom: '2px solid transparent', fontFamily: SANS, whiteSpace: 'nowrap',
   },
   statusTabActive: { color: '#2c8047', borderBottom: '2px solid #2c8047' },
 
-  filters: { display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '18px', alignItems: 'center' },
-  filtersMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  toolbarRight: { display: 'flex', alignItems: 'center', gap: '10px', paddingBottom: '10px' },
+  toolbarRightMobile: { paddingBottom: '2px' },
+
+  searchWrap: { position: 'relative', width: '260px', maxWidth: '100%' },
+  searchIcon: { position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' },
   searchInput: {
-    flex: 1, minWidth: '220px', padding: '11px 14px', borderRadius: '10px', border: '1px solid #dcdfd6',
-    fontSize: '14px', boxSizing: 'border-box', fontFamily: SANS, color: '#16311d',
+    width: '100%', padding: '8px 34px 8px 34px', borderRadius: '10px',
+    border: '1px solid #dcdfd6', fontSize: '13px', boxSizing: 'border-box',
+    backgroundColor: '#fff', color: '#16311d', fontFamily: SANS,
   },
-  roleTabs: { display: 'flex', gap: '3px', backgroundColor: '#f3f4ef', borderRadius: '10px', padding: '3px' },
-  roleTab: { padding: '8px 14px', fontSize: '12.5px', color: '#6b7770', cursor: 'pointer', borderRadius: '8px', fontWeight: 700, fontFamily: SANS },
-  roleTabActive: { backgroundColor: '#2c8047', color: '#fff' },
+  clearBtn: {
+    position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
+    width: '18px', height: '18px', borderRadius: '50%', border: 'none',
+    backgroundColor: '#eceee7', color: '#6b7770', fontSize: '13px', lineHeight: 1,
+    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontFamily: SANS, padding: 0,
+  },
+
+  filterAnchor: { position: 'relative', flexShrink: 0 },
+  filterBtn: {
+    display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 15px',
+    borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
+    color: '#33413a', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: SANS, whiteSpace: 'nowrap',
+  },
+  filterBtnActive: { borderColor: '#2c8047', color: '#2c8047' },
+  filterCount: {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: '#2c8047',
+    color: '#fff', fontSize: '11px', fontWeight: 700, padding: '0 4px',
+  },
+  filterPanel: {
+    position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 40,
+    backgroundColor: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px',
+    boxShadow: '0 8px 24px rgba(15,38,22,0.12)', padding: '18px', width: '280px',
+  },
+  filterPanelMobile: { right: 0, width: '260px' },
+  filterPanelHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' },
+  filterPanelTitle: { fontSize: '15px', fontWeight: 800, color: '#16311d' },
+  filterPanelClose: { fontSize: '19px', cursor: 'pointer', color: '#8a968d', lineHeight: 1 },
+  filterLabel: { display: 'block', fontSize: '12px', fontWeight: 700, color: '#4b5a50', marginBottom: '7px', marginTop: '14px' },
+  filterSelect: {
+    width: '100%', padding: '9px 12px', borderRadius: '10px', border: '1px solid #dcdfd6',
+    fontSize: '13px', color: '#33413a', backgroundColor: '#fff', cursor: 'pointer',
+    fontFamily: SANS, boxSizing: 'border-box',
+  },
+  filterActions: { display: 'flex', gap: '10px', marginTop: '20px' },
+  filterResetBtn: {
+    flex: 1, padding: '9px 0', borderRadius: '10px', border: '1px solid #dcdfd6',
+    backgroundColor: '#fff', color: '#33413a', fontSize: '13.5px', fontWeight: 600, cursor: 'pointer', fontFamily: SANS,
+  },
+  filterApplyBtn: {
+    flex: 1, padding: '9px 0', borderRadius: '10px', border: 'none',
+    backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
+  },
 
   tableCard: { backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden' },
   scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0', fontFamily: SANS },
@@ -667,16 +574,10 @@ const styles = {
     cursor: 'pointer', border: '1px solid #e3e6dd', backgroundColor: '#fff', whiteSpace: 'nowrap', fontFamily: SANS,
   },
   viewBtn: { color: '#4b5a50' },
-  resetBtn: { color: '#b45309' },
   deactivateBtn: { color: '#b91c1c' },
   activateBtn: { color: '#2c8047' },
 
   empty: { padding: '32px', textAlign: 'center', color: '#9aa79d', fontSize: '14px', fontFamily: SANS },
-  tempPasswordBox: {
-    fontFamily: 'monospace', fontSize: '18px', fontWeight: '700', color: '#16311d',
-    backgroundColor: '#f7f2e7', border: '1px solid #e8e2d3', borderRadius: '8px',
-    padding: '14px', textAlign: 'center', letterSpacing: '1px', marginBottom: '4px',
-  },
 }
 
 const paginationStyles = {
@@ -731,52 +632,4 @@ const confirmStyles = {
   modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '400px', maxWidth: '90%', fontFamily: SANS },
   title: { fontSize: '17px', fontWeight: 800, color: '#16311d', marginTop: 0, marginBottom: '10px' },
   message: { fontSize: '14px', color: '#6b7770', lineHeight: '1.5', marginBottom: '14px' },
-}
-
-// View/Edit account modal — matches the Farms ViewFarmModal design language
-const profileStyles = {
-  overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '16px', boxSizing: 'border-box', fontFamily: SANS },
-  modal: { backgroundColor: '#fff', borderRadius: '16px', width: '560px', maxWidth: '94vw', maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 70px rgba(15,38,22,0.28)', border: '1px solid #e7e8e0', position: 'relative', fontFamily: SANS },
-  modalMobile: { width: '100%', maxWidth: '100%', borderRadius: '16px 16px 0 0', position: 'fixed', bottom: 0, left: 0, maxHeight: '92vh' },
-
-  accentBar: { height: '6px', backgroundColor: '#1f5a34' },
-
-  header: { display: 'flex', alignItems: 'center', gap: '16px', padding: '20px 24px', borderBottom: '1px solid #f0efe8' },
-  headerMobile: { padding: '18px 18px', gap: '12px' },
-  avatarWrap: { width: '60px', height: '60px', borderRadius: '50%', flexShrink: 0, overflow: 'hidden', backgroundColor: '#eaf3ec', border: '1px solid #d6e5da', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  avatarImg: { width: '100%', height: '100%', objectFit: 'cover' },
-  avatarInitials: { fontSize: '20px', fontWeight: 700, color: '#2c8047', letterSpacing: '0.02em' },
-  headerText: { flex: 1, minWidth: 0 },
-  ownerNameLarge: { color: '#16311d', fontSize: '19px', fontWeight: 800, letterSpacing: '-0.01em', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  roleRow: { marginTop: '7px' },
-  statusPill: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '5px 13px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 },
-  pillDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
-  closeBtn: { width: '30px', height: '30px', borderRadius: '8px', border: '1px solid #eceee7', backgroundColor: '#fff', color: '#8a968d', fontSize: '17px', lineHeight: 1, cursor: 'pointer', flexShrink: 0 },
-
-  body: { padding: '4px 24px 8px' },
-
-  section: { padding: '18px 0 4px' },
-  sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
-  sectionTitleRow: { display: 'flex', alignItems: 'center', gap: '10px' },
-  sectionIcon: { width: '26px', height: '26px', borderRadius: '8px', backgroundColor: '#2c8047', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  sectionTitle: { fontSize: '14px', fontWeight: 800, color: '#16311d' },
-  editingTag: { padding: '3px 10px', borderRadius: '999px', fontSize: '10.5px', fontWeight: 700, color: '#2c8047', backgroundColor: '#eaf3ec' },
-
-  errorBox: { backgroundColor: '#fbeaea', border: '1px solid #f0c9c9', color: '#b91c1c', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '14px' },
-  successBox: { backgroundColor: '#eaf3ec', border: '1px solid #cfe0d3', color: '#1f5a34', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '14px' },
-
-  fieldGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '16px 20px' },
-  fieldGroup: { display: 'flex', flexDirection: 'column' },
-  fieldLabel: { fontSize: '10.5px', color: '#9aa79d', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '6px' },
-  fieldBox: {
-    padding: '11px 14px', borderRadius: '10px', border: '1px solid #e7e8e0', backgroundColor: '#fafbf8',
-    fontSize: '14px', color: '#16311d', fontWeight: 600, fontFamily: SANS, width: '100%', boxSizing: 'border-box',
-  },
-  fieldBoxEditable: { backgroundColor: '#fff', borderColor: '#2c8047', cursor: 'text' },
-
-  note: { fontSize: '11.5px', color: '#9aa79d', marginTop: '18px', marginBottom: '4px', lineHeight: '1.5', fontStyle: 'italic' },
-
-  footer: { padding: '14px 24px', display: 'flex', justifyContent: 'flex-end', gap: '10px', borderTop: '1px solid #f0efe8' },
-  footerCancelBtn: { padding: '9px 22px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#33413a', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS },
-  footerPrimaryBtn: { padding: '9px 22px', borderRadius: '10px', border: 'none', backgroundColor: '#2c8047', color: '#fff', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS },
 }
