@@ -105,16 +105,23 @@ class InspectionController extends Controller
                 'title'   => 'Inspection Scheduled',
                 'message' => "An inspection has been scheduled for your farm on {$scheduledFor}.",
                 'type'    => 'Inspection Scheduled',
+                'link'    => '/farmowner/inspections',
                 'is_read' => false,
             ]);
         }
 
         if ($inspection->assigned_to) {
+            $assignee = \App\Models\User::find($inspection->assigned_to);
+            $assigneeLink = $assignee?->role === 'vet'
+                ? "/vet/farms/{$inspection->farm_id}"
+                : '/admin/inspections';
+
             Notification::create([
                 'user_id' => $inspection->assigned_to,
                 'title'   => 'Inspection Assigned',
                 'message' => "You have been assigned an inspection for \"{$inspection->farm->farm_name}\" on {$scheduledFor}.",
                 'type'    => 'Inspection Scheduled',
+                'link'    => $assigneeLink,
                 'is_read' => false,
             ]);
         }

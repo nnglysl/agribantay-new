@@ -62,9 +62,6 @@ export default function SuperAdminDashboard() {
           ]}
         />
       </div>
-      <p style={styles.mapNote}>
-        Critical alerts show the current sensor status.
-      </p>
 
       {modalOpen === 'critical' && (
         <ListModal
@@ -182,7 +179,6 @@ const styles = {
 
   mapTitle: { fontSize: '15px', fontWeight: 700, color: '#16311d', marginTop: '4px', marginBottom: '12px' },
   mapWrap: { border: '1px solid #e7e8e0', borderRadius: '14px', overflow: 'hidden' },
-  mapNote: { fontSize: '11.5px', color: '#9aa79d', marginTop: '12px', lineHeight: 1.5 },
 
   emptyText: { fontSize: '13px', color: '#9aa79d' },
   alertRow: {

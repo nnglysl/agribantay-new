@@ -4,6 +4,8 @@ import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { isValidPhoneNumber, sanitizePhoneInput, PHONE_VALIDATION_MESSAGE } from '../../utils/phoneValidation'
+import VerifyEmailChangeModal from '../../components/VerifyEmailChangeModal'
 
 function getInitials(first, last) {
   return ((first?.[0] || '') + (last?.[0] || '')).toUpperCase()
@@ -28,6 +30,7 @@ export default function AccountDetails() {
   const [confirmReset, setConfirmReset] = useState(false)
   const [resetting, setResetting] = useState(false)
   const [resetResult, setResetResult] = useState(null)
+  const [pendingEmail, setPendingEmail] = useState(null)
 
   if (loading) return <AdminLayout><p style={styles.stateText}>Loading account…</p></AdminLayout>
   if (error || !account) {
@@ -56,16 +59,46 @@ export default function AccountDetails() {
     e.preventDefault()
     setProfileError('')
     setProfileSuccess('')
+
+    if (!isValidPhoneNumber(mobileNumber)) {
+      setProfileError(PHONE_VALIDATION_MESSAGE)
+      return
+    }
+
+    const currentEmail = account.email || ''
+    const newEmail = email.trim()
+    const emailChanged = newEmail !== currentEmail
+
+    if (emailChanged && !newEmail) {
+      setProfileError('Email address is required for this account.')
+      return
+    }
+
     setProfileLoading(true)
     try {
+      // A genuinely new email must be proven deliverable before it's saved
+      // anywhere — this only sends the code; the address itself isn't
+      // written to the account until the Verify New Email modal succeeds.
+      if (emailChanged) {
+        await api.post(`/superadmin/accounts/${id}/email/otp/request`, { email: newEmail })
+      }
+
       await api.put(`/superadmin/accounts/${id}`, {
         full_name: `${firstName} ${lastName}`.trim(),
-        email,
+        // The backend never writes this field on update() — it's only
+        // still required in the payload to satisfy legacy shape validation,
+        // so the account's own CURRENT email is always what's sent here.
+        email: currentEmail,
         contact_number: mobileNumber,
       })
       await refetch()
-      setProfileSuccess('Account updated successfully.')
       setIsEditing(false)
+
+      if (emailChanged) {
+        setPendingEmail(newEmail)
+      } else {
+        setProfileSuccess('Account updated successfully.')
+      }
     } catch (err) {
       setProfileError(err.response?.data?.message || 'Failed to update account.')
     } finally {
@@ -169,8 +202,11 @@ export default function AccountDetails() {
             <div style={styles.fieldGroup}>
               <label style={styles.label}>Mobile Number</label>
               <input
+                type="tel"
+                inputMode="numeric"
+                maxLength={11}
                 value={isEditing ? mobileNumber : (account.mobile_number || '')}
-                onChange={e => setMobileNumber(e.target.value)}
+                onChange={e => setMobileNumber(sanitizePhoneInput(e.target.value))}
                 disabled={!isEditing}
                 style={{ ...styles.input, ...(!isEditing ? styles.inputDisabled : {}) }}
               />
@@ -226,6 +262,23 @@ export default function AccountDetails() {
           Reset Password
         </button>
       </div>
+
+      {pendingEmail && (
+        <VerifyEmailChangeModal
+          email={pendingEmail}
+          requestUrl={`/superadmin/accounts/${id}/email/otp/request`}
+          verifyUrl={`/superadmin/accounts/${id}/email/otp/verify`}
+          onCancel={() => {
+            setPendingEmail(null)
+            setEmail(account.email || '')
+          }}
+          onVerified={async () => {
+            await refetch()
+            setPendingEmail(null)
+            setProfileSuccess('Email verified successfully.')
+          }}
+        />
+      )}
 
       {confirmReset && (
         <div style={modalStyles.overlay} onClick={() => setConfirmReset(false)}>

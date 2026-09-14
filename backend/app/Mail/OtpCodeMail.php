@@ -13,16 +13,22 @@ class OtpCodeMail extends Mailable
 
     public User $user;
     public string $code;
+    public string $purpose;
 
-    public function __construct(User $user, string $code)
+    public function __construct(User $user, string $code, string $purpose = 'password_reset')
     {
         $this->user = $user;
         $this->code = $code;
+        $this->purpose = $purpose;
     }
 
     public function build()
     {
-        return $this->subject('AgriBantay Password Reset Code')
+        $subject = $this->purpose === 'email_verification'
+            ? 'AgriBantay Email Verification Code'
+            : 'AgriBantay Password Reset Code';
+
+        return $this->subject($subject)
             ->view('emails.otp-code');
     }
 }

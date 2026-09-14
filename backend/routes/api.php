@@ -19,6 +19,7 @@ use App\Http\Controllers\Farmer\RecommendationController as FarmerRecommendation
 use App\Http\Controllers\Farmer\InsightController as FarmerInsightController;
 use App\Http\Controllers\Farmer\MaintenanceController as FarmerMaintenanceController;
 use App\Http\Controllers\Farmer\DisposalController as FarmerDisposalController;
+use App\Http\Controllers\Farmer\InspectionController as FarmerInspectionController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\Vet\DashboardController as VetDashboardController;
 use App\Http\Controllers\Vet\VaccinationRequestController;
@@ -46,6 +47,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/settings', [SettingsController::class, 'show']);
     Route::put('/settings/profile', [SettingsController::class, 'updateProfile']);
     Route::put('/settings/password', [SettingsController::class, 'updatePassword']);
+    Route::post('/settings/email/otp/request', [SettingsController::class, 'requestEmailOtp']);
+    Route::post('/settings/email/otp/verify', [SettingsController::class, 'verifyEmailOtp']);
 
     Route::get('/notifications', [NotificationController::class, 'index']);
     Route::patch('/notifications/{id}/read', [NotificationController::class, 'markRead']);
@@ -78,6 +81,7 @@ Route::middleware('auth:sanctum')->group(function () {
     */
     Route::middleware('role:farm_owner')->prefix('farmer')->group(function () {
         Route::get('/dashboard', [FarmerDashboardController::class, 'index']);
+        Route::get('/inspections', [FarmerInspectionController::class, 'index']);
         Route::get('/service-requests', [FarmerServiceRequestController::class, 'index']);
         Route::post('/service-requests', [FarmerServiceRequestController::class, 'store']);
         Route::get('/recommendations', [FarmerRecommendationController::class, 'index']);
@@ -111,6 +115,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/farms/{id}/trend', [FarmController::class, 'trend']);
         Route::get('/farms/{id}/root-cause', [FarmController::class, 'rootCause']);
         Route::put('/farms/{id}', [FarmController::class, 'update']);
+        Route::post('/farms/{id}/email/otp/request', [FarmController::class, 'requestOwnerEmailOtp']);
+        Route::post('/farms/{id}/email/otp/verify', [FarmController::class, 'verifyOwnerEmailOtp']);
         Route::patch('/farms/{id}/deactivate', [FarmController::class, 'deactivate']);
         Route::patch('/farms/{id}/activate', [FarmController::class, 'activate']);
         Route::post('/farms/{userId}/resend-sms', [FarmController::class, 'resendSms']);
@@ -163,6 +169,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/accounts/{id}', [AccountController::class, 'show']);
         Route::post('/accounts', [AccountController::class, 'store']);
         Route::put('/accounts/{id}', [AccountController::class, 'update']);
+        Route::post('/accounts/{id}/email/otp/request', [AccountController::class, 'requestAccountEmailOtp']);
+        Route::post('/accounts/{id}/email/otp/verify', [AccountController::class, 'verifyAccountEmailOtp']);
         Route::patch('/accounts/{id}/activate', [AccountController::class, 'activate']);
         Route::patch('/accounts/{id}/deactivate', [AccountController::class, 'deactivate']);
         Route::post('/accounts/{id}/reset-password', [AccountController::class, 'resetPassword']);

@@ -4,9 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Models\Farm;
 use App\Models\User;
+use App\Models\EmailVerificationOtp;
+use App\Mail\OtpCodeMail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 
 class SettingsController extends Controller
 {
@@ -47,12 +50,11 @@ class SettingsController extends Controller
     }
 
     /**
-     * Accepts a single 'contact' field — either an email or a mobile
-     * number — same detection pattern as Login, Farm Owner registration,
-     * and Account creation. Whichever type is entered replaces whichever
-     * field the user is currently using (so a user can switch from
-     * phone-based to email-based login, or vice versa), while the other
-     * field is left untouched rather than wiped out.
+     * Email is deliberately NOT accepted here — adding or changing the
+     * account's email now requires the requestEmailOtp/verifyEmailOtp
+     * flow below, so an email is only ever saved after it's been proven
+     * to belong to whoever is typing it in. This also blocks a user from
+     * silently taking over another account's email through this form.
      */
     public function updateProfile(Request $request)
     {
@@ -62,9 +64,10 @@ class SettingsController extends Controller
         $request->validate([
             'first_name'    => 'required|string',
             'last_name'     => 'required|string',
-            'mobile_number' => 'required|string',
-            'email'         => 'nullable|email',
+            'mobile_number' => ['required', 'string', 'regex:/^09\d{9}$/'],
             'profile_photo' => 'nullable|image|max:5120',
+        ], [
+            'mobile_number.regex' => 'Please enter a valid Philippine mobile number (e.g. 09171234567).',
         ]);
 
         $mobileExists = User::where('mobile_number', $request->mobile_number)
@@ -78,24 +81,10 @@ class SettingsController extends Controller
             ], 422);
         }
 
-        if ($request->filled('email')) {
-            $emailExists = User::where('email', $request->email)
-                ->where('id', '!=', $user->id)
-                ->exists();
-
-            if ($emailExists) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Another account already uses this email.',
-                ], 422);
-            }
-        }
-
        $updates = [
             'first_name'    => $request->first_name,
             'last_name'     => $request->last_name,
             'mobile_number' => $request->mobile_number,
-            'email'         => $request->filled('email') ? $request->email : null,
         ];
 
         if ($request->hasFile('profile_photo')) {
@@ -107,6 +96,125 @@ class SettingsController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Profile updated successfully.',
+            'data'    => $user,
+        ]);
+    }
+
+    private const EMAIL_OTP_TTL_MINUTES = 10;
+
+    /**
+     * Step 1 of adding/changing the account's email. Sends a 6-digit code
+     * to the NEW address (not the account's current one, if any) — since
+     * the whole point is proving the requester actually controls that
+     * inbox before it's attached to their account.
+     */
+    public function requestEmailOtp(Request $request)
+    {
+        /** @var \App\Models\User $user */
+        $user = Auth::user();
+
+        $request->validate([
+            'email' => 'required|email',
+        ]);
+
+        $taken = User::where('email', $request->email)
+            ->where('id', '!=', $user->id)
+            ->exists();
+
+        if ($taken) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This email address is already used by another account.',
+            ], 422);
+        }
+
+        // Invalidate any earlier unconsumed codes for this user so only the
+        // most recently requested one is ever valid (also doubles as "resend").
+        EmailVerificationOtp::where('user_id', $user->id)
+            ->whereNull('consumed_at')
+            ->update(['expires_at' => now()]);
+
+        $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+
+        EmailVerificationOtp::create([
+            'user_id'       => $user->id,
+            'pending_email' => $request->email,
+            'code_hash'     => Hash::make($code),
+            'expires_at'    => now()->addMinutes(self::EMAIL_OTP_TTL_MINUTES),
+        ]);
+
+        try {
+            Mail::to($request->email)->send(new OtpCodeMail($user, $code, 'email_verification'));
+        } catch (\Throwable $e) {
+            report($e);
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to send the verification code. Please try again.',
+            ], 500);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'A verification code has been sent to this email address.',
+        ]);
+    }
+
+    /**
+     * Step 2 — only on a matching, unexpired code is the email actually
+     * written to the user's account. Re-checks uniqueness at commit time
+     * too, in case another account claimed the same address in the
+     * interim between requesting and entering the code.
+     */
+    public function verifyEmailOtp(Request $request)
+    {
+        /** @var \App\Models\User $user */
+        $user = Auth::user();
+
+        $request->validate([
+            'email' => 'required|email',
+            'code'  => 'required|string|size:6',
+        ]);
+
+        // Looked up without the expiry filter first so a genuinely expired
+        // code can be told apart from a wrong one — same underlying query,
+        // just split so the two failure states get distinct messages.
+        $otp = EmailVerificationOtp::where('user_id', $user->id)
+            ->where('pending_email', $request->email)
+            ->whereNull('consumed_at')
+            ->latest()
+            ->first();
+
+        if (!$otp || !Hash::check($request->code, $otp->code_hash)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid verification code.',
+            ], 422);
+        }
+
+        if ($otp->expires_at->isPast()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Verification code has expired.',
+            ], 422);
+        }
+
+        $taken = User::where('email', $request->email)
+            ->where('id', '!=', $user->id)
+            ->exists();
+
+        if ($taken) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This email address was just claimed by another account. Please try a different email.',
+            ], 422);
+        }
+
+        $user->update(['email' => $request->email]);
+        $otp->update(['consumed_at' => now()]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Email verified successfully.',
             'data'    => $user,
         ]);
     }

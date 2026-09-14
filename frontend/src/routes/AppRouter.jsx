@@ -14,6 +14,7 @@ const TermsOfService = lazy(() => import('../pages/TermsOfService'))
 const PrivacyPolicy = lazy(() => import('../pages/DataPolicy'))
 
 const FarmerDashboard = lazy(() => import('../pages/farmowner/Dashboard'))
+const FarmerInspections = lazy(() => import('../pages/farmowner/Inspections'))
 const ServiceRequests = lazy(() => import('../pages/farmowner/ServiceRequests'))
 const ManureRecords = lazy(() => import('../pages/farmowner/ManureRecords'))
 const FarmerSettings = lazy(() => import('../pages/farmowner/Settings'))
@@ -199,6 +200,11 @@ export default function AppRouter() {
           <Route path="/farmowner/dashboard" element={
             <ProtectedRoute role="farm_owner">
               <FarmerDashboard />
+            </ProtectedRoute>
+          } />
+          <Route path="/farmowner/inspections" element={
+            <ProtectedRoute role="farm_owner">
+              <FarmerInspections />
             </ProtectedRoute>
           } />
           <Route path="/farmowner/manure-records" element={

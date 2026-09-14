@@ -3,6 +3,7 @@ import VetLayout from '../../components/VetLayout'
 import VetScheduleMap from '../../components/VetScheduleMap'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { serviceTypeBadgeStyle, serviceTypeLabel } from '../../utils/serviceBadgeStyle'
 
 export default function VetDashboard() {
   const { data, loading, error, refetch } = useCachedFetch('/vet/dashboard')
@@ -116,18 +117,16 @@ function ScheduledPanel({ items, isMobile, onSeeAll }) {
       <div ref={listRef} style={styles.panelBody}>
         {visible.length === 0 && <div style={styles.emptyText}>No {tab.toLowerCase()} activities scheduled.</div>}
         {visible.map((r, i) => {
-          const type = (r.service_type || 'Visit').replace(' Request', '')
-          const color = REQ_COLOR[type] || REQ_COLOR.default
+          const type = serviceTypeLabel(r.service_type)
           return (
             <div key={r.id ?? i} style={styles.row}>
-              <span style={{ ...styles.rowDot, backgroundColor: color }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={styles.rowName}>{r.farm_name}</div>
                 <div style={styles.rowDetail}>
-                  {new Date(r.scheduled_at).toLocaleDateString()} · {type}
+                  {new Date(r.scheduled_at).toLocaleDateString()}
                 </div>
               </div>
-              <span style={{ ...styles.rowTag, color }}>{type}</span>
+              <span style={{ ...styles.rowTag, ...serviceTypeBadgeStyle(r.service_type) }}>{type}</span>
             </div>
           )
         })}
@@ -142,15 +141,7 @@ function ScheduledPanel({ items, isMobile, onSeeAll }) {
   )
 }
 
-const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
-
-const REQ_COLOR = {
-  Vaccine: '#2c8047',
-  'Blood Test': '#2f6bb0',
-  Consultation: '#b45309',
-  Visit: '#2c8047',
-  default: '#2c8047',
-}
+const SANS = "'Inter', sans-serif"
 
 const styles = {
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
@@ -195,11 +186,13 @@ const styles = {
 
   panelBody: { overflowY: 'auto', padding: '0 8px', flex: 1, minHeight: 0 },
   emptyText: { padding: '18px 8px', textAlign: 'center', fontSize: '12.5px', color: '#9aa79d' },
-  row: { display: 'flex', alignItems: 'flex-start', gap: '11px', padding: '11px 8px', borderRadius: '9px' },
-  rowDot: { width: '10px', height: '10px', borderRadius: '50%', flexShrink: 0, marginTop: '3px' },
+  row: { display: 'flex', alignItems: 'center', gap: '11px', padding: '11px 8px', borderRadius: '9px' },
   rowName: { fontSize: '13px', fontWeight: 700, color: '#16311d', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   rowDetail: { fontSize: '11px', color: '#8a968d', marginTop: '1px' },
-  rowTag: { fontSize: '10.5px', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 },
+  rowTag: {
+    display: 'inline-flex', alignItems: 'center', padding: '4px 11px',
+    borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0,
+  },
 
   seeAll: { border: 'none', borderTop: '1px solid #eceee7', background: 'transparent', color: '#2c8047', fontSize: '12px', fontWeight: 700, padding: '12px', cursor: 'pointer', fontFamily: SANS, flexShrink: 0 },
 }

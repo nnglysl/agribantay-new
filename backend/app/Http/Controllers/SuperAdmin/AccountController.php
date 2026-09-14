@@ -106,6 +106,13 @@ class AccountController extends Controller
 
         $isEmail = filter_var($request->contact, FILTER_VALIDATE_EMAIL);
 
+        if (!$isEmail && !preg_match('/^09\d{9}$/', $request->contact)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Please enter a valid Philippine mobile number (e.g. 09171234567).',
+            ], 422);
+        }
+
         $exists = $isEmail
             ? User::where('email', $request->contact)->exists()
             : User::where('mobile_number', $request->contact)->exists();
@@ -175,18 +182,30 @@ class AccountController extends Controller
 
         $account = User::whereIn('role', self::MANAGEABLE_ROLES)->findOrFail($id);
 
+        // Email is validated for shape here (the form always sends it), but
+        // deliberately never written to the account in this method — an
+        // actual CHANGE to a new address has to go through
+        // requestAccountEmailOtp/verifyAccountEmailOtp below. Submitting the
+        // account's own unchanged email back is a no-op, so this still lets
+        // "Save Changes" work normally when the email field wasn't touched.
         $request->validate([
             'full_name'      => 'required|string|max:255',
-            'email'          => 'required|email|unique:users,email,' . $account->id,
+            'email'          => 'required|email',
             'contact_number' => 'required|string',
         ]);
+
+        if (!preg_match('/^09\d{9}$/', $request->contact_number)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Please enter a valid Philippine mobile number (e.g. 09171234567).',
+            ], 422);
+        }
 
         [$firstName, $lastName] = $this->splitFullName($request->full_name);
 
         $account->update([
             'first_name'    => $firstName,
             'last_name'     => $lastName,
-            'email'         => $request->email,
             'mobile_number' => $request->contact_number,
         ]);
 
@@ -201,6 +220,131 @@ class AccountController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Account updated.',
+            'data'    => $account,
+        ]);
+    }
+
+    private const EMAIL_OTP_TTL_MINUTES = 10;
+
+    /**
+     * Step 1 of changing an Admin/Vet account's email. Mirrors the
+     * self-service Settings flow but targets the managed account instead of
+     * the currently authenticated Super Admin — the new address only gets
+     * attached once it's proven reachable.
+     */
+    public function requestAccountEmailOtp(Request $request, int $id)
+    {
+        if ($blocked = $this->guardSuperAdmin()) return $blocked;
+
+        $account = User::whereIn('role', self::MANAGEABLE_ROLES)->findOrFail($id);
+
+        $request->validate([
+            'email' => 'required|email',
+        ]);
+
+        $taken = User::where('email', $request->email)
+            ->where('id', '!=', $account->id)
+            ->exists();
+
+        if ($taken) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This email address is already used by another account.',
+            ], 422);
+        }
+
+        \App\Models\EmailVerificationOtp::where('user_id', $account->id)
+            ->whereNull('consumed_at')
+            ->update(['expires_at' => now()]);
+
+        $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+
+        \App\Models\EmailVerificationOtp::create([
+            'user_id'       => $account->id,
+            'pending_email' => $request->email,
+            'code_hash'     => \Illuminate\Support\Facades\Hash::make($code),
+            'expires_at'    => now()->addMinutes(self::EMAIL_OTP_TTL_MINUTES),
+        ]);
+
+        try {
+            Mail::to($request->email)->send(new \App\Mail\OtpCodeMail($account, $code, 'email_verification'));
+        } catch (\Throwable $e) {
+            report($e);
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to send the verification code. Please try again.',
+            ], 500);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'A verification code has been sent to this email address.',
+        ]);
+    }
+
+    /**
+     * Step 2 — the account's email is only ever written once the code
+     * matches, with a final uniqueness re-check to close the race window
+     * between request and verify.
+     */
+    public function verifyAccountEmailOtp(Request $request, int $id)
+    {
+        if ($blocked = $this->guardSuperAdmin()) return $blocked;
+
+        $account = User::whereIn('role', self::MANAGEABLE_ROLES)->findOrFail($id);
+
+        $request->validate([
+            'email' => 'required|email',
+            'code'  => 'required|string|size:6',
+        ]);
+
+        // Looked up without the expiry filter first so a genuinely expired
+        // code can be told apart from a wrong one.
+        $otp = \App\Models\EmailVerificationOtp::where('user_id', $account->id)
+            ->where('pending_email', $request->email)
+            ->whereNull('consumed_at')
+            ->latest()
+            ->first();
+
+        if (!$otp || !\Illuminate\Support\Facades\Hash::check($request->code, $otp->code_hash)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid verification code.',
+            ], 422);
+        }
+
+        if ($otp->expires_at->isPast()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Verification code has expired.',
+            ], 422);
+        }
+
+        $taken = User::where('email', $request->email)
+            ->where('id', '!=', $account->id)
+            ->exists();
+
+        if ($taken) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This email address was just claimed by another account. Please try a different email.',
+            ], 422);
+        }
+
+        $account->update(['email' => $request->email]);
+        $otp->update(['consumed_at' => now()]);
+
+        ActivityLog::create([
+            'user_id' => Auth::id(),
+            'role'    => 'super_admin',
+            'action'  => 'Verified ' . ucfirst($account->role) . ' Email',
+            'details' => "Updated email for {$account->first_name} {$account->last_name}",
+            'type'    => 'Account',
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Email verified successfully.',
             'data'    => $account,
         ]);
     }

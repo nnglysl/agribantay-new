@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
+import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 
@@ -107,7 +108,7 @@ export default function MaintenanceOverdue() {
         <p style={styles.subtitle}>Farms with overdue manure clean-out</p>
       </div>
 
-      <div style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
+      <div className="no-print" style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
         <div style={styles.searchWrap}>
           <svg style={styles.searchIcon} width="16" height="16" viewBox="0 0 24 24" fill="none">
             <circle cx="11" cy="11" r="7" stroke="#9aa79d" strokeWidth="2" />
@@ -260,21 +261,8 @@ function Pagination({
   currentPage, totalPages, pageSize, onPageChange, onPageSizeChange,
   rangeStart, rangeEnd, totalItems, isMobile,
 }) {
-  const pageNumbers = useMemo(() => {
-    const maxButtons = isMobile ? 3 : 5
-    let start = Math.max(1, currentPage - Math.floor(maxButtons / 2))
-    let end = start + maxButtons - 1
-    if (end > totalPages) {
-      end = totalPages
-      start = Math.max(1, end - maxButtons + 1)
-    }
-    const pages = []
-    for (let p = start; p <= end; p++) pages.push(p)
-    return pages
-  }, [currentPage, totalPages, isMobile])
-
   return (
-    <div style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+    <div className="no-print" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
       <div style={paginationStyles.info}>
         {totalItems === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
       </div>
@@ -286,41 +274,13 @@ function Pagination({
           ))}
         </select>
 
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(1)} disabled={currentPage === 1} aria-label="First page"
-        >«</button>
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1} aria-label="Previous page"
-        >‹</button>
-
-        {pageNumbers[0] > 1 && <span style={paginationStyles.ellipsis}>…</span>}
-
-        {pageNumbers.map(p => (
-          <button
-            key={p}
-            onClick={() => onPageChange(p)}
-            style={{ ...paginationStyles.pageBtn, ...(p === currentPage ? paginationStyles.pageBtnActive : {}) }}
-          >{p}</button>
-        ))}
-
-        {pageNumbers[pageNumbers.length - 1] < totalPages && <span style={paginationStyles.ellipsis}>…</span>}
-
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(currentPage + 1)} disabled={currentPage === totalPages} aria-label="Next page"
-        >›</button>
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(totalPages)} disabled={currentPage === totalPages} aria-label="Last page"
-        >»</button>
+        <SharedPagination currentPage={currentPage} totalPages={totalPages} onPageChange={onPageChange} isMobile={isMobile} />
       </div>
     </div>
   )
 }
 
-const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+const SANS = "'Inter', sans-serif"
 
 const styles = {
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
@@ -392,11 +352,11 @@ const styles = {
   table: { width: '100%', borderCollapse: 'collapse' },
   tableMobile: { minWidth: '960px' },
   th: {
-    textAlign: 'left', padding: '13px 20px', fontSize: '11px', fontWeight: 700, color: '#8a968d',
-    borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
+    textAlign: 'left', padding: '13px 20px', fontSize: '13px', fontWeight: 600, color: '#8a968d',
+    borderBottom: '1px solid #eceee7', whiteSpace: 'nowrap',
     backgroundColor: '#fafbf8',
   },
-  td: { padding: '13px 20px', fontSize: '13px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle' },
+  td: { padding: '13px 20px', fontSize: '12px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle' },
   overdueBadge: {
     display: 'inline-flex', alignItems: 'center', padding: '4px 11px', borderRadius: '999px',
     backgroundColor: '#fbeaea', color: '#b91c1c', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
@@ -418,10 +378,10 @@ const paginationStyles = {
     padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px',
   },
   wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
-  info: { fontSize: '12.5px', color: '#8a968d', whiteSpace: 'nowrap' },
+  info: { fontSize: '12px', color: '#8a968d', whiteSpace: 'nowrap' },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },
-  pageSizeSelect: { padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6', fontSize: '12.5px', color: '#4b5a50', marginRight: '6px' },
+  pageSizeSelect: { padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6', fontSize: '12px', color: '#4b5a50', marginRight: '6px' },
   navBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '13px', cursor: 'pointer' },
   navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },

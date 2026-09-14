@@ -18,6 +18,7 @@ class ServiceRequest extends Model
         'scheduled_at',
         'previous_scheduled_at',
         'reschedule_reason',
+        'decline_reason',
         'completed_at',
     ];
 

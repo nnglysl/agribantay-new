@@ -7,7 +7,7 @@
 // labels, conditional logic, and status color mapping exactly as before.
 // Import what you need; nothing here assumes a particular content shape.
 
-export const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+export const SANS = "'Inter', sans-serif"
 
 export const viewModalStyles = {
   overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '16px' },

@@ -5,6 +5,8 @@ import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { BARANGAYS } from '../../constants/barangays'
+import { sanitizePhoneInput } from '../../utils/phoneValidation'
+import SharedPagination from '../../components/Pagination'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
@@ -17,12 +19,7 @@ L.Icon.Default.mergeOptions({
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
-const MONTHS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-]
-
-const MONITORING_STATUSES = ['Safe', 'Warning', 'Critical', 'Offline']
+const MONITORING_STATUSES = ['Safe', 'Warning', 'Critical', 'Pending Setup', 'Offline']
 
 const SAN_JOSE_CENTER = [13.8797, 121.0989]
 const SAN_JOSE_VIEWBOX = '120.95,13.95,121.15,13.80'
@@ -56,8 +53,8 @@ function emptyFarm() {
 function emptyTabState() {
   return {
     search: '', barangayFilter: '', sizeFilter: '', monitoringFilter: '',
-    filterMonth: '', filterYear: '', currentPage: 1, pageSize: 10,
-    sortField: 'created_at', sortDirection: 'desc',
+    filterFromDate: '', filterToDate: '', currentPage: 1, pageSize: 10,
+    sortField: 'farm_name', sortDirection: 'asc',
   }
 }
 
@@ -95,8 +92,8 @@ export default function Farms() {
   const [draftBarangay, setDraftBarangay] = useState(current.barangayFilter)
   const [draftSize, setDraftSize] = useState(current.sizeFilter)
   const [draftMonitoring, setDraftMonitoring] = useState(current.monitoringFilter)
-  const [draftMonth, setDraftMonth] = useState(current.filterMonth)
-  const [draftYear, setDraftYear] = useState(current.filterYear)
+  const [draftFromDate, setDraftFromDate] = useState(current.filterFromDate)
+  const [draftToDate, setDraftToDate] = useState(current.filterToDate)
   const filterRef = useRef(null)
 
   useEffect(() => {
@@ -112,8 +109,8 @@ export default function Farms() {
     setDraftBarangay(current.barangayFilter)
     setDraftSize(current.sizeFilter)
     setDraftMonitoring(current.monitoringFilter)
-    setDraftMonth(current.filterMonth)
-    setDraftYear(current.filterYear)
+    setDraftFromDate(current.filterFromDate)
+    setDraftToDate(current.filterToDate)
     setFilterOpen(true)
   }
 
@@ -122,8 +119,8 @@ export default function Farms() {
       barangayFilter: draftBarangay,
       sizeFilter: draftSize,
       monitoringFilter: draftMonitoring,
-      filterMonth: draftMonth,
-      filterYear: draftYear,
+      filterFromDate: draftFromDate,
+      filterToDate: draftToDate,
       currentPage: 1,
     })
     setFilterOpen(false)
@@ -133,8 +130,8 @@ export default function Farms() {
     setDraftBarangay('')
     setDraftSize('')
     setDraftMonitoring('')
-    setDraftMonth('')
-    setDraftYear('')
+    setDraftFromDate('')
+    setDraftToDate('')
   }
 
   const params = { status: statusTab === 'active' ? 'Active' : 'Deactivated' }
@@ -144,26 +141,19 @@ export default function Farms() {
   const { data: farms, loading, error, refetch } = useCachedFetch('/admin/farms', params)
   const allFarms = farms || []
 
-  const availableYears = useMemo(() => {
-    const set = new Set()
-    allFarms.forEach(f => {
-      if (f.created_at) set.add(new Date(f.created_at).getFullYear())
-    })
-    return [...set].sort((a, b) => b - a)
-  }, [allFarms])
-
   const sortedFarms = useMemo(() => {
     let list = [...allFarms]
 
     if (current.sizeFilter) list = list.filter(f => f.farm_size === current.sizeFilter)
     if (current.monitoringFilter) list = list.filter(f => f.current_status === current.monitoringFilter)
 
-    if (current.filterYear || current.filterMonth !== '') {
+    if (current.filterFromDate || current.filterToDate) {
       list = list.filter(f => {
         if (!f.created_at) return false
         const d = new Date(f.created_at)
-        if (current.filterYear && d.getFullYear() !== Number(current.filterYear)) return false
-        if (current.filterMonth !== '' && d.getMonth() !== Number(current.filterMonth)) return false
+        const dOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+        if (current.filterFromDate && dOnly < new Date(current.filterFromDate)) return false
+        if (current.filterToDate && dOnly > new Date(current.filterToDate)) return false
         return true
       })
     }
@@ -178,7 +168,7 @@ export default function Farms() {
       return current.sortDirection === 'asc' ? result : -result
     })
     return list
-  }, [allFarms, current.sizeFilter, current.monitoringFilter, current.filterMonth, current.filterYear, current.sortField, current.sortDirection])
+  }, [allFarms, current.sizeFilter, current.monitoringFilter, current.filterFromDate, current.filterToDate, current.sortField, current.sortDirection])
 
   const handleSort = (field) => {
     if (current.sortField === field) {
@@ -200,9 +190,9 @@ export default function Farms() {
   const rangeStart = totalItems === 0 ? 0 : (safePage - 1) * current.pageSize + 1
   const rangeEnd = Math.min(safePage * current.pageSize, totalItems)
 
-  const monitoringColor = { Safe: '#256b3d', Warning: '#b45309', Critical: '#b91c1c', Offline: '#6b7280' }
-  const monitoringBg = { Safe: '#eaf3ec', Warning: '#fbf1e2', Critical: '#fbeaea', Offline: '#eef1ea' }
-  const activeFilterCount = [current.barangayFilter, current.sizeFilter, current.monitoringFilter, current.filterMonth !== '' || current.filterYear].filter(Boolean).length
+  const monitoringColor = { Safe: '#256b3d', Warning: '#b45309', Critical: '#b91c1c', 'Pending Setup': '#6b7280', Offline: '#6b7280' }
+  const monitoringBg = { Safe: '#eaf3ec', Warning: '#fbf1e2', Critical: '#fbeaea', 'Pending Setup': '#eef1ea', Offline: '#eef1ea' }
+  const activeFilterCount = [current.barangayFilter, current.sizeFilter, current.monitoringFilter, current.filterFromDate || current.filterToDate].filter(Boolean).length
 
   return (
     <AdminLayout>
@@ -221,7 +211,7 @@ export default function Farms() {
         </div>
       </div>
 
-      <div style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
+      <div className="no-print" style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
         <div style={styles.statusTabs}>
           <div style={{ ...styles.statusTab, ...(statusTab === 'active' ? styles.statusTabActive : {}) }} onClick={() => setStatusTab('active')}>
             Active Farms
@@ -295,17 +285,11 @@ export default function Farms() {
                   {MONITORING_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
 
-                <label style={styles.filterLabel}>Month</label>
-                <select value={draftMonth} onChange={e => setDraftMonth(e.target.value)} style={styles.filterSelect}>
-                  <option value="">All Months</option>
-                  {MONTHS.map((m, i) => <option key={m} value={i}>{m}</option>)}
-                </select>
+                <label style={styles.filterLabel}>From</label>
+                <input type="date" value={draftFromDate} onChange={e => setDraftFromDate(e.target.value)} style={styles.filterSelect} />
 
-                <label style={styles.filterLabel}>Year</label>
-                <select value={draftYear} onChange={e => setDraftYear(e.target.value)} style={styles.filterSelect}>
-                  <option value="">All Years</option>
-                  {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
-                </select>
+                <label style={styles.filterLabel}>To</label>
+                <input type="date" value={draftToDate} onChange={e => setDraftToDate(e.target.value)} style={styles.filterSelect} />
 
                 <div style={styles.filterActions}>
                   <button type="button" onClick={resetFilter} style={styles.filterResetBtn}>Reset</button>
@@ -413,32 +397,14 @@ export default function Farms() {
 }
 
 function Pagination({ currentPage, totalPages, pageSize, onPageChange, onPageSizeChange, rangeStart, rangeEnd, totalItems, isMobile }) {
-  const pageNumbers = useMemo(() => {
-    const maxButtons = isMobile ? 3 : 5
-    let start = Math.max(1, currentPage - Math.floor(maxButtons / 2))
-    let end = start + maxButtons - 1
-    if (end > totalPages) { end = totalPages; start = Math.max(1, end - maxButtons + 1) }
-    const pages = []
-    for (let p = start; p <= end; p++) pages.push(p)
-    return pages
-  }, [currentPage, totalPages, isMobile])
-
   return (
-    <div style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+    <div className="no-print" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
       <div style={paginationStyles.info}>{totalItems === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}</div>
       <div style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
         <select value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
           {PAGE_SIZE_OPTIONS.map(size => <option key={size} value={size}>{size} / page</option>)}
         </select>
-        <button style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }} onClick={() => onPageChange(1)} disabled={currentPage === 1}>«</button>
-        <button style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }} onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1}>‹</button>
-        {pageNumbers[0] > 1 && <span style={paginationStyles.ellipsis}>…</span>}
-        {pageNumbers.map(p => (
-          <button key={p} onClick={() => onPageChange(p)} style={{ ...paginationStyles.pageBtn, ...(p === currentPage ? paginationStyles.pageBtnActive : {}) }}>{p}</button>
-        ))}
-        {pageNumbers[pageNumbers.length - 1] < totalPages && <span style={paginationStyles.ellipsis}>…</span>}
-        <button style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }} onClick={() => onPageChange(currentPage + 1)} disabled={currentPage === totalPages}>›</button>
-        <button style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }} onClick={() => onPageChange(totalPages)} disabled={currentPage === totalPages}>»</button>
+        <SharedPagination currentPage={currentPage} totalPages={totalPages} onPageChange={onPageChange} isMobile={isMobile} />
       </div>
     </div>
   )
@@ -656,9 +622,12 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
               <div>
                 <Label text="Mobile Number" required />
                 <input
-                  placeholder="e.g. 0917 123 4567"
+                  type="tel"
+                  inputMode="numeric"
+                  maxLength={11}
+                  placeholder="e.g. 09171234567"
                   value={ownerForm.mobile_number}
-                  onChange={updateOwner('mobile_number')}
+                  onChange={e => setOwnerForm({ ...ownerForm, mobile_number: sanitizePhoneInput(e.target.value) })}
                   style={{ ...modalStyles.input, ...(ownerFieldErrors.mobile_number ? modalStyles.inputError : {}) }}
                   required
                 />
@@ -1263,7 +1232,7 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
   const initials = farm ? getInitials(farm.owner_name) : ''
   const isActive = farm?.status === 'Active'
   const isSensorOnline = !!reading
-  const riskLevel = farm?.current_status || (reading ? 'Safe' : null)
+  const riskLevel = farm?.display_status || farm?.current_status || (reading ? 'Safe' : null)
 
   const { data: insight, loading: insightLoading } = useCachedFetch(
     reading ? `/admin/farms/${farmId}/root-cause` : null
@@ -1273,6 +1242,7 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
     Safe:     { color: '#256b3d', bg: '#eaf3ec', border: '#cfe0d3' },
     Warning:  { color: '#b45309', bg: '#fbf1e2', border: '#f0e2cf' },
     Critical: { color: '#b91c1c', bg: '#fbeaea', border: '#f0c9c9' },
+    'Pending Setup': { color: '#6b7280', bg: '#eef1ea', border: '#e0e3da' },
     Offline:  { color: '#6b7280', bg: '#eef1ea', border: '#e0e3da' },
   }
   const overall = STATUS[riskLevel] || STATUS.Offline
@@ -1699,9 +1669,6 @@ function DevicesTab({ farmId }) {
                     {s.status}
                   </span>
                 </div>
-                <div style={devicesStyles.rowSub}>
-                  {s.device_key}
-                </div>
                 <div style={devicesStyles.rowMeta}>
                   Installed {s.installed_at}
                   {s.last_seen_at && ` · Last seen ${s.last_seen_at}`}
@@ -1843,7 +1810,7 @@ function EditDeviceModal({ sensor, onClose, onSuccess }) {
           <span style={modalStyles.close} onClick={onClose}>×</span>
         </div>
 
-        <p style={devicesStyles.hint}>{sensor.sensor_code} · {sensor.device_key}</p>
+        <p style={devicesStyles.hint}>{sensor.sensor_code}</p>
 
         <form onSubmit={handleSubmit}>
           {error && <div style={modalStyles.errorBox}>{error}</div>}
@@ -1997,11 +1964,11 @@ const styles = {
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
   tableMobile: { minWidth: '1000px' },
-  th: { textAlign: 'left', padding: '13px 20px', fontSize: '11px', fontWeight: 700, color: '#8a968d', borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', backgroundColor: '#fafbf8' },
+  th: { textAlign: 'left', padding: '13px 20px', fontSize: '13px', fontWeight: 600, color: '#8a968d', borderBottom: '1px solid #eceee7', whiteSpace: 'nowrap', backgroundColor: '#fafbf8' },
   thSortable: { cursor: 'pointer', userSelect: 'none' },
   sortArrow: { color: '#2c8047', fontSize: '10px' },
   tr: {},
-  td: { padding: '13px 20px', fontSize: '13px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle' },
+  td: { padding: '13px 20px', fontSize: '12px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle' },
   avatar: { width: '38px', height: '38px', borderRadius: '10px', backgroundColor: '#eaf3ec', color: '#2c8047', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 700, flexShrink: 0, textTransform: 'uppercase' },
   ownerAvatarImg: { width: '38px', height: '38px', borderRadius: '10px', objectFit: 'cover', display: 'block' },
   badge: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 11px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap' },
@@ -2014,10 +1981,10 @@ const styles = {
 const paginationStyles = {
   wrap: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px' },
   wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
-  info: { fontSize: '12.5px', color: '#8a968d', whiteSpace: 'nowrap' },
+  info: { fontSize: '12px', color: '#8a968d', whiteSpace: 'nowrap' },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },
-  pageSizeSelect: { padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6', fontSize: '12.5px', color: '#4b5a50', marginRight: '6px' },
+  pageSizeSelect: { padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6', fontSize: '12px', color: '#4b5a50', marginRight: '6px' },
   navBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '13px', cursor: 'pointer' },
   navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
@@ -2028,9 +1995,9 @@ const paginationStyles = {
 const tableStyles = {
   wrap: { overflowX: 'auto', marginTop: '14px', border: '1px solid #eceee7', borderRadius: '10px' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  th: { textAlign: 'left', padding: '10px 14px', fontSize: '10.5px', fontWeight: 700, color: '#8a968d', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid #eceee7', backgroundColor: '#fafbf8', whiteSpace: 'nowrap' },
+  th: { textAlign: 'left', padding: '10px 14px', fontSize: '13px', fontWeight: 600, color: '#8a968d', borderBottom: '1px solid #eceee7', backgroundColor: '#fafbf8', whiteSpace: 'nowrap' },
   thSortable: { cursor: 'pointer', userSelect: 'none' },
-  td: { padding: '11px 14px', fontSize: '12.5px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top' },
+  td: { padding: '11px 14px', fontSize: '12px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top' },
   truncate: { display: 'block', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   viewLink: { fontSize: '12px', fontWeight: 700, color: '#2c8047', cursor: 'pointer' },
   filterRow: { display: 'flex', gap: '10px', alignItems: 'center', marginTop: '14px', marginBottom: '4px', flexWrap: 'wrap' },

@@ -22,6 +22,7 @@ class VaccinationRequestController extends Controller
             'title'   => $title,
             'message' => $message,
             'type'    => 'Request Update',
+            'link'    => '/farmowner/service-requests',
             'is_read' => false,
         ]);
     }
@@ -60,6 +61,7 @@ class VaccinationRequestController extends Controller
                     'scheduled_at'   => $r->scheduled_at,
                     'previous_scheduled_at' => $r->previous_scheduled_at,
                     'reschedule_reason'     => $r->reschedule_reason,
+                    'decline_reason' => $r->decline_reason,
                     'completed_at'   => $r->completed_at,
                     'created_at'     => $r->created_at,
                     'updated_at'     => $r->updated_at,
@@ -108,15 +110,27 @@ class VaccinationRequestController extends Controller
         ]);
     }
 
-    public function decline(int $id)
+    public function decline(Request $request, int $id)
     {
+        $request->validate([
+            'decline_reason' => 'required|string|min:3',
+        ]);
+
         $sr = ServiceRequest::findOrFail($id);
-        $sr->update(['status' => 'Cancelled']);
+        $sr->update(['status' => 'Cancelled', 'decline_reason' => $request->decline_reason]);
+
+        ActivityLog::create([
+            'user_id' => Auth::id(),
+            'role'    => Auth::user()->role,
+            'action'  => 'Declined Service Request',
+            'details' => "{$sr->service_type} — {$sr->farm->farm_name}",
+            'type'    => 'Service',
+        ]);
 
         $this->notifyRequester(
             $sr,
             'Service Request Declined',
-            "Your {$sr->service_type} for \"{$sr->farm->farm_name}\" was declined."
+            "Your {$sr->service_type} for \"{$sr->farm->farm_name}\" was declined: {$request->decline_reason}"
         );
 
         return response()->json([

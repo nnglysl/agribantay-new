@@ -405,8 +405,8 @@ const styles = {
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
   tableMobile: { minWidth: '760px' },
-  th: { textAlign: 'left', padding: '14px 16px', fontSize: '12px', color: '#6b7280', borderBottom: '1px solid #e5e7eb', textTransform: 'uppercase', whiteSpace: 'nowrap' },
-  td: { padding: '14px 16px', fontSize: '13px', color: '#374151', borderBottom: '1px solid #f3f4f6' },
+  th: { textAlign: 'left', padding: '14px 16px', fontSize: '13px', fontWeight: 600, color: '#6b7280', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' },
+  td: { padding: '14px 16px', fontSize: '12px', color: '#374151', borderBottom: '1px solid #f3f4f6' },
   badge: { padding: '3px 10px', borderRadius: '999px', color: 'white', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap' },
   actionBtn: {
     padding: '5px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600',

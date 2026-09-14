@@ -11,8 +11,8 @@ import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { exportToCSV, exportPrintRefToPDF, todayStamp } from '../../utils/exportUtils'
 import {
   C, styles, ReportStyles, PageHeader, Tabs, StatCard, Panel, DataTable, ChartFrame, Signatures,
-  IconFilter, chartOptions, lineDataset, fmtDate, dayOf, makeInRange, rangeLabelOf, monthlyBuckets,
-  monthBounds, MONTH_NAMES,
+  IconFilter, chartOptions, lineDataset, fmtDate, dayOf, makeInRange, rangeLabelOf, scopeLabelOf, monthlyBuckets,
+  monthlyBucketsInRange, MONTH_NAMES, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle,
 } from '../../components/ReportsLayout'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip)
@@ -32,28 +32,48 @@ const CSV_COLUMNS = [
 ]
 
 export default function VetReports() {
-  const { data, loading, error } = useCachedFetch('/vet/reports')
+  const { data, loading, error, refetch } = useCachedFetch('/vet/reports')
   const printRef = useRef(null)
+
+  // Tied to actual data refreshes only (initial load + each 30-minute
+  // auto-refetch below) — never recomputed on every render, so it doesn't
+  // silently creep forward just because the user opened a filter popover
+  // or switched tabs. Computed during render (not in an effect) when `data`
+  // changes reference, which only happens right after a fetch resolves.
+  const [prevData, setPrevData] = useState(data)
+  const [generatedAt, setGeneratedAt] = useState('')
+  if (data !== prevData) {
+    setPrevData(data)
+    if (data) setGeneratedAt(new Date().toLocaleString('en-PH', { dateStyle: 'long', timeStyle: 'short' }))
+  }
 
   const [tab, setTab] = useState('Overview')
   const [exportingPdf, setExportingPdf] = useState(false)
   const now = new Date()
 
-  const [filterMonth, setFilterMonth] = useState(now.getMonth() + 1)
-  const [filterYear, setFilterYear] = useState(now.getFullYear())
+  // From/To date-range filter — drives the Service History tab.
+  const [draftFrom, setDraftFrom] = useState('')
+  const [draftTo, setDraftTo] = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+
+  // Separate Month + Year filter — used only by the Files tab, which picks
+  // ONE archived monthly report rather than filtering a list of records.
+  const [draftFilesMonth, setDraftFilesMonth] = useState('')
+  const [draftFilesYear, setDraftFilesYear] = useState('')
+  const [filesMonth, setFilesMonth] = useState('')
+  const [filesYear, setFilesYear] = useState('')
+
   const [filterOpen, setFilterOpen] = useState(false)
-  const [appliedMonth, setAppliedMonth] = useState(now.getMonth() + 1)
-  const [appliedYear, setAppliedYear] = useState(now.getFullYear())
   const filterRef = useRef(null)
 
   const reportYears = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i)
 
-  const { from, to } = (appliedMonth && appliedYear) ? monthBounds(appliedMonth, appliedYear) : { from: '', to: '' }
-  const inRange = makeInRange(from, to)
-  const rangeLabel = rangeLabelOf(from, to)
+  const inRange = makeInRange(fromDate, toDate)
+  const rangeLabel = rangeLabelOf(fromDate, toDate)
 
   const allServices = data?.completed_services ?? []
-  const services = useMemo(() => allServices.filter(v => inRange(v.completed_at_raw)), [allServices, from, to])
+  const services = useMemo(() => allServices.filter(v => inRange(v.completed_at_raw)), [allServices, fromDate, toDate])
 
   const completedThisMonth = useMemo(() => {
     const n = new Date()
@@ -61,13 +81,30 @@ export default function VetReports() {
     return allServices.filter(v => dayOf(v.completed_at_raw).startsWith(prefix)).length
   }, [allServices])
 
-  const monthlyTrend = useMemo(() => monthlyBuckets(allServices, 'completed_at_raw', appliedMonth, appliedYear), [allServices, appliedMonth, appliedYear])
+  const isRangeFiltered = Boolean(fromDate || toDate)
+
+  const monthlyTrend = useMemo(() => (
+    isRangeFiltered
+      ? monthlyBucketsInRange(services, 'completed_at_raw')
+      : monthlyBuckets(allServices, 'completed_at_raw', null, null)
+  ), [services, allServices, isRangeFiltered])
 
   const typeSplit = useMemo(() => {
     const counts = {}
     allServices.forEach(v => { counts[v.service_type] = (counts[v.service_type] || 0) + 1 })
     return Object.entries(counts).map(([label, count]) => ({ label, count }))
   }, [allServices])
+
+  // Single centralized refresh mechanism for the whole Reports page: fetch the
+  // latest data as soon as the page opens (never wait for the interval), then
+  // re-fetch every 30 minutes. Filter changes never trigger a fetch — they
+  // just re-filter the already-loaded dataset client-side (see useMemo above).
+  useEffect(() => {
+    refetch()
+    const interval = setInterval(refetch, 30 * 60 * 1000)
+    return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (!filterOpen) return
@@ -78,17 +115,41 @@ export default function VetReports() {
     return () => document.removeEventListener('mousedown', onClickOutside)
   }, [filterOpen])
 
+  const openFilter = () => {
+    setDraftFrom(fromDate)
+    setDraftTo(toDate)
+    setDraftFilesMonth(filesMonth)
+    setDraftFilesYear(filesYear)
+    setFilterOpen(true)
+  }
+
   const applyFilter = () => {
-    setAppliedMonth(filterMonth)
-    setAppliedYear(filterYear)
+    if (tab === 'Files') {
+      setFilesMonth(draftFilesMonth)
+      setFilesYear(draftFilesYear)
+    } else {
+      setFromDate(draftFrom)
+      setToDate(draftTo)
+    }
     setFilterOpen(false)
   }
 
   const clearFilter = () => {
-    setAppliedMonth(null)
-    setAppliedYear(null)
+    if (tab === 'Files') {
+      setFilesMonth('')
+      setFilesYear('')
+      setDraftFilesMonth('')
+      setDraftFilesYear('')
+    } else {
+      setFromDate('')
+      setToDate('')
+      setDraftFrom('')
+      setDraftTo('')
+    }
     setFilterOpen(false)
   }
+
+  const isFilterActive = tab === 'Files' ? Boolean(filesMonth && filesYear) : isRangeFiltered
 
   const handlePrint = () => window.print()
 
@@ -134,8 +195,6 @@ export default function VetReports() {
         { value: data.farms_covered, label: 'Farms Covered' },
       ]
 
-  const generatedAt = new Date().toLocaleString('en-PH', { dateStyle: 'long', timeStyle: 'short' })
-
   return (
     <VetLayout>
       <ReportStyles />
@@ -148,7 +207,7 @@ export default function VetReports() {
           onCsv={handleExportCsv}
           onPdf={handleExportPdf}
           exportingPdf={exportingPdf}
-          hideActions={tab !== 'Service History'}
+          hideActions
         />
 
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 }}>
@@ -159,12 +218,12 @@ export default function VetReports() {
           <div ref={filterRef} style={{ position: 'relative', marginBottom: 10 }}>
             <button
               type="button"
-              onClick={() => (filterOpen ? setFilterOpen(false) : setFilterOpen(true))}
-              style={{ ...styles.filterToggleBtn, ...((appliedMonth && appliedYear) ? styles.filterToggleBtnActive : {}) }}
+              onClick={() => (filterOpen ? setFilterOpen(false) : openFilter())}
+              style={{ ...styles.filterToggleBtn, ...(isFilterActive ? styles.filterToggleBtnActive : {}) }}
             >
               <IconFilter />
               Filter
-              {appliedMonth && appliedYear && <span style={styles.filterToggleCount}>1</span>}
+              {isFilterActive && <span style={styles.filterToggleCount}>1</span>}
             </button>
             {filterOpen && (
               <div style={styles.filterPop}>
@@ -173,20 +232,53 @@ export default function VetReports() {
                   <span style={styles.filterPopClose} onClick={() => setFilterOpen(false)}>×</span>
                 </div>
 
-                <div style={styles.filterPopRow}>
-                  <div>
-                    <label style={styles.filterPopLabel}>Month</label>
-                    <select style={styles.filterPopSelect} value={filterMonth} onChange={e => setFilterMonth(Number(e.target.value))}>
-                      {MONTH_NAMES.map((name, i) => <option key={name} value={i + 1}>{name}</option>)}
-                    </select>
+                {tab === 'Files' ? (
+                  <div style={styles.filterPopRow}>
+                    <div>
+                      <label style={styles.filterPopLabel}>Month</label>
+                      <select
+                        style={styles.filterPopSelect}
+                        value={draftFilesMonth}
+                        onChange={e => setDraftFilesMonth(e.target.value === '' ? '' : Number(e.target.value))}
+                      >
+                        <option value="">All Months</option>
+                        {MONTH_NAMES.map((name, i) => <option key={name} value={i + 1}>{name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={styles.filterPopLabel}>Year</label>
+                      <select
+                        style={styles.filterPopSelect}
+                        value={draftFilesYear}
+                        onChange={e => setDraftFilesYear(e.target.value === '' ? '' : Number(e.target.value))}
+                      >
+                        <option value="">All Years</option>
+                        {reportYears.map(y => <option key={y} value={y}>{y}</option>)}
+                      </select>
+                    </div>
                   </div>
-                  <div>
-                    <label style={styles.filterPopLabel}>Year</label>
-                    <select style={styles.filterPopSelect} value={filterYear} onChange={e => setFilterYear(Number(e.target.value))}>
-                      {reportYears.map(y => <option key={y} value={y}>{y}</option>)}
-                    </select>
+                ) : (
+                  <div style={styles.filterPopRow}>
+                    <div>
+                      <label style={styles.filterPopLabel}>From</label>
+                      <input
+                        type="date"
+                        style={styles.filterPopSelect}
+                        value={draftFrom}
+                        onChange={e => setDraftFrom(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label style={styles.filterPopLabel}>To</label>
+                      <input
+                        type="date"
+                        style={styles.filterPopSelect}
+                        value={draftTo}
+                        onChange={e => setDraftTo(e.target.value)}
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <div style={styles.filterPopActions}>
                   <button type="button" onClick={clearFilter} style={styles.filterPopClear}>Show all</button>
@@ -199,7 +291,7 @@ export default function VetReports() {
 
         <div style={styles.body}>
           {tab !== 'Files' && (
-            <p style={styles.filterNote}>Stat cards show all-time totals. Charts and tables below reflect {rangeLabel}.</p>
+            <p style={styles.filterNote}>{scopeLabelOf(fromDate, toDate)}</p>
           )}
 
           {tab !== 'Files' && (
@@ -210,7 +302,7 @@ export default function VetReports() {
 
           {tab === 'Overview' && (
             <div className="rp-two">
-              <Panel title="Vaccinations and blood tests per month" subtitle="Last 6 months">
+              <Panel title="Vaccinations and blood tests per month" subtitle={isRangeFiltered ? rangeLabel : 'Last 6 months'}>
                 {monthlyTrend.every(m => m.count === 0) ? (
                   <div style={styles.empty}>No service history yet.</div>
                 ) : (
@@ -245,27 +337,26 @@ export default function VetReports() {
             <DataTable
               title="Completed vaccinations and blood tests"
               subtitle={rangeLabel}
-              columns={['ID', 'Type', 'Farm', 'Owner', 'Barangay', 'Est. birds', 'Date', 'Notes', 'Status']}
+              columns={['ID', 'Type', 'Farm', 'Owner', 'Barangay', 'Date', 'Notes', 'Status']}
               emptyText="No completed services in this range."
               minWidth="820px"
               rows={services.map(v => [
                 { text: v.id },
-                { text: v.service_type, strong: true },
+                { text: serviceTypeLabel(v.service_type), badgeStyle: serviceTypeBadgeStyle(v.service_type), dot: false },
                 { text: v.farm_name },
                 { text: v.owner_name },
                 { text: v.barangay },
-                { text: BIRD_ESTIMATES[v.farm_size] || '—' },
                 { text: fmtDate(v.completed_at) },
                 { text: v.notes || '—' },
-                { text: v.status, tone: 'green', dot: false },
+                { text: v.status, badgeStyle: requestStatusBadgeStyle(v.status), dot: false },
               ])}
             />
           )}
 
           {tab === 'Files' && (
             <GeneratedReportsFilesTab
-              appliedMonth={appliedMonth}
-              appliedYear={appliedYear}
+              appliedMonth={filesMonth}
+              appliedYear={filesYear}
               basePath="/vet/generated-reports"
               ReportView={VetGeneratedReportView}
             />

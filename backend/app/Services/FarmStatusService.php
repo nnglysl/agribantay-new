@@ -69,6 +69,7 @@ class FarmStatusService
                 'title'   => 'Critical Condition Detected',
                 'message' => "Critical condition detected at \"{$farm->farm_name}\" ({$farm->owner_name}). Please review and schedule an inspection.",
                 'type'    => 'Sensor Alert',
+                'link'    => "/admin/farms/{$farm->id}",
                 'is_read' => false,
             ]);
         }
@@ -110,9 +111,76 @@ class FarmStatusService
                 'title'   => 'Critical Farm Alert',
                 'message' => "\"{$farm->farm_name}\" has a Critical ammonia level that may require veterinary attention.",
                 'type'    => 'Sensor Alert',
+                'link'    => "/vet/farms/{$farm->id}",
                 'is_read' => false,
             ]);
         }
+    }
+
+    /**
+     * True when the farm has at least one Sensor row currently marked
+     * Active — i.e. a device is actually registered and turned on for
+     * this farm right now (a device that was registered then deactivated
+     * via SensorController::update() does not count).
+     */
+    public function hasActiveDevice(Farm $farm): bool
+    {
+        return $farm->relationLoaded('sensors')
+            ? $farm->sensors->contains(fn($s) => $s->status === 'Active')
+            : $farm->sensors()->where('status', 'Active')->exists();
+    }
+
+    /**
+     * The status actually shown to users. farms.current_status defaults to
+     * "Safe" in the database and is only ever updated by syncStatus() above
+     * when a real sensor reading comes in — so a brand-new farm with no
+     * device yet, or a device that hasn't sent its first reading yet, was
+     * previously indistinguishable from a genuinely healthy farm. This
+     * overrides that default with "Pending Setup" in both of those cases.
+     * Never touches current_status itself or how Safe/Warning/Critical are
+     * computed from real readings (computeStatus() above is unchanged).
+     */
+    public function displayStatus(Farm $farm): string
+    {
+        if (!$this->hasActiveDevice($farm)) {
+            return 'Pending Setup';
+        }
+
+        $hasReading = $farm->relationLoaded('sensorReadings')
+            ? $farm->sensorReadings->isNotEmpty()
+            : $farm->sensorReadings()->exists();
+
+        if (!$hasReading) {
+            return 'Pending Setup';
+        }
+
+        return $farm->current_status;
+    }
+
+    /**
+     * Farm counts bucketed by displayStatus() — the single source of truth
+     * for every "Safe / Warning / Critical" farm-count breakdown shown in
+     * Reports/Overview and the archived monthly report, so a farm without
+     * a device is correctly excluded from "Safe" there too.
+     */
+    public function statusBreakdown(): array
+    {
+        $farms = Farm::with(['sensors', 'sensorReadings' => function ($q) {
+            $q->latest()->limit(1);
+        }])->get();
+
+        $breakdown = ['normal' => 0, 'warning' => 0, 'critical' => 0, 'pending_setup' => 0];
+
+        foreach ($farms as $farm) {
+            match ($this->displayStatus($farm)) {
+                'Safe' => $breakdown['normal']++,
+                'Warning' => $breakdown['warning']++,
+                'Critical' => $breakdown['critical']++,
+                default => $breakdown['pending_setup']++,
+            };
+        }
+
+        return $breakdown;
     }
 
     private function computeStatus(SensorReading $reading): string
@@ -182,6 +250,7 @@ class FarmStatusService
                 'title'   => $title,
                 'message' => $message,
                 'type'    => 'Sensor Alert',
+                'link'    => '/farmowner/dashboard',
                 'is_read' => false,
             ]);
         }

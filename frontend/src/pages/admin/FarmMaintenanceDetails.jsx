@@ -179,7 +179,7 @@ function InfoField({ label, value }) {
   )
 }
 
-const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+const SANS = "'Inter', sans-serif"
 
 const styles = {
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },

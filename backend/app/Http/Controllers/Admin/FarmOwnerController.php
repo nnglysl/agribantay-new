@@ -66,10 +66,12 @@ class FarmOwnerController extends Controller
         $request->validate([
             'first_name'    => 'required|string',
             'last_name'     => 'required|string',
-            'mobile_number' => 'required|string|unique:users,mobile_number',
+            'mobile_number' => ['required', 'string', 'regex:/^09\d{9}$/', 'unique:users,mobile_number'],
             'email'         => 'nullable|email|unique:users,email',
             'address'       => 'nullable|string',
             'profile_photo' => 'nullable|image|max:5120',
+        ], [
+            'mobile_number.regex' => 'Please enter a valid Philippine mobile number (e.g. 09171234567).',
         ]);
 
         $tempPassword = Str::random(10);

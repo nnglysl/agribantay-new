@@ -1,0 +1,44 @@
+<?php
+
+namespace App\Http\Controllers\Farmer;
+
+use App\Http\Controllers\Controller;
+use App\Models\Farm;
+use App\Models\Inspection;
+use Illuminate\Support\Facades\Auth;
+
+class InspectionController extends Controller
+{
+    public function index()
+    {
+        $farm = Farm::where('user_id', Auth::id())->firstOrFail();
+
+        $inspections = Inspection::with(['assignedTo', 'scheduledBy'])
+            ->where('farm_id', $farm->id)
+            ->orderByDesc('scheduled_at')
+            ->get()
+            ->map(fn($i) => [
+                'id'                => $i->id,
+                'inspection_number' => $i->inspection_number,
+                'inspection_type'   => $i->inspection_type,
+                'status'            => $i->status,
+                'scheduled_at'      => $i->scheduled_at,
+                'previous_scheduled_at' => $i->previous_scheduled_at,
+                'reschedule_reason' => $i->reschedule_reason,
+                'assigned_to'       => $i->assignedTo ? $i->assignedTo->first_name . ' ' . $i->assignedTo->last_name : null,
+                'scheduled_by'      => $i->scheduledBy ? $i->scheduledBy->first_name . ' ' . $i->scheduledBy->last_name : null,
+                'notes'             => $i->notes,
+                'findings'          => $i->findings,
+                'completed_at'      => $i->completed_at,
+                'created_at'        => $i->created_at,
+            ]);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'upcoming' => $inspections->where('status', 'Scheduled')->values(),
+                'past'     => $inspections->whereIn('status', ['Completed', 'Cancelled'])->values(),
+            ],
+        ]);
+    }
+}

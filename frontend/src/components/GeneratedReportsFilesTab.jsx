@@ -124,11 +124,7 @@ export default function GeneratedReportsFilesTab({ appliedMonth, appliedYear, ba
         ) : (
           <>
             <div style={styles.previewBar}>
-              <button style={styles.secondaryBtn} onClick={backToFiles}>← Back to Files</button>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button style={styles.secondaryBtn} onClick={() => runAction(filesReportId, 'print')}>Print</button>
-                <button style={styles.primaryBtn} onClick={() => runAction(filesReportId, 'pdf')}>Export PDF</button>
-              </div>
+              <button style={styles.backBtn} onClick={backToFiles}>← Back</button>
             </div>
             <div className="gr-doc">
               <ReportView report={filesReport} />

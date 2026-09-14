@@ -82,6 +82,7 @@ class CheckMaintenanceCompliance extends Command
                     'title'   => $event === 'overdue_reminder' ? 'Manure Clean-out Overdue' : 'Manure Clean-out Non-Compliant',
                     'message' => $message,
                     'type'    => 'maintenance_overdue',
+                    'link'    => '/farmowner/manure-records',
                     'is_read' => false,
                 ]);
             }
@@ -98,6 +99,7 @@ class CheckMaintenanceCompliance extends Command
                         : 'Farm Non-Compliant: Manure Clean-out',
                     'message' => "\"{$farm->farm_name}\" ({$farm->owner_name}) — {$status['status']}, {$status['days_overdue']} day(s) past the grace period.",
                     'type'    => 'maintenance_overdue',
+                    'link'    => '/admin/maintenance/overdue',
                     'is_read' => false,
                 ]);
             }

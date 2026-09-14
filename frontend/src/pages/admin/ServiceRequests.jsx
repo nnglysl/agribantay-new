@@ -2,10 +2,12 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import ServiceRequestDetailsModal from '../../components/ServiceRequestDetailsModal'
+import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { getUser } from '../../utils/auth'
 import { formatDate, formatDateTime } from '../../utils/formatDate'
+import { BADGE_SHAPE, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../../utils/serviceBadgeStyle'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
@@ -23,18 +25,6 @@ const SORT_OPTIONS = [
   { value: 'newest', label: 'Newest Request First' },
 ]
 
-// Same established colors as FarmMap's REQUEST_COLORS / Vet's own
-// requestTypeColor — reused, not invented, so the two Service Requests
-// pages read as one system.
-function requestTypeColor(type) {
-  if (type === 'Fly Control Request') return '#d9880f'
-  if (type === 'Blood Test Request') return '#2f6bb0'
-  return '#2c8047'
-}
-function requestTypeLabel(type) {
-  return type ? type.replace(' Request', '') : '—'
-}
-
 export default function ServiceRequests() {
   const user = getUser()
   const isSuperAdmin = user?.role === 'super_admin'
@@ -47,6 +37,8 @@ export default function ServiceRequests() {
   const [pageSize, setPageSize] = useState(10)
   const [acceptTarget, setAcceptTarget] = useState(null)
   const [confirmDecline, setConfirmDecline] = useState(null)
+  const [declineReason, setDeclineReason] = useState('')
+  const [declineError, setDeclineError] = useState('')
   const [confirmComplete, setConfirmComplete] = useState(null)
   const [completeNotes, setCompleteNotes] = useState('')
   const [viewRequest, setViewRequest] = useState(null)
@@ -127,11 +119,15 @@ export default function ServiceRequests() {
   const rangeStart = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1
   const rangeEnd = Math.min(currentPage * pageSize, totalItems)
 
-  const statusColor = { Pending: '#b45309', Scheduled: '#2f6bb0', Completed: '#256b3d', Cancelled: '#6b7280' }
-
   const handleDeclineAction = async () => {
-    await api.patch(`/admin/service-requests/${confirmDecline.id}/decline`)
+    if (!declineReason.trim()) {
+      setDeclineError('Please provide a reason for declining this request.')
+      return
+    }
+    await api.patch(`/admin/service-requests/${confirmDecline.id}/decline`, { decline_reason: declineReason.trim() })
     setConfirmDecline(null)
+    setDeclineReason('')
+    setDeclineError('')
     refetch()
   }
 
@@ -146,6 +142,13 @@ export default function ServiceRequests() {
 
   return (
     <AdminLayout>
+      <style>{`
+        .agb-input:focus {
+          outline: none;
+          border-color: #2c8047;
+          box-shadow: 0 0 0 3px rgba(44,128,71,0.14);
+        }
+      `}</style>
       <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Service Requests</h1>
       <p style={styles.subtitle}>
         {isSuperAdmin
@@ -153,7 +156,7 @@ export default function ServiceRequests() {
           : 'Manage odor and fly control requests'}
       </p>
 
-      <div style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
+      <div className="no-print" style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
         <div style={styles.tabs}>
           <div style={{ ...styles.tab, ...(tab === 'pending' ? styles.tabActive : {}) }} onClick={() => setTab('pending')}>
             Pending
@@ -254,8 +257,6 @@ export default function ServiceRequests() {
               </thead>
               <tbody>
                 {list.map(r => {
-                  const c = statusColor[r.status] || '#6b7280'
-                  const typeColor = requestTypeColor(r.service_type)
                   return (
                     <tr key={r.id}>
                       <td style={styles.td}>
@@ -268,8 +269,8 @@ export default function ServiceRequests() {
                         </div>
                       </td>
                       <td style={styles.td}>
-                        <span style={{ ...styles.typeText, color: typeColor }}>
-                          {requestTypeLabel(r.service_type)}
+                        <span style={{ ...BADGE_SHAPE, ...serviceTypeBadgeStyle(r.service_type) }}>
+                          {serviceTypeLabel(r.service_type)}
                         </span>
                       </td>
                       <td style={styles.td}>{r.farm_owner_name || r.requested_by}</td>
@@ -281,7 +282,7 @@ export default function ServiceRequests() {
                           : '—'}
                       </td>
                       <td style={styles.td}>
-                        <span style={{ ...styles.badge, color: c, backgroundColor: badgeBg(r.status) }}>
+                        <span style={{ ...BADGE_SHAPE, ...requestStatusBadgeStyle(r.status) }}>
                           {r.status}
                         </span>
                       </td>
@@ -356,16 +357,33 @@ export default function ServiceRequests() {
       )}
 
       {confirmDecline && (
-        <div style={modalStyles.overlay} onClick={() => setConfirmDecline(null)}>
+        <div style={modalStyles.overlay} onClick={() => { setConfirmDecline(null); setDeclineReason(''); setDeclineError('') }}>
           <div style={{ ...confirmStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
-            <h3 style={confirmStyles.title}>Decline Request</h3>
-            <p style={confirmStyles.message}>
-              Decline the {confirmDecline.service_type} request from {confirmDecline.farm_name}?
-            </p>
+            <div style={modalStyles.header}>
+              <h3 style={modalStyles.title}>Decline Request</h3>
+              <span style={modalStyles.close} onClick={() => { setConfirmDecline(null); setDeclineReason(''); setDeclineError('') }}>×</span>
+            </div>
+
+            <div style={{ ...confirmStyles.summaryBox, backgroundColor: serviceTypeBadgeStyle(confirmDecline.service_type).backgroundColor }}>
+              <span style={detailStyles.sectionLabel}>Request</span>
+              <div style={confirmStyles.summaryType}>{serviceTypeLabel(confirmDecline.service_type)}</div>
+              <div style={confirmStyles.summaryFarm}>{confirmDecline.farm_name}</div>
+            </div>
+
+            <label style={modalStyles.label}>Reason for declining *</label>
+            <textarea
+              className="agb-input"
+              value={declineReason}
+              onChange={e => { setDeclineReason(e.target.value); setDeclineError('') }}
+              style={{ ...modalStyles.input, minHeight: '70px', resize: 'vertical' }}
+              placeholder="Explain why this request is being declined"
+            />
+            {declineError && <p style={{ color: '#b91c1c', fontSize: '12.5px', marginTop: '4px' }}>{declineError}</p>}
+
             <div style={modalStyles.actions}>
-              <button onClick={() => setConfirmDecline(null)} style={modalStyles.cancelBtn}>Keep it</button>
+              <button onClick={() => { setConfirmDecline(null); setDeclineReason(''); setDeclineError('') }} style={modalStyles.cancelBtn}>Cancel</button>
               <button onClick={handleDeclineAction} style={{ ...modalStyles.submitBtn, backgroundColor: '#b91c1c' }}>
-                Decline
+                Decline Request
               </button>
             </div>
           </div>
@@ -417,32 +435,12 @@ export default function ServiceRequests() {
   )
 }
 
-function badgeBg(status) {
-  if (status === 'Pending') return '#fbf1e2'
-  if (status === 'Scheduled') return '#e8eff8'
-  if (status === 'Cancelled') return '#eef1ea'
-  return '#eaf3ec'
-}
-
 function Pagination({
   currentPage, totalPages, pageSize, onPageChange, onPageSizeChange,
   rangeStart, rangeEnd, totalItems, isMobile,
 }) {
-  const pageNumbers = useMemo(() => {
-    const maxButtons = isMobile ? 3 : 5
-    let start = Math.max(1, currentPage - Math.floor(maxButtons / 2))
-    let end = start + maxButtons - 1
-    if (end > totalPages) {
-      end = totalPages
-      start = Math.max(1, end - maxButtons + 1)
-    }
-    const pages = []
-    for (let p = start; p <= end; p++) pages.push(p)
-    return pages
-  }, [currentPage, totalPages, isMobile])
-
   return (
-    <div style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+    <div className="no-print" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
       <div style={paginationStyles.info}>
         {totalItems === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
       </div>
@@ -454,35 +452,7 @@ function Pagination({
           ))}
         </select>
 
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(1)} disabled={currentPage === 1} aria-label="First page"
-        >«</button>
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1} aria-label="Previous page"
-        >‹</button>
-
-        {pageNumbers[0] > 1 && <span style={paginationStyles.ellipsis}>…</span>}
-
-        {pageNumbers.map(p => (
-          <button
-            key={p}
-            onClick={() => onPageChange(p)}
-            style={{ ...paginationStyles.pageBtn, ...(p === currentPage ? paginationStyles.pageBtnActive : {}) }}
-          >{p}</button>
-        ))}
-
-        {pageNumbers[pageNumbers.length - 1] < totalPages && <span style={paginationStyles.ellipsis}>…</span>}
-
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(currentPage + 1)} disabled={currentPage === totalPages} aria-label="Next page"
-        >›</button>
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(totalPages)} disabled={currentPage === totalPages} aria-label="Last page"
-        >»</button>
+        <SharedPagination currentPage={currentPage} totalPages={totalPages} onPageChange={onPageChange} isMobile={isMobile} />
       </div>
     </div>
   )
@@ -619,7 +589,7 @@ function RescheduleModal({ request, onClose, onSuccess, isMobile }) {
           </div>
           <div style={detailStyles.row}>
             <span style={detailStyles.label}>Service Type</span>
-            <span style={detailStyles.value}>{requestTypeLabel(request.service_type)}</span>
+            <span style={{ ...BADGE_SHAPE, ...serviceTypeBadgeStyle(request.service_type) }}>{serviceTypeLabel(request.service_type)}</span>
           </div>
           <div style={{ ...detailStyles.row, borderBottom: 'none' }}>
             <span style={detailStyles.label}>Current Scheduled Date</span>
@@ -671,7 +641,7 @@ function RescheduleModal({ request, onClose, onSuccess, isMobile }) {
   )
 }
 
-const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+const SANS = "'Inter', sans-serif"
 
 const styles = {
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
@@ -750,21 +720,14 @@ const styles = {
   table: { width: '100%', borderCollapse: 'collapse' },
   tableMobile: { minWidth: '960px' },
   th: {
-    textAlign: 'left', padding: '13px 20px', fontSize: '11px', fontWeight: 700, color: '#8a968d',
-    borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
+    textAlign: 'left', padding: '13px 20px', fontSize: '13px', fontWeight: 600, color: '#8a968d',
+    borderBottom: '1px solid #eceee7', whiteSpace: 'nowrap',
     backgroundColor: '#fafbf8',
   },
-  td: { padding: '13px 20px', fontSize: '13px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top' },
-  reqNumberCell: { fontSize: '12.5px', color: '#4b5a50', fontFamily: 'monospace' },
+  td: { padding: '13px 20px', fontSize: '12px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top' },
+  reqNumberCell: { fontSize: '12px', color: '#4b5a50' },
   farmName: { fontSize: '14px', fontWeight: 700, color: '#16311d' },
   farmMeta: { fontSize: '12px', color: '#8a968d', marginTop: '2px' },
-  // Plain colored text, no pill/background/border/icon.
-  typeText: { fontSize: '13px', fontWeight: 600 },
-  // Status keeps its colored pill background — just no dot.
-  badge: {
-    display: 'inline-flex', alignItems: 'center', padding: '4px 11px',
-    borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
-  },
   actionGroup: { display: 'flex', gap: '6px', whiteSpace: 'nowrap', justifyContent: 'flex-end' },
   actionBtn: {
     padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600,
@@ -784,10 +747,10 @@ const paginationStyles = {
     padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px',
   },
   wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
-  info: { fontSize: '12.5px', color: '#8a968d', whiteSpace: 'nowrap' },
+  info: { fontSize: '12px', color: '#8a968d', whiteSpace: 'nowrap' },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },
-  pageSizeSelect: { padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6', fontSize: '12.5px', color: '#4b5a50', marginRight: '6px' },
+  pageSizeSelect: { padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6', fontSize: '12px', color: '#4b5a50', marginRight: '6px' },
   navBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '13px', cursor: 'pointer' },
   navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
@@ -818,9 +781,10 @@ const modalStyles = {
 }
 
 const confirmStyles = {
-  modal: { backgroundColor: '#fff', borderRadius: '16px', padding: '28px', width: '400px', maxWidth: '90%' },
-  title: { fontSize: '17px', fontWeight: 800, color: '#16311d', marginTop: 0, marginBottom: '10px' },
-  message: { fontSize: '14px', color: '#6b7770', lineHeight: '1.5', marginBottom: '4px' },
+  modal: { backgroundColor: '#fff', borderRadius: '16px', padding: '24px', width: '420px', maxWidth: '90%' },
+  summaryBox: { borderRadius: '10px', padding: '12px 14px', margin: '14px 0' },
+  summaryType: { fontSize: '15px', fontWeight: 800, color: '#16311d', marginTop: '2px' },
+  summaryFarm: { fontSize: '12.5px', color: '#6b7770', marginTop: '2px' },
 }
 
 const detailStyles = {

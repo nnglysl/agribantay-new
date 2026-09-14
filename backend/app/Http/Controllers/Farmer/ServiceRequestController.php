@@ -34,6 +34,7 @@ class ServiceRequestController extends Controller
                 'accepted_by'    => $r->acceptedBy ? $r->acceptedBy->first_name . ' ' . $r->acceptedBy->last_name : null,
                 'scheduled_at'   => $r->scheduled_at,
                 'completed_at'   => $r->completed_at,
+                'decline_reason' => $r->decline_reason,
                 'created_at'     => $r->created_at,
             ]);
 
@@ -57,6 +58,18 @@ class ServiceRequestController extends Controller
             'service_type' => 'required|in:Vaccine Request,Blood Test Request,Odor Control Request,Fly Control Request',
             'notes'        => 'nullable|string',
         ]);
+
+        $hasActiveRequest = ServiceRequest::where('farm_id', $farm->id)
+            ->where('service_type', $request->service_type)
+            ->whereIn('status', ['Pending', 'Scheduled'])
+            ->exists();
+
+        if ($hasActiveRequest) {
+            return response()->json([
+                'success' => false,
+                'message' => "You already have an active {$request->service_type} request. Please wait until it is completed or cancelled before submitting another.",
+            ], 422);
+        }
 
         // Wrapped in a transaction with a locking read on the MAX numeric
         // suffix across ALL rows (not just the most recent by id) so two
@@ -102,12 +115,15 @@ class ServiceRequestController extends Controller
             ->where('status', 'active')
             ->get();
 
+        $recipientLink = $isVetOnly ? '/vet/vaccination-requests' : '/admin/service-requests';
+
         foreach ($recipients as $recipient) {
             Notification::create([
                 'user_id' => $recipient->id,
                 'title'   => 'New Service Request',
                 'message' => "New {$request->service_type} from \"{$farm->farm_name}\" ({$farm->owner_name}).",
                 'type'    => 'Request Update',
+                'link'    => $recipientLink,
                 'is_read' => false,
             ]);
         }

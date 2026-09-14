@@ -45,9 +45,6 @@ export default function AdminDashboard() {
         onPrevMonth={prevMonth}
         onNextMonth={nextMonth}
       />
-      <p style={styles.mapNote}>
-Note: Critical Alerts show the current sensor status. Only Inspections are filtered by month.      </p>
-
       {modalOpen === 'critical' && (
         <ListModal title="Critical Alerts" onClose={() => setModalOpen(null)} isMobile={isMobile}>
           {data.critical_farms.length === 0 && <p style={styles.emptyText}>No critical alerts right now.</p>}
@@ -125,7 +122,7 @@ function StatCard({ value, label, foot, isMobile }) {
   )
 }
 
-const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+const SANS = "'Inter', sans-serif"
 
 const styles = {
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
@@ -144,7 +141,6 @@ const styles = {
   statFoot: { fontSize: '12px', color: 'rgba(234,243,236,0.7)', marginTop: '3px' },
 
   mapTitle: { fontFamily: SANS, fontSize: '15px', fontWeight: 700, color: '#16311d', marginTop: '20px', marginBottom: '13px' },
-  mapNote: { fontFamily: SANS, fontSize: '11.5px', color: '#9aa79d', marginTop: '12px', lineHeight: 1.5 },
 
   emptyText: { fontFamily: SANS, fontSize: '13px', color: '#9aa79d' },
   alertRow: { display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '12px 0', borderBottom: '1px solid #f0efe8' },

@@ -146,11 +146,11 @@ class ReportController extends Controller
         // detail-tab summaries above so nothing there needed touching.
         $totalFarms = Farm::count();
 
-        $farmStatusBreakdown = [
-            'normal'   => Farm::where('current_status', 'Safe')->count(),
-            'warning'  => Farm::where('current_status', 'Warning')->count(),
-            'critical' => Farm::where('current_status', 'Critical')->count(),
-        ];
+        // Bucketed by the same "Pending Setup unless there's an active
+        // device with an actual reading" rule used everywhere else a farm's
+        // monitoring status is shown, so a farm with no device is never
+        // counted as "Safe" here either.
+        $farmStatusBreakdown = app(\App\Services\FarmStatusService::class)->statusBreakdown();
 
         return response()->json([
             'success' => true,

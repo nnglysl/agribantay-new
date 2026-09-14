@@ -2,9 +2,11 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import api from '../../api/axios'
 import VetLayout from '../../components/VetLayout'
 import ServiceRequestDetailsModal from '../../components/ServiceRequestDetailsModal'
+import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { formatDate, formatDateTime } from '../../utils/formatDate'
+import { BADGE_SHAPE, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../../utils/serviceBadgeStyle'
 
 const BIRD_ESTIMATES = {
   'Small': 'Below 10,000 layers',
@@ -12,19 +14,9 @@ const BIRD_ESTIMATES = {
   'Large': 'Above 50,000 layers',
 }
 
-const RANGE_OPTIONS = [
-  { value: 'all', label: 'All time' },
-  { value: 'today', label: 'Today' },
-  { value: 'week', label: 'This Week' },
-  { value: 'month', label: 'This Month' },
-  { value: 'quarter', label: 'This Quarter' },
-  { value: 'year', label: 'This Year' },
-  { value: 'custom', label: 'Custom range' },
-]
-
 const TYPE_OPTIONS = [
   { value: 'all', label: 'All Types' },
-  { value: 'Vaccine Request', label: 'Vaccine' },
+  { value: 'Vaccine Request', label: 'Vaccination' },
   { value: 'Blood Test Request', label: 'Blood Test' },
 ]
 
@@ -35,53 +27,20 @@ const SORT_OPTIONS = [
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
-const requestTypeColor = (type) => (type === 'Blood Test Request' ? '#2f6bb0' : '#2c8047')
-const requestTypeLabel = (type) => (type === 'Blood Test Request' ? 'Blood Test' : 'Vaccine')
-
-function getRangeBounds(rangeKey, customFrom, customTo) {
-  const now = new Date()
-  const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0)
-  const endOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59)
-
-  switch (rangeKey) {
-    case 'today':
-      return [startOfDay(now), endOfDay(now)]
-    case 'week': {
-      const day = now.getDay()
-      const start = new Date(now)
-      start.setDate(now.getDate() - day)
-      return [startOfDay(start), endOfDay(now)]
-    }
-    case 'month':
-      return [new Date(now.getFullYear(), now.getMonth(), 1), endOfDay(now)]
-    case 'quarter': {
-      const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3
-      return [new Date(now.getFullYear(), quarterStartMonth, 1), endOfDay(now)]
-    }
-    case 'year':
-      return [new Date(now.getFullYear(), 0, 1), endOfDay(now)]
-    case 'custom':
-      if (!customFrom || !customTo) return [null, null]
-      return [startOfDay(new Date(customFrom)), endOfDay(new Date(customTo))]
-    case 'all':
-    default:
-      return [null, null]
-  }
-}
-
 export default function VaccinationRequests() {
   const [tab, setTab] = useState('pending')
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
   const [sortMode, setSortMode] = useState('oldest')
-  const [range, setRange] = useState('all')
-  const [customFrom, setCustomFrom] = useState('')
-  const [customTo, setCustomTo] = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [acceptTarget, setAcceptTarget] = useState(null)
   const [detailsTarget, setDetailsTarget] = useState(null)
   const [confirmDecline, setConfirmDecline] = useState(null)
+  const [declineReason, setDeclineReason] = useState('')
+  const [declineError, setDeclineError] = useState('')
   const [completeTarget, setCompleteTarget] = useState(null)
   const [rescheduleTarget, setRescheduleTarget] = useState(null)
   const isMobile = useIsMobile()
@@ -89,9 +48,8 @@ export default function VaccinationRequests() {
   const [filterOpen, setFilterOpen] = useState(false)
   const [draftType, setDraftType] = useState(typeFilter)
   const [draftSort, setDraftSort] = useState(sortMode)
-  const [draftRange, setDraftRange] = useState(range)
-  const [draftCustomFrom, setDraftCustomFrom] = useState(customFrom)
-  const [draftCustomTo, setDraftCustomTo] = useState(customTo)
+  const [draftFromDate, setDraftFromDate] = useState(fromDate)
+  const [draftToDate, setDraftToDate] = useState(toDate)
   const filterRef = useRef(null)
 
   useEffect(() => {
@@ -106,33 +64,30 @@ export default function VaccinationRequests() {
   const openFilter = () => {
     setDraftType(typeFilter)
     setDraftSort(sortMode)
-    setDraftRange(range)
-    setDraftCustomFrom(customFrom)
-    setDraftCustomTo(customTo)
+    setDraftFromDate(fromDate)
+    setDraftToDate(toDate)
     setFilterOpen(true)
   }
 
   const applyFilter = () => {
     setTypeFilter(draftType)
     setSortMode(draftSort)
-    setRange(draftRange)
-    setCustomFrom(draftCustomFrom)
-    setCustomTo(draftCustomTo)
+    setFromDate(draftFromDate)
+    setToDate(draftToDate)
     setFilterOpen(false)
   }
 
   const resetFilter = () => {
     setDraftType('all')
     setDraftSort('oldest')
-    setDraftRange('all')
-    setDraftCustomFrom('')
-    setDraftCustomTo('')
+    setDraftFromDate('')
+    setDraftToDate('')
   }
 
   const activeFilterCount =
     (typeFilter !== 'all' ? 1 : 0) +
     (sortMode !== 'oldest' ? 1 : 0) +
-    (tab === 'completed' && range !== 'all' ? 1 : 0)
+    (tab === 'completed' && (fromDate || toDate) ? 1 : 0)
 
   const { data, loading, error, refetch } = useCachedFetch('/vet/vaccination-requests')
   const requestData = data || { scheduled: [], completed: [] }
@@ -142,28 +97,32 @@ export default function VaccinationRequests() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  useEffect(() => { setCurrentPage(1) }, [tab, search, typeFilter, sortMode, range, customFrom, customTo, pageSize])
+  useEffect(() => { setCurrentPage(1) }, [tab, search, typeFilter, sortMode, fromDate, toDate, pageSize])
 
   const handleDeclineAction = async () => {
-    await api.patch(`/vet/vaccination-requests/${confirmDecline.id}/decline`)
+    if (!declineReason.trim()) {
+      setDeclineError('Please provide a reason for declining this request.')
+      return
+    }
+    await api.patch(`/vet/vaccination-requests/${confirmDecline.id}/decline`, { decline_reason: declineReason.trim() })
+    setDeclineReason('')
+    setDeclineError('')
     setConfirmDecline(null)
     refetch()
   }
 
-  const [rangeStart, rangeEnd] = useMemo(
-    () => getRangeBounds(range, customFrom, customTo),
-    [range, customFrom, customTo]
-  )
-
   const filteredCompleted = useMemo(() => {
     const completedList = requestData.completed || []
-    if (!rangeStart || !rangeEnd) return completedList
+    if (!fromDate && !toDate) return completedList
     return completedList.filter(r => {
       if (!r.completed_at) return false
       const d = new Date(r.completed_at)
-      return d >= rangeStart && d <= rangeEnd
+      const dOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+      if (fromDate && dOnly < new Date(fromDate)) return false
+      if (toDate && dOnly > new Date(toDate)) return false
+      return true
     })
-  }, [requestData.completed, rangeStart, rangeEnd])
+  }, [requestData.completed, fromDate, toDate])
 
   // The backend still groups Pending + Scheduled together under one
   // "scheduled" key — split them client-side so the page can show a
@@ -223,14 +182,19 @@ export default function VaccinationRequests() {
   const rangeStartIdx = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1
   const rangeEndIdx = Math.min(currentPage * pageSize, totalItems)
 
-  const statusColor = { Pending: '#b45309', Scheduled: '#2f6bb0', Completed: '#2c8047', Cancelled: '#6b7280' }
-
   return (
     <VetLayout>
+      <style>{`
+        .agb-input:focus {
+          outline: none;
+          border-color: #2c8047;
+          box-shadow: 0 0 0 3px rgba(44,128,71,0.14);
+        }
+      `}</style>
       <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Service Requests</h1>
       <p style={styles.subtitle}>Manage vaccination and blood test requests</p>
 
-      <div style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
+      <div className="no-print" style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
         <div style={styles.tabs}>
           <div
             style={{ ...styles.tab, ...(tab === 'pending' ? styles.tabActive : {}) }}
@@ -307,30 +271,21 @@ export default function VaccinationRequests() {
 
                 {tab === 'completed' && (
                   <>
-                    <label style={styles.filterLabel}>Range</label>
-                    <select value={draftRange} onChange={e => setDraftRange(e.target.value)} style={styles.filterSelect}>
-                      {RANGE_OPTIONS.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
+                    <label style={styles.filterLabel}>From</label>
+                    <input
+                      type="date"
+                      value={draftFromDate}
+                      onChange={e => setDraftFromDate(e.target.value)}
+                      style={styles.filterSelect}
+                    />
 
-                    {draftRange === 'custom' && (
-                      <div style={styles.filterCustomDates}>
-                        <input
-                          type="date"
-                          value={draftCustomFrom}
-                          onChange={e => setDraftCustomFrom(e.target.value)}
-                          style={styles.filterDateInput}
-                        />
-                        <span style={styles.filterDateSep}>to</span>
-                        <input
-                          type="date"
-                          value={draftCustomTo}
-                          onChange={e => setDraftCustomTo(e.target.value)}
-                          style={styles.filterDateInput}
-                        />
-                      </div>
-                    )}
+                    <label style={styles.filterLabel}>To</label>
+                    <input
+                      type="date"
+                      value={draftToDate}
+                      onChange={e => setDraftToDate(e.target.value)}
+                      style={styles.filterSelect}
+                    />
                   </>
                 )}
 
@@ -368,8 +323,6 @@ export default function VaccinationRequests() {
               </thead>
               <tbody>
                 {list.map(r => {
-                  const c = statusColor[r.status] || '#6b7280'
-                  const typeColor = requestTypeColor(r.service_type)
                   return (
                     <tr key={r.id}>
                       <td style={styles.td}>
@@ -382,8 +335,8 @@ export default function VaccinationRequests() {
                         </div>
                       </td>
                       <td style={styles.td}>
-                        <span style={{ ...styles.typeText, color: typeColor }}>
-                          {requestTypeLabel(r.service_type)}
+                        <span style={{ ...BADGE_SHAPE, ...serviceTypeBadgeStyle(r.service_type) }}>
+                          {serviceTypeLabel(r.service_type)}
                         </span>
                       </td>
                       <td style={styles.td}>{r.owner_name}</td>
@@ -395,7 +348,7 @@ export default function VaccinationRequests() {
                           : '—'}
                       </td>
                       <td style={styles.td}>
-                        <span style={{ ...styles.badge, color: c, backgroundColor: badgeBg(r.status) }}>
+                        <span style={{ ...BADGE_SHAPE, ...requestStatusBadgeStyle(r.status) }}>
                           {r.status}
                         </span>
                       </td>
@@ -438,7 +391,7 @@ export default function VaccinationRequests() {
 
           {list.length === 0 && (
             <div style={styles.empty}>
-              {search || typeFilter !== 'all' || (tab === 'completed' && range !== 'all')
+              {search || typeFilter !== 'all' || (tab === 'completed' && (fromDate || toDate))
                 ? 'No requests match your search or filter.'
                 : 'No requests here yet.'}
             </div>
@@ -478,16 +431,33 @@ export default function VaccinationRequests() {
       )}
 
       {confirmDecline && (
-        <div style={modalStyles.overlay} onClick={() => setConfirmDecline(null)}>
+        <div style={modalStyles.overlay} onClick={() => { setConfirmDecline(null); setDeclineReason(''); setDeclineError('') }}>
           <div style={{ ...confirmStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
-            <h3 style={confirmStyles.title}>Decline Request</h3>
-            <p style={confirmStyles.message}>
-              Decline the {requestTypeLabel(confirmDecline.service_type).toLowerCase()} request from {confirmDecline.farm_name}?
-            </p>
+            <div style={modalStyles.header}>
+              <h3 style={modalStyles.title}>Decline Request</h3>
+              <span style={modalStyles.close} onClick={() => { setConfirmDecline(null); setDeclineReason(''); setDeclineError('') }}>×</span>
+            </div>
+
+            <div style={{ ...confirmStyles.summaryBox, backgroundColor: serviceTypeBadgeStyle(confirmDecline.service_type).backgroundColor }}>
+              <span style={detailStyles.sectionLabel}>Request</span>
+              <div style={confirmStyles.summaryType}>{serviceTypeLabel(confirmDecline.service_type)}</div>
+              <div style={confirmStyles.summaryFarm}>{confirmDecline.farm_name}</div>
+            </div>
+
+            <label style={modalStyles.label}>Reason for declining *</label>
+            <textarea
+              className="agb-input"
+              value={declineReason}
+              onChange={e => { setDeclineReason(e.target.value); setDeclineError('') }}
+              style={{ ...modalStyles.input, minHeight: '70px', resize: 'vertical' }}
+              placeholder="Explain why this request is being declined"
+            />
+            {declineError && <p style={{ color: '#b91c1c', fontSize: '12.5px', marginTop: '4px' }}>{declineError}</p>}
+
             <div style={modalStyles.actions}>
-              <button onClick={() => setConfirmDecline(null)} style={modalStyles.cancelBtn}>Keep it</button>
+              <button onClick={() => { setConfirmDecline(null); setDeclineReason(''); setDeclineError('') }} style={modalStyles.cancelBtn}>Cancel</button>
               <button onClick={handleDeclineAction} style={{ ...modalStyles.submitBtn, backgroundColor: '#b91c1c' }}>
-                Decline
+                Decline Request
               </button>
             </div>
           </div>
@@ -515,32 +485,12 @@ export default function VaccinationRequests() {
   )
 }
 
-function badgeBg(status) {
-  if (status === 'Pending') return '#fbf1e2'
-  if (status === 'Scheduled') return '#e8eff8'
-  if (status === 'Cancelled') return '#eef1ea'
-  return '#eaf3ec'
-}
-
 function Pagination({
   currentPage, totalPages, pageSize, onPageChange, onPageSizeChange,
   rangeStart, rangeEnd, totalItems, isMobile,
 }) {
-  const pageNumbers = useMemo(() => {
-    const maxButtons = isMobile ? 3 : 5
-    let start = Math.max(1, currentPage - Math.floor(maxButtons / 2))
-    let end = start + maxButtons - 1
-    if (end > totalPages) {
-      end = totalPages
-      start = Math.max(1, end - maxButtons + 1)
-    }
-    const pages = []
-    for (let p = start; p <= end; p++) pages.push(p)
-    return pages
-  }, [currentPage, totalPages, isMobile])
-
   return (
-    <div style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+    <div className="no-print" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
       <div style={paginationStyles.info}>
         {totalItems === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
       </div>
@@ -552,35 +502,7 @@ function Pagination({
           ))}
         </select>
 
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(1)} disabled={currentPage === 1} aria-label="First page"
-        >«</button>
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1} aria-label="Previous page"
-        >‹</button>
-
-        {pageNumbers[0] > 1 && <span style={paginationStyles.ellipsis}>…</span>}
-
-        {pageNumbers.map(p => (
-          <button
-            key={p}
-            onClick={() => onPageChange(p)}
-            style={{ ...paginationStyles.pageBtn, ...(p === currentPage ? paginationStyles.pageBtnActive : {}) }}
-          >{p}</button>
-        ))}
-
-        {pageNumbers[pageNumbers.length - 1] < totalPages && <span style={paginationStyles.ellipsis}>…</span>}
-
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(currentPage + 1)} disabled={currentPage === totalPages} aria-label="Next page"
-        >›</button>
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(totalPages)} disabled={currentPage === totalPages} aria-label="Last page"
-        >»</button>
+        <SharedPagination currentPage={currentPage} totalPages={totalPages} onPageChange={onPageChange} isMobile={isMobile} />
       </div>
     </div>
   )
@@ -635,7 +557,7 @@ function CompleteModal({ request, onClose, onSuccess, isMobile }) {
           </div>
           <div style={detailStyles.row}>
             <span style={detailStyles.label}>Service Type</span>
-            <span style={detailStyles.value}>{requestTypeLabel(request.service_type)}</span>
+            <span style={{ ...BADGE_SHAPE, ...serviceTypeBadgeStyle(request.service_type) }}>{serviceTypeLabel(request.service_type)}</span>
           </div>
           <div style={detailStyles.row}>
             <span style={detailStyles.label}>Scheduled Date</span>
@@ -643,7 +565,7 @@ function CompleteModal({ request, onClose, onSuccess, isMobile }) {
           </div>
           <div style={{ ...detailStyles.row, borderBottom: 'none' }}>
             <span style={detailStyles.label}>Request Status</span>
-            <span style={detailStyles.value}>{request.status}</span>
+            <span style={{ ...BADGE_SHAPE, ...requestStatusBadgeStyle(request.status) }}>{request.status}</span>
           </div>
         </div>
 
@@ -655,6 +577,7 @@ function CompleteModal({ request, onClose, onSuccess, isMobile }) {
             Record your observations, actions taken, findings, and recommendations during the farm visit.
           </p>
           <textarea
+            className="agb-input"
             value={notes}
             onChange={e => setNotes(e.target.value)}
             style={{ ...modalStyles.input, minHeight: '130px', resize: 'vertical' }}
@@ -729,7 +652,7 @@ function RescheduleModal({ request, onClose, onSuccess, isMobile }) {
           </div>
           <div style={detailStyles.row}>
             <span style={detailStyles.label}>Service Type</span>
-            <span style={detailStyles.value}>{requestTypeLabel(request.service_type)}</span>
+            <span style={{ ...BADGE_SHAPE, ...serviceTypeBadgeStyle(request.service_type) }}>{serviceTypeLabel(request.service_type)}</span>
           </div>
           <div style={{ ...detailStyles.row, borderBottom: 'none' }}>
             <span style={detailStyles.label}>Current Scheduled Date</span>
@@ -749,6 +672,7 @@ function RescheduleModal({ request, onClose, onSuccess, isMobile }) {
 
           <label style={modalStyles.label}>Reason for Rescheduling</label>
           <textarea
+            className="agb-input"
             value={reason}
             onChange={e => setReason(e.target.value)}
             style={{ ...modalStyles.input, minHeight: '80px', resize: 'vertical' }}
@@ -759,11 +683,11 @@ function RescheduleModal({ request, onClose, onSuccess, isMobile }) {
           <div style={{ ...modalStyles.row, ...(isMobile ? modalStyles.rowMobile : {}) }}>
             <div>
               <label style={modalStyles.label}>New Date *</label>
-              <input type="date" value={date} onChange={e => setDate(e.target.value)} style={modalStyles.input} />
+              <input className="agb-input" type="date" value={date} onChange={e => setDate(e.target.value)} style={modalStyles.input} />
             </div>
             <div>
               <label style={modalStyles.label}>New Time *</label>
-              <input type="time" value={time} onChange={e => setTime(e.target.value)} style={modalStyles.input} />
+              <input className="agb-input" type="time" value={time} onChange={e => setTime(e.target.value)} style={modalStyles.input} />
             </div>
           </div>
 
@@ -813,7 +737,7 @@ function AcceptModal({ request, onClose, onSuccess, isMobile }) {
     <div style={modalStyles.overlay} onClick={onClose}>
       <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
         <div style={modalStyles.header}>
-          <h3 style={modalStyles.title}>Accept &amp; Schedule {requestTypeLabel(request.service_type)}</h3>
+          <h3 style={modalStyles.title}>Accept &amp; Schedule {serviceTypeLabel(request.service_type)}</h3>
           <span style={modalStyles.close} onClick={onClose}>×</span>
         </div>
         <p style={modalStyles.dateLabel}>Farm: {request.farm_name} · Owner: {request.owner_name}</p>
@@ -824,11 +748,11 @@ function AcceptModal({ request, onClose, onSuccess, isMobile }) {
           <div style={{ ...modalStyles.row, ...(isMobile ? modalStyles.rowMobile : {}) }}>
             <div>
               <label style={modalStyles.label}>Date *</label>
-              <input type="date" value={date} onChange={e => setDate(e.target.value)} style={modalStyles.input} />
+              <input className="agb-input" type="date" value={date} onChange={e => setDate(e.target.value)} style={modalStyles.input} />
             </div>
             <div>
               <label style={modalStyles.label}>Time *</label>
-              <input type="time" value={time} onChange={e => setTime(e.target.value)} style={modalStyles.input} />
+              <input className="agb-input" type="time" value={time} onChange={e => setTime(e.target.value)} style={modalStyles.input} />
             </div>
           </div>
 
@@ -846,7 +770,7 @@ function AcceptModal({ request, onClose, onSuccess, isMobile }) {
   )
 }
 
-const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+const SANS = "'Inter', sans-serif"
 
 const styles = {
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
@@ -910,9 +834,6 @@ const styles = {
     fontSize: '13px', color: '#33413a', backgroundColor: '#fff', cursor: 'pointer',
     fontFamily: SANS, boxSizing: 'border-box',
   },
-  filterCustomDates: { display: 'flex', alignItems: 'center', gap: '6px', marginTop: '10px' },
-  filterDateSep: { fontSize: '12px', color: '#9aa79d' },
-  filterDateInput: { flex: 1, minWidth: 0, padding: '8px 10px', borderRadius: '9px', border: '1px solid #dcdfd6', fontSize: '12.5px', color: '#33413a', fontFamily: SANS, boxSizing: 'border-box' },
   filterActions: { display: 'flex', gap: '10px', marginTop: '20px' },
   filterResetBtn: {
     flex: 1, padding: '9px 0', borderRadius: '10px', border: '1px solid #dcdfd6',
@@ -929,21 +850,14 @@ const styles = {
   table: { width: '100%', borderCollapse: 'collapse' },
   tableMobile: { minWidth: '960px' },
   th: {
-    textAlign: 'left', padding: '13px 20px', fontSize: '11px', fontWeight: 700, color: '#8a968d',
-    borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
+    textAlign: 'left', padding: '13px 20px', fontSize: '13px', fontWeight: 600, color: '#8a968d',
+    borderBottom: '1px solid #eceee7', whiteSpace: 'nowrap',
     backgroundColor: '#fafbf8',
   },
-  td: { padding: '13px 20px', fontSize: '13px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top' },
-  reqNumberCell: { fontSize: '12.5px', color: '#4b5a50', fontFamily: 'monospace' },
+  td: { padding: '13px 20px', fontSize: '12px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top' },
+  reqNumberCell: { fontSize: '12px', color: '#4b5a50' },
   farmName: { fontSize: '14px', fontWeight: 700, color: '#16311d' },
   farmMeta: { fontSize: '12px', color: '#8a968d', marginTop: '2px' },
-  // Plain colored text, no pill/background/border/icon.
-  typeText: { fontSize: '13px', fontWeight: 600 },
-  // Status keeps its colored pill background — just no dot.
-  badge: {
-    display: 'inline-flex', alignItems: 'center', padding: '4px 11px',
-    borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
-  },
   actionGroup: { display: 'flex', gap: '6px', alignItems: 'center', whiteSpace: 'nowrap', justifyContent: 'flex-end' },
   // Same button treatment used everywhere else in AgriBantay (Farms,
   // Manage Accounts): one neutral bordered/white pill shape, differentiated
@@ -967,10 +881,10 @@ const paginationStyles = {
     padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px',
   },
   wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
-  info: { fontSize: '12.5px', color: '#8a968d', whiteSpace: 'nowrap' },
+  info: { fontSize: '12px', color: '#8a968d', whiteSpace: 'nowrap' },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },
-  pageSizeSelect: { padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6', fontSize: '12.5px', color: '#4b5a50', marginRight: '6px' },
+  pageSizeSelect: { padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6', fontSize: '12px', color: '#4b5a50', marginRight: '6px' },
   navBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '13px', cursor: 'pointer' },
   navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
@@ -1001,9 +915,10 @@ const modalStyles = {
 }
 
 const confirmStyles = {
-  modal: { backgroundColor: '#fff', borderRadius: '16px', padding: '28px', width: '400px', maxWidth: '90%' },
-  title: { fontSize: '17px', fontWeight: 800, color: '#16311d', marginTop: 0, marginBottom: '10px' },
-  message: { fontSize: '14px', color: '#6b7770', lineHeight: '1.5', marginBottom: '4px' },
+  modal: { backgroundColor: '#fff', borderRadius: '16px', padding: '24px', width: '420px', maxWidth: '90%' },
+  summaryBox: { borderRadius: '10px', padding: '12px 14px', margin: '14px 0' },
+  summaryType: { fontSize: '15px', fontWeight: 800, color: '#16311d', marginTop: '2px' },
+  summaryFarm: { fontSize: '12.5px', color: '#6b7770', marginTop: '2px' },
 }
 
 const detailStyles = {

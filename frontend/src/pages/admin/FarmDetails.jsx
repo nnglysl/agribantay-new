@@ -1,34 +1,35 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
+import SharedPagination from '../../components/Pagination'
 import { useCachedFetch, invalidateCache } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import api from '../../api/axios'
 import { BARANGAYS } from '../../constants/barangays'
 import { viewModalStyles as v } from '../../styles/viewModalStyles'
+import { isValidPhoneNumber, sanitizePhoneInput, PHONE_VALIDATION_MESSAGE } from '../../utils/phoneValidation'
+import { serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../../utils/serviceBadgeStyle'
+import VerifyEmailChangeModal from '../../components/VerifyEmailChangeModal'
 
 const FARM_SIZES = ['Small', 'Medium', 'Large']
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
-const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const INSPECTION_TYPES = ['General Inspection', 'Follow-up']
 // Regular Admin only ever sees Odor/Fly Control here (Vaccine/Blood Test
 // are excluded server-side in Admin\FarmController::serviceRequests()).
 const SERVICE_REQUEST_TYPES = ['Odor Control Request', 'Fly Control Request']
 
-function serviceRequestTypeLabel(type) {
-  return type ? type.replace(' Request', '') : type
-}
-
 // Shared by the Inspections / Manure Disposal / Service Requests tabs'
-// Month+Year filters — '' for either side means "don't restrict by that".
-function matchesMonthYear(dateValue, month, year) {
-  if (!month && !year) return true
+// From/To date range filters — an empty string on either side means
+// "don't restrict that end of the range".
+function matchesDateRange(dateValue, fromDate, toDate) {
+  if (!fromDate && !toDate) return true
   if (!dateValue) return false
   const d = new Date(dateValue)
   if (isNaN(d.getTime())) return false
-  if (month !== '' && d.getMonth() !== Number(month)) return false
-  if (year !== '' && d.getFullYear() !== Number(year)) return false
+  const dOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  if (fromDate && dOnly < new Date(fromDate)) return false
+  if (toDate && dOnly > new Date(toDate)) return false
   return true
 }
 
@@ -61,6 +62,7 @@ const STATUS = {
   Safe:     { color: '#256b3d', bg: '#eaf3ec', border: '#cfe0d3' },
   Warning:  { color: '#b45309', bg: '#fbf1e2', border: '#f0e2cf' },
   Critical: { color: '#b91c1c', bg: '#fbeaea', border: '#f0c9c9' },
+  'Pending Setup': { color: '#6b7280', bg: '#eef1ea', border: '#e0e3da' },
   Offline:  { color: '#6b7280', bg: '#eef1ea', border: '#e0e3da' },
 }
 
@@ -68,6 +70,7 @@ const OVERALL_HERO = {
   Safe:     { fill: '#2c8047', iconName: 'health_and_safety', title: 'Safe' },
   Warning:  { fill: '#b45309', iconName: 'warning', title: 'Warning' },
   Critical: { fill: '#b91c1c', iconName: 'e911_emergency', title: 'Critical' },
+  'Pending Setup': { fill: '#6b7280', iconName: 'settings', title: 'Pending Setup' },
   Offline:  { fill: '#6b7280', iconName: 'sensors_off', title: 'Offline' },
 }
 
@@ -142,7 +145,9 @@ export default function FarmDetails() {
   const [editLandmark, setEditLandmark] = useState('')
   const [editFarmSize, setEditFarmSize] = useState('')
   const [accountEditError, setAccountEditError] = useState('')
+  const [accountEditSuccess, setAccountEditSuccess] = useState('')
   const [accountSaving, setAccountSaving] = useState(false)
+  const [pendingOwnerEmail, setPendingOwnerEmail] = useState(null)
 
   const [cleanoutPage, setCleanoutPage] = useState(1)
   const [disposalPage, setDisposalPage] = useState(1)
@@ -157,74 +162,74 @@ export default function FarmDetails() {
 
   const [disposalSort, setDisposalSort] = useState({ field: 'disposal_date', dir: 'desc' })
   const [disposalMethodFilter, setDisposalMethodFilter] = useState('')
-  const [disposalMonthFilter, setDisposalMonthFilter] = useState('')
-  const [disposalYearFilter, setDisposalYearFilter] = useState('')
+  const [disposalFromDate, setDisposalFromDate] = useState('')
+  const [disposalToDate, setDisposalToDate] = useState('')
   const [disposalViewRecord, setDisposalViewRecord] = useState(null)
   const [draftDisposalMethod, setDraftDisposalMethod] = useState('')
-  const [draftDisposalMonth, setDraftDisposalMonth] = useState('')
-  const [draftDisposalYear, setDraftDisposalYear] = useState('')
+  const [draftDisposalFrom, setDraftDisposalFrom] = useState('')
+  const [draftDisposalTo, setDraftDisposalTo] = useState('')
 
   const [inspectionSort, setInspectionSort] = useState({ field: 'date', dir: 'desc' })
   const [inspectionTypeFilter, setInspectionTypeFilter] = useState('')
-  const [inspectionMonthFilter, setInspectionMonthFilter] = useState('')
-  const [inspectionYearFilter, setInspectionYearFilter] = useState('')
+  const [inspectionFromDate, setInspectionFromDate] = useState('')
+  const [inspectionToDate, setInspectionToDate] = useState('')
   const [inspectionViewRecord, setInspectionViewRecord] = useState(null)
   const [draftInspectionType, setDraftInspectionType] = useState('')
-  const [draftInspectionMonth, setDraftInspectionMonth] = useState('')
-  const [draftInspectionYear, setDraftInspectionYear] = useState('')
+  const [draftInspectionFrom, setDraftInspectionFrom] = useState('')
+  const [draftInspectionTo, setDraftInspectionTo] = useState('')
 
   const [serviceRequestPage, setServiceRequestPage] = useState(1)
   const [serviceRequestPageSize, setServiceRequestPageSize] = useState(10)
   const [serviceRequestViewRecord, setServiceRequestViewRecord] = useState(null)
   const [serviceRequestTypeFilter, setServiceRequestTypeFilter] = useState('')
-  const [serviceRequestMonthFilter, setServiceRequestMonthFilter] = useState('')
-  const [serviceRequestYearFilter, setServiceRequestYearFilter] = useState('')
+  const [serviceRequestFromDate, setServiceRequestFromDate] = useState('')
+  const [serviceRequestToDate, setServiceRequestToDate] = useState('')
   const [draftServiceRequestType, setDraftServiceRequestType] = useState('')
-  const [draftServiceRequestMonth, setDraftServiceRequestMonth] = useState('')
-  const [draftServiceRequestYear, setDraftServiceRequestYear] = useState('')
+  const [draftServiceRequestFrom, setDraftServiceRequestFrom] = useState('')
+  const [draftServiceRequestTo, setDraftServiceRequestTo] = useState('')
 
   const [lightboxImage, setLightboxImage] = useState(null)
 
   const applyDisposalFilter = () => {
     setDisposalMethodFilter(draftDisposalMethod)
-    setDisposalMonthFilter(draftDisposalMonth)
-    setDisposalYearFilter(draftDisposalYear)
+    setDisposalFromDate(draftDisposalFrom)
+    setDisposalToDate(draftDisposalTo)
   }
   const resetDisposalFilter = () => {
     setDraftDisposalMethod('')
-    setDraftDisposalMonth('')
-    setDraftDisposalYear('')
+    setDraftDisposalFrom('')
+    setDraftDisposalTo('')
     setDisposalMethodFilter('')
-    setDisposalMonthFilter('')
-    setDisposalYearFilter('')
+    setDisposalFromDate('')
+    setDisposalToDate('')
   }
 
   const applyInspectionFilter = () => {
     setInspectionTypeFilter(draftInspectionType)
-    setInspectionMonthFilter(draftInspectionMonth)
-    setInspectionYearFilter(draftInspectionYear)
+    setInspectionFromDate(draftInspectionFrom)
+    setInspectionToDate(draftInspectionTo)
   }
   const resetInspectionFilter = () => {
     setDraftInspectionType('')
-    setDraftInspectionMonth('')
-    setDraftInspectionYear('')
+    setDraftInspectionFrom('')
+    setDraftInspectionTo('')
     setInspectionTypeFilter('')
-    setInspectionMonthFilter('')
-    setInspectionYearFilter('')
+    setInspectionFromDate('')
+    setInspectionToDate('')
   }
 
   const applyServiceRequestFilter = () => {
     setServiceRequestTypeFilter(draftServiceRequestType)
-    setServiceRequestMonthFilter(draftServiceRequestMonth)
-    setServiceRequestYearFilter(draftServiceRequestYear)
+    setServiceRequestFromDate(draftServiceRequestFrom)
+    setServiceRequestToDate(draftServiceRequestTo)
   }
   const resetServiceRequestFilter = () => {
     setDraftServiceRequestType('')
-    setDraftServiceRequestMonth('')
-    setDraftServiceRequestYear('')
+    setDraftServiceRequestFrom('')
+    setDraftServiceRequestTo('')
     setServiceRequestTypeFilter('')
-    setServiceRequestMonthFilter('')
-    setServiceRequestYearFilter('')
+    setServiceRequestFromDate('')
+    setServiceRequestToDate('')
   }
 
   const { data: cleanoutData, loading: cleanoutLoading } = useCachedFetch(
@@ -262,7 +267,7 @@ export default function FarmDetails() {
   const registeredSensor = farm?.sensors?.[0] ?? null
   const hasRegisteredDevice = !!registeredSensor
   const deviceSensor = reading?.sensor ?? registeredSensor
-  const riskLevel = farm?.current_status || (reading ? 'Safe' : null)
+  const riskLevel = farm?.display_status || farm?.current_status || (reading ? 'Safe' : null)
   const overall = STATUS[riskLevel] || STATUS.Offline
   const overallHero = OVERALL_HERO[riskLevel] || OVERALL_HERO.Offline
 
@@ -284,16 +289,10 @@ export default function FarmDetails() {
     return [...new Set(list.map(r => r.disposal_method).filter(Boolean))]
   }, [disposalData])
 
-  const disposalYears = useMemo(() => {
-    const set = new Set([new Date().getFullYear()])
-    ;(disposalData?.records || []).forEach(r => { if (r.disposal_date_raw) set.add(new Date(r.disposal_date_raw).getFullYear()) })
-    return [...set].sort((a, b) => b - a)
-  }, [disposalData])
-
   const filteredSortedDisposal = useMemo(() => {
     let list = disposalData?.records || []
     if (disposalMethodFilter) list = list.filter(r => r.disposal_method === disposalMethodFilter)
-    list = list.filter(r => matchesMonthYear(r.disposal_date_raw, disposalMonthFilter, disposalYearFilter))
+    list = list.filter(r => matchesDateRange(r.disposal_date_raw, disposalFromDate, disposalToDate))
     return [...list].sort((a, b) => {
       let av, bv
       if (disposalSort.field === 'quantity') {
@@ -306,7 +305,7 @@ export default function FarmDetails() {
       const result = av > bv ? 1 : av < bv ? -1 : 0
       return disposalSort.dir === 'asc' ? result : -result
     })
-  }, [disposalData, disposalMethodFilter, disposalMonthFilter, disposalYearFilter, disposalSort])
+  }, [disposalData, disposalMethodFilter, disposalFromDate, disposalToDate, disposalSort])
 
   const toggleDisposalSort = (field) => {
     setDisposalSort(s => (s.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' }))
@@ -315,19 +314,10 @@ export default function FarmDetails() {
   const inspectionDateValue = (i) => i.completed_at || i.scheduled_at || null
   const inspectionDateValueRaw = (i) => i.completed_at_raw || i.scheduled_at_raw || null
 
-  const inspectionYears = useMemo(() => {
-    const set = new Set([new Date().getFullYear()])
-    ;(inspectionData?.inspections || []).forEach(i => {
-      const raw = inspectionDateValueRaw(i)
-      if (raw) set.add(new Date(raw).getFullYear())
-    })
-    return [...set].sort((a, b) => b - a)
-  }, [inspectionData])
-
   const filteredSortedInspections = useMemo(() => {
     let list = inspectionData?.inspections || []
     if (inspectionTypeFilter) list = list.filter(i => i.inspection_type === inspectionTypeFilter)
-    list = list.filter(i => matchesMonthYear(inspectionDateValueRaw(i), inspectionMonthFilter, inspectionYearFilter))
+    list = list.filter(i => matchesDateRange(inspectionDateValueRaw(i), inspectionFromDate, inspectionToDate))
     return [...list].sort((a, b) => {
       let av, bv
       if (inspectionSort.field === 'type') {
@@ -340,24 +330,18 @@ export default function FarmDetails() {
       const result = av > bv ? 1 : av < bv ? -1 : 0
       return inspectionSort.dir === 'asc' ? result : -result
     })
-  }, [inspectionData, inspectionTypeFilter, inspectionMonthFilter, inspectionYearFilter, inspectionSort])
+  }, [inspectionData, inspectionTypeFilter, inspectionFromDate, inspectionToDate, inspectionSort])
 
   const toggleInspectionSort = (field) => {
     setInspectionSort(s => (s.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' }))
   }
 
-  const serviceRequestYears = useMemo(() => {
-    const set = new Set([new Date().getFullYear()])
-    ;(serviceRequestData?.requests || []).forEach(r => { if (r.request_date_raw) set.add(new Date(r.request_date_raw).getFullYear()) })
-    return [...set].sort((a, b) => b - a)
-  }, [serviceRequestData])
-
   const filteredServiceRequests = useMemo(() => {
     let list = serviceRequestData?.requests || []
     if (serviceRequestTypeFilter) list = list.filter(r => r.request_type === serviceRequestTypeFilter)
-    list = list.filter(r => matchesMonthYear(r.request_date_raw, serviceRequestMonthFilter, serviceRequestYearFilter))
+    list = list.filter(r => matchesDateRange(r.request_date_raw, serviceRequestFromDate, serviceRequestToDate))
     return list
-  }, [serviceRequestData, serviceRequestTypeFilter, serviceRequestMonthFilter, serviceRequestYearFilter])
+  }, [serviceRequestData, serviceRequestTypeFilter, serviceRequestFromDate, serviceRequestToDate])
 
   const startEditAccount = () => {
     setEditFullName(farm.owner_name || '')
@@ -371,6 +355,7 @@ export default function FarmDetails() {
     setEditLandmark('')
     setEditFarmSize(farm.farm_size || FARM_SIZES[0])
     setAccountEditError('')
+    setAccountEditSuccess('')
     setIsEditingAccount(true)
   }
 
@@ -383,8 +368,26 @@ export default function FarmDetails() {
   const handleSaveAccount = async (e) => {
     e.preventDefault()
     setAccountEditError('')
+    setAccountEditSuccess('')
+
+    if (!isValidPhoneNumber(editMobileNumber)) {
+      setAccountEditError(PHONE_VALIDATION_MESSAGE)
+      return
+    }
+
+    const currentEmail = farm.user?.email || ''
+    const newEmail = editEmail.trim()
+    const emailChanged = newEmail !== currentEmail
+
     setAccountSaving(true)
     try {
+      // A genuinely new email must be proven deliverable before it's saved
+      // anywhere — this only sends the code; the address itself isn't
+      // written to the account until the Verify New Email modal succeeds.
+      if (emailChanged && newEmail) {
+        await api.post(`/admin/farms/${farm.id}/email/otp/request`, { email: newEmail })
+      }
+
       const [firstName, ...rest] = editFullName.trim().split(' ')
       const lastName = rest.join(' ')
 
@@ -393,7 +396,9 @@ export default function FarmDetails() {
       formData.append('first_name', firstName || '')
       formData.append('last_name', lastName)
       formData.append('mobile_number', editMobileNumber)
-      if (editEmail) formData.append('email', editEmail)
+      // Clearing the email to blank isn't a "claim" of anything, so it's
+      // still allowed to go straight through — only a NEW address is gated.
+      if (emailChanged && !newEmail) formData.append('clear_email', '1')
       if (editPhoto) formData.append('profile_photo', editPhoto)
       formData.append('farm_name', editFarmName)
       formData.append('barangay', editBarangay)
@@ -409,6 +414,12 @@ export default function FarmDetails() {
       await refetch()
       setIsEditingAccount(false)
       setEditPhoto(null)
+
+      if (emailChanged && newEmail) {
+        setPendingOwnerEmail(newEmail)
+      } else {
+        setAccountEditSuccess('Account updated successfully.')
+      }
     } catch (err) {
       setAccountEditError(err.response?.data?.message || 'Failed to update account information.')
     } finally {
@@ -501,6 +512,7 @@ export default function FarmDetails() {
               )}
             >
               {accountEditError && <div style={acctStyles.errorBox}>{accountEditError}</div>}
+              {accountEditSuccess && <div style={acctStyles.successBox}>{accountEditSuccess}</div>}
               <form onSubmit={handleSaveAccount}>
                 <FarmPhotoUpload
                   file={editPhoto}
@@ -512,7 +524,16 @@ export default function FarmDetails() {
 
                 <div style={{ ...acctStyles.row, ...(isMobile ? acctStyles.rowMobile : {}) }}>
                   <FarmField label="Full Name" value={editFullName} onChange={setEditFullName} editing={isEditingAccount} display={farm.owner_name} />
-                  <FarmField label="Mobile Number" value={editMobileNumber} onChange={setEditMobileNumber} editing={isEditingAccount} display={farm.mobile_number} />
+                  <FarmField
+                    label="Mobile Number"
+                    value={editMobileNumber}
+                    onChange={v => setEditMobileNumber(sanitizePhoneInput(v))}
+                    editing={isEditingAccount}
+                    display={farm.mobile_number}
+                    type="tel"
+                    inputMode="numeric"
+                    maxLength={11}
+                  />
                 </div>
 
                 <div style={{ ...acctStyles.row, ...(isMobile ? acctStyles.rowMobile : {}) }}>
@@ -744,21 +765,15 @@ export default function FarmDetails() {
           )}
           {!disposalLoading && disposalData?.records?.length > 0 && (
             <>
-              <div style={filterStyles.filterBar}>
+              <div className="no-print" style={filterStyles.filterBar}>
                 <div style={filterStyles.filterField}>
-                  <label style={filterStyles.filterLabel}>Month</label>
-                  <select value={draftDisposalMonth} onChange={e => setDraftDisposalMonth(e.target.value)} style={filterStyles.filterSelect}>
-                    <option value="">All Months</option>
-                    {MONTH_NAMES.map((m, i) => <option key={m} value={i}>{m}</option>)}
-                  </select>
+                  <label style={filterStyles.filterLabel}>From</label>
+                  <input type="date" value={draftDisposalFrom} onChange={e => setDraftDisposalFrom(e.target.value)} style={filterStyles.filterSelect} />
                 </div>
 
                 <div style={filterStyles.filterField}>
-                  <label style={filterStyles.filterLabel}>Year</label>
-                  <select value={draftDisposalYear} onChange={e => setDraftDisposalYear(e.target.value)} style={filterStyles.filterSelect}>
-                    <option value="">All Years</option>
-                    {disposalYears.map(y => <option key={y} value={y}>{y}</option>)}
-                  </select>
+                  <label style={filterStyles.filterLabel}>To</label>
+                  <input type="date" value={draftDisposalTo} onChange={e => setDraftDisposalTo(e.target.value)} style={filterStyles.filterSelect} />
                 </div>
 
                 {disposalMethods.length > 0 && (
@@ -833,21 +848,15 @@ export default function FarmDetails() {
           )}
           {!inspectionLoading && inspectionData?.inspections?.length > 0 && (
             <>
-              <div style={filterStyles.filterBar}>
+              <div className="no-print" style={filterStyles.filterBar}>
                 <div style={filterStyles.filterField}>
-                  <label style={filterStyles.filterLabel}>Month</label>
-                  <select value={draftInspectionMonth} onChange={e => setDraftInspectionMonth(e.target.value)} style={filterStyles.filterSelect}>
-                    <option value="">All Months</option>
-                    {MONTH_NAMES.map((m, i) => <option key={m} value={i}>{m}</option>)}
-                  </select>
+                  <label style={filterStyles.filterLabel}>From</label>
+                  <input type="date" value={draftInspectionFrom} onChange={e => setDraftInspectionFrom(e.target.value)} style={filterStyles.filterSelect} />
                 </div>
 
                 <div style={filterStyles.filterField}>
-                  <label style={filterStyles.filterLabel}>Year</label>
-                  <select value={draftInspectionYear} onChange={e => setDraftInspectionYear(e.target.value)} style={filterStyles.filterSelect}>
-                    <option value="">All Years</option>
-                    {inspectionYears.map(y => <option key={y} value={y}>{y}</option>)}
-                  </select>
+                  <label style={filterStyles.filterLabel}>To</label>
+                  <input type="date" value={draftInspectionTo} onChange={e => setDraftInspectionTo(e.target.value)} style={filterStyles.filterSelect} />
                 </div>
 
                 <div style={filterStyles.filterField}>
@@ -929,21 +938,15 @@ export default function FarmDetails() {
           )}
           {!serviceRequestLoading && serviceRequestData?.requests?.length > 0 && (
             <>
-              <div style={filterStyles.filterBar}>
+              <div className="no-print" style={filterStyles.filterBar}>
                 <div style={filterStyles.filterField}>
-                  <label style={filterStyles.filterLabel}>Month</label>
-                  <select value={draftServiceRequestMonth} onChange={e => setDraftServiceRequestMonth(e.target.value)} style={filterStyles.filterSelect}>
-                    <option value="">All Months</option>
-                    {MONTH_NAMES.map((m, i) => <option key={m} value={i}>{m}</option>)}
-                  </select>
+                  <label style={filterStyles.filterLabel}>From</label>
+                  <input type="date" value={draftServiceRequestFrom} onChange={e => setDraftServiceRequestFrom(e.target.value)} style={filterStyles.filterSelect} />
                 </div>
 
                 <div style={filterStyles.filterField}>
-                  <label style={filterStyles.filterLabel}>Year</label>
-                  <select value={draftServiceRequestYear} onChange={e => setDraftServiceRequestYear(e.target.value)} style={filterStyles.filterSelect}>
-                    <option value="">All Years</option>
-                    {serviceRequestYears.map(y => <option key={y} value={y}>{y}</option>)}
-                  </select>
+                  <label style={filterStyles.filterLabel}>To</label>
+                  <input type="date" value={draftServiceRequestTo} onChange={e => setDraftServiceRequestTo(e.target.value)} style={filterStyles.filterSelect} />
                 </div>
 
                 <div style={filterStyles.filterField}>
@@ -955,7 +958,7 @@ export default function FarmDetails() {
                   >
                     <option value="">All Types</option>
                     {SERVICE_REQUEST_TYPES.map(t => (
-                      <option key={t} value={t}>{serviceRequestTypeLabel(t)}</option>
+                      <option key={t} value={t}>{serviceTypeLabel(t)}</option>
                     ))}
                   </select>
                 </div>
@@ -980,17 +983,16 @@ export default function FarmDetails() {
                   </thead>
                   <tbody>
                     {filteredServiceRequests.map(r => {
-                      const done = r.status === 'Completed'
                       return (
                         <tr key={r.id}>
-                          <td style={tableStyles.td}>{r.request_type}</td>
+                          <td style={tableStyles.td}>
+                            <span style={{ ...styles.miniPill, ...serviceTypeBadgeStyle(r.request_type) }}>
+                              {serviceTypeLabel(r.request_type)}
+                            </span>
+                          </td>
                           <td style={tableStyles.td}>{r.request_date}</td>
                           <td style={tableStyles.td}>
-                            <span style={{
-                              ...styles.miniPill,
-                              color: done ? '#256b3d' : '#b45309',
-                              backgroundColor: done ? '#eaf3ec' : '#fbf1e2',
-                            }}>{r.status}</span>
+                            <span style={{ ...styles.miniPill, ...requestStatusBadgeStyle(r.status) }}>{r.status}</span>
                           </td>
                           <td style={tableStyles.td}>{r.accepted_by || '—'}</td>
                           <td style={tableStyles.td}>{r.completed_at || '—'}</td>
@@ -1026,6 +1028,24 @@ export default function FarmDetails() {
           <button style={lightboxStyles.closeBtn} onClick={() => setLightboxImage(null)} aria-label="Close preview">×</button>
           <img src={lightboxImage} alt="Clean-out proof" style={lightboxStyles.image} onClick={e => e.stopPropagation()} />
         </div>
+      )}
+
+      {pendingOwnerEmail && (
+        <VerifyEmailChangeModal
+          email={pendingOwnerEmail}
+          requestUrl={`/admin/farms/${farm.id}/email/otp/request`}
+          verifyUrl={`/admin/farms/${farm.id}/email/otp/verify`}
+          onCancel={() => {
+            setPendingOwnerEmail(null)
+            setEditEmail(farm.user?.email || '')
+          }}
+          onVerified={async () => {
+            invalidateCache('/admin/farms')
+            await refetch()
+            setPendingOwnerEmail(null)
+            setAccountEditSuccess('Email verified successfully.')
+          }}
+        />
       )}
 
       {cleanoutViewLog && (
@@ -1070,9 +1090,17 @@ export default function FarmDetails() {
           title="Service Request"
           onClose={() => setServiceRequestViewRecord(null)}
           rows={[
-            { label: 'Request Type', value: serviceRequestViewRecord.request_type },
+            { label: 'Request Type', value: (
+              <span style={{ ...styles.miniPill, ...serviceTypeBadgeStyle(serviceRequestViewRecord.request_type) }}>
+                {serviceTypeLabel(serviceRequestViewRecord.request_type)}
+              </span>
+            ) },
             { label: 'Request Date', value: serviceRequestViewRecord.request_date },
-            { label: 'Status', value: serviceRequestViewRecord.status },
+            { label: 'Status', value: (
+              <span style={{ ...styles.miniPill, ...requestStatusBadgeStyle(serviceRequestViewRecord.status) }}>
+                {serviceRequestViewRecord.status}
+              </span>
+            ) },
             { label: 'Accepted By', value: serviceRequestViewRecord.accepted_by || '—' },
             { label: 'Date Completed', value: serviceRequestViewRecord.completed_at || '—' },
           ]}
@@ -1108,7 +1136,7 @@ function InfoCell({ label, value }) {
   )
 }
 
-function FarmField({ label, value, onChange, editing, display, type = 'text', options }) {
+function FarmField({ label, value, onChange, editing, display, type = 'text', options, inputMode, maxLength }) {
   return (
     <div style={acctStyles.fieldGroup}>
       <label style={acctStyles.label}>{label}</label>
@@ -1119,6 +1147,8 @@ function FarmField({ label, value, onChange, editing, display, type = 'text', op
       ) : (
         <input
           type={editing ? type : 'text'}
+          inputMode={inputMode}
+          maxLength={maxLength}
           value={editing ? value : (display || '')}
           onChange={e => onChange(e.target.value)}
           disabled={!editing}
@@ -1199,21 +1229,11 @@ function MetricBox({ type, label, value, unit, status }) {
 }
 
 function Pagination({ currentPage, lastPage, pageSize, total, onPageChange, onPageSizeChange, isMobile }) {
-  const pageNumbers = useMemo(() => {
-    const maxButtons = isMobile ? 3 : 5
-    let start = Math.max(1, currentPage - Math.floor(maxButtons / 2))
-    let end = start + maxButtons - 1
-    if (end > lastPage) { end = lastPage; start = Math.max(1, end - maxButtons + 1) }
-    const pages = []
-    for (let p = start; p <= end; p++) pages.push(p)
-    return pages
-  }, [currentPage, lastPage, isMobile])
-
   const rangeStart = total === 0 ? 0 : (currentPage - 1) * pageSize + 1
   const rangeEnd = Math.min(currentPage * pageSize, total)
 
   return (
-    <div style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+    <div className="no-print" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
       <div style={paginationStyles.info}>
         {total === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${total}`}
       </div>
@@ -1221,33 +1241,7 @@ function Pagination({ currentPage, lastPage, pageSize, total, onPageChange, onPa
         <select value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
           {PAGE_SIZE_OPTIONS.map(size => <option key={size} value={size}>{size} / page</option>)}
         </select>
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(Math.max(1, currentPage - 1))}
-          disabled={currentPage === 1}
-          aria-label="Previous page"
-        >
-          ‹
-        </button>
-        {pageNumbers[0] > 1 && <span style={paginationStyles.ellipsis}>…</span>}
-        {pageNumbers.map(p => (
-          <button
-            key={p}
-            onClick={() => onPageChange(p)}
-            style={{ ...paginationStyles.pageBtn, ...(p === currentPage ? paginationStyles.pageBtnActive : {}) }}
-          >
-            {p}
-          </button>
-        ))}
-        {pageNumbers[pageNumbers.length - 1] < lastPage && <span style={paginationStyles.ellipsis}>…</span>}
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === lastPage ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(Math.min(lastPage, currentPage + 1))}
-          disabled={currentPage === lastPage}
-          aria-label="Next page"
-        >
-          ›
-        </button>
+        <SharedPagination currentPage={currentPage} totalPages={lastPage} onPageChange={onPageChange} isMobile={isMobile} />
       </div>
     </div>
   )
@@ -1385,7 +1379,7 @@ function DevicesSection({ farmId, onDeviceChange }) {
                   }}>{s.status}</span>
                 </div>
                 <div style={{ fontSize: '12px', color: '#6b7770', marginTop: '3px', fontFamily: 'monospace' }}>
-                  {s.sensor_code} · {s.device_key}
+                  {s.sensor_code}
                 </div>
                 <div style={{ fontSize: '11.5px', color: '#9aa79d', marginTop: '3px' }}>
                   Installed {s.installed_at}{s.last_seen_at && ` · Last seen ${s.last_seen_at}`}
@@ -1538,7 +1532,7 @@ function EditDeviceModal({ sensor, onClose, onSuccess }) {
           <span style={deviceStyles.close} onClick={onClose}>×</span>
         </div>
 
-        <p style={deviceStyles.hint}>{sensor.device_name} · {sensor.device_key}</p>
+        <p style={deviceStyles.hint}>{sensor.device_name}</p>
 
         <form onSubmit={handleSubmit}>
           {error && <div style={deviceStyles.errorBox}>{error}</div>}
@@ -1561,7 +1555,7 @@ function EditDeviceModal({ sensor, onClose, onSuccess }) {
   )
 }
 
-const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+const SANS = "'Inter', sans-serif"
 
 const styles = {
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
@@ -1649,12 +1643,12 @@ const paginationStyles = {
     marginTop: '16px', paddingTop: '14px', borderTop: '1px solid #f0efe8', flexWrap: 'wrap', gap: '10px',
   },
   wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
-  info: { fontSize: '12.5px', color: '#8a968d', whiteSpace: 'nowrap', fontFamily: SANS },
+  info: { fontSize: '12px', color: '#8a968d', whiteSpace: 'nowrap', fontFamily: SANS },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },
   pageSizeSelect: {
     padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6',
-    fontSize: '12.5px', color: '#4b5a50', marginRight: '6px', fontFamily: SANS, backgroundColor: '#fff', cursor: 'pointer',
+    fontSize: '12px', color: '#4b5a50', marginRight: '6px', fontFamily: SANS, backgroundColor: '#fff', cursor: 'pointer',
   },
   navBtn: {
     minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px',
@@ -1674,9 +1668,9 @@ const paginationStyles = {
 const tableStyles = {
   wrap: { overflowX: 'auto', marginTop: '14px', border: '1px solid #eceee7', borderRadius: '10px' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  th: { textAlign: 'left', padding: '10px 14px', fontSize: '10.5px', fontWeight: 700, color: '#8a968d', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid #eceee7', backgroundColor: '#fafbf8', whiteSpace: 'nowrap' },
+  th: { textAlign: 'left', padding: '10px 14px', fontSize: '13px', fontWeight: 600, color: '#8a968d', borderBottom: '1px solid #eceee7', backgroundColor: '#fafbf8', whiteSpace: 'nowrap' },
   thSortable: { cursor: 'pointer', userSelect: 'none' },
-  td: { padding: '11px 14px', fontSize: '12.5px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top' },
+  td: { padding: '11px 14px', fontSize: '12px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top' },
   truncate: { display: 'block', maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   viewLink: {
     display: 'inline-block', padding: '6px 13px', borderRadius: '8px',
@@ -1820,6 +1814,10 @@ const acctStyles = {
   btnFull: { width: '100%', boxSizing: 'border-box' },
   errorBox: {
     backgroundColor: '#fef2f2', border: '1px solid #fca5a5', color: '#dc2626',
+    padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '14px',
+  },
+  successBox: {
+    backgroundColor: '#f0fdf4', border: '1px solid #86efac', color: '#166534',
     padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '14px',
   },
 }

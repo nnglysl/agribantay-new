@@ -5,12 +5,13 @@ import {
 } from 'chart.js'
 import AdminLayout from '../../components/AdminLayout'
 import GeneratedReportsFilesTab from '../../components/GeneratedReportsFilesTab'
+import AdminGeneratedReportView from '../../components/AdminGeneratedReportView'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import {
   C, styles, ReportStyles, PageHeader, Tabs, StatCard, Panel, DataTable, ChartFrame, Legend,
   DonutCenter, IconFilter, chartOptions, donutOptions, lineDataset,
-  fmtDate, makeInRange, rangeLabelOf, monthlyBuckets, monthlyBucketsInRange, dailyBucketsForMonth,
-  MONTH_NAMES, monthBounds,
+  fmtDate, makeInRange, rangeLabelOf, scopeLabelOf, monthlyBuckets, monthlyBucketsInRange, dailyBuckets,
+  MONTH_NAMES, serviceTypeBadgeStyle, serviceTypeLabel,
 } from '../../components/ReportsLayout'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Tooltip)
@@ -19,24 +20,45 @@ const TABS = ['Overview', 'Inspections', 'Alerts', 'Maintenance', 'Service Reque
 const MAINTENANCE_VIEWS = ['Overdue and non-compliant farms', 'Completed clean-out log']
 
 export default function AdminReports() {
-  const { data, loading, error } = useCachedFetch('/admin/reports')
+  const { data, loading, error, refetch } = useCachedFetch('/admin/reports')
+
+  // Tied to actual data refreshes only (initial load + each 30-minute
+  // auto-refetch below) — never recomputed on every render, so it doesn't
+  // silently creep forward just because the user opened a filter popover
+  // or switched tabs. Computed during render (not in an effect) when `data`
+  // changes reference, which only happens right after a fetch resolves.
+  const [prevData, setPrevData] = useState(data)
+  const [generatedAt, setGeneratedAt] = useState('')
+  if (data !== prevData) {
+    setPrevData(data)
+    if (data) setGeneratedAt(new Date().toLocaleString('en-PH', { dateStyle: 'long', timeStyle: 'short' }))
+  }
 
   const [tab, setTab] = useState('Overview')
   const [maintView, setMaintView] = useState(MAINTENANCE_VIEWS[0])
   const now = new Date()
 
-  const [filterMonth, setFilterMonth] = useState(now.getMonth() + 1)
-  const [filterYear, setFilterYear] = useState(now.getFullYear())
+  // From/To date-range filter — drives every record-listing tab (Overview,
+  // Inspections, Alerts, Maintenance, Service Requests).
+  const [draftFrom, setDraftFrom] = useState('')
+  const [draftTo, setDraftTo] = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+
+  // Separate Month + Year filter — used only by the Files tab, which picks
+  // ONE archived monthly report rather than filtering a list of records.
+  const [draftFilesMonth, setDraftFilesMonth] = useState('')
+  const [draftFilesYear, setDraftFilesYear] = useState('')
+  const [filesMonth, setFilesMonth] = useState('')
+  const [filesYear, setFilesYear] = useState('')
+
   const [filterOpen, setFilterOpen] = useState(false)
-  const [appliedMonth, setAppliedMonth] = useState(now.getMonth() + 1)
-  const [appliedYear, setAppliedYear] = useState(now.getFullYear())
   const filterRef = useRef(null)
 
   const reportYears = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i)
 
-  const { from, to } = (appliedMonth && appliedYear) ? monthBounds(appliedMonth, appliedYear) : { from: '', to: '' }
-  const inRange = makeInRange(from, to)
-  const rangeLabel = rangeLabelOf(from, to)
+  const inRange = makeInRange(fromDate, toDate)
+  const rangeLabel = rangeLabelOf(fromDate, toDate)
 
   const allInspections = data?.completed_inspections ?? []
   const allAlerts = data?.alert_records ?? []
@@ -44,17 +66,35 @@ export default function AdminReports() {
   const allCleanouts = data?.maintenance_completed_list ?? []
   const allServices = data?.completed_services ?? []
 
-  const inspections = useMemo(() => allInspections.filter(r => inRange(r.completed_at_raw)), [allInspections, from, to])
-  const alerts = useMemo(() => allAlerts.filter(r => inRange(r.triggered_at_raw)), [allAlerts, from, to])
-  const cleanouts = useMemo(() => allCleanouts.filter(r => inRange(r.performed_at_raw)), [allCleanouts, from, to])
-  const services = useMemo(() => allServices.filter(r => inRange(r.completed_at_raw)), [allServices, from, to])
+  const inspections = useMemo(() => allInspections.filter(r => inRange(r.completed_at_raw)), [allInspections, fromDate, toDate])
+  const alerts = useMemo(() => allAlerts.filter(r => inRange(r.triggered_at_raw)), [allAlerts, fromDate, toDate])
+  const cleanouts = useMemo(() => allCleanouts.filter(r => inRange(r.performed_at_raw)), [allCleanouts, fromDate, toDate])
+  const services = useMemo(() => allServices.filter(r => inRange(r.completed_at_raw)), [allServices, fromDate, toDate])
 
-  const monthlyTrend = useMemo(() => monthlyBuckets(allInspections, 'completed_at_raw', appliedMonth, appliedYear), [allInspections, appliedMonth, appliedYear])
+  const isRangeFiltered = Boolean(fromDate || toDate)
+
+  const monthlyTrend = useMemo(() => (
+    isRangeFiltered
+      ? monthlyBucketsInRange(inspections, 'completed_at_raw')
+      : monthlyBuckets(allInspections, 'completed_at_raw', null, null)
+  ), [inspections, allInspections, isRangeFiltered])
+
   const alertTrend = useMemo(() => (
-    (appliedMonth && appliedYear)
-      ? dailyBucketsForMonth(alerts, 'triggered_at_raw', appliedMonth, appliedYear)
-      : monthlyBucketsInRange(alerts, 'triggered_at_raw')
-  ), [alerts, appliedMonth, appliedYear])
+    isRangeFiltered
+      ? dailyBuckets(alerts, 'triggered_at_raw')
+      : monthlyBucketsInRange(allAlerts, 'triggered_at_raw')
+  ), [alerts, allAlerts, isRangeFiltered])
+
+  // Single centralized refresh mechanism for the whole Reports page: fetch the
+  // latest data as soon as the page opens (never wait for the interval), then
+  // re-fetch every 30 minutes. Filter changes never trigger a fetch — they
+  // just re-filter the already-loaded dataset client-side (see useMemo above).
+  useEffect(() => {
+    refetch()
+    const interval = setInterval(refetch, 30 * 60 * 1000)
+    return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (!filterOpen) return
@@ -65,17 +105,41 @@ export default function AdminReports() {
     return () => document.removeEventListener('mousedown', onClickOutside)
   }, [filterOpen])
 
+  const openFilter = () => {
+    setDraftFrom(fromDate)
+    setDraftTo(toDate)
+    setDraftFilesMonth(filesMonth)
+    setDraftFilesYear(filesYear)
+    setFilterOpen(true)
+  }
+
   const applyFilter = () => {
-    setAppliedMonth(filterMonth)
-    setAppliedYear(filterYear)
+    if (tab === 'Files') {
+      setFilesMonth(draftFilesMonth)
+      setFilesYear(draftFilesYear)
+    } else {
+      setFromDate(draftFrom)
+      setToDate(draftTo)
+    }
     setFilterOpen(false)
   }
 
   const clearFilter = () => {
-    setAppliedMonth(null)
-    setAppliedYear(null)
+    if (tab === 'Files') {
+      setFilesMonth('')
+      setFilesYear('')
+      setDraftFilesMonth('')
+      setDraftFilesYear('')
+    } else {
+      setFromDate('')
+      setToDate('')
+      setDraftFrom('')
+      setDraftTo('')
+    }
     setFilterOpen(false)
   }
+
+  const isFilterActive = tab === 'Files' ? Boolean(filesMonth && filesYear) : isRangeFiltered
 
   if (loading || !data) return <AdminLayout><p style={styles.stateText}>Loading...</p></AdminLayout>
   if (error) return <AdminLayout><p style={{ ...styles.stateText, color: C.red }}>{error}</p></AdminLayout>
@@ -90,6 +154,7 @@ export default function AdminReports() {
     normal: overview.farm_status_breakdown?.normal,
     warning: overview.farm_status_breakdown?.warning,
     critical: overview.farm_status_breakdown?.critical,
+    pendingSetup: overview.farm_status_breakdown?.pending_setup,
   }
 
   const statsByTab = {
@@ -126,8 +191,6 @@ export default function AdminReports() {
     ],
   }
 
-  const generatedAt = new Date().toLocaleString('en-PH', { dateStyle: 'long', timeStyle: 'short' })
-
   return (
     <AdminLayout>
       <ReportStyles />
@@ -146,12 +209,12 @@ export default function AdminReports() {
           <div ref={filterRef} style={{ position: 'relative', marginBottom: 10 }}>
             <button
               type="button"
-              onClick={() => (filterOpen ? setFilterOpen(false) : setFilterOpen(true))}
-              style={{ ...styles.filterToggleBtn, ...((appliedMonth && appliedYear) ? styles.filterToggleBtnActive : {}) }}
+              onClick={() => (filterOpen ? setFilterOpen(false) : openFilter())}
+              style={{ ...styles.filterToggleBtn, ...(isFilterActive ? styles.filterToggleBtnActive : {}) }}
             >
               <IconFilter />
               Filter
-              {appliedMonth && appliedYear && <span style={styles.filterToggleCount}>1</span>}
+              {isFilterActive && <span style={styles.filterToggleCount}>1</span>}
             </button>
             {filterOpen && (
               <div style={styles.filterPop}>
@@ -160,20 +223,53 @@ export default function AdminReports() {
                   <span style={styles.filterPopClose} onClick={() => setFilterOpen(false)}>×</span>
                 </div>
 
-                <div style={styles.filterPopRow}>
-                  <div>
-                    <label style={styles.filterPopLabel}>Month</label>
-                    <select style={styles.filterPopSelect} value={filterMonth} onChange={e => setFilterMonth(Number(e.target.value))}>
-                      {MONTH_NAMES.map((name, i) => <option key={name} value={i + 1}>{name}</option>)}
-                    </select>
+                {tab === 'Files' ? (
+                  <div style={styles.filterPopRow}>
+                    <div>
+                      <label style={styles.filterPopLabel}>Month</label>
+                      <select
+                        style={styles.filterPopSelect}
+                        value={draftFilesMonth}
+                        onChange={e => setDraftFilesMonth(e.target.value === '' ? '' : Number(e.target.value))}
+                      >
+                        <option value="">All Months</option>
+                        {MONTH_NAMES.map((name, i) => <option key={name} value={i + 1}>{name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={styles.filterPopLabel}>Year</label>
+                      <select
+                        style={styles.filterPopSelect}
+                        value={draftFilesYear}
+                        onChange={e => setDraftFilesYear(e.target.value === '' ? '' : Number(e.target.value))}
+                      >
+                        <option value="">All Years</option>
+                        {reportYears.map(y => <option key={y} value={y}>{y}</option>)}
+                      </select>
+                    </div>
                   </div>
-                  <div>
-                    <label style={styles.filterPopLabel}>Year</label>
-                    <select style={styles.filterPopSelect} value={filterYear} onChange={e => setFilterYear(Number(e.target.value))}>
-                      {reportYears.map(y => <option key={y} value={y}>{y}</option>)}
-                    </select>
+                ) : (
+                  <div style={styles.filterPopRow}>
+                    <div>
+                      <label style={styles.filterPopLabel}>From</label>
+                      <input
+                        type="date"
+                        style={styles.filterPopSelect}
+                        value={draftFrom}
+                        onChange={e => setDraftFrom(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label style={styles.filterPopLabel}>To</label>
+                      <input
+                        type="date"
+                        style={styles.filterPopSelect}
+                        value={draftTo}
+                        onChange={e => setDraftTo(e.target.value)}
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <div style={styles.filterPopActions}>
                   <button type="button" onClick={clearFilter} style={styles.filterPopClear}>Show all</button>
@@ -186,7 +282,7 @@ export default function AdminReports() {
 
         <div style={styles.body}>
           {tab !== 'Files' && (
-            <p style={styles.filterNote}>Stat cards show all-time totals. Charts and tables below reflect {rangeLabel}.</p>
+            <p style={styles.filterNote}>{scopeLabelOf(fromDate, toDate)}</p>
           )}
 
           {tab !== 'Files' && (
@@ -197,7 +293,7 @@ export default function AdminReports() {
 
           {tab === 'Overview' && (
             <div className="rp-two">
-              <Panel title="Inspections completed per month" subtitle="Last 6 months">
+              <Panel title="Inspections completed per month" subtitle={isRangeFiltered ? rangeLabel : 'Last 6 months'}>
                 <ChartFrame>
                   <Line
                     data={{ labels: monthlyTrend.map(m => m.label), datasets: [lineDataset(monthlyTrend.map(m => m.count), C.green)] }}
@@ -211,10 +307,10 @@ export default function AdminReports() {
                   <div style={styles.donutWrap}>
                     <Doughnut
                       data={{
-                        labels: ['Safe', 'Warning', 'Critical'],
+                        labels: ['Safe', 'Warning', 'Critical', 'Pending Setup'],
                         datasets: [{
-                          data: [farms.normal ?? 0, farms.warning ?? 0, farms.critical ?? 0],
-                          backgroundColor: [C.green, C.amber, C.red],
+                          data: [farms.normal ?? 0, farms.warning ?? 0, farms.critical ?? 0, farms.pendingSetup ?? 0],
+                          backgroundColor: [C.green, C.amber, C.red, C.faint],
                           borderWidth: 0,
                         }],
                       }}
@@ -226,6 +322,7 @@ export default function AdminReports() {
                     { label: 'Safe', value: farms.normal, color: C.green },
                     { label: 'Warning', value: farms.warning, color: C.amber },
                     { label: 'Critical', value: farms.critical, color: C.red },
+                    { label: 'Pending Setup', value: farms.pendingSetup, color: C.faint },
                   ]} />
                 </div>
               </Panel>
@@ -284,18 +381,6 @@ export default function AdminReports() {
                             ...chartOptions.scales.y,
                             ticks: { ...chartOptions.scales.y.ticks, stepSize: 1 },
                           },
-                          x: (appliedMonth && appliedYear) ? {
-                            ...chartOptions.scales.x,
-                            ticks: {
-                              ...chartOptions.scales.x.ticks,
-                              autoSkip: false,
-                              maxRotation: 0,
-                              callback: (_value, index) => {
-                                const day = index + 1
-                                return (day === 1 || day % 5 === 0) ? day : ''
-                              },
-                            },
-                          } : chartOptions.scales.x,
                         },
                       }}
                     />
@@ -366,7 +451,7 @@ export default function AdminReports() {
               columns={['Type', 'Farm', 'Owner', 'Barangay', 'Completed', 'Notes']}
               emptyText="No completed service requests in this range."
               rows={services.map(s => [
-                { text: s.service_type, strong: true },
+                { text: serviceTypeLabel(s.service_type), badgeStyle: serviceTypeBadgeStyle(s.service_type), dot: false },
                 { text: s.farm_name },
                 { text: s.owner_name },
                 { text: s.barangay },
@@ -377,7 +462,7 @@ export default function AdminReports() {
           )}
 
           {tab === 'Files' && (
-            <GeneratedReportsFilesTab appliedMonth={appliedMonth} appliedYear={appliedYear} />
+            <GeneratedReportsFilesTab appliedMonth={filesMonth} appliedYear={filesYear} ReportView={AdminGeneratedReportView} />
           )}
 
           {tab !== 'Files' && (

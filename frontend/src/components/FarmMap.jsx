@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useIsMobile } from '../hooks/useIsMobile'
+import { serviceTypeBadgeStyle } from '../utils/serviceBadgeStyle'
 
 delete L.Icon.Default.prototype._getIconUrl
 L.Icon.Default.mergeOptions({
@@ -209,9 +210,14 @@ const statusColor = {
   Safe: '#2c8047',
   Warning: '#d9880f',
   Critical: '#c0392b',
+  'Pending Setup': '#9ca3af',
 }
 
-const REQUEST_COLORS = { odor: '#2c8047', fly: '#d9880f', none: '#d4d8cf' }
+const REQUEST_COLORS = {
+  odor: serviceTypeBadgeStyle('Odor Control').color,
+  fly: serviceTypeBadgeStyle('Fly Control').color,
+  none: '#d4d8cf',
+}
 
 function requestTypeColor(type = '') {
   return /fly/i.test(type) ? REQUEST_COLORS.fly : REQUEST_COLORS.odor
@@ -442,6 +448,7 @@ export default function FarmMap({
               <LegendRow color={statusColor.Safe} label="Safe" />
               <LegendRow color={statusColor.Warning} label="Warning" />
               <LegendRow color={statusColor.Critical} label="Critical" />
+              <LegendRow color={statusColor['Pending Setup']} label="Pending Setup" />
             </>
           )}
           {mode === 'inspection' && (
@@ -558,7 +565,7 @@ export default function FarmMap({
                 <span style={styles.countValue}>{listItems.length}</span>
                 <span style={styles.countLabel}>Total</span>
               </div>
-              <div style={{ ...styles.countPill, ...styles.countPillGreen }}>
+              <div style={{ ...styles.countPill, ...styles.countPillPurple }}>
                 <span style={styles.countValue}>{odorCount}</span>
                 <span style={styles.countLabel}>Odor</span>
               </div>
@@ -657,7 +664,7 @@ function LegendRow({ color, label }) {
 }
 
 const styles = {
-  layout: { display: 'flex', gap: '16px', alignItems: 'stretch', fontFamily: "'Public Sans', system-ui, sans-serif" },
+  layout: { display: 'flex', gap: '16px', alignItems: 'stretch', fontFamily: "'Inter', sans-serif" },
   layoutMobile: { flexDirection: 'column' },
 
   mapCol: { position: 'relative', flex: 1, minWidth: 0, borderRadius: '14px', overflow: 'hidden', border: '1px solid #e7e8e0', isolation: 'isolate' },
@@ -682,7 +689,7 @@ const styles = {
   countGroup: { display: 'flex', gap: '6px', flexShrink: 0 },
   countPill: { display: 'flex', flexDirection: 'column', alignItems: 'center', backgroundColor: '#f3f4ef', borderRadius: '8px', padding: '3px 9px', minWidth: '40px' },
   countPillAmber: { backgroundColor: '#fbf1e2' },
-  countPillGreen: { backgroundColor: '#eaf3ec' },
+  countPillPurple: { backgroundColor: '#f3ecfd' },
   countValue: { fontSize: '14px', fontWeight: 800, color: '#16311d', lineHeight: 1.1 },
   countLabel: { fontSize: '8px', fontWeight: 700, color: '#8a968d', textTransform: 'uppercase' },
 

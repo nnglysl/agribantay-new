@@ -1,29 +1,27 @@
 import { useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import VetLayout from '../../components/VetLayout'
+import SharedPagination from '../../components/Pagination'
 import ServiceRequestDetailsModal from '../../components/ServiceRequestDetailsModal'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../../utils/serviceBadgeStyle'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
-const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
 // Vet's Service Requests are always Vaccine/Blood Test (enforced server-side
 // in Vet\FarmController::serviceRequests()).
 const SERVICE_REQUEST_TYPES = ['Vaccine Request', 'Blood Test Request']
 
-function serviceRequestTypeLabel(type) {
-  return type ? type.replace(' Request', '') : type
-}
-
-// '' for either side means "don't restrict by that".
-function matchesMonthYear(dateValue, month, year) {
-  if (!month && !year) return true
+// An empty string on either side means "don't restrict that end of the range".
+function matchesDateRange(dateValue, fromDate, toDate) {
+  if (!fromDate && !toDate) return true
   if (!dateValue) return false
   const d = new Date(dateValue)
   if (isNaN(d.getTime())) return false
-  if (month !== '' && d.getMonth() !== Number(month)) return false
-  if (year !== '' && d.getFullYear() !== Number(year)) return false
+  const dOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  if (fromDate && dOnly < new Date(fromDate)) return false
+  if (toDate && dOnly > new Date(toDate)) return false
   return true
 }
 
@@ -61,11 +59,11 @@ export default function VetFarmDetails() {
   const [viewRecord, setViewRecord] = useState(null)
 
   const [requestTypeFilter, setRequestTypeFilter] = useState('')
-  const [requestMonthFilter, setRequestMonthFilter] = useState('')
-  const [requestYearFilter, setRequestYearFilter] = useState('')
+  const [requestFromDate, setRequestFromDate] = useState('')
+  const [requestToDate, setRequestToDate] = useState('')
   const [draftRequestType, setDraftRequestType] = useState('')
-  const [draftRequestMonth, setDraftRequestMonth] = useState('')
-  const [draftRequestYear, setDraftRequestYear] = useState('')
+  const [draftRequestFrom, setDraftRequestFrom] = useState('')
+  const [draftRequestTo, setDraftRequestTo] = useState('')
 
   const { data: farm, loading, error } = useCachedFetch(`/vet/farms/${farmId}`)
   const { data: requestData, loading: requestLoading } = useCachedFetch(
@@ -77,33 +75,24 @@ export default function VetFarmDetails() {
 
   const applyRequestFilter = () => {
     setRequestTypeFilter(draftRequestType)
-    setRequestMonthFilter(draftRequestMonth)
-    setRequestYearFilter(draftRequestYear)
+    setRequestFromDate(draftRequestFrom)
+    setRequestToDate(draftRequestTo)
   }
   const resetRequestFilter = () => {
     setDraftRequestType('')
-    setDraftRequestMonth('')
-    setDraftRequestYear('')
+    setDraftRequestFrom('')
+    setDraftRequestTo('')
     setRequestTypeFilter('')
-    setRequestMonthFilter('')
-    setRequestYearFilter('')
+    setRequestFromDate('')
+    setRequestToDate('')
   }
-
-  const requestYears = useMemo(() => {
-    const list = requestData?.requests || []
-    const years = new Set([new Date().getFullYear()])
-    list.forEach(r => {
-      if (r.created_at) years.add(new Date(r.created_at).getFullYear())
-    })
-    return [...years].sort((a, b) => b - a)
-  }, [requestData])
 
   const filteredRequests = useMemo(() => {
     let list = requestData?.requests || []
     if (requestTypeFilter) list = list.filter(r => r.request_type === requestTypeFilter)
-    list = list.filter(r => matchesMonthYear(r.created_at, requestMonthFilter, requestYearFilter))
+    list = list.filter(r => matchesDateRange(r.created_at, requestFromDate, requestToDate))
     return list
-  }, [requestData, requestTypeFilter, requestMonthFilter, requestYearFilter])
+  }, [requestData, requestTypeFilter, requestFromDate, requestToDate])
 
   if (loading) {
     return <VetLayout><p style={styles.stateText}>Loading farm profile…</p></VetLayout>
@@ -211,21 +200,15 @@ export default function VetFarmDetails() {
           )}
           {!requestLoading && requestData?.requests?.length > 0 && (
             <>
-              <div style={filterStyles.filterBar}>
+              <div className="no-print" style={filterStyles.filterBar}>
                 <div style={filterStyles.filterField}>
-                  <label style={filterStyles.filterLabel}>Month</label>
-                  <select value={draftRequestMonth} onChange={e => setDraftRequestMonth(e.target.value)} style={filterStyles.filterSelect}>
-                    <option value="">All Months</option>
-                    {MONTH_NAMES.map((m, i) => <option key={m} value={i}>{m}</option>)}
-                  </select>
+                  <label style={filterStyles.filterLabel}>From</label>
+                  <input type="date" value={draftRequestFrom} onChange={e => setDraftRequestFrom(e.target.value)} style={filterStyles.filterSelect} />
                 </div>
 
                 <div style={filterStyles.filterField}>
-                  <label style={filterStyles.filterLabel}>Year</label>
-                  <select value={draftRequestYear} onChange={e => setDraftRequestYear(e.target.value)} style={filterStyles.filterSelect}>
-                    <option value="">All Years</option>
-                    {requestYears.map(y => <option key={y} value={y}>{y}</option>)}
-                  </select>
+                  <label style={filterStyles.filterLabel}>To</label>
+                  <input type="date" value={draftRequestTo} onChange={e => setDraftRequestTo(e.target.value)} style={filterStyles.filterSelect} />
                 </div>
 
                 <div style={filterStyles.filterField}>
@@ -237,7 +220,7 @@ export default function VetFarmDetails() {
                   >
                     <option value="">All Types</option>
                     {SERVICE_REQUEST_TYPES.map(t => (
-                      <option key={t} value={t}>{serviceRequestTypeLabel(t)}</option>
+                      <option key={t} value={t}>{serviceTypeLabel(t)}</option>
                     ))}
                   </select>
                 </div>
@@ -262,17 +245,16 @@ export default function VetFarmDetails() {
                   </thead>
                   <tbody>
                     {filteredRequests.map(r => {
-                      const done = r.status === 'Completed'
                       return (
                         <tr key={r.id}>
-                          <td style={tableStyles.td}>{r.request_type}</td>
+                          <td style={tableStyles.td}>
+                            <span style={{ ...styles.miniPill, ...serviceTypeBadgeStyle(r.request_type) }}>
+                              {serviceTypeLabel(r.request_type)}
+                            </span>
+                          </td>
                           <td style={tableStyles.td}>{r.request_date}</td>
                           <td style={tableStyles.td}>
-                            <span style={{
-                              ...styles.miniPill,
-                              color: done ? '#256b3d' : '#b45309',
-                              backgroundColor: done ? '#eaf3ec' : '#fbf1e2',
-                            }}>{r.status}</span>
+                            <span style={{ ...styles.miniPill, ...requestStatusBadgeStyle(r.status) }}>{r.status}</span>
                           </td>
                           <td style={tableStyles.td}>{r.accepted_by || '—'}</td>
                           <td style={tableStyles.td}>{r.completed_at || '—'}</td>
@@ -348,7 +330,7 @@ function Pagination({ currentPage, lastPage, pageSize, total, onPageChange, onPa
   const rangeEnd = Math.min(currentPage * pageSize, total)
 
   return (
-    <div style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+    <div className="no-print" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
       <div style={paginationStyles.info}>
         {total === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${total}`}
       </div>
@@ -356,23 +338,13 @@ function Pagination({ currentPage, lastPage, pageSize, total, onPageChange, onPa
         <select value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
           {PAGE_SIZE_OPTIONS.map(size => <option key={size} value={size}>{size} / page</option>)}
         </select>
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(Math.max(1, currentPage - 1))}
-          disabled={currentPage === 1}
-        >‹</button>
-        <span style={paginationStyles.pageInfo}>Page {currentPage} of {lastPage}</span>
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === lastPage ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(Math.min(lastPage, currentPage + 1))}
-          disabled={currentPage === lastPage}
-        >›</button>
+        <SharedPagination currentPage={currentPage} totalPages={lastPage} onPageChange={onPageChange} isMobile={isMobile} />
       </div>
     </div>
   )
 }
 
-const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+const SANS = "'Inter', sans-serif"
 
 const styles = {
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
@@ -438,8 +410,8 @@ const photoUploadStyles = {
 const tableStyles = {
   wrap: { overflowX: 'auto', marginTop: '4px', border: '1px solid #eceee7', borderRadius: '10px' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  th: { textAlign: 'left', padding: '10px 14px', fontSize: '10.5px', fontWeight: 700, color: '#8a968d', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid #eceee7', backgroundColor: '#fafbf8', whiteSpace: 'nowrap' },
-  td: { padding: '11px 14px', fontSize: '12.5px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top' },
+  th: { textAlign: 'left', padding: '10px 14px', fontSize: '13px', fontWeight: 600, color: '#8a968d', borderBottom: '1px solid #eceee7', backgroundColor: '#fafbf8', whiteSpace: 'nowrap' },
+  td: { padding: '11px 14px', fontSize: '12px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top' },
   viewLink: {
     display: 'inline-block', padding: '6px 13px', borderRadius: '8px',
     fontSize: '12.5px', fontWeight: 600, cursor: 'pointer',
@@ -477,10 +449,13 @@ const filterStyles = {
 const paginationStyles = {
   wrap: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '16px', paddingTop: '14px', borderTop: '1px solid #f0efe8', flexWrap: 'wrap', gap: '10px' },
   wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
-  info: { fontSize: '12.5px', color: '#8a968d', whiteSpace: 'nowrap', fontFamily: SANS },
+  info: { fontSize: '12px', color: '#8a968d', whiteSpace: 'nowrap', fontFamily: SANS },
   controls: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' },
-  pageSizeSelect: { padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6', fontSize: '12.5px', color: '#4b5a50', fontFamily: SANS, backgroundColor: '#fff', cursor: 'pointer' },
+  pageSizeSelect: { padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6', fontSize: '12px', color: '#4b5a50', fontFamily: SANS, backgroundColor: '#fff', cursor: 'pointer' },
   navBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '13px', cursor: 'pointer', fontFamily: SANS },
   navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   pageInfo: { fontSize: '12.5px', color: '#8a968d' },
+  pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer', fontFamily: SANS },
+  pageBtnActive: { backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff' },
+  ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
 }

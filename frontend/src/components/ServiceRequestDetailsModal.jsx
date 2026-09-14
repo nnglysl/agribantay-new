@@ -1,23 +1,6 @@
 import { formatDate, formatDateTime } from '../utils/formatDate'
 import { viewModalStyles as v } from '../styles/viewModalStyles'
-
-// Status keeps AgriBantay's usual semantic colors — the one deliberate
-// exception to this modal's otherwise neutral palette.
-const STATUS_COLOR = { Pending: '#b45309', Scheduled: '#2f6bb0', Completed: '#256b3d', Cancelled: '#6b7280' }
-
-function badgeBg(status) {
-  if (status === 'Pending') return '#fbf1e2'
-  if (status === 'Scheduled') return '#e8eff8'
-  if (status === 'Cancelled') return '#eef1ea'
-  return '#eaf3ec'
-}
-
-// Generic " Request" suffix strip — works for every role's service types
-// (Vet: "Vaccine Request"/"Blood Test Request", Admin: "Odor Control
-// Request"/"Fly Control Request") without hardcoding either vocabulary.
-function requestTypeLabel(type) {
-  return type ? type.replace(' Request', '') : '—'
-}
+import { serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../utils/serviceBadgeStyle'
 
 const BIRD_ESTIMATES = {
   Small: 'Below 10,000 layers',
@@ -46,8 +29,6 @@ function farmSizeLabel(size) {
  * from the farm already loaded on that page — before passing `request` in.
  */
 export default function ServiceRequestDetailsModal({ request, onClose, isMobile }) {
-  const color = STATUS_COLOR[request.status] || '#6b7280'
-
   const farmFields = [
     { label: 'Farm Name', value: request.farm_name },
     { label: 'Farm Owner', value: request.owner_name },
@@ -56,7 +37,7 @@ export default function ServiceRequestDetailsModal({ request, onClose, isMobile 
   ]
 
   const requestFields = [
-    { label: 'Service Type', value: requestTypeLabel(request.service_type) },
+    { label: 'Service Type', value: serviceTypeLabel(request.service_type) },
     { label: 'Request Date', value: request.created_at ? formatDate(request.created_at) : null },
     { label: 'Scheduled Date', value: request.scheduled_at ? formatDateTime(request.scheduled_at) : null },
     ...(request.status === 'Completed'
@@ -64,6 +45,9 @@ export default function ServiceRequestDetailsModal({ request, onClose, isMobile 
       : []),
     { label: 'Handled By', value: request.accepted_by },
     { label: 'Status', value: request.status },
+    ...(request.status === 'Cancelled' && request.decline_reason
+      ? [{ label: 'Decline Reason', value: request.decline_reason }]
+      : []),
   ]
 
   return (
@@ -73,7 +57,7 @@ export default function ServiceRequestDetailsModal({ request, onClose, isMobile 
           <div style={styles.headerTop}>
             <div style={v.headerTitleRow}>
               <h3 style={v.title}>{request.request_number || 'Service Request'}</h3>
-              <span style={{ ...v.badge, color, backgroundColor: badgeBg(request.status) }}>{request.status}</span>
+              <span style={{ ...v.badge, ...requestStatusBadgeStyle(request.status) }}>{request.status}</span>
             </div>
             <span style={v.close} onClick={onClose}>×</span>
           </div>
@@ -96,7 +80,13 @@ export default function ServiceRequestDetailsModal({ request, onClose, isMobile 
           {requestFields.map(f => (
             <div key={f.label} style={v.fieldBox}>
               <div style={v.fieldLabel}>{f.label}</div>
-              <div style={v.fieldValue}>{f.value || '—'}</div>
+              {f.label === 'Service Type' && request.service_type ? (
+                <span style={{ ...v.badge, ...serviceTypeBadgeStyle(request.service_type) }}>{f.value}</span>
+              ) : f.label === 'Status' && request.status ? (
+                <span style={{ ...v.badge, ...requestStatusBadgeStyle(request.status) }}>{f.value}</span>
+              ) : (
+                <div style={v.fieldValue}>{f.value || '—'}</div>
+              )}
             </div>
           ))}
         </div>

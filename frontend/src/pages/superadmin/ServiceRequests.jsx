@@ -1,9 +1,11 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import AdminLayout from '../../components/AdminLayout'
+import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { formatDateTime } from '../../utils/formatDate'
 import { viewModalStyles as v } from '../../styles/viewModalStyles'
+import { BADGE_SHAPE, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../../utils/serviceBadgeStyle'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
@@ -107,14 +109,12 @@ export default function SuperAdminServiceRequests() {
   const rangeStart = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1
   const rangeEnd = Math.min(currentPage * pageSize, totalItems)
 
-  const statusColor = { Pending: '#b45309', Scheduled: '#2c8047', Completed: '#256b3d', Cancelled: '#6b7280' }
-
   return (
     <AdminLayout>
       <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Service Requests</h1>
       <p style={styles.subtitle}>Monitor all service requests across registered farms.</p>
 
-      <div style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
+      <div className="no-print" style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
         <div style={styles.tabs}>
           <div style={{ ...styles.tab, ...(tab === 'pending' ? styles.tabActive : {}) }} onClick={() => setTab('pending')}>
             Pending
@@ -214,19 +214,20 @@ export default function SuperAdminServiceRequests() {
               </thead>
               <tbody>
                 {list.map(r => {
-                  const c = statusColor[r.status] || '#6b7280'
                   return (
                     <tr key={r.id}>
                       <td style={styles.td}>
                         <span style={styles.reqNumberCell}>{r.request_number || '—'}</span>
                       </td>
                       <td style={styles.td}>
-                        <div style={styles.serviceType}>{r.service_type}</div>
+                        <span style={{ ...BADGE_SHAPE, ...serviceTypeBadgeStyle(r.service_type) }}>
+                          {serviceTypeLabel(r.service_type)}
+                        </span>
                       </td>
                       <td style={styles.td}>{r.farm_name}</td>
                       <td style={styles.td}>{r.farm_owner_name || r.requested_by}</td>
                       <td style={styles.td}>
-                        <span style={{ ...styles.badge, color: c, backgroundColor: badgeBg(r.status) }}>
+                        <span style={{ ...BADGE_SHAPE, ...requestStatusBadgeStyle(r.status) }}>
                           {r.status}
                         </span>
                       </td>
@@ -267,9 +268,8 @@ export default function SuperAdminServiceRequests() {
       )}
 
       {viewRequest && (() => {
-        const c = statusColor[viewRequest.status] || '#6b7280'
         const fields = [
-          { label: 'Service Type', value: viewRequest.service_type },
+          { label: 'Service Type', value: serviceTypeLabel(viewRequest.service_type) },
           { label: 'Farm', value: viewRequest.farm_name },
           { label: 'Farm Owner', value: viewRequest.farm_owner_name || viewRequest.requested_by },
           ...(viewRequest.accepted_by ? [{ label: 'Accepted By', value: viewRequest.accepted_by }] : []),
@@ -283,7 +283,7 @@ export default function SuperAdminServiceRequests() {
               <div style={v.header}>
                 <div style={v.headerTitleRow}>
                   <h3 style={v.title}>{viewRequest.request_number || 'Service Request'}</h3>
-                  <span style={{ ...v.badge, color: c, backgroundColor: badgeBg(viewRequest.status) }}>{viewRequest.status}</span>
+                  <span style={{ ...v.badge, ...requestStatusBadgeStyle(viewRequest.status) }}>{viewRequest.status}</span>
                 </div>
                 <span style={v.close} onClick={() => setViewRequest(null)}>×</span>
               </div>
@@ -293,7 +293,11 @@ export default function SuperAdminServiceRequests() {
                 {fields.map(f => (
                   <div key={f.label} style={v.fieldBox}>
                     <div style={v.fieldLabel}>{f.label}</div>
-                    <div style={v.fieldValue}>{f.value || '—'}</div>
+                    {f.label === 'Service Type' && viewRequest.service_type ? (
+                      <span style={{ ...v.badge, ...serviceTypeBadgeStyle(viewRequest.service_type) }}>{f.value}</span>
+                    ) : (
+                      <div style={v.fieldValue}>{f.value || '—'}</div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -318,31 +322,12 @@ export default function SuperAdminServiceRequests() {
   )
 }
 
-function badgeBg(status) {
-  if (status === 'Pending') return '#fbf1e2'
-  if (status === 'Cancelled') return '#eef1ea'
-  return '#eaf3ec'
-}
-
 function Pagination({
   currentPage, totalPages, pageSize, onPageChange, onPageSizeChange,
   rangeStart, rangeEnd, totalItems, isMobile,
 }) {
-  const pageNumbers = useMemo(() => {
-    const maxButtons = isMobile ? 3 : 5
-    let start = Math.max(1, currentPage - Math.floor(maxButtons / 2))
-    let end = start + maxButtons - 1
-    if (end > totalPages) {
-      end = totalPages
-      start = Math.max(1, end - maxButtons + 1)
-    }
-    const pages = []
-    for (let p = start; p <= end; p++) pages.push(p)
-    return pages
-  }, [currentPage, totalPages, isMobile])
-
   return (
-    <div style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+    <div className="no-print" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
       <div style={paginationStyles.info}>
         {totalItems === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
       </div>
@@ -354,41 +339,13 @@ function Pagination({
           ))}
         </select>
 
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(1)} disabled={currentPage === 1} aria-label="First page"
-        >«</button>
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1} aria-label="Previous page"
-        >‹</button>
-
-        {pageNumbers[0] > 1 && <span style={paginationStyles.ellipsis}>…</span>}
-
-        {pageNumbers.map(p => (
-          <button
-            key={p}
-            onClick={() => onPageChange(p)}
-            style={{ ...paginationStyles.pageBtn, ...(p === currentPage ? paginationStyles.pageBtnActive : {}) }}
-          >{p}</button>
-        ))}
-
-        {pageNumbers[pageNumbers.length - 1] < totalPages && <span style={paginationStyles.ellipsis}>…</span>}
-
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(currentPage + 1)} disabled={currentPage === totalPages} aria-label="Next page"
-        >›</button>
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(totalPages)} disabled={currentPage === totalPages} aria-label="Last page"
-        >»</button>
+        <SharedPagination currentPage={currentPage} totalPages={totalPages} onPageChange={onPageChange} isMobile={isMobile} />
       </div>
     </div>
   )
 }
 
-const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+const SANS = "'Inter', sans-serif"
 
 const styles = {
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
@@ -467,18 +424,13 @@ const styles = {
   table: { width: '100%', borderCollapse: 'collapse' },
   tableMobile: { minWidth: '860px' },
   th: {
-    textAlign: 'left', padding: '13px 20px', fontSize: '11px', fontWeight: 700, color: '#8a968d',
-    borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
+    textAlign: 'left', padding: '13px 20px', fontSize: '13px', fontWeight: 600, color: '#8a968d',
+    borderBottom: '1px solid #eceee7', whiteSpace: 'nowrap',
     backgroundColor: '#fafbf8',
   },
-  td: { padding: '13px 20px', fontSize: '13px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top' },
-  reqNumberCell: { fontSize: '12.5px', color: '#4b5a50', fontFamily: 'monospace' },
-  serviceType: { fontSize: '14px', fontWeight: 700, color: '#16311d' },
+  td: { padding: '13px 20px', fontSize: '12px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top' },
+  reqNumberCell: { fontSize: '12px', color: '#4b5a50' },
   notes: { fontSize: '12px', color: '#8a968d', marginTop: '4px', maxWidth: '260px' },
-  badge: {
-    display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 11px',
-    borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
-  },
   actionGroup: { display: 'flex', gap: '6px', whiteSpace: 'nowrap', justifyContent: 'flex-end' },
   actionBtn: {
     padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600,
@@ -494,10 +446,10 @@ const paginationStyles = {
     padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px',
   },
   wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
-  info: { fontSize: '12.5px', color: '#8a968d', whiteSpace: 'nowrap' },
+  info: { fontSize: '12px', color: '#8a968d', whiteSpace: 'nowrap' },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },
-  pageSizeSelect: { padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6', fontSize: '12.5px', color: '#4b5a50', marginRight: '6px' },
+  pageSizeSelect: { padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6', fontSize: '12px', color: '#4b5a50', marginRight: '6px' },
   navBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '13px', cursor: 'pointer' },
   navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },

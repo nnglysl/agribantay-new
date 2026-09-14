@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Farmer;
 
 use App\Http\Controllers\Controller;
 use App\Models\Farm;
+use App\Services\FarmStatusService;
 use App\Services\TrendAnalysisService;
 use App\Services\RootCauseService;
 use App\Services\PreventiveActionService;
@@ -38,6 +39,20 @@ class InsightController extends Controller
                 'success' => false,
                 'message' => 'No farm found for this account.',
             ], 404);
+        }
+
+        // No active registered device means there is nothing real to
+        // diagnose — skip straight to the "unavailable" response instead
+        // of falling through to a stale SensorReading row left over from
+        // before the device was removed/deactivated.
+        if (!app(FarmStatusService::class)->hasActiveDevice($farm)) {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'available' => false,
+                    'message'   => 'No monitoring device registered for your farm yet.',
+                ],
+            ]);
         }
 
         $latestReading = $farm->sensorReadings()->latest()->first();

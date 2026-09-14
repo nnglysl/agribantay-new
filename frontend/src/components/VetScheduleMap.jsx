@@ -3,8 +3,9 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { SAN_JOSE_CENTER, SAN_JOSE_BOUNDARY, WORLD_RING } from './FarmMap'
+import { serviceTypeBadgeStyle } from '../utils/serviceBadgeStyle'
 
-const requestTypeColor = (type) => (type === 'Blood Test Request' ? '#3b82f6' : '#2E7D32')
+const requestTypeColor = (type) => serviceTypeBadgeStyle(type).color
 
 export default function VetScheduleMap({ requests = [] }) {
   const mapRef = useRef(null)

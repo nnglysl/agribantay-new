@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Farm;
 use App\Models\ServiceRequest;
 use App\Models\SensorReading;
+use App\Services\FarmStatusService;
 use Illuminate\Support\Facades\Auth;
 
 class DashboardController extends Controller
@@ -14,9 +15,15 @@ class DashboardController extends Controller
     {
         $farm = Farm::where('user_id', Auth::id())->firstOrFail();
 
-        $latestReading = SensorReading::where('farm_id', $farm->id)
-            ->latest()
-            ->first();
+        // A farm with no active registered device has no real data to
+        // report at all — treat it exactly as if no reading exists, even
+        // if a stale SensorReading row is still sitting in the table from
+        // before the device was removed/deactivated.
+        $hasActiveDevice = app(FarmStatusService::class)->hasActiveDevice($farm);
+
+        $latestReading = $hasActiveDevice
+            ? SensorReading::where('farm_id', $farm->id)->latest()->first()
+            : null;
 
         // Simple derived health score — adjust formula if your capstone
         // spec defines a specific calculation.
@@ -46,7 +53,9 @@ class DashboardController extends Controller
                 'farm_name'             => $farm->farm_name,
                 'barangay'              => $farm->barangay,
                 'health_score'          => $healthScore,
-                'health_status'         => $healthScore >= 70 ? 'Safe' : ($healthScore >= 40 ? 'Warning' : 'Critical'),
+                'health_status'         => !$hasActiveDevice || !$latestReading
+                    ? 'Pending Setup'
+                    : ($healthScore >= 70 ? 'Safe' : ($healthScore >= 40 ? 'Warning' : 'Critical')),
                 'ammonia'               => $latestReading?->ammonia,
                 'ammonia_status'        => $latestReading?->ammonia_status,
                 'temperature'           => $latestReading?->temperature,

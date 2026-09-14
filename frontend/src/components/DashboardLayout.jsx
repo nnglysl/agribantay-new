@@ -90,6 +90,7 @@ function NotificationBell() {
   const [activeTab, setActiveTab] = useState('all')
   const wrapRef = useRef(null)
   const isMobile = useIsMobile()
+  const navigate = useNavigate()
 
   const fetchNotifications = async () => {
     setLoading(true)
@@ -150,6 +151,12 @@ function NotificationBell() {
     } catch {
       // no-op
     }
+  }
+
+  const handleNotificationClick = (n) => {
+    if (!n.is_read) handleMarkRead(n.id)
+    setOpen(false)
+    if (n.link) navigate(n.link)
   }
 
   const visibleItems = activeTab === 'unread' ? notifications.filter(n => !n.is_read) : notifications
@@ -222,7 +229,7 @@ function NotificationBell() {
                 <div
                   key={n.id}
                   style={{ ...bellStyles.item, ...(n.is_read ? {} : bellStyles.itemUnread) }}
-                  onClick={() => !n.is_read && handleMarkRead(n.id)}
+                  onClick={() => handleNotificationClick(n)}
                 >
                   <span style={bellStyles.itemIconWrap}>
                     <NotificationIcon type={n.type} />
@@ -282,8 +289,10 @@ export default function DashboardLayout({ children, navItems = [], roleLabel = '
     <div style={styles.wrapper}>
        <style>{`
         @media print {
+          @page { margin: 1.5cm; }
           .no-print { display: none !important; }
           body, .print-reset { background: #fff !important; margin: 0 !important; padding: 0 !important; }
+          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
         }
         .agb-nav-item { transition: background-color .14s ease, color .14s ease; }
         .agb-nav-item:hover { background-color: rgba(255,255,255,0.06); }
@@ -391,7 +400,7 @@ export default function DashboardLayout({ children, navItems = [], roleLabel = '
   )
 }
 
-const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+const SANS = "'Inter', sans-serif"
 
 const styles = {
   wrapper: { display: 'flex', minHeight: '100vh', backgroundColor: '#f3f4ef', fontFamily: SANS },

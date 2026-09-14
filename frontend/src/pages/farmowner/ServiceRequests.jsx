@@ -2,22 +2,13 @@ import { useState, useEffect, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
 import api from '../../api/axios'
 import FarmerLayout from '../../components/FarmerLayout'
+import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { formatDate as formatDateFull } from '../../utils/formatDate'
+import { BADGE_SHAPE, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../../utils/serviceBadgeStyle'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
-
-// Tinted status pill styling, consistent with Reports/Admin badges.
-function statusBadge(status) {
-  switch (status) {
-    case 'Pending':   return { backgroundColor: '#fdf3e6', color: '#b45309' }
-    case 'Scheduled': return { backgroundColor: '#e9eef6', color: '#2f5fa0' }
-    case 'Completed': return { backgroundColor: '#eaf3ec', color: '#256b3d' }
-    case 'Cancelled': return { backgroundColor: '#eef0ea', color: '#6b7770' }
-    default:          return { backgroundColor: '#eef0ea', color: '#6b7770' }
-  }
-}
 
 // Shared date formatting so Request Date / Scheduled Date render identically
 // across the table and the mobile card fallback.
@@ -110,16 +101,14 @@ export default function ServiceRequests() {
             // rows inside each card so nothing gets cramped on small screens.
             <div style={styles.list}>
               {pagedList.map(r => {
-                const sb = statusBadge(r.status)
                 return (
                   <div key={r.id} style={styles.cardMobile}>
                     <div style={styles.cardMobileTop}>
                       <div style={{ minWidth: 0 }}>
-                        <div style={styles.cardTitle}>{r.service_type}</div>
+                        <div style={{ ...BADGE_SHAPE, ...serviceTypeBadgeStyle(r.service_type) }}>{serviceTypeLabel(r.service_type)}</div>
                         {r.accepted_by && <div style={styles.cardMeta}>{r.accepted_by}</div>}
                       </div>
-                      <div style={{ ...styles.badge, ...sb, ...styles.badgeMobile }}>
-                        <span style={{ ...styles.badgeDot, backgroundColor: sb.color }} />
+                      <div style={{ ...styles.badge, ...requestStatusBadgeStyle(r.status), ...styles.badgeMobile }}>
                         {r.status}
                       </div>
                     </div>
@@ -136,6 +125,11 @@ export default function ServiceRequests() {
                     </div>
 
                     {r.notes && <div style={styles.cardNotes}>{r.notes}</div>}
+                    {r.status === 'Cancelled' && r.decline_reason && (
+                      <div style={{ ...styles.cardNotes, color: '#b91c1c' }}>
+                        <strong>Reason declined:</strong> {r.decline_reason}
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -155,20 +149,20 @@ export default function ServiceRequests() {
                 </thead>
                 <tbody>
                   {pagedList.map(r => {
-                    const sb = statusBadge(r.status)
                     return (
                       <tr key={r.id} style={styles.tr}>
                         <td style={styles.td}>
-                          <div style={styles.cardTitle}>{r.service_type}</div>
+                          <div style={{ ...BADGE_SHAPE, ...serviceTypeBadgeStyle(r.service_type) }}>{serviceTypeLabel(r.service_type)}</div>
                         </td>
                         <td style={styles.td}>{formatDate(r.created_at)}</td>
                         <td style={styles.td}>{formatDate(r.scheduled_at, 'Awaiting review')}</td>
-                        <td style={{ ...styles.td, ...styles.tdNotes }} title={r.notes || ''}>
-                          {r.notes || '—'}
+                        <td style={{ ...styles.td, ...styles.tdNotes }} title={r.status === 'Cancelled' && r.decline_reason ? r.decline_reason : (r.notes || '')}>
+                          {r.status === 'Cancelled' && r.decline_reason
+                            ? <span style={{ color: '#b91c1c' }}><strong>Declined:</strong> {r.decline_reason}</span>
+                            : (r.notes || '—')}
                         </td>
                         <td style={{ ...styles.td, textAlign: 'right' }}>
-                          <div style={{ ...styles.badge, ...sb }}>
-                            <span style={{ ...styles.badgeDot, backgroundColor: sb.color }} />
+                          <div style={{ ...styles.badge, ...requestStatusBadgeStyle(r.status) }}>
                             {r.status}
                           </div>
                         </td>
@@ -212,21 +206,8 @@ function Pagination({
   currentPage, totalPages, pageSize, onPageChange, onPageSizeChange,
   rangeStart, rangeEnd, totalItems, isMobile,
 }) {
-  const pageNumbers = useMemo(() => {
-    const maxButtons = isMobile ? 3 : 5
-    let start = Math.max(1, currentPage - Math.floor(maxButtons / 2))
-    let end = start + maxButtons - 1
-    if (end > totalPages) {
-      end = totalPages
-      start = Math.max(1, end - maxButtons + 1)
-    }
-    const pages = []
-    for (let p = start; p <= end; p++) pages.push(p)
-    return pages
-  }, [currentPage, totalPages, isMobile])
-
   return (
-    <div style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+    <div className="no-print" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
       <div style={paginationStyles.info}>
         {totalItems === 0
           ? 'No results'
@@ -244,56 +225,7 @@ function Pagination({
           ))}
         </select>
 
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(1)}
-          disabled={currentPage === 1}
-          aria-label="First page"
-        >
-          «
-        </button>
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(currentPage - 1)}
-          disabled={currentPage === 1}
-          aria-label="Previous page"
-        >
-          ‹
-        </button>
-
-        {pageNumbers[0] > 1 && <span style={paginationStyles.ellipsis}>…</span>}
-
-        {pageNumbers.map(p => (
-          <button
-            key={p}
-            onClick={() => onPageChange(p)}
-            style={{
-              ...paginationStyles.pageBtn,
-              ...(p === currentPage ? paginationStyles.pageBtnActive : {}),
-            }}
-          >
-            {p}
-          </button>
-        ))}
-
-        {pageNumbers[pageNumbers.length - 1] < totalPages && <span style={paginationStyles.ellipsis}>…</span>}
-
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(currentPage + 1)}
-          disabled={currentPage === totalPages}
-          aria-label="Next page"
-        >
-          ›
-        </button>
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(totalPages)}
-          disabled={currentPage === totalPages}
-          aria-label="Last page"
-        >
-          »
-        </button>
+        <SharedPagination currentPage={currentPage} totalPages={totalPages} onPageChange={onPageChange} isMobile={isMobile} />
       </div>
     </div>
   )
@@ -383,7 +315,7 @@ function RequestModal({ onClose, onSuccess, isMobile, initialServiceType }) {
   )
 }
 
-const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+const SANS = "'Inter', sans-serif"
 
 const styles = {
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
@@ -411,13 +343,12 @@ const styles = {
   tableWrap: { overflowX: 'auto' },
   table: { width: '100%', borderCollapse: 'collapse', fontFamily: SANS },
   th: {
-    textAlign: 'left', fontSize: '12px', fontWeight: 700, color: '#6b7770',
-    textTransform: 'uppercase', letterSpacing: '0.03em',
+    textAlign: 'left', fontSize: '13px', fontWeight: 600, color: '#6b7770',
     padding: '12px 20px', borderBottom: '1px solid #e7e8e0', backgroundColor: '#fafaf7', whiteSpace: 'nowrap',
   },
   tr: { borderBottom: '1px solid #f2f3ed' },
   td: {
-    padding: '14px 20px', fontSize: '13.5px', color: '#33413a', verticalAlign: 'middle', whiteSpace: 'nowrap',
+    padding: '14px 20px', fontSize: '12px', color: '#33413a', verticalAlign: 'middle', whiteSpace: 'nowrap',
   },
   tdNotes: {
     maxWidth: '260px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#4b5a50',
@@ -430,17 +361,15 @@ const styles = {
     display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px',
     marginTop: '12px', padding: '10px 12px', backgroundColor: '#fafaf7', borderRadius: '9px',
   },
-  cardMobileLabel: { fontSize: '10.5px', fontWeight: 700, color: '#9aa79d', textTransform: 'uppercase', letterSpacing: '0.03em' },
-  cardMobileValue: { fontSize: '13px', fontWeight: 600, color: '#33413a', marginTop: '3px' },
+  cardMobileLabel: { fontSize: '13px', fontWeight: 600, color: '#9aa79d' },
+  cardMobileValue: { fontSize: '12px', fontWeight: 400, color: '#33413a', marginTop: '3px' },
 
-  cardTitle: { fontSize: '15px', fontWeight: 700, color: '#16311d' },
   cardMeta: { fontSize: '13px', color: '#6b7770', marginTop: '4px' },
   cardNotes: { fontSize: '13px', color: '#4b5a50', marginTop: '10px', lineHeight: '1.5' },
   badge: {
-    display: 'inline-flex', alignItems: 'center', gap: '6px',
+    display: 'inline-flex', alignItems: 'center',
     padding: '4px 11px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
   },
-  badgeDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
   badgeMobile: { flexShrink: 0 },
 }
 
@@ -450,12 +379,12 @@ const paginationStyles = {
     padding: '14px 16px', borderTop: '1px solid #f2f3ed', flexWrap: 'wrap', gap: '10px',
   },
   wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
-  info: { fontSize: '12.5px', color: '#9aa79d', whiteSpace: 'nowrap' },
+  info: { fontSize: '12px', color: '#9aa79d', whiteSpace: 'nowrap' },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },
   pageSizeSelect: {
     padding: '7px 10px', borderRadius: '9px', border: '1px solid #dcdfd6',
-    fontSize: '12.5px', color: '#33413a', marginRight: '8px', fontFamily: SANS, backgroundColor: '#fff', cursor: 'pointer',
+    fontSize: '12px', color: '#33413a', marginRight: '8px', fontFamily: SANS, backgroundColor: '#fff', cursor: 'pointer',
   },
   navBtn: {
     minWidth: '32px', height: '32px', padding: '0 6px', borderRadius: '9px',

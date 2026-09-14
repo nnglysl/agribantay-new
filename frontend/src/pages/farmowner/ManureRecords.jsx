@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import FarmerLayout from '../../components/FarmerLayout'
+import SharedPagination from '../../components/Pagination'
 import api from '../../api/axios'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { viewModalStyles as v } from '../../styles/viewModalStyles'
@@ -16,7 +17,7 @@ const responsiveCss = `
     background: none;
     border: none;
     padding: 0 2px 12px;
-    font-family: 'Public Sans', system-ui, sans-serif;
+    font-family: 'Inter', sans-serif;
     font-size: 14px;
     font-weight: 700;
     color: #8a968d;
@@ -293,11 +294,7 @@ export default function ManureRecords() {
                     <select value={RECENT_LIMIT} disabled style={styles.pageSizeSelect}>
                       <option value={RECENT_LIMIT}>{RECENT_LIMIT} / page</option>
                     </select>
-                    <button style={styles.pagerBtn} disabled>«</button>
-                    <button style={styles.pagerBtn} disabled>‹</button>
-                    <button style={styles.pagerBtnActive}>1</button>
-                    <button style={styles.pagerBtn} disabled>›</button>
-                    <button style={styles.pagerBtn} disabled>»</button>
+                    <SharedPagination currentPage={1} totalPages={1} onPageChange={() => {}} />
                   </div>
                 </div>
               </>
@@ -357,11 +354,7 @@ export default function ManureRecords() {
                   <select value={RECENT_LIMIT} disabled style={styles.pageSizeSelect}>
                     <option value={RECENT_LIMIT}>{RECENT_LIMIT} / page</option>
                   </select>
-                  <button style={styles.pagerBtn} disabled>«</button>
-                  <button style={styles.pagerBtn} disabled>‹</button>
-                  <button style={styles.pagerBtnActive}>1</button>
-                  <button style={styles.pagerBtn} disabled>›</button>
-                  <button style={styles.pagerBtn} disabled>»</button>
+                  <SharedPagination currentPage={1} totalPages={1} onPageChange={() => {}} />
                 </div>
               </div>
             </>
@@ -634,7 +627,7 @@ function Modal({ title, onClose, children }) {
   )
 }
 
-const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+const SANS = "'Inter', sans-serif"
 
 const styles = {
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
@@ -674,12 +667,12 @@ const styles = {
 
   table: { width: '100%', borderCollapse: 'collapse' },
   th: {
-    textAlign: 'left', padding: '10px 14px', fontSize: '10.5px', fontWeight: 700, color: '#8a968d',
-    textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid #eceee7',
+    textAlign: 'left', padding: '10px 14px', fontSize: '13px', fontWeight: 600, color: '#8a968d',
+    borderBottom: '1px solid #eceee7',
     backgroundColor: '#fafbf8', whiteSpace: 'nowrap',
   },
-  td: { padding: '11px 14px', fontSize: '12.5px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top' },
-  tdStrong: { padding: '11px 14px', fontSize: '12.5px', fontWeight: 700, color: '#16311d', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top', whiteSpace: 'nowrap' },
+  td: { padding: '11px 14px', fontSize: '12px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top' },
+  tdStrong: { padding: '11px 14px', fontSize: '12px', fontWeight: 700, color: '#16311d', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top', whiteSpace: 'nowrap' },
 
   viewBtn: {
     display: 'inline-block', padding: '6px 13px', borderRadius: '8px',
@@ -687,11 +680,11 @@ const styles = {
     border: '1px solid #e3e6dd', backgroundColor: '#fff', color: '#4b5a50', whiteSpace: 'nowrap',
   },
 
-  paginationText: { fontSize: '12.5px', color: '#8a968d', whiteSpace: 'nowrap', fontFamily: SANS },
+  paginationText: { fontSize: '12px', color: '#8a968d', whiteSpace: 'nowrap', fontFamily: SANS },
   pagerBtns: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   pageSizeSelect: {
     padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6',
-    fontSize: '12.5px', color: '#4b5a50', marginRight: '6px', fontFamily: SANS, backgroundColor: '#fff',
+    fontSize: '12px', color: '#4b5a50', marginRight: '6px', fontFamily: SANS, backgroundColor: '#fff',
   },
   pagerBtn: {
     minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px',

@@ -50,25 +50,28 @@ class FarmController extends Controller
 
         $farms = $query->latest()->get();
 
+        $statusService = app(FarmStatusService::class);
+
         foreach ($farms as $farm) {
-            app(FarmStatusService::class)->syncStatus($farm);
+            $statusService->syncStatus($farm);
         }
 
         if ($request->monitoring_status) {
-            $farms = $farms->filter(fn($f) => $f->current_status === $request->monitoring_status)->values();
+            $farms = $farms->filter(fn($f) => $statusService->displayStatus($f) === $request->monitoring_status)->values();
         }
 
         if ($request->farm_size) {
             $farms = $farms->filter(fn($f) => $f->farm_size === $request->farm_size)->values();
         }
 
-        $farms = $farms->map(function ($farm) {
+        $farms = $farms->map(function ($farm) use ($statusService) {
             $latestReading = $farm->sensorReadings->first();
             // Prefer the sensor that's actually communicating (via the latest
             // reading); fall back to the most recently registered device so a
             // farm's Device Name still shows up before its first reading ever
             // comes in, instead of staying blank until then.
             $sensor = $latestReading?->sensor ?? $farm->sensors->sortByDesc('installed_at')->first();
+            $displayStatus = $statusService->displayStatus($farm);
 
             return [
                 'id'          => $farm->id,
@@ -87,11 +90,11 @@ class FarmController extends Controller
                 'farm_area'   => $farm->farm_area,
                 'farm_area_unit' => $farm->farm_area_unit,
                 'status'      => $farm->status,
-                'current_status' => $farm->current_status,
+                'current_status' => $displayStatus,
                 'device_name' => $sensor?->label ?: $sensor?->sensor_code,
                 'ammonia'     => $latestReading?->ammonia,
                 'ammonia_status' => $latestReading?->ammonia_status,
-                'sensor_status'  => $farm->current_status ?? 'Offline',
+                'sensor_status'  => $displayStatus,
                 'created_at'  => $farm->created_at,
             ];
         });
@@ -103,13 +106,15 @@ class FarmController extends Controller
     {
         $farms = Farm::whereNotNull('latitude')
             ->whereNotNull('longitude')
-            ->with(['sensorReadings' => function ($q) {
+            ->with(['sensors', 'sensorReadings' => function ($q) {
                 $q->latest()->limit(1);
             }])
             ->get();
 
+        $statusService = app(FarmStatusService::class);
+
         foreach ($farms as $farm) {
-            app(FarmStatusService::class)->syncStatus($farm);
+            $statusService->syncStatus($farm);
         }
 
         $farms = $farms->map(fn($f) => [
@@ -119,7 +124,7 @@ class FarmController extends Controller
                 'barangay'       => $f->barangay,
                 'latitude'       => $f->latitude,
                 'longitude'      => $f->longitude,
-                'current_status' => $f->current_status,
+                'current_status' => $statusService->displayStatus($f),
             ]);
 
         return response()->json(['success' => true, 'data' => $farms]);
@@ -168,7 +173,7 @@ class FarmController extends Controller
 
             'first_name'    => 'required_without:farm_owner_id|string',
             'last_name'     => 'required_without:farm_owner_id|string',
-            'mobile_number' => 'required_without:farm_owner_id|string|unique:users,mobile_number',
+            'mobile_number' => ['required_without:farm_owner_id', 'string', 'regex:/^09\d{9}$/', 'unique:users,mobile_number'],
             'email'         => 'nullable|email|unique:users,email',
 
             'farm_name'     => 'required|string',
@@ -338,6 +343,7 @@ class FarmController extends Controller
             },
         ])->findOrFail($id);
 
+        $farm->display_status = app(FarmStatusService::class)->displayStatus($farm);
         $farm->maintenance_status = app(MaintenanceStatusService::class)->getStatus($farm);
         $farm->maintenance_logs = MaintenanceLog::where('farm_id', $farm->id)
             ->latest('performed_at')
@@ -571,8 +577,7 @@ class FarmController extends Controller
         $request->validate([
             'first_name'    => 'sometimes|string',
             'last_name'     => 'sometimes|string',
-            'mobile_number' => 'sometimes|string',
-            'email'         => 'nullable|email|unique:users,email,' . $farm->user_id,
+            'mobile_number' => ['sometimes', 'string', 'regex:/^09\d{9}$/'],
             'farm_name'     => 'sometimes|string',
             'barangay'      => 'sometimes|string',
             'lot_number'    => 'nullable|string',
@@ -610,12 +615,17 @@ class FarmController extends Controller
             ]);
         }
 
-        if ($request->first_name || $request->last_name || $request->filled('email')) {
+        // Email is deliberately excluded here — changing it to a NEW address
+        // requires the requestOwnerEmailOtp/verifyOwnerEmailOtp flow below so
+        // it's only ever saved once proven deliverable to that inbox. Clearing
+        // an existing email to blank isn't a "claim" of anything, so it's
+        // still allowed directly through this endpoint via clear_email.
+        if ($request->first_name || $request->last_name || $request->mobile_number || $request->boolean('clear_email')) {
             $farm->user->update([
                 'first_name'    => $request->first_name ?? $farm->user->first_name,
                 'last_name'     => $request->last_name ?? $farm->user->last_name,
                 'mobile_number' => $request->mobile_number ?? $farm->user->mobile_number,
-                'email'         => $request->filled('email') ? $request->email : $farm->user->email,
+                'email'         => $request->boolean('clear_email') ? null : $farm->user->email,
             ]);
         }
 
@@ -636,6 +646,128 @@ class FarmController extends Controller
             'success' => true,
             'message' => 'Farm updated successfully.',
             'data'    => $farm,
+        ]);
+    }
+
+    private const EMAIL_OTP_TTL_MINUTES = 10;
+
+    /**
+     * Step 1 of changing a farm owner's email from the Admin/Super Admin
+     * Edit Account form. Mirrors SettingsController's self-service flow but
+     * targets the farm's owner instead of the currently authenticated user —
+     * the whole point being that Admin can't attach an email to someone
+     * else's account without proving it's actually reachable first.
+     */
+    public function requestOwnerEmailOtp(Request $request, int $id)
+    {
+        $farm = Farm::with('user')->findOrFail($id);
+
+        $request->validate([
+            'email' => 'required|email',
+        ]);
+
+        $taken = User::where('email', $request->email)
+            ->where('id', '!=', $farm->user_id)
+            ->exists();
+
+        if ($taken) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This email address is already used by another account.',
+            ], 422);
+        }
+
+        \App\Models\EmailVerificationOtp::where('user_id', $farm->user_id)
+            ->whereNull('consumed_at')
+            ->update(['expires_at' => now()]);
+
+        $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+
+        \App\Models\EmailVerificationOtp::create([
+            'user_id'       => $farm->user_id,
+            'pending_email' => $request->email,
+            'code_hash'     => \Illuminate\Support\Facades\Hash::make($code),
+            'expires_at'    => now()->addMinutes(self::EMAIL_OTP_TTL_MINUTES),
+        ]);
+
+        try {
+            Mail::to($request->email)->send(new \App\Mail\OtpCodeMail($farm->user, $code, 'email_verification'));
+        } catch (\Throwable $e) {
+            report($e);
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to send the verification code. Please try again.',
+            ], 500);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'A verification code has been sent to this email address.',
+        ]);
+    }
+
+    /**
+     * Step 2 — the farm owner's email is only ever written once the code
+     * matches. Re-checks uniqueness at commit time too, closing the race
+     * window between request and verify.
+     */
+    public function verifyOwnerEmailOtp(Request $request, int $id)
+    {
+        $farm = Farm::with('user')->findOrFail($id);
+
+        $request->validate([
+            'email' => 'required|email',
+            'code'  => 'required|string|size:6',
+        ]);
+
+        // Looked up without the expiry filter first so a genuinely expired
+        // code can be told apart from a wrong one.
+        $otp = \App\Models\EmailVerificationOtp::where('user_id', $farm->user_id)
+            ->where('pending_email', $request->email)
+            ->whereNull('consumed_at')
+            ->latest()
+            ->first();
+
+        if (!$otp || !\Illuminate\Support\Facades\Hash::check($request->code, $otp->code_hash)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid verification code.',
+            ], 422);
+        }
+
+        if ($otp->expires_at->isPast()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Verification code has expired.',
+            ], 422);
+        }
+
+        $taken = User::where('email', $request->email)
+            ->where('id', '!=', $farm->user_id)
+            ->exists();
+
+        if ($taken) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This email address was just claimed by another account. Please try a different email.',
+            ], 422);
+        }
+
+        $farm->user->update(['email' => $request->email]);
+        $otp->update(['consumed_at' => now()]);
+
+        ActivityLog::create([
+            'user_id' => Auth::id(),
+            'role'    => Auth::user()->role,
+            'action'  => 'Verified Farm Owner Email',
+            'details' => "Updated email for {$farm->user->first_name} {$farm->user->last_name} ({$farm->farm_name})",
+            'type'    => 'Account',
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Email verified successfully.',
+            'data'    => $farm->user,
         ]);
     }
 

@@ -3,16 +3,19 @@ import api from '../../api/axios'
 import FarmerLayout from '../../components/FarmerLayout'
 import { getUser, setAuth, getToken } from '../../utils/auth'
 import { validatePassword } from '../../utils/passwordValidation'
+import { isValidPhoneNumber, sanitizePhoneInput, PHONE_VALIDATION_MESSAGE } from '../../utils/phoneValidation'
 import PasswordStrengthIndicator from '../../components/PasswordStrengthIndicator'
+import VerifyEmailChangeModal from '../../components/VerifyEmailChangeModal'
 import { useIsMobile } from '../../hooks/useIsMobile'
 
 export default function Settings() {
   const [profile, setProfile] = useState(null)
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
-  const [mobileNumber, setMobileNumber] = useState('')
   const [email, setEmail] = useState('')
+  const [mobileNumber, setMobileNumber] = useState('')
   const [isEditing, setIsEditing] = useState(false)
+  const [pendingEmail, setPendingEmail] = useState(null)
   const [profileError, setProfileError] = useState('')
   const [profileSuccess, setProfileSuccess] = useState('')
   const [profileLoading, setProfileLoading] = useState(false)
@@ -45,8 +48,8 @@ export default function Settings() {
       setProfile(data)
       setFirstName(data.first_name)
       setLastName(data.last_name)
-      setMobileNumber(data.mobile_number || '')
       setEmail(data.email || '')
+      setMobileNumber(data.mobile_number || '')
       return data
     })
   }
@@ -57,14 +60,30 @@ export default function Settings() {
     e.preventDefault()
     setProfileError('')
     setProfileSuccess('')
+
+    if (!isValidPhoneNumber(mobileNumber)) {
+      setProfileError(PHONE_VALIDATION_MESSAGE)
+      return
+    }
+
+    const currentEmail = profile.email || ''
+    const newEmail = email.trim()
+    const emailChanged = newEmail !== currentEmail && newEmail !== ''
+
     setProfileLoading(true)
 
     try {
+      // A genuinely new email must be proven deliverable before it's saved
+      // anywhere — this only sends the code; the address itself isn't
+      // written to the account until the Verify New Email modal succeeds.
+      if (emailChanged) {
+        await api.post('/settings/email/otp/request', { email: newEmail })
+      }
+
       const formData = new FormData()
       formData.append('first_name', firstName)
       formData.append('last_name', lastName)
       formData.append('mobile_number', mobileNumber)
-      if (email) formData.append('email', email)
 
       // IMPORTANT: do not manually set a Content-Type header here.
       // Axios/browser needs to generate its own multipart boundary —
@@ -80,8 +99,13 @@ export default function Settings() {
       const user = getUser()
       setAuth(getToken(), { ...user, first_name: updated.first_name, last_name: updated.last_name })
 
-      setProfileSuccess('Profile updated successfully.')
       setIsEditing(false)
+
+      if (emailChanged) {
+        setPendingEmail(newEmail)
+      } else {
+        setProfileSuccess('Profile updated successfully.')
+      }
     } catch (err) {
       setProfileError(err.response?.data?.message || 'Failed to update profile.')
     } finally {
@@ -92,8 +116,8 @@ export default function Settings() {
   const handleCancelEdit = () => {
     setFirstName(profile.first_name)
     setLastName(profile.last_name)
-    setMobileNumber(profile.mobile_number || '')
     setEmail(profile.email || '')
+    setMobileNumber(profile.mobile_number || '')
     setIsEditing(false)
     setProfileError('')
   }
@@ -127,7 +151,6 @@ export default function Settings() {
       formData.append('first_name', profile.first_name)
       formData.append('last_name', profile.last_name)
       formData.append('mobile_number', profile.mobile_number || '')
-      if (profile.email) formData.append('email', profile.email)
       formData.append('profile_photo', photoFile)
 
       await api.post('/settings/profile', formData, {
@@ -297,15 +320,18 @@ export default function Settings() {
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 disabled={!isEditing}
-                placeholder={isEditing ? 'Optional' : ''}
+                placeholder={isEditing ? 'you@example.com' : 'Not set'}
                 style={{ ...styles.input, ...(!isEditing ? styles.inputDisabled : {}) }}
               />
             </div>
             <div style={styles.fieldGroup}>
               <label style={styles.label}>Mobile Number</label>
               <input
+                type="tel"
+                inputMode="numeric"
+                maxLength={11}
                 value={mobileNumber}
-                onChange={e => setMobileNumber(e.target.value)}
+                onChange={e => setMobileNumber(sanitizePhoneInput(e.target.value))}
                 disabled={!isEditing}
                 style={{ ...styles.input, ...(!isEditing ? styles.inputDisabled : {}) }}
               />
@@ -447,6 +473,23 @@ export default function Settings() {
             </div>
           </div>
         </div>
+      )}
+
+      {pendingEmail && (
+        <VerifyEmailChangeModal
+          email={pendingEmail}
+          requestUrl="/settings/email/otp/request"
+          verifyUrl="/settings/email/otp/verify"
+          onCancel={() => {
+            setPendingEmail(null)
+            setEmail(profile.email || '')
+          }}
+          onVerified={async () => {
+            await loadProfile()
+            setPendingEmail(null)
+            setProfileSuccess('Email verified successfully.')
+          }}
+        />
       )}
     </FarmerLayout>
   )

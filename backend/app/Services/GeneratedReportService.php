@@ -9,6 +9,7 @@ use App\Models\Inspection;
 use App\Models\MaintenanceLog;
 use App\Models\SensorReading;
 use App\Models\ServiceRequest;
+use App\Services\FarmStatusService;
 use Illuminate\Support\Carbon;
 
 /**
@@ -164,11 +165,11 @@ class GeneratedReportService
             ->values();
 
         $totalFarms = Farm::count();
-        $farmStatusBreakdown = [
-            'normal' => Farm::where('current_status', 'Safe')->count(),
-            'warning' => Farm::where('current_status', 'Warning')->count(),
-            'critical' => Farm::where('current_status', 'Critical')->count(),
-        ];
+        // Same "Pending Setup unless there's an active device with an actual
+        // reading" rule used everywhere else a farm's monitoring status is
+        // shown, so an archived monthly report never counts a device-less
+        // farm as "Safe".
+        $farmStatusBreakdown = app(FarmStatusService::class)->statusBreakdown();
 
         // Vet-side data — combined across every veterinarian (not scoped to
         // one assignee), so the archived monthly report is a genuinely

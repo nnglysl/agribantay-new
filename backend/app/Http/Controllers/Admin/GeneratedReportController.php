@@ -7,6 +7,7 @@ use App\Models\GeneratedReport;
 use App\Services\GeneratedReportService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Auth;
 
 class GeneratedReportController extends Controller
 {
@@ -32,6 +33,18 @@ class GeneratedReportController extends Controller
 
     public function show(GeneratedReport $generatedReport)
     {
+        $snapshot = $generatedReport->snapshot ?? [];
+
+        // A regular Admin's own live Reports page never fetches or shows
+        // Vet-scoped data (see Admin\ReportController — no vet_summary /
+        // vet_services there at all); the archived report's View/Print/
+        // Export must match that same authorized scope. Super Admin's live
+        // Reports page legitimately combines Admin + Vet data, so it alone
+        // keeps the full snapshot.
+        if (Auth::user()?->role !== 'super_admin') {
+            unset($snapshot['vet_summary'], $snapshot['vet_services']);
+        }
+
         return response()->json([
             'success' => true,
             'data'    => [
@@ -40,7 +53,7 @@ class GeneratedReportController extends Controller
                 'period_label'   => $this->reports->periodLabel($generatedReport->period_start, $generatedReport->period_end),
                 'report_type'    => $generatedReport->report_type,
                 'date_generated' => $generatedReport->created_at->format('M d, Y \a\t g:i A'),
-                'snapshot'       => $generatedReport->snapshot,
+                'snapshot'       => $snapshot,
             ],
         ]);
     }

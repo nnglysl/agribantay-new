@@ -1,6 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
+import { serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../utils/serviceBadgeStyle'
+import SharedPagination from './Pagination'
 
-export const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+export { serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle }
+
+export const SANS = "'Inter', sans-serif"
 
 export const C = {
   card: '#234A35',        // dashboard stat-card green
@@ -72,6 +76,15 @@ export const rangeLabelOf = (from, to) => {
   if (!from && !to) return 'All records'
   if (from && to) return `${fmtDate(from)} – ${fmtDate(to)}`
   return from ? `From ${fmtDate(from)}` : `Up to ${fmtDate(to)}`
+}
+
+// Plain, user-facing sentence describing what's currently on screen — used
+// in place of any text that explains filter/backend mechanics (e.g. "stat
+// cards show all-time totals"). Says only what the user is looking at.
+export const scopeLabelOf = (from, to) => {
+  if (!from && !to) return 'Showing all records'
+  if (from && to) return `Showing records from ${fmtDate(from)} to ${fmtDate(to)}`
+  return from ? `Showing records from ${fmtDate(from)}` : `Showing records up to ${fmtDate(to)}`
 }
 
 export const activePresetOf = (from, to) => {
@@ -328,13 +341,17 @@ export function Panel({ title, subtitle, children, style }) {
   )
 }
 
-export function Badge({ text, tone = 'green', dot = true }) {
+// `badgeStyle` (a {color, backgroundColor} pair, e.g. from serviceTypeBadgeStyle()
+// / requestStatusBadgeStyle()) takes precedence over `tone` when both are given —
+// lets callers plug in an exact standardized color instead of picking from the
+// fixed green/amber/red palette below.
+export function Badge({ text, tone = 'green', dot = true, badgeStyle }) {
   const map = {
     green: { bg: '#eaf3ec', fg: C.greenDeep },
     amber: { bg: '#fdf3e3', fg: C.amber },
     red: { bg: '#fbeaea', fg: C.red },
   }
-  const c = map[tone] || map.green
+  const c = badgeStyle ? { bg: badgeStyle.backgroundColor, fg: badgeStyle.color } : (map[tone] || map.green)
   return (
     <span style={{ ...styles.badge, background: c.bg, color: c.fg }}>
       {dot && <span style={{ ...styles.badgeDot, background: c.fg }} />}
@@ -343,7 +360,7 @@ export function Badge({ text, tone = 'green', dot = true }) {
   )
 }
 
-/** Cell: { text } | { text, strong } | { text, tone: 'green'|'amber'|'red' } | { actions: [{ label, onClick }] } */
+/** Cell: { text } | { text, strong } | { text, tone: 'green'|'amber'|'red' } | { text, badgeStyle } | { actions: [{ label, onClick }] } */
 function Cell({ cell }) {
   if (cell.actions) {
     return (
@@ -354,7 +371,7 @@ function Cell({ cell }) {
       </span>
     )
   }
-  if (cell.tone) return <Badge text={cell.text} tone={cell.tone} dot={cell.dot} />
+  if (cell.tone || cell.badgeStyle) return <Badge text={cell.text} tone={cell.tone} dot={cell.dot} badgeStyle={cell.badgeStyle} />
   if (cell.strong) return <span style={styles.cellStrong}>{cell.text}</span>
   return <span>{cell.text}</span>
 }
@@ -408,16 +425,6 @@ export function DataTable({ title, subtitle, columns, rows, emptyText, paginate 
   const start = (safe - 1) * size
   const shown = rows.slice(start, start + size)
 
-  const pageNumbers = useMemo(() => {
-    const max = 5
-    let s = Math.max(1, safe - Math.floor(max / 2))
-    let e = s + max - 1
-    if (e > pages) { e = pages; s = Math.max(1, e - max + 1) }
-    const out = []
-    for (let p = s; p <= e; p++) out.push(p)
-    return out
-  }, [safe, pages])
-
   return (
     <Panel title={title} subtitle={subtitle}>
       {total === 0 ? (
@@ -465,19 +472,7 @@ export function DataTable({ title, subtitle, columns, rows, emptyText, paginate 
                 >
                   {PAGE_SIZE_OPTIONS.map(s => <option key={s} value={s}>{s} / page</option>)}
                 </select>
-                <button style={styles.pageBtn} onClick={() => setPage(safe - 1)} disabled={safe === 1}>Prev</button>
-                {pageNumbers[0] > 1 && <span style={styles.ellipsis}>…</span>}
-                {pageNumbers.map(n => (
-                  <button
-                    key={n}
-                    onClick={() => setPage(n)}
-                    style={{ ...styles.pageBtn, ...(n === safe ? styles.pageBtnActive : {}) }}
-                  >
-                    {n}
-                  </button>
-                ))}
-                {pageNumbers[pageNumbers.length - 1] < pages && <span style={styles.ellipsis}>…</span>}
-                <button style={styles.pageBtn} onClick={() => setPage(safe + 1)} disabled={safe === pages}>Next</button>
+                <SharedPagination currentPage={safe} totalPages={pages} onPageChange={setPage} />
               </div>
             </div>
           )}
@@ -536,6 +531,15 @@ export const styles = {
   primaryBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, background: C.green, color: '#fff', border: 'none', borderRadius: 10, padding: '0 16px', height: 40, fontFamily: SANS, fontSize: 11, fontWeight: 700, cursor: 'pointer' },
   secondaryBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, background: '#fff', color: C.green, border: '1px solid #cfe0d3', borderRadius: 10, padding: '0 16px', height: 40, fontFamily: SANS, fontSize: 11, fontWeight: 700, cursor: 'pointer' },
   btnDisabled: { opacity: 0.6, cursor: 'not-allowed' },
+
+  // Same Back-button convention used system-wide (Farm Details, Account
+  // Details, Farm Maintenance Details) — pill shape, neutral gray/white,
+  // 13px/600 text — not the green Reports action-button style above.
+  backBtn: {
+    display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px',
+    borderRadius: 999, border: '1px solid #dcdfd6', backgroundColor: '#fff',
+    color: '#33413a', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: SANS,
+  },
 
   previewBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' },
 
@@ -611,8 +615,8 @@ export const styles = {
   legendLabel: { fontSize: 13, color: C.body, flex: 1 },
   legendValue: { fontSize: 14, color: C.dark, fontVariantNumeric: 'tabular-nums' },
 
-  th: { textAlign: 'left', padding: '12px 16px', fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: C.label, background: '#fafbf8', borderTop: '1px solid #eceee7', borderBottom: '1px solid #eceee7', whiteSpace: 'nowrap' },
-  td: { padding: '13px 16px', fontSize: 13, color: C.body, borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle', whiteSpace: 'nowrap' },
+  th: { textAlign: 'left', padding: '12px 16px', fontSize: 13, fontWeight: 600, color: C.label, background: '#fafbf8', borderTop: '1px solid #eceee7', borderBottom: '1px solid #eceee7', whiteSpace: 'nowrap' },
+  td: { padding: '13px 16px', fontSize: 12, color: C.body, borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle', whiteSpace: 'nowrap' },
   cellStrong: { fontWeight: 600, color: C.dark },
   cellActions: { display: 'flex', gap: 8, flexWrap: 'wrap' },
   cellActionBtn: { appearance: 'none', background: '#fff', border: `1px solid #cfe0d3`, borderRadius: 7,
@@ -623,13 +627,13 @@ export const styles = {
 
   mCard: { border: '1px solid #eceee7', borderRadius: 12, padding: '14px 16px', background: '#fcfdfb', display: 'flex', flexDirection: 'column', gap: 8 },
   mRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
-  mLabel: { fontSize: 11.5, fontWeight: 600, letterSpacing: '0.03em', textTransform: 'uppercase', color: C.faint },
-  mValue: { fontSize: 13, color: C.body, textAlign: 'right' },
+  mLabel: { fontSize: 13, fontWeight: 600, color: C.faint },
+  mValue: { fontSize: 12, color: C.body, textAlign: 'right' },
 
   pager: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginTop: 16 },
-  pagerInfo: { fontSize: 12.5, color: C.faint },
+  pagerInfo: { fontSize: 12, color: C.faint },
   pagerBtns: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
-  pageSizeSelect: { height: 34, padding: '0 8px', borderRadius: 8, border: '1px solid #dcdfd6', fontFamily: SANS, fontSize: 12.5, color: C.body, marginRight: 6 },
+  pageSizeSelect: { height: 34, padding: '0 8px', borderRadius: 8, border: '1px solid #dcdfd6', fontFamily: SANS, fontSize: 12, color: C.body, marginRight: 6 },
   pageBtn: { height: 34, minWidth: 34, padding: '0 11px', borderRadius: 9, border: '1px solid #dcdfd6', background: '#fff', color: C.ink, fontFamily: SANS, fontSize: 12.5, fontWeight: 700, cursor: 'pointer' },
   pageBtnActive: { background: C.green, borderColor: C.green, color: '#fff' },
   ellipsis: { padding: '0 4px', color: C.faint, fontSize: 13 },

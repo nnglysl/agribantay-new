@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import api from '../api/axios'
 import AuthLayout, { authFormStyles as styles } from '../components/AuthLayout'
+import { sanitizePhoneInput } from '../utils/phoneValidation'
 
 export default function EnterAccountInfo() {
   const { channel } = useParams() // 'email' | 'sms'
@@ -41,9 +42,11 @@ export default function EnterAccountInfo() {
           <input
             className="agb-input"
             type={isEmail ? 'email' : 'tel'}
-            placeholder={isEmail ? 'Enter your registered email' : '09XX XXX XXXX'}
+            inputMode={isEmail ? undefined : 'numeric'}
+            maxLength={isEmail ? undefined : 11}
+            placeholder={isEmail ? 'Enter your registered email' : '09171234567'}
             value={login}
-            onChange={e => setLogin(e.target.value)}
+            onChange={e => setLogin(isEmail ? e.target.value : sanitizePhoneInput(e.target.value))}
             style={styles.input}
             required
             autoFocus

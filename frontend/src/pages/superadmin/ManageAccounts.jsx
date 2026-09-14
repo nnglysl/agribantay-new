@@ -2,9 +2,11 @@ import { useEffect, useRef, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
+import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { roleBadgeStyle } from '../../utils/roleBadgeStyle'
+import { sanitizePhoneInput } from '../../utils/phoneValidation'
 
 const ROLE_OPTIONS = [
   { value: 'all', label: 'All' },
@@ -136,7 +138,7 @@ export default function ManageAccounts() {
         </button>
       </div>
 
-      <div style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
+      <div className="no-print" style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
         <div style={styles.statusTabs}>
           <div
             style={{ ...styles.statusTab, ...(statusTab === 'active' ? styles.statusTabActive : {}) }}
@@ -317,21 +319,8 @@ function Pagination({
   currentPage, totalPages, pageSize, onPageChange, onPageSizeChange,
   rangeStart, rangeEnd, totalItems, isMobile,
 }) {
-  const pageNumbers = useMemo(() => {
-    const maxButtons = isMobile ? 3 : 5
-    let start = Math.max(1, currentPage - Math.floor(maxButtons / 2))
-    let end = start + maxButtons - 1
-    if (end > totalPages) {
-      end = totalPages
-      start = Math.max(1, end - maxButtons + 1)
-    }
-    const pages = []
-    for (let p = start; p <= end; p++) pages.push(p)
-    return pages
-  }, [currentPage, totalPages, isMobile])
-
   return (
-    <div style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+    <div className="no-print" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
       <div style={paginationStyles.info}>
         {totalItems === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
       </div>
@@ -347,39 +336,7 @@ function Pagination({
           ))}
         </select>
 
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(1)}
-          disabled={currentPage === 1}
-        >«</button>
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === 1 ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(currentPage - 1)}
-          disabled={currentPage === 1}
-        >‹</button>
-
-        {pageNumbers[0] > 1 && <span style={paginationStyles.ellipsis}>…</span>}
-
-        {pageNumbers.map(p => (
-          <button
-            key={p}
-            onClick={() => onPageChange(p)}
-            style={{ ...paginationStyles.pageBtn, ...(p === currentPage ? paginationStyles.pageBtnActive : {}) }}
-          >{p}</button>
-        ))}
-
-        {pageNumbers[pageNumbers.length - 1] < totalPages && <span style={paginationStyles.ellipsis}>…</span>}
-
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(currentPage + 1)}
-          disabled={currentPage === totalPages}
-        >›</button>
-        <button
-          style={{ ...paginationStyles.navBtn, ...(currentPage === totalPages ? paginationStyles.navBtnDisabled : {}) }}
-          onClick={() => onPageChange(totalPages)}
-          disabled={currentPage === totalPages}
-        >»</button>
+        <SharedPagination currentPage={currentPage} totalPages={totalPages} onPageChange={onPageChange} isMobile={isMobile} />
       </div>
     </div>
   )
@@ -445,7 +402,15 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
           <input type="email" placeholder="Email address" value={form.email} onChange={update('email')} style={modalStyles.inputFull} />
 
           <label style={modalStyles.label}>Contact Number</label>
-          <input placeholder="Mobile number" value={form.contact_number} onChange={update('contact_number')} style={modalStyles.inputFull} />
+          <input
+            type="tel"
+            inputMode="numeric"
+            maxLength={11}
+            placeholder="09171234567"
+            value={form.contact_number}
+            onChange={e => setForm({ ...form, contact_number: sanitizePhoneInput(e.target.value) })}
+            style={modalStyles.inputFull}
+          />
 
           <p style={modalStyles.hint}>
             Enter at least one email or mobile number. If both are provided, the temporary password will be sent to the email address. The user must change it on their first login.
@@ -465,7 +430,7 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
   )
 }
 
-const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+const SANS = "'Inter', sans-serif"
 
 const styles = {
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
@@ -555,12 +520,12 @@ const styles = {
   table: { width: '100%', borderCollapse: 'collapse' },
   tableMobile: { minWidth: '800px' },
   th: {
-    textAlign: 'left', padding: '13px 20px', fontSize: '11px', fontWeight: 700, color: '#8a968d',
-    borderBottom: '1px solid #eceee7', textTransform: 'uppercase', letterSpacing: '0.05em',
+    textAlign: 'left', padding: '13px 20px', fontSize: '13px', fontWeight: 600, color: '#8a968d',
+    borderBottom: '1px solid #eceee7',
     whiteSpace: 'nowrap', backgroundColor: '#fafbf8', fontFamily: SANS,
   },
   tr: {},
-  td: { padding: '13px 20px', fontSize: '13px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle', fontFamily: SANS },
+  td: { padding: '13px 20px', fontSize: '12px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle', fontFamily: SANS },
   roleBadge: { padding: '4px 11px', borderRadius: '999px', color: '#fff', fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap' },
 
   tableAvatarImg: { width: '34px', height: '34px', borderRadius: '50%', objectFit: 'cover', display: 'block' },
@@ -586,12 +551,12 @@ const paginationStyles = {
     padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px',
   },
   wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
-  info: { fontSize: '12.5px', color: '#8a968d', whiteSpace: 'nowrap', fontFamily: SANS },
+  info: { fontSize: '12px', color: '#8a968d', whiteSpace: 'nowrap', fontFamily: SANS },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },
   pageSizeSelect: {
     padding: '6px 10px', borderRadius: '8px', border: '1px solid #dcdfd6',
-    fontSize: '12.5px', color: '#4b5a50', marginRight: '6px', fontFamily: SANS, backgroundColor: '#fff', cursor: 'pointer',
+    fontSize: '12px', color: '#4b5a50', marginRight: '6px', fontFamily: SANS, backgroundColor: '#fff', cursor: 'pointer',
   },
   navBtn: {
     minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px',

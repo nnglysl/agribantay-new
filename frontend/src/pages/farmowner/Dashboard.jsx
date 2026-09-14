@@ -50,7 +50,7 @@ const responsiveCss = `
   .fd-reco-row:last-child { border-bottom: none; }
 `
 
-const STATUS_COLOR = { Safe: '#2c8047', Warning: '#b45309', Critical: '#b91c1c' }
+const STATUS_COLOR = { Safe: '#2c8047', Warning: '#b45309', Critical: '#b91c1c', 'Pending Setup': '#6b7280' }
 const BRAND_GREEN = '#1B4332'
 const TEXT_DARK = '#16311d'
 const TEXT_GRAY = '#6b7770'
@@ -100,6 +100,11 @@ const heroConfig = {
     title: 'Your farm needs attention now',
     text: 'Some conditions need your attention today to keep your chickens safe.',
   },
+  'Pending Setup': {
+    iconName: 'settings', color: STATUS_COLOR['Pending Setup'],
+    title: 'Farm setup pending',
+    text: 'A monitoring device hasn’t been registered for your farm yet. Once it’s installed, you’ll start seeing live farm conditions here.',
+  },
 }
 
 const RECOMMENDATIONS_ANCHOR = 'fd-recommendations'
@@ -115,7 +120,7 @@ export default function FarmerDashboard() {
     const interval = setInterval(() => {
       refetch()
       refetchInsight()
-    }, 60000)
+    }, 30 * 60 * 1000)
 
     return () => clearInterval(interval)
   }, [])
@@ -185,7 +190,11 @@ export default function FarmerDashboard() {
             ))}
           </div>
         ) : (
-          <p style={styles.emptyText}>No recommendations right now — your farm looks good.</p>
+          <p style={styles.emptyText}>
+            {data.health_status === 'Pending Setup'
+              ? 'Recommendations will appear here once a monitoring device is installed for your farm.'
+              : 'No recommendations right now — your farm looks good.'}
+          </p>
         )}
 
         {hasMoreRecos && !showAllRecos && (
@@ -236,7 +245,7 @@ function SensorCard({ type, value, status }) {
   )
 }
 
-const SANS = "'Public Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+const SANS = "'Inter', sans-serif"
 
 const styles = {
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
