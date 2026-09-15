@@ -3,26 +3,18 @@
 namespace App\Http\Controllers\Farmer;
 
 use App\Http\Controllers\Controller;
-use App\Models\Farm;
+use App\Http\Controllers\Farmer\Concerns\ResolvesFarm;
 use App\Models\MaintenanceLog;
 use App\Services\MaintenanceStatusService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 
 class MaintenanceController extends Controller
 {
-    /**
-     * Same "one farm per owner" assumption used by InsightController and
-     * the rest of the Farmer-side pages.
-     */
-    private function resolveFarm(): ?Farm
-    {
-        return Farm::where('user_id', Auth::id())->first();
-    }
+    use ResolvesFarm;
 
-    public function index()
+    public function index(Request $request)
     {
-        $farm = $this->resolveFarm();
+        $farm = $this->resolveFarm($request);
 
         if (!$farm) {
             return response()->json(['success' => false, 'message' => 'No farm found for this account.'], 404);
@@ -52,7 +44,7 @@ class MaintenanceController extends Controller
 
     public function store(Request $request)
     {
-        $farm = $this->resolveFarm();
+        $farm = $this->resolveFarm($request);
 
         if (!$farm) {
             return response()->json(['success' => false, 'message' => 'No farm found for this account.'], 404);

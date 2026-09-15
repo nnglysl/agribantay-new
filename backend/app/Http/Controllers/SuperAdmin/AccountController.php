@@ -104,6 +104,11 @@ class AccountController extends Controller
             'role'      => 'required|in:admin,vet',
         ]);
 
+        // Spaces are cosmetic on a phone number (e.g. "0917 123 4567") and
+        // never valid in an email, so stripping them here is safe either
+        // way — it only affects the phone-number branch below.
+        $request->merge(['contact' => preg_replace('/\s+/', '', (string) $request->contact)]);
+
         $isEmail = filter_var($request->contact, FILTER_VALIDATE_EMAIL);
 
         if (!$isEmail && !preg_match('/^09\d{9}$/', $request->contact)) {
@@ -193,6 +198,11 @@ class AccountController extends Controller
             'email'          => 'required|email',
             'contact_number' => 'required|string',
         ]);
+
+        // Spaces are cosmetic (e.g. "0917 123 4567") — strip them before the
+        // regex check so the validation and the stored value both only see
+        // the actual digits, not how the user chose to space them out.
+        $request->merge(['contact_number' => preg_replace('/\s+/', '', (string) $request->contact_number)]);
 
         if (!preg_match('/^09\d{9}$/', $request->contact_number)) {
             return response()->json([

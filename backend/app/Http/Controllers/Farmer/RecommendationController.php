@@ -3,16 +3,19 @@
 namespace App\Http\Controllers\Farmer;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Farmer\Concerns\ResolvesFarm;
 use App\Models\Farm;
 use App\Models\SensorReading;
 use App\Models\Recommendation;
-use Illuminate\Support\Facades\Auth;
+use Illuminate\Http\Request;
 
 class RecommendationController extends Controller
 {
-    public function index()
+    use ResolvesFarm;
+
+    public function index(Request $request)
     {
-        $farm = Farm::where('user_id', Auth::id())->firstOrFail();
+        $farm = $this->resolveFarmOrFail($request);
 
         $this->syncRecommendations($farm);
 

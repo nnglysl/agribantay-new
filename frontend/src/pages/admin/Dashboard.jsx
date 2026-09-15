@@ -3,22 +3,28 @@ import AdminLayout from '../../components/AdminLayout'
 import FarmMap from '../../components/FarmMap'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
-import { useMonthFilter, filterByMonth } from '../../hooks/useMonthFilter'
+import { serviceTypeBadgeStyle } from '../../utils/serviceBadgeStyle'
 
 export default function AdminDashboard() {
   const { data, loading, error } = useCachedFetch('/admin/dashboard')
   const { data: mapFarms } = useCachedFetch('/admin/farms-map')
   const { data: inspectionsData } = useCachedFetch('/admin/inspections')
+  const { data: serviceRequestsData } = useCachedFetch('/admin/service-requests')
   const isMobile = useIsMobile()
   const [modalOpen, setModalOpen] = useState(null)
 
-  const { month, prevMonth, nextMonth, label: monthLabel } = useMonthFilter()
-
+  // Dashboard = current operational state, not a historical/date-range
+  // view (that's what Reports is for) — every list below is the live set
+  // of records still in an active status, with no month/year filtering.
   const allInspections = inspectionsData || []
-  const monthInspections = filterByMonth(allInspections, month)
-  const upcomingThisMonth = monthInspections
+  const scheduledInspections = allInspections
     .filter(i => i.status === 'Scheduled')
     .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
+
+  const allServiceRequests = serviceRequestsData || []
+  const pendingServiceRequests = allServiceRequests.filter(r => r.status === 'Pending')
+  const pendingOdorRequests = pendingServiceRequests.filter(r => /odor/i.test(r.service_type || ''))
+  const pendingFlyRequests = pendingServiceRequests.filter(r => /fly/i.test(r.service_type || ''))
 
   if (loading) return <AdminLayout><p style={styles.stateText}>Loading...</p></AdminLayout>
   if (error) return <AdminLayout><p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p></AdminLayout>
@@ -30,20 +36,19 @@ export default function AdminDashboard() {
 
        <div style={{ ...styles.statsGrid, ...(isMobile ? styles.statsGridMobile : {}) }}>
         <StatCard value={data.total_farms} label="Total Farms" isMobile={isMobile} />
-        <StatCard value={data.active_requests} label="Active Requests" isMobile={isMobile} />
-        <StatCard value={data.resolved_requests} label="Resolved Requests" isMobile={isMobile} />
+        <StatCard value={scheduledInspections.length} label="Scheduled Inspections" isMobile={isMobile} />
+        <StatCard value={pendingServiceRequests.length} label="Pending Service Requests" isMobile={isMobile} />
       </div>
 
       <h3 style={styles.mapTitle}>Farm monitoring map</h3>
       <FarmMap
         farms={mapFarms || []}
         alerts={data.critical_farms}
-        inspections={upcomingThisMonth}
+        inspections={scheduledInspections}
+        serviceRequests={pendingServiceRequests}
         onSeeAllAlerts={() => setModalOpen('critical')}
         onSeeAllInspections={() => setModalOpen('inspections')}
-        monthLabel={monthLabel}
-        onPrevMonth={prevMonth}
-        onNextMonth={nextMonth}
+        onSeeAllServiceRequests={(type) => setModalOpen(type)}
       />
       {modalOpen === 'critical' && (
         <ListModal title="Critical Alerts" onClose={() => setModalOpen(null)} isMobile={isMobile}>
@@ -73,9 +78,9 @@ export default function AdminDashboard() {
       )}
 
       {modalOpen === 'inspections' && (
-        <ListModal title={`Inspections — ${monthLabel}`} onClose={() => setModalOpen(null)} isMobile={isMobile}>
-          {monthInspections.length === 0 && <p style={styles.emptyText}>No inspections scheduled for {monthLabel}.</p>}
-          {monthInspections.map(i => {
+        <ListModal title="Scheduled Inspections" onClose={() => setModalOpen(null)} isMobile={isMobile}>
+          {scheduledInspections.length === 0 && <p style={styles.emptyText}>No inspections currently scheduled.</p>}
+          {scheduledInspections.map(i => {
             const c = i.inspection_type === 'Follow-up' ? '#d9880f' : '#2c8047'
             return (
               <div key={i.id} style={styles.alertRow}>
@@ -89,6 +94,33 @@ export default function AdminDashboard() {
                 <span style={{ ...styles.badge, backgroundColor: c }}>
                   {i.inspection_type === 'Follow-up' ? 'Follow-up' : 'General'}
                 </span>
+              </div>
+            )
+          })}
+        </ListModal>
+      )}
+
+      {(modalOpen === 'odor' || modalOpen === 'fly') && (
+        <ListModal
+          title={`Pending ${modalOpen === 'odor' ? 'Odor Control' : 'Fly Control'} Requests`}
+          onClose={() => setModalOpen(null)}
+          isMobile={isMobile}
+        >
+          {(modalOpen === 'odor' ? pendingOdorRequests : pendingFlyRequests).length === 0 && (
+            <p style={styles.emptyText}>No pending requests right now.</p>
+          )}
+          {(modalOpen === 'odor' ? pendingOdorRequests : pendingFlyRequests).map(r => {
+            const c = serviceTypeBadgeStyle(r.service_type).color
+            return (
+              <div key={r.id} style={styles.alertRow}>
+                <div style={{ ...styles.alertBar, backgroundColor: c }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={styles.alertFarm}>{r.farm_name}</div>
+                  <div style={styles.alertDetail}>
+                    {r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'} · {r.status}
+                  </div>
+                </div>
+                <span style={{ ...styles.badge, backgroundColor: c }}>{r.status}</span>
               </div>
             )
           })}

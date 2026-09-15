@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Farmer;
 
 use App\Http\Controllers\Controller;
-use App\Models\Farm;
+use App\Http\Controllers\Farmer\Concerns\ResolvesFarm;
 use App\Models\ServiceRequest;
 use App\Models\ActivityLog;
 use App\Models\Notification;
@@ -14,11 +14,13 @@ use Illuminate\Support\Facades\DB;
 
 class ServiceRequestController extends Controller
 {
+    use ResolvesFarm;
+
     private const VET_ONLY_TYPES = ['Vaccine Request', 'Blood Test Request'];
 
-    public function index()
+    public function index(Request $request)
     {
-        $farm = Farm::where('user_id', Auth::id())->firstOrFail();
+        $farm = $this->resolveFarmOrFail($request);
 
         $requests = ServiceRequest::with('acceptedBy')
             ->where('farm_id', $farm->id)
@@ -49,7 +51,7 @@ class ServiceRequestController extends Controller
 
     public function store(Request $request)
     {
-        $farm = Farm::where('user_id', Auth::id())->firstOrFail();
+        $farm = $this->resolveFarmOrFail($request);
 
         // Matches the four options actually offered in the farmer's
         // "Request a Service" dropdown — Blood Test and Fly Control were

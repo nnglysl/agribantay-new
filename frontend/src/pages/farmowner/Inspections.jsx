@@ -2,6 +2,7 @@ import { useState } from 'react'
 import FarmerLayout from '../../components/FarmerLayout'
 import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { useSelectedFarm } from '../../hooks/useSelectedFarm'
 import { viewModalStyles as v } from '../../styles/viewModalStyles'
 import { formatDate as formatDateFull } from '../../utils/formatDate'
 
@@ -71,11 +72,12 @@ function formatDateTime(value) {
 }
 
 export default function Inspections() {
-  const { data, loading } = useCachedFetch('/farmer/inspections')
+  const { selectedFarmId, farmsLoading } = useSelectedFarm()
+  const { data, loading } = useCachedFetch(selectedFarmId ? '/farmer/inspections' : null, { farm_id: selectedFarmId })
   const [activeTab, setActiveTab] = useState('upcoming') // 'upcoming' | 'past'
   const [viewInspection, setViewInspection] = useState(null)
 
-  if (loading) return <FarmerLayout><p style={styles.stateText}>Loading...</p></FarmerLayout>
+  if (farmsLoading || loading || !data) return <FarmerLayout><p style={styles.stateText}>Loading...</p></FarmerLayout>
 
   const upcoming = (data?.upcoming || []).slice(0, RECENT_LIMIT)
   const past = (data?.past || []).slice(0, RECENT_LIMIT)

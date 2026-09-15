@@ -20,6 +20,7 @@ use App\Http\Controllers\Farmer\InsightController as FarmerInsightController;
 use App\Http\Controllers\Farmer\MaintenanceController as FarmerMaintenanceController;
 use App\Http\Controllers\Farmer\DisposalController as FarmerDisposalController;
 use App\Http\Controllers\Farmer\InspectionController as FarmerInspectionController;
+use App\Http\Controllers\Farmer\FarmController as FarmerFarmController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\Vet\DashboardController as VetDashboardController;
 use App\Http\Controllers\Vet\VaccinationRequestController;
@@ -80,6 +81,7 @@ Route::middleware('auth:sanctum')->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::middleware('role:farm_owner')->prefix('farmer')->group(function () {
+        Route::get('/farms', [FarmerFarmController::class, 'index']);
         Route::get('/dashboard', [FarmerDashboardController::class, 'index']);
         Route::get('/inspections', [FarmerInspectionController::class, 'index']);
         Route::get('/service-requests', [FarmerServiceRequestController::class, 'index']);

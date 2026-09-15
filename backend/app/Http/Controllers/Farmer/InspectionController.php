@@ -3,15 +3,17 @@
 namespace App\Http\Controllers\Farmer;
 
 use App\Http\Controllers\Controller;
-use App\Models\Farm;
+use App\Http\Controllers\Farmer\Concerns\ResolvesFarm;
 use App\Models\Inspection;
-use Illuminate\Support\Facades\Auth;
+use Illuminate\Http\Request;
 
 class InspectionController extends Controller
 {
-    public function index()
+    use ResolvesFarm;
+
+    public function index(Request $request)
     {
-        $farm = Farm::where('user_id', Auth::id())->firstOrFail();
+        $farm = $this->resolveFarmOrFail($request);
 
         $inspections = Inspection::with(['assignedTo', 'scheduledBy'])
             ->where('farm_id', $farm->id)

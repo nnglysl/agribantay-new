@@ -7,21 +7,43 @@ import { serviceTypeBadgeStyle, serviceTypeLabel } from '../../utils/serviceBadg
 
 export default function VetDashboard() {
   const { data, loading, error, refetch } = useCachedFetch('/vet/dashboard')
+  // The Pending/Scheduled cards and tabs need both statuses, which is what
+  // /vet/vaccination-requests's `scheduled` bucket already contains — the
+  // same endpoint the Vet's own module page uses.
+  const { data: vaccinationData, loading: loadingVaccinations, refetch: refetchVaccinations } = useCachedFetch('/vet/vaccination-requests')
+  // Every registered farm's coordinates — the map's default "show all
+  // farms" layer, independent of which farms currently have a request.
+  const { data: farmsData } = useCachedFetch('/vet/farms')
   const isMobile = useIsMobile()
+  const mapRef = useRef(null)
+  const [activeTab, setActiveTab] = useState('Blood Test')
 
   useEffect(() => {
     refetch()
+    refetchVaccinations()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  if (loading) return <VetLayout><p style={styles.stateText}>Loading...</p></VetLayout>
+  if (loading || loadingVaccinations) return <VetLayout><p style={styles.stateText}>Loading...</p></VetLayout>
   if (error) return <VetLayout><p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p></VetLayout>
   if (!data) return <VetLayout><p style={styles.stateText}>Loading...</p></VetLayout>
 
-  const mapRequests = data.map_requests ?? []
-  const scheduled = [...mapRequests]
-    .filter(r => r.scheduled_at)
-    .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
+  const farms = farmsData ?? []
+
+  // Dashboard = current operational workload, not a historical view (that's
+  // Reports) — no month/year filtering; a request submitted last month that
+  // is still Pending or Scheduled today must still count.
+  const pendingAndScheduled = vaccinationData?.scheduled ?? []
+  const pendingCount = pendingAndScheduled.filter(r => r.status === 'Pending').length
+  const scheduledRequests = pendingAndScheduled.filter(r => r.status === 'Scheduled')
+
+  // Same pattern as Admin's FarmMap focusFarm — pan/zoom the map and open
+  // the farm's popup. Called across a ref because the map and the request
+  // list are sibling components here, not nested in one like Admin's.
+  const handleSelectRequest = (request) => {
+    const farm = farms.find(f => f.id === request.farm_id)
+    mapRef.current?.focusFarm(farm)
+  }
 
   return (
     <VetLayout>
@@ -29,19 +51,25 @@ export default function VetDashboard() {
       <p style={styles.subtitle}>Wellcome back, {data.vet_name || 'Doctor'}</p>
 
       <div style={{ ...styles.statsGrid, ...(isMobile ? styles.statsGridMobile : {}) }}>
-        <StatCard value={data.assigned_requests ?? 0} label="Assigned Requests" isMobile={isMobile} />
-        <StatCard value={data.pending ?? 0} label="Pending" isMobile={isMobile} />
-        <StatCard value={data.completed ?? 0} label="Completed" isMobile={isMobile} />
+        <StatCard value={data.total_farms ?? 0} label="Total Farms" isMobile={isMobile} />
+        <StatCard value={pendingCount} label="Pending Requests" isMobile={isMobile} />
+        <StatCard value={scheduledRequests.length} label="Scheduled Requests" isMobile={isMobile} />
       </div>
 
-      <h3 style={styles.mapTitle}>Scheduled Visits Map</h3>
+      <h3 style={styles.mapTitle}>Scheduled Service Map</h3>
       <p style={styles.mapSubtitle}>
         Farms with confirmed vaccination or blood test schedules
       </p>
 
       <div style={{ ...styles.mainGrid, ...(isMobile ? styles.mainGridMobile : {}) }}>
-        <VetScheduleMap requests={mapRequests} />
-        <ScheduledPanel items={scheduled} isMobile={isMobile} />
+        <VetScheduleMap ref={mapRef} farms={farms} requests={scheduledRequests} activeTab={activeTab} />
+        <ScheduledPanel
+          items={scheduledRequests}
+          isMobile={isMobile}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          onSelectRequest={handleSelectRequest}
+        />
       </div>
     </VetLayout>
   )
@@ -57,16 +85,20 @@ function StatCard({ value, label, foot, isMobile }) {
   )
 }
 
-const TABS = ['Vaccine', 'Blood Test']
+const TABS = [
+  { value: 'Blood Test', label: 'Blood Test' },
+  { value: 'Vaccine', label: 'Vaccination' },
+]
 const ITEM_HEIGHT = 60 // matches FarmMap's list row height (Admin Dashboard)
 
-function ScheduledPanel({ items, isMobile, onSeeAll }) {
-  const [tab, setTab] = useState('Vaccine')
+function ScheduledPanel({ items, isMobile, onSeeAll, activeTab: tab, onTabChange, onSelectRequest }) {
   const [visibleCount, setVisibleCount] = useState(4)
   const listRef = useRef(null)
 
   const filtered = useMemo(
-    () => items.filter(i => (i.service_type || '').replace(' Request', '') === tab),
+    () => items
+      .filter(i => (i.service_type || '').replace(' Request', '') === tab)
+      .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at)),
     [items, tab]
   )
 
@@ -96,11 +128,11 @@ function ScheduledPanel({ items, isMobile, onSeeAll }) {
         <div style={styles.tabs}>
           {TABS.map(t => (
             <button
-              key={t}
-              onClick={() => setTab(t)}
-              style={{ ...styles.tab, ...(t === tab ? styles.tabActive : {}) }}
+              key={t.value}
+              onClick={() => onTabChange(t.value)}
+              style={{ ...styles.tab, ...(t.value === tab ? styles.tabActive : {}) }}
             >
-              {t}
+              {t.label}
             </button>
           ))}
         </div>
@@ -108,18 +140,21 @@ function ScheduledPanel({ items, isMobile, onSeeAll }) {
 
       <div style={styles.panelHead}>
         <div style={styles.panelHeadLeft}>
-          <span style={styles.panelTitle}>{tab === 'Blood Test' ? 'Blood Tests' : 'Vaccinations'}</span>
-          <div style={styles.panelSub}>Upcoming activities</div>
+          <span style={styles.panelTitle}>{tab === 'Blood Test' ? 'Blood Test Requests' : 'Vaccination Requests'}</span>
         </div>
         <span style={styles.panelCount}>{filtered.length}</span>
       </div>
 
       <div ref={listRef} style={styles.panelBody}>
-        {visible.length === 0 && <div style={styles.emptyText}>No {tab.toLowerCase()} activities scheduled.</div>}
+        {visible.length === 0 && (
+          <div style={styles.emptyText}>
+            No {tab === 'Blood Test' ? 'blood test' : 'vaccination'} activities scheduled.
+          </div>
+        )}
         {visible.map((r, i) => {
           const type = serviceTypeLabel(r.service_type)
           return (
-            <div key={r.id ?? i} style={styles.row}>
+            <div key={r.id ?? i} style={{ ...styles.row, cursor: 'pointer' }} onClick={() => onSelectRequest?.(r)}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={styles.rowName}>{r.farm_name}</div>
                 <div style={styles.rowDetail}>
@@ -181,7 +216,6 @@ const styles = {
   panelHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', padding: '14px 16px 10px', flexShrink: 0 },
   panelHeadLeft: { minWidth: 0 },
   panelTitle: { fontSize: '13px', fontWeight: 800, color: '#16311d' },
-  panelSub: { fontSize: '11px', color: '#8a968d', fontWeight: 600, marginTop: '6px' },
   panelCount: { fontSize: '11px', fontWeight: 700, color: '#2c8047', background: '#eaf3ec', borderRadius: '999px', padding: '3px 9px', flexShrink: 0 },
 
   panelBody: { overflowY: 'auto', padding: '0 8px', flex: 1, minHeight: 0 },

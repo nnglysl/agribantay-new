@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { lazy, Suspense } from 'react'
 import { isAuthenticated, getRole } from '../utils/auth'
+import FarmProvider from '../context/FarmProvider'
 
 const LandingPage = lazy(() => import('../pages/LandingPage'))
 const Login = lazy(() => import('../pages/Login'))
@@ -196,30 +197,33 @@ export default function AppRouter() {
             </ProtectedRoute>
           } />
 
-          {/* Farm Owner routes */}
+          {/* Farm Owner routes — wrapped in FarmProvider here (not inside
+              FarmerLayout) so the pages themselves, which call
+              useSelectedFarm() before rendering FarmerLayout, sit inside
+              the provider's tree rather than above it. */}
           <Route path="/farmowner/dashboard" element={
             <ProtectedRoute role="farm_owner">
-              <FarmerDashboard />
+              <FarmProvider><FarmerDashboard /></FarmProvider>
             </ProtectedRoute>
           } />
           <Route path="/farmowner/inspections" element={
             <ProtectedRoute role="farm_owner">
-              <FarmerInspections />
+              <FarmProvider><FarmerInspections /></FarmProvider>
             </ProtectedRoute>
           } />
           <Route path="/farmowner/manure-records" element={
             <ProtectedRoute role="farm_owner">
-              <ManureRecords />
+              <FarmProvider><ManureRecords /></FarmProvider>
             </ProtectedRoute>
           } />
           <Route path="/farmowner/service-requests" element={
             <ProtectedRoute role="farm_owner">
-              <ServiceRequests />
+              <FarmProvider><ServiceRequests /></FarmProvider>
             </ProtectedRoute>
           } />
           <Route path="/farmowner/settings" element={
             <ProtectedRoute role="farm_owner">
-              <FarmerSettings />
+              <FarmProvider><FarmerSettings /></FarmProvider>
             </ProtectedRoute>
           } />
 

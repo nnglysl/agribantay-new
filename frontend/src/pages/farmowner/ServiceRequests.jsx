@@ -4,6 +4,7 @@ import api from '../../api/axios'
 import FarmerLayout from '../../components/FarmerLayout'
 import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { useSelectedFarm } from '../../hooks/useSelectedFarm'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { formatDate as formatDateFull } from '../../utils/formatDate'
 import { BADGE_SHAPE, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../../utils/serviceBadgeStyle'
@@ -25,6 +26,7 @@ export default function ServiceRequests() {
   const [prefillType, setPrefillType] = useState('')
   const isMobile = useIsMobile()
   const location = useLocation()
+  const { selectedFarmId, farmsLoading } = useSelectedFarm()
 
   // Arriving here from the dashboard's Critical-ammonia prompt pre-selects
   // Odor Control Request and opens the modal immediately, instead of
@@ -40,7 +42,10 @@ export default function ServiceRequests() {
   // isn't stuck on a page number that doesn't exist for the new list.
   useEffect(() => { setCurrentPage(1) }, [tab, pageSize])
 
-  const { data, loading, error, refetch } = useCachedFetch('/farmer/service-requests')
+  const { data, loading, error, refetch } = useCachedFetch(
+    selectedFarmId ? '/farmer/service-requests' : null,
+    { farm_id: selectedFarmId }
+  )
   const requestData = data || { active: [], past: [] }
 
   const list = tab === 'active' ? requestData.active : requestData.past
@@ -89,10 +94,10 @@ export default function ServiceRequests() {
         </div>
       </div>
 
-      {loading && <p style={styles.stateText}>Loading...</p>}
+      {(farmsLoading || loading) && <p style={styles.stateText}>Loading...</p>}
       {error && <p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p>}
 
-      {!loading && !error && (
+      {!farmsLoading && !loading && !error && (
         <div style={styles.listCard}>
           {list.length === 0 ? (
             <div style={styles.empty}>No {tab === 'active' ? 'active requests' : 'past records'} yet.</div>
@@ -194,6 +199,7 @@ export default function ServiceRequests() {
         <RequestModal
           isMobile={isMobile}
           initialServiceType={prefillType}
+          farmId={selectedFarmId}
           onClose={() => setShowModal(false)}
           onSuccess={() => { setShowModal(false); refetch() }}
         />
@@ -231,7 +237,7 @@ function Pagination({
   )
 }
 
-function RequestModal({ onClose, onSuccess, isMobile, initialServiceType }) {
+function RequestModal({ onClose, onSuccess, isMobile, initialServiceType, farmId }) {
   const [serviceType, setServiceType] = useState(initialServiceType || '')
   const [notes, setNotes] = useState('')
   const [error, setError] = useState('')
@@ -248,7 +254,7 @@ function RequestModal({ onClose, onSuccess, isMobile, initialServiceType }) {
 
     setLoading(true)
     try {
-      await api.post('/farmer/service-requests', { service_type: serviceType, notes })
+      await api.post('/farmer/service-requests', { service_type: serviceType, notes, farm_id: farmId })
       onSuccess()
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to submit request.')

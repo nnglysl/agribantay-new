@@ -61,6 +61,13 @@ class SettingsController extends Controller
         /** @var \App\Models\User $user */
         $user = Auth::user();
 
+        // Spaces are cosmetic (e.g. "0917 123 4567") — strip them before the
+        // regex check so the validation and the stored value both only see
+        // the actual digits, not how the user chose to space them out.
+        if ($request->filled('mobile_number')) {
+            $request->merge(['mobile_number' => preg_replace('/\s+/', '', $request->mobile_number)]);
+        }
+
         $request->validate([
             'first_name'    => 'required|string',
             'last_name'     => 'required|string',

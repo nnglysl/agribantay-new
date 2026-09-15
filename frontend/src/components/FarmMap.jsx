@@ -223,6 +223,21 @@ function requestTypeColor(type = '') {
   return /fly/i.test(type) ? REQUEST_COLORS.fly : REQUEST_COLORS.odor
 }
 
+// `service_type` is what the API actually sends (e.g. "Odor Control
+// Request"); `request_type`/`type` are kept as fallbacks for any caller
+// still using an older shape.
+function requestTypeOf(r) {
+  return r.request_type || r.type || r.service_type || ''
+}
+
+function isOdorRequest(r) {
+  return /odor/i.test(requestTypeOf(r))
+}
+
+function isFlyRequest(r) {
+  return /fly/i.test(requestTypeOf(r))
+}
+
 function inspectionTypeColor(type) {
   return type === 'Follow-up' ? '#d9880f' : '#2c8047'
 }
@@ -255,7 +270,7 @@ function criticalSensorLabel(sensor) {
 
 export default function FarmMap({
   farms = [], alerts = [], inspections = [], serviceRequests = [],
-  onSeeAllAlerts, onSeeAllInspections, onSeeAllServiceRequests, monthLabel, onPrevMonth, onNextMonth,
+  onSeeAllAlerts, onSeeAllInspections, onSeeAllServiceRequests,
   variant = 'tabs', pendingRequestBreakdown = [],
 }) {
   const mapRef = useRef(null)
@@ -268,6 +283,9 @@ export default function FarmMap({
   const [tabMode, setTabMode] = useState('alerts')
   const mode = isNeedsAttention ? 'alerts' : tabMode
   const setMode = setTabMode
+  // Sub-tab within the "Service Requests" main tab — Odor Control / Fly
+  // Control are no longer separate top-level tabs, just a nested switch.
+  const [requestSubTab, setRequestSubTab] = useState('odor')
   const [visibleCount, setVisibleCount] = useState(3)
 
   useEffect(() => {
@@ -339,8 +357,9 @@ export default function FarmMap({
           ? `${farm.farm_name} — ${inspection.inspection_type}`
           : `${farm.farm_name} — No inspection scheduled`
       } else {
-        request = serviceRequests.find(r => findFarm(r, farms)?.id === farm.id)
-        const rType = request && (request.request_type || request.type)
+        const pool = requestSubTab === 'fly' ? serviceRequests.filter(isFlyRequest) : serviceRequests.filter(isOdorRequest)
+        request = pool.find(r => findFarm(r, farms)?.id === farm.id)
+        const rType = request && requestTypeOf(request)
         color = request ? requestTypeColor(rType) : REQUEST_COLORS.none
         tooltip = request
           ? `${farm.farm_name} — ${rType || 'Service request'}`
@@ -378,13 +397,13 @@ export default function FarmMap({
             ? `Status: ${farm.current_status || 'Unknown'}`
             : mode === 'inspection'
               ? (inspection ? `Inspection: ${inspection.inspection_type}` : 'No inspection scheduled')
-              : (request ? `Request: ${request.request_type || request.type || 'Service request'} (${request.status || 'Pending'})` : 'No service request')
+              : (request ? `Request: ${requestTypeOf(request) || 'Service request'} (${request.status || 'Pending'})` : 'No service request')
         marker.bindPopup(`<strong>${farm.farm_name}</strong><br/>${farm.owner_name}<br/>${statusLine}`)
       }
 
       markersRef.current.push(marker)
     })
-  }, [farms, inspections, serviceRequests, mode, navigate, isNeedsAttention])
+  }, [farms, inspections, serviceRequests, mode, requestSubTab, navigate, isNeedsAttention])
 
   const focusFarm = (farm) => {
     if (!mapRef.current || !farm || farm.latitude == null || farm.longitude == null) return
@@ -413,7 +432,13 @@ export default function FarmMap({
     [serviceRequests]
   )
 
-  const listItems = mode === 'alerts' ? alertItems : mode === 'inspection' ? inspectionItems : serviceRequestItems
+  const odorItems = useMemo(() => serviceRequestItems.filter(isOdorRequest), [serviceRequestItems])
+  const flyItems = useMemo(() => serviceRequestItems.filter(isFlyRequest), [serviceRequestItems])
+
+  const listItems = mode === 'alerts' ? alertItems
+    : mode === 'inspection' ? inspectionItems
+    : requestSubTab === 'fly' ? flyItems
+    : odorItems
   const visibleItems = listItems.slice(0, visibleCount)
   const hiddenCount = Math.max(0, listItems.length - visibleItems.length)
 
@@ -434,15 +459,17 @@ export default function FarmMap({
     return () => ro.disconnect()
   }, [recomputeFit, mode, listItems.length])
 
-  const odorCount = serviceRequestItems.filter(r => /odor/i.test(r.request_type || r.type || '')).length
-  const flyCount = serviceRequestItems.filter(r => /fly/i.test(r.request_type || r.type || '')).length
-
   return (
     <div style={{ ...styles.layout, ...(isMobile ? styles.layoutMobile : {}) }}>
       <div style={styles.mapCol}>
         <div ref={containerRef} style={{ height: isMobile ? '320px' : '520px', width: '100%' }} />
         <div style={{ ...styles.legend, ...(isMobile ? styles.legendMobile : {}) }}>
-          <div style={styles.legendTitle}>{mode === 'alerts' ? 'Alert status' : mode === 'inspection' ? 'Inspection type' : 'Service request'}</div>
+          <div style={styles.legendTitle}>
+            {mode === 'alerts' ? 'Alert status'
+              : mode === 'inspection' ? 'Inspection type'
+              : requestSubTab === 'fly' ? 'Fly Control requests'
+              : 'Odor Control requests'}
+          </div>
           {mode === 'alerts' && (
             <>
               <LegendRow color={statusColor.Safe} label="Safe" />
@@ -457,9 +484,14 @@ export default function FarmMap({
               <LegendRow color={inspectionTypeColor('General')} label="General Inspection" />
             </>
           )}
-          {mode === 'requests' && (
+          {mode === 'requests' && requestSubTab === 'odor' && (
             <>
               <LegendRow color={REQUEST_COLORS.odor} label="Odor Control" />
+              <LegendRow color={REQUEST_COLORS.none} label="No Request" />
+            </>
+          )}
+          {mode === 'requests' && requestSubTab === 'fly' && (
+            <>
               <LegendRow color={REQUEST_COLORS.fly} label="Fly Control" />
               <LegendRow color={REQUEST_COLORS.none} label="No Request" />
             </>
@@ -531,20 +563,27 @@ export default function FarmMap({
           <div style={styles.sideTabs}>
             <button onClick={() => setMode('alerts')} style={{ ...styles.sideTab, ...(mode === 'alerts' ? styles.sideTabActive : {}) }}>Alerts</button>
             <button onClick={() => setMode('inspection')} style={{ ...styles.sideTab, ...(mode === 'inspection' ? styles.sideTabActive : {}) }}>Inspections</button>
-            <button onClick={() => setMode('requests')} style={{ ...styles.sideTab, ...(mode === 'requests' ? styles.sideTabActive : {}) }}>Requests</button>
+            <button onClick={() => setMode('requests')} style={{ ...styles.sideTab, ...(mode === 'requests' ? styles.sideTabActive : {}) }}>Service Requests</button>
           </div>
         </div>
 
+        {mode === 'requests' && (
+          <div style={styles.subTabsWrap}>
+            <div style={styles.sideTabs}>
+              <button onClick={() => setRequestSubTab('odor')} style={{ ...styles.sideTab, ...(requestSubTab === 'odor' ? styles.sideTabActive : {}) }}>Odor Control</button>
+              <button onClick={() => setRequestSubTab('fly')} style={{ ...styles.sideTab, ...(requestSubTab === 'fly' ? styles.sideTabActive : {}) }}>Fly Control</button>
+            </div>
+          </div>
+        )}
+
         <div style={styles.sideHead}>
           <div style={styles.sideHeadLeft}>
-            <span style={styles.sideTitle}>{mode === 'alerts' ? 'Critical Alerts' : mode === 'inspection' ? 'Upcoming Inspections' : 'Service Requests'}</span>
-            {mode === 'inspection' && monthLabel && (
-              <div style={styles.monthRow}>
-                <span style={styles.monthBtn} onClick={onPrevMonth} aria-label="Previous month">‹</span>
-                <span style={styles.monthLabel}>{monthLabel}</span>
-                <span style={styles.monthBtn} onClick={onNextMonth} aria-label="Next month">›</span>
-              </div>
-            )}
+            <span style={styles.sideTitle}>
+              {mode === 'alerts' ? 'Critical Alerts'
+                : mode === 'inspection' ? 'Upcoming Inspections'
+                : requestSubTab === 'fly' ? 'Fly Control Requests'
+                : 'Odor Control Requests'}
+            </span>
           </div>
           {mode === 'alerts' && <span style={styles.countAlert}>{listItems.length}</span>}
           {mode === 'inspection' && (
@@ -552,6 +591,10 @@ export default function FarmMap({
               <div style={styles.countPill}>
                 <span style={styles.countValue}>{listItems.length}</span>
                 <span style={styles.countLabel}>Total</span>
+              </div>
+              <div style={{ ...styles.countPill, ...styles.countPillGreen }}>
+                <span style={styles.countValue}>{listItems.filter(i => i.inspection_type !== 'Follow-up').length}</span>
+                <span style={styles.countLabel}>General</span>
               </div>
               <div style={{ ...styles.countPill, ...styles.countPillAmber }}>
                 <span style={styles.countValue}>{listItems.filter(i => i.inspection_type === 'Follow-up').length}</span>
@@ -565,21 +608,18 @@ export default function FarmMap({
                 <span style={styles.countValue}>{listItems.length}</span>
                 <span style={styles.countLabel}>Total</span>
               </div>
-              <div style={{ ...styles.countPill, ...styles.countPillPurple }}>
-                <span style={styles.countValue}>{odorCount}</span>
-                <span style={styles.countLabel}>Odor</span>
-              </div>
-              <div style={{ ...styles.countPill, ...styles.countPillAmber }}>
-                <span style={styles.countValue}>{flyCount}</span>
-                <span style={styles.countLabel}>Fly</span>
-              </div>
             </div>
           )}
         </div>
 
         <div ref={listRef} style={styles.sideList}>
           {visibleItems.length === 0 && (
-            <div style={styles.empty}>{mode === 'alerts' ? 'No critical alerts right now.' : mode === 'inspection' ? 'No upcoming inspections.' : 'No pending service requests.'}</div>
+            <div style={styles.empty}>
+              {mode === 'alerts' ? 'No critical alerts right now.'
+                : mode === 'inspection' ? 'No upcoming inspections.'
+                : requestSubTab === 'fly' ? 'No fly control requests.'
+                : 'No odor control requests.'}
+            </div>
           )}
 
           {mode === 'alerts' && visibleItems.map(f => {
@@ -626,7 +666,7 @@ export default function FarmMap({
 
           {mode === 'requests' && visibleItems.map(r => {
             const farm = findFarm(r, farms)
-            const type = r.request_type || r.type || 'Service request'
+            const type = requestTypeOf(r) || 'Service request'
             const status = r.status || 'Pending'
             const color = requestTypeColor(type)
             return (
@@ -634,16 +674,23 @@ export default function FarmMap({
                 <span style={{ ...styles.itemDot, backgroundColor: color }} />
                 <div style={styles.itemText}>
                   <div style={styles.itemName}>{r.farm_name}</div>
-                  <div style={styles.itemSub}>{type} · {status}</div>
+                  <div style={styles.itemSub}>{status} · {r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}</div>
                 </div>
-                <span style={{ ...styles.itemStatus, color }}>{type}</span>
+                <span style={{ ...styles.itemStatus, color }}>{status}</span>
               </div>
             )
           })}
         </div>
 
         {hiddenCount > 0 && (
-          <button style={styles.seeAll} onClick={() => (mode === 'alerts' ? onSeeAllAlerts?.() : mode === 'inspection' ? onSeeAllInspections?.() : onSeeAllServiceRequests?.())}>
+          <button
+            style={styles.seeAll}
+            onClick={() => (
+              mode === 'alerts' ? onSeeAllAlerts?.()
+                : mode === 'inspection' ? onSeeAllInspections?.()
+                : onSeeAllServiceRequests?.(requestSubTab)
+            )}
+          >
             See all ({hiddenCount} more)
           </button>
         )}
@@ -674,6 +721,10 @@ const styles = {
   sideMobile: { width: '100%' },
 
   sideTabsWrap: { padding: '12px', borderBottom: '1px solid #eceee7' },
+  // Odor Control / Fly Control sub-tabs, nested under the Service Requests
+  // main tab — same tab styling, just no top padding so it sits directly
+  // beneath the main tab row.
+  subTabsWrap: { padding: '0 12px 12px', borderBottom: '1px solid #eceee7' },
   sideTabs: { display: 'flex', gap: '3px', background: '#f3f4ef', borderRadius: '10px', padding: '3px' },
   sideTab: { flex: 1, border: 'none', background: 'transparent', color: '#6b7770', padding: '8px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' },
   sideTabActive: { background: '#2c8047', color: '#fff' },
@@ -681,14 +732,12 @@ const styles = {
   sideHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', padding: '14px 16px 10px' },
   sideHeadLeft: { minWidth: 0 },
   sideTitle: { fontSize: '13px', fontWeight: 800, color: '#16311d' },
-  monthRow: { display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px' },
-  monthBtn: { width: '18px', height: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', cursor: 'pointer', fontSize: '12px', color: '#33413a', backgroundColor: '#eef1ea', flexShrink: 0 },
-  monthLabel: { fontSize: '11px', color: '#6b7770', fontWeight: 600, whiteSpace: 'nowrap' },
 
   countAlert: { fontSize: '11px', fontWeight: 700, color: '#b91c1c', background: '#fbeaea', padding: '3px 9px', borderRadius: '999px', flexShrink: 0 },
   countGroup: { display: 'flex', gap: '6px', flexShrink: 0 },
   countPill: { display: 'flex', flexDirection: 'column', alignItems: 'center', backgroundColor: '#f3f4ef', borderRadius: '8px', padding: '3px 9px', minWidth: '40px' },
   countPillAmber: { backgroundColor: '#fbf1e2' },
+  countPillGreen: { backgroundColor: '#eaf3ec' },
   countPillPurple: { backgroundColor: '#f3ecfd' },
   countValue: { fontSize: '14px', fontWeight: 800, color: '#16311d', lineHeight: 1.1 },
   countLabel: { fontSize: '8px', fontWeight: 700, color: '#8a968d', textTransform: 'uppercase' },

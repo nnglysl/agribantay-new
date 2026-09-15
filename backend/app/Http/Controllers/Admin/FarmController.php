@@ -168,6 +168,13 @@ class FarmController extends Controller
      */
     public function store(Request $request)
     {
+        // Spaces are cosmetic (e.g. "0917 123 4567") — strip them before the
+        // regex check so the validation and the stored value both only see
+        // the actual digits, not how the user chose to space them out.
+        if ($request->filled('mobile_number')) {
+            $request->merge(['mobile_number' => preg_replace('/\s+/', '', $request->mobile_number)]);
+        }
+
         $request->validate([
             'farm_owner_id' => 'nullable|exists:users,id',
 
@@ -574,6 +581,13 @@ class FarmController extends Controller
     {
         $farm = Farm::with('user')->findOrFail($id);
 
+        // Spaces are cosmetic (e.g. "0917 123 4567") — strip them before the
+        // regex check so the validation and the stored value both only see
+        // the actual digits, not how the user chose to space them out.
+        if ($request->filled('mobile_number')) {
+            $request->merge(['mobile_number' => preg_replace('/\s+/', '', $request->mobile_number)]);
+        }
+
         $request->validate([
             'first_name'    => 'sometimes|string',
             'last_name'     => 'sometimes|string',
@@ -589,6 +603,7 @@ class FarmController extends Controller
 
         $farm->update($request->only([
             'farm_name', 'barangay', 'farm_size', 'mobile_number',
+            'lot_number', 'street', 'landmark',
         ]));
 
         if ($request->barangay || $request->lot_number || $request->street) {

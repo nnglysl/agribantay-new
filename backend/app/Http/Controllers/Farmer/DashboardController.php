@@ -3,17 +3,19 @@
 namespace App\Http\Controllers\Farmer;
 
 use App\Http\Controllers\Controller;
-use App\Models\Farm;
+use App\Http\Controllers\Farmer\Concerns\ResolvesFarm;
 use App\Models\ServiceRequest;
 use App\Models\SensorReading;
 use App\Services\FarmStatusService;
-use Illuminate\Support\Facades\Auth;
+use Illuminate\Http\Request;
 
 class DashboardController extends Controller
 {
-    public function index()
+    use ResolvesFarm;
+
+    public function index(Request $request)
     {
-        $farm = Farm::where('user_id', Auth::id())->firstOrFail();
+        $farm = $this->resolveFarmOrFail($request);
 
         // A farm with no active registered device has no real data to
         // report at all — treat it exactly as if no reading exists, even
@@ -50,6 +52,7 @@ class DashboardController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
+                'farm_id'               => $farm->id,
                 'farm_name'             => $farm->farm_name,
                 'barangay'              => $farm->barangay,
                 'health_score'          => $healthScore,

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import FarmerLayout from '../../components/FarmerLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { useSelectedFarm } from '../../hooks/useSelectedFarm'
 
 function bilingual(en, fil) {
   if (!en) return null
@@ -112,9 +113,11 @@ const RECOMMENDATIONS_ANCHOR = 'fd-recommendations'
 export default function FarmerDashboard() {
   useMaterialSymbolsFont()
   const [showAllRecos, setShowAllRecos] = useState(false)
+  const { selectedFarmId, farmsLoading } = useSelectedFarm()
 
-  const { data, loading, error, refetch } = useCachedFetch('/farmer/dashboard')
-  const { data: insight, refetch: refetchInsight } = useCachedFetch('/farmer/insights')
+  const params = { farm_id: selectedFarmId }
+  const { data, loading, error, refetch } = useCachedFetch(selectedFarmId ? '/farmer/dashboard' : null, params)
+  const { data: insight, refetch: refetchInsight } = useCachedFetch(selectedFarmId ? '/farmer/insights' : null, params)
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -123,10 +126,12 @@ export default function FarmerDashboard() {
     }, 30 * 60 * 1000)
 
     return () => clearInterval(interval)
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedFarmId])
 
-  if (loading) return <FarmerLayout><p style={styles.stateText}>Loading...</p></FarmerLayout>
+  if (farmsLoading || loading) return <FarmerLayout><p style={styles.stateText}>Loading...</p></FarmerLayout>
   if (error) return <FarmerLayout><p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p></FarmerLayout>
+  if (!data) return <FarmerLayout><p style={styles.stateText}>Loading...</p></FarmerLayout>
 
   const hero = heroConfig[data.health_status] || heroConfig.Safe
 

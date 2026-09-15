@@ -1,17 +1,33 @@
-import { useEffect, useRef } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { SAN_JOSE_CENTER, SAN_JOSE_BOUNDARY, WORLD_RING } from './FarmMap'
 import { serviceTypeBadgeStyle } from '../utils/serviceBadgeStyle'
 
+const DEFAULT_COLOR = '#d4d8cf' // same "no request" neutral used on the Admin Farm Map
 const requestTypeColor = (type) => serviceTypeBadgeStyle(type).color
 
-export default function VetScheduleMap({ requests = [] }) {
+/**
+ * Every registered farm (from `farms`) always gets a pin — that's the
+ * "show all farm locations" base layer. A farm additionally gets its
+ * scheduled request's designated color (Teal for Blood Test, Indigo for
+ * Vaccination) only when that request matches `activeTab`, so switching
+ * tabs re-colors the map instead of always showing both at once.
+ *
+ * `focusFarm` is exposed via ref so the dashboard's request list (a sibling
+ * component, not a child, unlike Admin's combined FarmMap) can drive the
+ * same pan/zoom/highlight interaction Admin's Alerts/Inspections/Service
+ * Requests already use — same pattern, just called across a ref instead of
+ * a local function, since the map and the list live in separate components
+ * here.
+ */
+const VetScheduleMap = forwardRef(function VetScheduleMap({ farms = [], requests = [], activeTab }, ref) {
   const mapRef = useRef(null)
   const containerRef = useRef(null)
   const markersRef = useRef([])
   const isMobile = useIsMobile()
+  const [selectedFarmId, setSelectedFarmId] = useState(null)
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -59,34 +75,54 @@ export default function VetScheduleMap({ requests = [] }) {
     markersRef.current.forEach(m => m.remove())
     markersRef.current = []
 
-    requests.forEach(r => {
-      const color = requestTypeColor(r.service_type)
+    farms.forEach(farm => {
+      if (farm.latitude == null || farm.longitude == null) return
+
+      const request = activeTab
+        ? requests.find(r => r.farm_id === farm.id && (r.service_type || '').replace(' Request', '') === activeTab)
+        : null
+      const isSelected = selectedFarmId === farm.id
+      const color = request ? requestTypeColor(request.service_type) : DEFAULT_COLOR
+      const size = isSelected ? 22 : 16
 
       const icon = L.divIcon({
         className: '',
         html: `<div style="
           background:${color};
-          width:16px;height:16px;border-radius:50%;
-          border:2px solid white;
-          box-shadow:0 1px 4px rgba(0,0,0,0.4);
+          width:${size}px;height:${size}px;border-radius:50%;
+          border:${isSelected ? 3 : 2}px solid white;
+          box-shadow:0 1px ${isSelected ? 8 : 4}px rgba(0,0,0,${isSelected ? 0.5 : 0.4});
         "></div>`,
-        iconSize: [16, 16],
-        iconAnchor: [8, 8],
+        iconSize: [size, size],
+        iconAnchor: [size / 2, size / 2],
       })
 
-      const marker = L.marker([r.latitude, r.longitude], { icon })
-        .addTo(mapRef.current)
-        .bindTooltip(`${r.farm_name} — ${r.service_type}`, { direction: 'top', offset: [0, -8] })
-        .bindPopup(`
-          <strong>${r.farm_name}</strong><br/>
-          ${r.owner_name}<br/>
-          ${r.service_type}<br/>
-          ${r.scheduled_at ? new Date(r.scheduled_at).toLocaleDateString() : ''}
-        `)
+      const popupLines = [`<strong>${farm.farm_name}</strong>`, farm.barangay || '']
+      if (request) {
+        popupLines.push(request.service_type)
+        popupLines.push(request.status || 'Scheduled')
+        if (request.scheduled_at) popupLines.push(new Date(request.scheduled_at).toLocaleDateString())
+      }
 
+      const marker = L.marker([farm.latitude, farm.longitude], { icon })
+        .addTo(mapRef.current)
+        .bindTooltip(request ? `${farm.farm_name} — ${request.service_type}` : farm.farm_name, { direction: 'top', offset: [0, -8] })
+        .bindPopup(popupLines.filter(Boolean).join('<br/>'))
+
+      marker.__farmId = farm.id
       markersRef.current.push(marker)
     })
-  }, [requests])
+  }, [farms, requests, activeTab, selectedFarmId])
+
+  const focusFarm = (farm) => {
+    if (!mapRef.current || !farm || farm.latitude == null || farm.longitude == null) return
+    setSelectedFarmId(farm.id)
+    mapRef.current.flyTo([farm.latitude, farm.longitude], 16, { duration: 0.6 })
+    const marker = markersRef.current.find(m => m.__farmId === farm.id)
+    if (marker) marker.openPopup()
+  }
+
+  useImperativeHandle(ref, () => ({ focusFarm }))
 
   return (
     <div style={styles.wrap}>
@@ -94,12 +130,15 @@ export default function VetScheduleMap({ requests = [] }) {
 
       <div style={{ ...styles.legend, ...(isMobile ? styles.legendMobile : {}) }}>
         <div style={styles.legendTitle}>Request type</div>
-        <LegendRow color={requestTypeColor('Vaccine Request')} label="Vaccine" />
+        <LegendRow color={requestTypeColor('Vaccine Request')} label="Vaccination" />
         <LegendRow color={requestTypeColor('Blood Test Request')} label="Blood Test" />
+        <LegendRow color={DEFAULT_COLOR} label="No selected-type request" />
       </div>
     </div>
   )
-}
+})
+
+export default VetScheduleMap
 
 function LegendRow({ color, label }) {
   return (

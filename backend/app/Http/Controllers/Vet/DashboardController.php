@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Vet;
 
 use App\Http\Controllers\Controller;
+use App\Models\Farm;
 use App\Models\ServiceRequest;
 use Illuminate\Support\Facades\Auth;
 
@@ -11,6 +12,11 @@ class DashboardController extends Controller
     public function index()
     {
         $vetId = Auth::id();
+
+        // Same overall/current farm count Admin's dashboard shows — not
+        // scoped to this vet's own assigned farms, since "Total Farms" is
+        // meant to reflect the whole system, matching Admin's card.
+        $totalFarms = Farm::count();
 
         $baseQuery = fn() => ServiceRequest::where('accepted_by', $vetId)
             ->whereIn('service_type', ['Vaccine Request', 'Blood Test Request']);
@@ -115,6 +121,7 @@ class DashboardController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
+                'total_farms'            => $totalFarms,
                 'assigned_requests'      => $assignedRequests,
                 'todays_schedule'        => $todaysSchedule,
                 'pending'                => $pending,

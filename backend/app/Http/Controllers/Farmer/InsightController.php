@@ -3,21 +3,21 @@
 namespace App\Http\Controllers\Farmer;
 
 use App\Http\Controllers\Controller;
-use App\Models\Farm;
+use App\Http\Controllers\Farmer\Concerns\ResolvesFarm;
 use App\Services\FarmStatusService;
 use App\Services\TrendAnalysisService;
 use App\Services\RootCauseService;
 use App\Services\PreventiveActionService;
 use App\Services\RecommendationExplanationService;
-use Illuminate\Support\Facades\Auth;
+use Illuminate\Http\Request;
 
 /**
  * Farmer-facing view of the AI-Assisted Insight Layer — same four
  * services FarmController::rootCause() uses on the Admin side, but:
  *
- *  - Never takes a farm ID from the request — always resolves to the
- *    logged-in farm owner's own farm, so there's no way to access
- *    another farm's data through this endpoint.
+ *  - Only ever resolves to a farm owned by the logged-in farm owner
+ *    (optionally the one named by farm_id) — there's no way to access
+ *    another owner's farm data through this endpoint.
  *  - Returns a simplified shape (root cause name, plain-language
  *    explanation, main action, plain tips) — no confidence percentages,
  *    no all_scores breakdown, no raw membership numbers. That level of
@@ -25,14 +25,11 @@ use Illuminate\Support\Facades\Auth;
  */
 class InsightController extends Controller
 {
-    public function index()
+    use ResolvesFarm;
+
+    public function index(Request $request)
     {
-        // Matches the same "one farm per owner" assumption the rest of
-        // the Farmer dashboard already makes. If farm owner accounts
-        // are ever extended to properly support multiple farms, this
-        // should be revisited alongside the dashboard/reports pages
-        // that make the same assumption today.
-        $farm = Farm::where('user_id', Auth::id())->first();
+        $farm = $this->resolveFarm($request);
 
         if (!$farm) {
             return response()->json([

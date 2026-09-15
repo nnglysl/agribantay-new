@@ -349,10 +349,10 @@ export default function FarmDetails() {
     setEditEmail(farm.user?.email || '')
     setEditPhoto(null)
     setEditFarmName(farm.farm_name || '')
-    setEditLotNumber('')
-    setEditStreet('')
+    setEditLotNumber(farm.lot_number || '')
+    setEditStreet(farm.street || '')
     setEditBarangay(farm.barangay || BARANGAYS[0])
-    setEditLandmark('')
+    setEditLandmark(farm.landmark || '')
     setEditFarmSize(farm.farm_size || FARM_SIZES[0])
     setAccountEditError('')
     setAccountEditSuccess('')
@@ -403,9 +403,9 @@ export default function FarmDetails() {
       formData.append('farm_name', editFarmName)
       formData.append('barangay', editBarangay)
       formData.append('farm_size', editFarmSize)
-      if (editLotNumber) formData.append('lot_number', editLotNumber)
-      if (editStreet) formData.append('street', editStreet)
-      if (editLandmark) formData.append('landmark', editLandmark)
+      formData.append('lot_number', editLotNumber)
+      formData.append('street', editStreet)
+      formData.append('landmark', editLandmark)
 
       await api.post(`/admin/farms/${farm.id}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -554,13 +554,13 @@ export default function FarmDetails() {
                 </div>
 
                 <div style={{ ...acctStyles.row, ...(isMobile ? acctStyles.rowMobile : {}) }}>
-                  <FarmField label="Lot No. (optional)" value={editLotNumber} onChange={setEditLotNumber} editing={isEditingAccount} display="—" />
-                  <FarmField label="Street (optional)" value={editStreet} onChange={setEditStreet} editing={isEditingAccount} display="—" />
+                  <FarmField label="Lot No. (optional)" value={editLotNumber} onChange={setEditLotNumber} editing={isEditingAccount} display={farm.lot_number || '—'} />
+                  <FarmField label="Street (optional)" value={editStreet} onChange={setEditStreet} editing={isEditingAccount} display={farm.street || '—'} />
                 </div>
 
                 <div style={{ ...acctStyles.row, ...(isMobile ? acctStyles.rowMobile : {}) }}>
                   <FarmField label="Barangay" value={editBarangay} onChange={setEditBarangay} editing={isEditingAccount} display={farm.barangay} type="select" options={BARANGAYS} />
-                  <FarmField label="Landmark (optional)" value={editLandmark} onChange={setEditLandmark} editing={isEditingAccount} display="—" />
+                  <FarmField label="Landmark (optional)" value={editLandmark} onChange={setEditLandmark} editing={isEditingAccount} display={farm.landmark || '—'} />
                 </div>
 
                 <div style={{ ...acctStyles.row, ...(isMobile ? acctStyles.rowMobile : {}) }}>

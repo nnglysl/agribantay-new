@@ -2,7 +2,10 @@ const PH_MOBILE_REGEX = /^09\d{9}$/
 const PH_MOBILE_MAX_LENGTH = 11
 
 export function isValidPhoneNumber(value) {
-  return PH_MOBILE_REGEX.test((value || '').trim())
+  // Spaces are cosmetic (e.g. "0917 123 4567") and don't count toward the
+  // digit length check — only the actual digits need to match the format.
+  const digitsOnly = (value || '').replace(/\s+/g, '')
+  return PH_MOBILE_REGEX.test(digitsOnly)
 }
 
 // Strips everything but digits and hard-caps at 11 characters — meant to be

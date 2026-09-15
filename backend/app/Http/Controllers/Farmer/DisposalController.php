@@ -3,25 +3,17 @@
 namespace App\Http\Controllers\Farmer;
 
 use App\Http\Controllers\Controller;
-use App\Models\Farm;
+use App\Http\Controllers\Farmer\Concerns\ResolvesFarm;
 use App\Models\ManureDisposalRecord;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 
 class DisposalController extends Controller
 {
-    /**
-     * Same "one farm per owner" assumption used throughout the
-     * Farmer-side controllers (InsightController, MaintenanceController).
-     */
-    private function resolveFarm(): ?Farm
-    {
-        return Farm::where('user_id', Auth::id())->first();
-    }
+    use ResolvesFarm;
 
-    public function index()
+    public function index(Request $request)
     {
-        $farm = $this->resolveFarm();
+        $farm = $this->resolveFarm($request);
 
         if (!$farm) {
             return response()->json(['success' => false, 'message' => 'No farm found for this account.'], 404);
@@ -46,7 +38,7 @@ class DisposalController extends Controller
 
     public function store(Request $request)
     {
-        $farm = $this->resolveFarm();
+        $farm = $this->resolveFarm($request);
 
         if (!$farm) {
             return response()->json(['success' => false, 'message' => 'No farm found for this account.'], 404);

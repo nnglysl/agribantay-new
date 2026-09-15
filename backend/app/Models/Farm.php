@@ -15,6 +15,9 @@ class Farm extends Model
         'municipality',
         'province',
         'address',
+        'lot_number',
+        'street',
+        'landmark',
         'num_birds',
         'farm_size',
         'status',
@@ -49,13 +52,33 @@ class Farm extends Model
         return $this->hasMany(Sensor::class);
     }
 
-    // Assumes Inspection has a farm_id column, following the same pattern
-    // as sensorReadings() and serviceRequests() above. If Inspection is
-    // linked to Farm differently (e.g. through a pivot, or a different
-    // column name), this will need adjusting — I don't have that model
-    // to confirm against.
     public function inspections()
     {
         return $this->hasMany(Inspection::class);
+    }
+
+    public function maintenanceLogs()
+    {
+        return $this->hasMany(MaintenanceLog::class);
+    }
+
+    public function recommendations()
+    {
+        return $this->hasMany(Recommendation::class);
+    }
+
+    public function aiRecommendations()
+    {
+        return $this->hasMany(AiRecommendation::class);
+    }
+
+    public function alertHistory()
+    {
+        return $this->hasMany(AlertHistory::class);
+    }
+
+    public function manureDisposalRecords()
+    {
+        return $this->hasMany(ManureDisposalRecord::class);
     }
 }

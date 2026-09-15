@@ -3,6 +3,7 @@ import FarmerLayout from '../../components/FarmerLayout'
 import SharedPagination from '../../components/Pagination'
 import api from '../../api/axios'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { useSelectedFarm } from '../../hooks/useSelectedFarm'
 import { viewModalStyles as v } from '../../styles/viewModalStyles'
 
 const responsiveCss = `
@@ -98,8 +99,10 @@ const responsiveCss = `
 const RECENT_LIMIT = 5
 
 export default function ManureRecords() {
-  const { data: maintenance, loading: maintenanceLoading, refetch: refetchMaintenance } = useCachedFetch('/farmer/maintenance')
-  const { data: disposalRecords, loading: disposalLoading, refetch: refetchDisposal } = useCachedFetch('/farmer/disposal-records')
+  const { selectedFarmId, farmsLoading } = useSelectedFarm()
+  const farmParams = { farm_id: selectedFarmId }
+  const { data: maintenance, loading: maintenanceLoading, refetch: refetchMaintenance } = useCachedFetch(selectedFarmId ? '/farmer/maintenance' : null, farmParams)
+  const { data: disposalRecords, loading: disposalLoading, refetch: refetchDisposal } = useCachedFetch(selectedFarmId ? '/farmer/disposal-records' : null, farmParams)
 
   const [activeTab, setActiveTab] = useState('cleanout') // 'cleanout' | 'disposal'
 
@@ -146,6 +149,7 @@ export default function ManureRecords() {
         buyer_name: disposalMethod === 'Sold' ? disposalBuyerName : null,
         disposal_date: disposalDate,
         notes: disposalNotes,
+        farm_id: selectedFarmId,
       })
       setShowDisposalForm(false)
       setDisposalMethod('Sold')
@@ -175,6 +179,7 @@ export default function ManureRecords() {
     formData.append('performed_at', maintenanceDate)
     formData.append('notes', maintenanceNotes)
     formData.append('photo', maintenancePhoto)
+    formData.append('farm_id', selectedFarmId)
 
     setMaintenanceSubmitting(true)
     try {
@@ -193,7 +198,7 @@ export default function ManureRecords() {
     }
   }
 
-  if (maintenanceLoading && disposalLoading) {
+  if (farmsLoading || (maintenanceLoading && disposalLoading)) {
     return <FarmerLayout><p style={styles.stateText}>Loading...</p></FarmerLayout>
   }
 
