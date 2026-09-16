@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
 import SharedPagination from '../../components/Pagination'
+import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useMonthFilter, filterByMonth } from '../../hooks/useMonthFilter'
-import { formatDate, formatDateTime } from '../../utils/formatDate'
+import { formatDate, formatDateTime, parseLocalDate } from '../../utils/formatDate'
 import { viewModalStyles as v } from '../../styles/viewModalStyles'
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -40,6 +42,30 @@ function isPastDate(date) {
   return check < today
 }
 
+// Overdue is DERIVED, not stored: a Scheduled inspection whose calendar date
+// has passed without being completed or cancelled. Same date-only rule the
+// scheduling flow uses, so today's inspection stays Scheduled all day.
+function isOverdue(i) {
+  return i.status === 'Scheduled' && !!i.scheduled_at && isPastDate(i.scheduled_at)
+}
+
+function displayStatus(i) {
+  return isOverdue(i) ? 'Overdue' : i.status
+}
+
+// Inclusive calendar-date range check. Date inputs give "YYYY-MM-DD", which
+// must be parsed as LOCAL midnight (parseLocalDate) — new Date("YYYY-MM-DD")
+// is UTC and shifted a July 13 inspection out of a July 13–21 range.
+function inDateRange(dateValue, from, to) {
+  if (!from && !to) return true
+  const d = new Date(dateValue)
+  if (isNaN(d.getTime())) return false
+  const dOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  if (from && dOnly < parseLocalDate(from)) return false
+  if (to && dOnly > parseLocalDate(to)) return false
+  return true
+}
+
 /**
  * Super Admin's Inspections page is view-only monitoring/oversight — no
  * scheduling, editing, rescheduling, assigning, cancelling, or completing.
@@ -49,12 +75,16 @@ function isPastDate(date) {
  * permissions never risk bleeding into each other.
  */
 export default function SuperAdminInspections() {
-  const [tab, setTab] = useState('calendar')
+  // Deep links (e.g. from a Super Admin dashboard notification) can preset
+  // the tab and search via ?tab= / ?search= so the relevant record is in view.
+  const [searchParams] = useSearchParams()
+  const initialTab = ['calendar', 'scheduled', 'overdue', 'completed', 'history'].includes(searchParams.get('tab')) ? searchParams.get('tab') : 'calendar'
+  const [tab, setTab] = useState(initialTab)
   const { month: viewDate, setMonth: setViewDate, label: monthLabel } = useMonthFilter()
   const [viewInspection, setViewInspection] = useState(null)
   const isMobile = useIsMobile()
 
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(() => searchParams.get('search') || '')
 
   // Scheduled tab filters
   const [schedFarm, setSchedFarm] = useState('')
@@ -92,8 +122,12 @@ export default function SuperAdminInspections() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [filterOpen])
 
+  // The Overdue tab is the Scheduled tab's past-due slice — same columns and
+  // filter fields — so it shares the Scheduled filter state.
+  const schedLike = tab === 'scheduled' || tab === 'overdue'
+
   const openFilter = () => {
-    if (tab === 'scheduled') {
+    if (schedLike) {
       setDraft({ farm: schedFarm, type: schedType, scheduledBy: schedScheduledBy, from: schedFrom, to: schedTo })
     } else if (tab === 'completed') {
       setDraft({ farm: complFarm, type: complType, scheduledBy: complScheduledBy, from: complFrom, to: complTo })
@@ -104,7 +138,7 @@ export default function SuperAdminInspections() {
   }
 
   const applyFilter = () => {
-    if (tab === 'scheduled') {
+    if (schedLike) {
       setSchedFarm(draft.farm || '')
       setSchedType(draft.type || '')
       setSchedScheduledBy(draft.scheduledBy || '')
@@ -125,6 +159,18 @@ export default function SuperAdminInspections() {
     setFilterOpen(false)
   }
 
+  // Clears From/To for the active tab immediately (applied state, not just
+  // the draft) so the list returns to unfiltered results in one click.
+  const clearDates = () => {
+    setDraft(d => ({ ...d, from: '', to: '' }))
+    if (schedLike) { setSchedFrom(''); setSchedTo('') }
+    else if (tab === 'completed') { setComplFrom(''); setComplTo('') }
+    else if (tab === 'history') { setHistoryFrom(''); setHistoryTo('') }
+  }
+  const appliedFrom = schedLike ? schedFrom : tab === 'completed' ? complFrom : historyFrom
+  const appliedTo = schedLike ? schedTo : tab === 'completed' ? complTo : historyTo
+  const hasDate = !!(draft.from || draft.to || appliedFrom || appliedTo)
+
   const resetFilter = () => {
     if (tab === 'history') {
       setDraft({ farm: '', status: '', from: '', to: '' })
@@ -133,7 +179,7 @@ export default function SuperAdminInspections() {
     }
   }
 
-  const activeFilterCount = tab === 'scheduled'
+  const activeFilterCount = schedLike
     ? [schedFarm, schedType, schedScheduledBy, schedFrom, schedTo].filter(Boolean).length
     : tab === 'completed'
     ? [complFarm, complType, complScheduledBy, complFrom, complTo].filter(Boolean).length
@@ -141,11 +187,12 @@ export default function SuperAdminInspections() {
     ? [historyFarm, historyStatus, historyFrom, historyTo].filter(Boolean).length
     : 0
 
-  const { data: inspectionsData, loading, error } = useCachedFetch('/admin/inspections')
+  const { data: inspectionsData, loading, error } = useCachedFetch('/admin/inspections', {}, { pollMs: 45000 })
 
   const inspections = useMemo(() => inspectionsData || [], [inspectionsData])
 
-  const scheduled = inspections.filter(i => i.status === 'Scheduled')
+  const scheduled = inspections.filter(i => i.status === 'Scheduled' && !isOverdue(i))
+  const overdue = inspections.filter(isOverdue)
   const completed = inspections.filter(i => i.status === 'Completed')
   const historyList = inspections.filter(i => i.status === 'Completed' || i.status === 'Cancelled')
 
@@ -164,21 +211,27 @@ export default function SuperAdminInspections() {
       if (schedFarm && i.farm_name !== schedFarm) return false
       if (schedType && i.inspection_type !== schedType) return false
       if (schedScheduledBy && (i.scheduled_by_name?.trim() || '') !== schedScheduledBy) return false
-      const d = new Date(i.scheduled_at)
-      if (schedFrom && d < new Date(schedFrom)) return false
-      if (schedTo && d > new Date(`${schedTo}T23:59:59`)) return false
+      if (!inDateRange(i.scheduled_at, schedFrom, schedTo)) return false
       return matchesSearch(i, search)
     })
   }, [scheduled, schedFarm, schedType, schedScheduledBy, schedFrom, schedTo, search])
+
+  const filteredOverdue = useMemo(() => {
+    return overdue.filter(i => {
+      if (schedFarm && i.farm_name !== schedFarm) return false
+      if (schedType && i.inspection_type !== schedType) return false
+      if (schedScheduledBy && (i.scheduled_by_name?.trim() || '') !== schedScheduledBy) return false
+      if (!inDateRange(i.scheduled_at, schedFrom, schedTo)) return false
+      return matchesSearch(i, search)
+    })
+  }, [overdue, schedFarm, schedType, schedScheduledBy, schedFrom, schedTo, search])
 
   const filteredCompleted = useMemo(() => {
     return completed.filter(i => {
       if (complFarm && i.farm_name !== complFarm) return false
       if (complType && i.inspection_type !== complType) return false
       if (complScheduledBy && (i.scheduled_by_name?.trim() || '') !== complScheduledBy) return false
-      const d = new Date(i.scheduled_at)
-      if (complFrom && d < new Date(complFrom)) return false
-      if (complTo && d > new Date(`${complTo}T23:59:59`)) return false
+      if (!inDateRange(i.scheduled_at, complFrom, complTo)) return false
       return matchesSearch(i, search)
     })
   }, [completed, complFarm, complType, complScheduledBy, complFrom, complTo, search])
@@ -187,9 +240,7 @@ export default function SuperAdminInspections() {
     return historyList.filter(i => {
       if (historyFarm && i.farm_name !== historyFarm) return false
       if (historyStatus && i.status !== historyStatus) return false
-      const d = new Date(i.scheduled_at)
-      if (historyFrom && d < new Date(historyFrom)) return false
-      if (historyTo && d > new Date(`${historyTo}T23:59:59`)) return false
+      if (!inDateRange(i.scheduled_at, historyFrom, historyTo)) return false
       return matchesSearch(i, search)
     })
   }, [historyList, historyFarm, historyStatus, historyFrom, historyTo, search])
@@ -216,7 +267,7 @@ export default function SuperAdminInspections() {
 
       <div style={{ ...styles.tabsRow, ...(isMobile ? styles.tabsRowMobile : {}) }}>
         <div style={styles.tabs}>
-          {['calendar', 'scheduled', 'completed', 'history'].map(t => (
+          {['calendar', 'scheduled', 'overdue', 'completed', 'history'].map(t => (
             <div
               key={t}
               style={{ ...styles.tab, ...(tab === t ? styles.tabActive : {}) }}
@@ -277,7 +328,7 @@ export default function SuperAdminInspections() {
                     {farmOptions.map(f => <option key={f} value={f}>{f}</option>)}
                   </select>
 
-                  {(tab === 'scheduled' || tab === 'completed') && (
+                  {(schedLike || tab === 'completed') && (
                     <>
                       <label style={styles.filterLabel}>Inspection Type</label>
                       <select
@@ -307,14 +358,17 @@ export default function SuperAdminInspections() {
                     </>
                   )}
 
-                  <label style={styles.filterLabel}>Date Range</label>
+                  <DateRangeHeader>
+                    <label style={styles.filterLabel}>Date Range</label>
+                    <ClearDateButton visible={hasDate} onClick={clearDates} />
+                  </DateRangeHeader>
                   <div style={styles.dateRangeStack}>
                     <input type="date" value={draft.from || ''} onChange={e => setDraft(d => ({ ...d, from: e.target.value }))} style={styles.filterSelect} />
                     <span style={styles.dateRangeSep}>to</span>
                     <input type="date" value={draft.to || ''} onChange={e => setDraft(d => ({ ...d, to: e.target.value }))} style={styles.filterSelect} />
                   </div>
 
-                  {(tab === 'scheduled' || tab === 'completed') && (
+                  {(schedLike || tab === 'completed') && (
                     <>
                       <label style={styles.filterLabel}>Scheduled By</label>
                       <select
@@ -367,6 +421,21 @@ export default function SuperAdminInspections() {
         />
       )}
 
+      {!loading && !error && tab === 'overdue' && (
+        <InspectionTable
+          list={filteredOverdue}
+          columns={SCHEDULED_COLUMNS}
+          actionLabel="View"
+          onView={setViewInspection}
+          isMobile={isMobile}
+          emptyText={
+            search || schedFarm || schedType || schedScheduledBy || schedFrom || schedTo
+              ? 'No overdue inspections match your search or filter.'
+              : 'No overdue inspections.'
+          }
+        />
+      )}
+
       {!loading && !error && tab === 'completed' && (
         <InspectionTable
           list={filteredCompleted}
@@ -398,7 +467,7 @@ export default function SuperAdminInspections() {
       )}
 
       {viewInspection && (() => {
-        const c = STATUS_COLOR[viewInspection.status] || '#6b7280'
+        const c = STATUS_COLOR[displayStatus(viewInspection)] || '#6b7280'
         const fields = [
           { label: 'Farm', value: viewInspection.farm_name },
           { label: 'Type', value: viewInspection.inspection_type },
@@ -413,7 +482,7 @@ export default function SuperAdminInspections() {
               <div style={v.header}>
                 <div style={v.headerTitleRow}>
                   <h3 style={v.title}>{viewInspection.inspection_number}</h3>
-                  <span style={{ ...v.badge, color: c, backgroundColor: badgeBg(viewInspection.status) }}>{viewInspection.status}</span>
+                  <span style={{ ...v.badge, color: c, backgroundColor: badgeBg(displayStatus(viewInspection)) }}>{displayStatus(viewInspection)}</span>
                 </div>
                 <span style={v.close} onClick={() => setViewInspection(null)}>×</span>
               </div>
@@ -476,10 +545,11 @@ function SummaryCard({ label, value, sub, isMobile }) {
   )
 }
 
-const STATUS_COLOR = { Scheduled: '#b45309', Completed: '#256b3d', Cancelled: '#6b7280' }
+const STATUS_COLOR = { Scheduled: '#b45309', Overdue: '#b91c1c', Completed: '#256b3d', Cancelled: '#6b7280' }
 
 function badgeBg(status) {
   if (status === 'Completed') return '#eaf3ec'
+  if (status === 'Overdue') return '#fdecec'
   if (status === 'Scheduled') return '#fbf1e2'
   return '#eef1ea'
 }
@@ -501,7 +571,7 @@ const SCHEDULED_COLUMNS = [
   { header: 'Inspection Date', render: i => formatDate(i.scheduled_at) },
   { header: 'Scheduled By', render: scheduledByOrDash },
   { header: 'Type', render: i => i.inspection_type },
-  { header: 'Status', render: i => <StatusBadge status={i.status} /> },
+  { header: 'Status', render: i => <StatusBadge status={displayStatus(i)} /> },
 ]
 
 const COMPLETED_COLUMNS = [
@@ -517,7 +587,7 @@ const HISTORY_COLUMNS = [
   { header: 'Inspection Date', render: i => formatDate(i.scheduled_at) },
   { header: 'Scheduled By', render: scheduledByOrDash },
   { header: 'Type', render: i => i.inspection_type },
-  { header: 'Status', render: i => <StatusBadge status={i.status} /> },
+  { header: 'Status', render: i => <StatusBadge status={displayStatus(i)} /> },
   { header: 'Date Completed', render: i => formatDate(i.completed_at) },
 ]
 

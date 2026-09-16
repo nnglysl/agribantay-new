@@ -153,10 +153,8 @@ export default function FarmerDashboard() {
   const hasMoreRecos = recoItems.length > VISIBLE_LIMIT
 
   return (
-    <FarmerLayout>
+    <FarmerLayout title={`Welcome back, ${data.farm_name ? data.farm_name.split(' ')[0] : ''}`}>
       <style>{responsiveCss}</style>
-
-      <h1 style={styles.title}>Welcome back, {data.farm_name ? data.farm_name.split(' ')[0] : ''}</h1>
 
       {/* --------------------------------------------------- Main alert banner */}
       <div className="fd-banner" style={{ ...styles.banner, backgroundColor: hero.color }}>
@@ -254,7 +252,6 @@ const SANS = "'Inter', sans-serif"
 
 const styles = {
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
-  title: { fontSize: '25px', fontWeight: 800, letterSpacing: '-0.01em', color: TEXT_DARK, margin: '0 0 20px', fontFamily: SANS },
 
   banner: {
     borderRadius: '14px', padding: '20px 22px', fontFamily: SANS, marginBottom: '28px', boxSizing: 'border-box',

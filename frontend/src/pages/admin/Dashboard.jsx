@@ -6,10 +6,10 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 import { serviceTypeBadgeStyle } from '../../utils/serviceBadgeStyle'
 
 export default function AdminDashboard() {
-  const { data, loading, error } = useCachedFetch('/admin/dashboard')
-  const { data: mapFarms } = useCachedFetch('/admin/farms-map')
-  const { data: inspectionsData } = useCachedFetch('/admin/inspections')
-  const { data: serviceRequestsData } = useCachedFetch('/admin/service-requests')
+  const { data, loading, error } = useCachedFetch('/admin/dashboard', {}, { pollMs: 60000 })
+  const { data: mapFarms } = useCachedFetch('/admin/farms-map', {}, { pollMs: 60000 })
+  const { data: inspectionsData } = useCachedFetch('/admin/inspections', {}, { pollMs: 60000 })
+  const { data: serviceRequestsData } = useCachedFetch('/admin/service-requests', {}, { pollMs: 60000 })
   const isMobile = useIsMobile()
   const [modalOpen, setModalOpen] = useState(null)
 

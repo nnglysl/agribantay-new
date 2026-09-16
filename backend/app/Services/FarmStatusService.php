@@ -24,7 +24,12 @@ class FarmStatusService
      */
     public function syncStatus(Farm $farm): void
     {
-        $latest = SensorReading::where('farm_id', $farm->id)->latest()->first();
+        // List endpoints eager-load latestReading (one query for all farms);
+        // single-farm callers (sensor ingest, farm details) fall through to
+        // the per-farm lookup as before.
+        $latest = $farm->relationLoaded('latestReading')
+            ? $farm->latestReading
+            : SensorReading::where('farm_id', $farm->id)->latest()->first();
 
         if (!$latest) {
             return;
@@ -155,6 +160,53 @@ class FarmStatusService
         }
 
         return $farm->current_status;
+    }
+
+    /**
+     * Farm-level device connectivity, independent of the Safe/Warning/
+     * Critical condition status:
+     *
+     *   Pending Setup — no Active device is currently assigned to the farm
+     *                   (e.g. the device was unassigned/moved and nothing
+     *                   has replaced it yet).
+     *   Online        — an assigned Active device sent an accepted reading
+     *                   within config('sensors.offline_after_minutes').
+     *   Offline       — a device is still assigned but has gone quiet
+     *                   (unplugged, no LTE signal, moved without Admin
+     *                   unassigning it, or never sent anything yet).
+     *
+     * Computed on read from sensors.last_seen_at — no scheduler needed.
+     */
+    public function connectivity(Farm $farm): string
+    {
+        $active = $this->activeSensors($farm);
+
+        if ($active->isEmpty()) {
+            return 'Pending Setup';
+        }
+
+        return $active->contains(fn($s) => $s->isOnline()) ? 'Online' : 'Offline';
+    }
+
+    /**
+     * Most recent accepted reading across the farm's currently assigned
+     * Active devices — the "Last Synchronization" shown next to
+     * connectivity(). Null while Pending Setup or before the first reading.
+     */
+    public function lastSeenAt(Farm $farm): ?\Carbon\Carbon
+    {
+        return $this->activeSensors($farm)
+            ->filter(fn($s) => $s->last_seen_at)
+            ->max('last_seen_at');
+    }
+
+    private function activeSensors(Farm $farm)
+    {
+        $sensors = $farm->relationLoaded('sensors')
+            ? $farm->sensors
+            : $farm->sensors()->get();
+
+        return $sensors->filter(fn($s) => $s->status === 'Active');
     }
 
     /**

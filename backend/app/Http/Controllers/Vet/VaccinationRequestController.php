@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ServiceRequest;
 use App\Models\ActivityLog;
 use App\Models\Notification;
+use App\Services\SuperAdminNotifier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -13,6 +14,9 @@ class VaccinationRequestController extends Controller
 {
     private function notifyRequester(ServiceRequest $sr, string $title, string $message): void
     {
+        // Super Admin gets the same update for system-wide oversight.
+        SuperAdminNotifier::notify($title, preg_replace('/^Your /', 'The ', $message), 'Request Update', '/superadmin/service-requests');
+
         if (!$sr->requested_by) {
             return;
         }
@@ -56,6 +60,7 @@ class VaccinationRequestController extends Controller
                     'barangay'       => $r->farm->barangay,
                     'farm_size'      => $r->farm->farm_size,
                     'notes'          => $r->notes,
+                    'completion_notes' => $r->completion_notes,
                     'status'         => $r->status,
                     'accepted_by'    => $r->acceptedBy ? $r->acceptedBy->first_name . ' ' . $r->acceptedBy->last_name : null,
                     'scheduled_at'   => $r->scheduled_at,
@@ -72,6 +77,8 @@ class VaccinationRequestController extends Controller
             'data' => [
                 'scheduled' => $requests->whereIn('status', ['Scheduled', 'Pending'])->values(),
                 'completed' => $requests->where('status', 'Completed')->values(),
+                // Completed + declined, so a declined request stays visible.
+                'history'   => $requests->whereIn('status', ['Completed', 'Cancelled'])->values(),
             ],
         ]);
     }
@@ -149,14 +156,26 @@ class VaccinationRequestController extends Controller
     public function complete(Request $request, int $id)
     {
         $request->validate([
-            'notes' => 'required|string',
+            'completion_notes' => 'required|string',
         ]);
 
         $sr = ServiceRequest::findOrFail($id);
+
+        // Only an accepted, scheduled visit can be completed — never a
+        // Pending, Cancelled or already-Completed request, even via the API.
+        if ($sr->status !== 'Scheduled') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only a scheduled request can be marked as completed.',
+            ], 422);
+        }
+
+        // completion_notes is its own column so the farmer's original
+        // request text in `notes` is never overwritten.
         $sr->update([
-            'status'       => 'Completed',
-            'completed_at' => now(),
-            'notes'        => $request->notes,
+            'status'           => 'Completed',
+            'completed_at'     => now(),
+            'completion_notes' => $request->completion_notes,
         ]);
 
         ActivityLog::create([
@@ -176,6 +195,65 @@ class VaccinationRequestController extends Controller
         return response()->json([
             'success' => true,
             'message' => ucfirst($sr->service_type) . ' marked as completed.',
+            'data'    => $sr,
+        ]);
+    }
+
+    /**
+     * Undo an accidental completion. The request goes back to Scheduled —
+     * not Pending, since it was already accepted — keeping its schedule,
+     * acceptor and reschedule history; only status/completed_at change.
+     * If its date has already passed it will show under Overdue (derived).
+     */
+    public function reopen(int $id)
+    {
+        $sr = ServiceRequest::findOrFail($id);
+
+        if ($sr->status !== 'Completed') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only a completed request can have its completion undone.',
+            ], 422);
+        }
+
+        // Reopening must not sidestep the farmer's one-active-request-per-
+        // service rule: if they've since submitted another request for the
+        // same service, this one stays completed.
+        $hasOtherActive = ServiceRequest::where('farm_id', $sr->farm_id)
+            ->where('service_type', $sr->service_type)
+            ->where('id', '!=', $sr->id)
+            ->whereIn('status', ['Pending', 'Scheduled'])
+            ->exists();
+
+        if ($hasOtherActive) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The completion cannot be undone because another active request for the same service already exists.',
+            ], 422);
+        }
+
+        $sr->update([
+            'status'       => 'Scheduled',
+            'completed_at' => null,
+        ]);
+
+        ActivityLog::create([
+            'user_id' => Auth::id(),
+            'role'    => Auth::user()->role,
+            'action'  => 'Undid completion of ' . strtolower($sr->service_type),
+            'details' => "{$sr->request_number} — {$sr->farm->farm_name}",
+            'type'    => $sr->service_type === 'Blood Test Request' ? 'Blood Test' : 'Vaccination',
+        ]);
+
+        $this->notifyRequester(
+            $sr,
+            'Service Request Completion Undone',
+            "Your {$sr->service_type} for \"{$sr->farm->farm_name}\" was marked completed by mistake; its completion was undone and it has returned to its active scheduled state."
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => ucfirst($sr->service_type) . ' completion undone. The request has returned to its active scheduled state.',
             'data'    => $sr,
         ]);
     }

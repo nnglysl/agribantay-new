@@ -24,9 +24,11 @@ class OtpCodeMail extends Mailable
 
     public function build()
     {
-        $subject = $this->purpose === 'email_verification'
-            ? 'AgriBantay Email Verification Code'
-            : 'AgriBantay Password Reset Code';
+        $subject = match ($this->purpose) {
+            'email_verification' => 'AgriBantay Email Verification Code',
+            'farm_deletion'      => 'AgriBantay Farm Deletion Verification Code',
+            default               => 'AgriBantay Password Reset Code',
+        };
 
         return $this->subject($subject)
             ->view('emails.otp-code');

@@ -16,6 +16,7 @@ class MaintenanceController extends Controller
         $service = app(MaintenanceStatusService::class);
 
         $overdueFarms = Farm::where('status', 'Active')
+            ->with('latestCleanout')
             ->get()
             ->map(function ($farm) use ($service) {
                 $status = $service->getStatus($farm);

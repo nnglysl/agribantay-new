@@ -2,26 +2,20 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
-import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { useCachedFetch, invalidateCache } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { BARANGAYS } from '../../constants/barangays'
 import { sanitizePhoneInput } from '../../utils/phoneValidation'
+import { LOCATION_CONFLICT_MESSAGE, LOCATION_OUTSIDE_MESSAGE, isInsideSanJose } from '../../utils/farmLocation'
 import SharedPagination from '../../components/Pagination'
-import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
-
-delete L.Icon.Default.prototype._getIconUrl
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-})
+import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
+import FarmLocationMap from '../../components/FarmLocationMap'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
 const MONITORING_STATUSES = ['Safe', 'Warning', 'Critical', 'Pending Setup', 'Offline']
 
-const SAN_JOSE_CENTER = [13.8797, 121.0989]
 const SAN_JOSE_VIEWBOX = '120.95,13.95,121.15,13.80'
 
 async function geocodeAddress(query) {
@@ -44,9 +38,13 @@ function emptyFarm() {
     farm_name: '',
     farm_size: '',
     barangay: '',
-    address: '',
+    lot_number: '',
+    street: '',
+    landmark: '',
     latitude: null,
     longitude: null,
+    locationConflict: false,
+    locationCheck: null, // last verdict from FarmLocationMap's onValidityChange
   }
 }
 
@@ -82,6 +80,9 @@ export default function SuperAdminFarms() {
   const [showAddFarmModal, setShowAddFarmModal] = useState(false)
   const [viewFarm, setViewFarm] = useState(null)
   const [confirmAction, setConfirmAction] = useState(null)
+  // Permanent delete (Deactivated farms only): confirm modal -> emailed OTP.
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleteNotice, setDeleteNotice] = useState('')
   const isMobile = useIsMobile()
 
   const current = tabState[statusTab]
@@ -115,6 +116,15 @@ export default function SuperAdminFarms() {
     setFilterOpen(true)
   }
 
+  // One-click Clear Date: clears both dates (draft + applied) and refreshes
+  // the list immediately; barangay/size/monitoring filters are untouched.
+  const clearDates = () => {
+    setDraftFromDate('')
+    setDraftToDate('')
+    updateCurrent({ filterFromDate: '', filterToDate: '', currentPage: 1 })
+  }
+  const hasDate = !!(draftFromDate || draftToDate || current.filterFromDate || current.filterToDate)
+
   const applyFilter = () => {
     updateCurrent({
       barangayFilter: draftBarangay,
@@ -137,39 +147,28 @@ export default function SuperAdminFarms() {
 
   const params = { status: statusTab === 'active' ? 'Active' : 'Deactivated' }
   if (current.barangayFilter) params.barangay = current.barangayFilter
-  if (current.search) params.search = current.search
+  // Debounced so typing doesn't fire a request per keystroke.
+  const debouncedSearch = useDebouncedValue(current.search)
+  if (debouncedSearch) params.search = debouncedSearch
+  if (current.sizeFilter) params.farm_size = current.sizeFilter
+  if (current.monitoringFilter) params.monitoring_status = current.monitoringFilter
+  if (current.filterFromDate) params.from = current.filterFromDate
+  if (current.filterToDate) params.to = current.filterToDate
+  params.sort = current.sortField
+  params.dir = current.sortDirection
+  // Server-side pagination: only the current page comes back, with totals
+  // computed over the complete (filtered) dataset.
+  params.per_page = current.pageSize
+  params.page = current.currentPage
 
-  const { data: farms, loading, error, refetch } = useCachedFetch('/admin/farms', params)
-  const allFarms = farms || []
-
-  const sortedFarms = useMemo(() => {
-    let list = [...allFarms]
-
-    if (current.sizeFilter) list = list.filter(f => f.farm_size === current.sizeFilter)
-    if (current.monitoringFilter) list = list.filter(f => f.current_status === current.monitoringFilter)
-
-    if (current.filterFromDate || current.filterToDate) {
-      list = list.filter(f => {
-        if (!f.created_at) return false
-        const d = new Date(f.created_at)
-        const dOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate())
-        if (current.filterFromDate && dOnly < new Date(current.filterFromDate)) return false
-        if (current.filterToDate && dOnly > new Date(current.filterToDate)) return false
-        return true
-      })
-    }
-
-    list.sort((a, b) => {
-      let result
-      if (current.sortField === 'created_at') {
-        result = new Date(a.created_at ?? 0) - new Date(b.created_at ?? 0)
-      } else {
-        result = String(a[current.sortField] ?? '').localeCompare(String(b[current.sortField] ?? ''))
-      }
-      return current.sortDirection === 'asc' ? result : -result
-    })
-    return list
-  }, [allFarms, current.sizeFilter, current.monitoringFilter, current.filterFromDate, current.filterToDate, current.sortField, current.sortDirection])
+  const { data: farms, loading, error, refetch } = useCachedFetch('/admin/farms', params, { pollMs: 60000 })
+  // Other pages' edits (activate/deactivate/register) must not leave a stale
+  // cached page behind, so mutations invalidate every /admin/farms key.
+  const reloadFarms = () => { invalidateCache('/admin/farms'); refetch() }
+  const pageData = farms && !Array.isArray(farms)
+    ? farms
+    : { items: farms || [], total: (farms || []).length, page: 1, last_page: 1 }
+  const allFarms = pageData.items
 
   const handleSort = (field) => {
     if (current.sortField === field) {
@@ -179,14 +178,17 @@ export default function SuperAdminFarms() {
     }
   }
 
-  const totalItems = sortedFarms.length
-  const totalPages = Math.max(1, Math.ceil(totalItems / current.pageSize))
+  const totalItems = pageData.total
+  const totalPages = Math.max(1, pageData.last_page || 1)
   const safePage = Math.min(current.currentPage, totalPages)
+  const paginatedFarms = allFarms
 
-  const paginatedFarms = useMemo(() => {
-    const start = (safePage - 1) * current.pageSize
-    return sortedFarms.slice(start, start + current.pageSize)
-  }, [sortedFarms, safePage, current.pageSize])
+  // A filter/search can shrink the result set below the page we were on;
+  // step back to the last real page instead of showing an empty one.
+  useEffect(() => {
+    if (current.currentPage > totalPages) updateCurrent({ currentPage: totalPages })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current.currentPage, totalPages])
 
   const rangeStart = totalItems === 0 ? 0 : (safePage - 1) * current.pageSize + 1
   const rangeEnd = Math.min(safePage * current.pageSize, totalItems)
@@ -200,7 +202,7 @@ export default function SuperAdminFarms() {
       onConfirm: async () => {
         await api.patch(`/admin/farms/${farm.id}/deactivate`)
         setConfirmAction(null)
-        refetch()
+        reloadFarms()
       },
     })
   }
@@ -214,7 +216,7 @@ export default function SuperAdminFarms() {
       onConfirm: async () => {
         await api.patch(`/admin/farms/${farm.id}/activate`)
         setConfirmAction(null)
-        refetch()
+        reloadFarms()
       },
     })
   }
@@ -314,7 +316,13 @@ export default function SuperAdminFarms() {
                   {MONITORING_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
 
-                <label style={styles.filterLabel}>From</label>
+                <DateRangeHeader>
+
+                  <label style={styles.filterLabel}>From</label>
+
+                  <ClearDateButton visible={hasDate} onClick={clearDates} />
+
+                </DateRangeHeader>
                 <input type="date" value={draftFromDate} onChange={e => setDraftFromDate(e.target.value)} style={styles.filterSelect} />
 
                 <label style={styles.filterLabel}>To</label>
@@ -332,6 +340,12 @@ export default function SuperAdminFarms() {
 
       {loading && <p>Loading...</p>}
       {error && <p style={{ color: '#b91c1c' }}>{error}</p>}
+      {deleteNotice && (
+        <div style={deleteStyles.notice}>
+          <span>{deleteNotice}</span>
+          <span style={deleteStyles.noticeClose} onClick={() => setDeleteNotice('')}>×</span>
+        </div>
+      )}
 
       {!loading && !error && (
         <div style={styles.tableCard}>
@@ -343,7 +357,8 @@ export default function SuperAdminFarms() {
               <thead>
                 <tr>
                   <th style={styles.th}></th>
-                  <th style={styles.th}>Farm / Owner</th>
+                  <th style={styles.th}>Farm Name</th>
+                  <th style={styles.th}>Farm Owner</th>
                   <th style={styles.th}>Mobile</th>
                   <th style={styles.th}>Barangay</th>
                   <th style={styles.th}>Farm Size</th>
@@ -366,12 +381,8 @@ export default function SuperAdminFarms() {
                         <span style={styles.avatar}>{getInitials(f.owner_name)}</span>
                       )}
                     </td>
-                    <td style={styles.td}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 700, color: '#16311d' }}>{f.farm_name}</div>
-                        <div style={{ fontSize: '12.5px', color: '#8a968d', marginTop: '1px' }}>{f.owner_name}</div>
-                      </div>
-                    </td>
+                    <td style={{ ...styles.td, fontWeight: 700, color: '#16311d' }}>{f.farm_name}</td>
+                    <td style={styles.td}>{f.owner_name}</td>
                     <td style={styles.td}>{f.mobile_number || f.email || '—'}</td>
                     <td style={styles.td}>{f.barangay}</td>
                     <td style={styles.td}>{f.farm_size}</td>
@@ -390,7 +401,10 @@ export default function SuperAdminFarms() {
                         {statusTab === 'active' ? (
                           <span style={{ ...styles.actionBtn, ...styles.deactivateBtn }} onClick={() => handleDeactivate(f)}>Deactivate</span>
                         ) : (
-                          <span style={{ ...styles.actionBtn, ...styles.activateBtn }} onClick={() => handleActivate(f)}>Activate</span>
+                          <>
+                            <span style={{ ...styles.actionBtn, ...styles.activateBtn }} onClick={() => handleActivate(f)}>Activate</span>
+                            <span style={{ ...styles.actionBtn, ...styles.deleteBtn }} onClick={() => setDeleteTarget(f)}>Delete</span>
+                          </>
                         )}
                       </div>
                     </td>
@@ -420,11 +434,24 @@ export default function SuperAdminFarms() {
       {viewFarm && <ViewFarmModal farmId={viewFarm.id} isMobile={isMobile} onClose={() => setViewFarm(null)} />}
 
       {showRegisterModal && (
-        <RegisterModal isMobile={isMobile} onClose={() => setShowRegisterModal(false)} onSuccess={() => { setShowRegisterModal(false); refetch() }} />
+        <RegisterModal isMobile={isMobile} onClose={() => setShowRegisterModal(false)} onSuccess={() => { setShowRegisterModal(false); reloadFarms() }} />
       )}
 
       {showAddFarmModal && (
-        <AddFarmModal isMobile={isMobile} onClose={() => setShowAddFarmModal(false)} onSuccess={() => { setShowAddFarmModal(false); refetch() }} />
+        <AddFarmModal isMobile={isMobile} onClose={() => setShowAddFarmModal(false)} onSuccess={() => { setShowAddFarmModal(false); reloadFarms() }} />
+      )}
+
+      {deleteTarget && (
+        <DeleteFarmModal
+          farm={deleteTarget}
+          isMobile={isMobile}
+          onClose={() => setDeleteTarget(null)}
+          onDeleted={(message) => {
+            setDeleteTarget(null)
+            setDeleteNotice(message)
+            reloadFarms()
+          }}
+        />
       )}
 
       {confirmAction && (
@@ -586,12 +613,26 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
     setFarmsError('')
 
     for (const f of farmsList) {
-      if (!f.farm_name || !f.farm_size || !f.barangay || !f.address) {
+      if (!f.farm_name || !f.farm_size || !f.barangay) {
         setFarmsError('Please complete every required field for each farm.')
         return
       }
       if (f.latitude == null || f.longitude == null) {
         setFarmsError(`Please confirm "${f.farm_name || 'a farm'}"'s location on the map so it can be saved.`)
+        return
+      }
+      if (f.locationConflict) {
+        setFarmsError(LOCATION_CONFLICT_MESSAGE)
+        return
+      }
+      if (!isInsideSanJose(f.latitude, f.longitude)) {
+        setFarmsError(LOCATION_OUTSIDE_MESSAGE)
+        return
+      }
+      // Server verdict on pin + barangay (outside / mismatch / still checking…);
+      // the server re-runs the same rules on save regardless.
+      if (f.locationCheck && !f.locationCheck.ok) {
+        setFarmsError(f.locationCheck.message)
         return
       }
     }
@@ -605,7 +646,9 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
             farm_name: f.farm_name,
             farm_size: f.farm_size,
             barangay: f.barangay,
-            address: f.address,
+            lot_number: f.lot_number,
+            street: f.street,
+            landmark: f.landmark,
             latitude: f.latitude,
             longitude: f.longitude,
           })
@@ -798,12 +841,26 @@ function AddFarmModal({ onClose, onSuccess, isMobile }) {
     setFarmsError('')
 
     for (const f of farmsList) {
-      if (!f.farm_name || !f.farm_size || !f.barangay || !f.address) {
+      if (!f.farm_name || !f.farm_size || !f.barangay) {
         setFarmsError('Please complete every required field for each farm.')
         return
       }
       if (f.latitude == null || f.longitude == null) {
         setFarmsError(`Please confirm "${f.farm_name || 'a farm'}"'s location on the map so it can be saved.`)
+        return
+      }
+      if (f.locationConflict) {
+        setFarmsError(LOCATION_CONFLICT_MESSAGE)
+        return
+      }
+      if (!isInsideSanJose(f.latitude, f.longitude)) {
+        setFarmsError(LOCATION_OUTSIDE_MESSAGE)
+        return
+      }
+      // Server verdict on pin + barangay (outside / mismatch / still checking…);
+      // the server re-runs the same rules on save regardless.
+      if (f.locationCheck && !f.locationCheck.ok) {
+        setFarmsError(f.locationCheck.message)
         return
       }
     }
@@ -817,7 +874,9 @@ function AddFarmModal({ onClose, onSuccess, isMobile }) {
             farm_name: f.farm_name,
             farm_size: f.farm_size,
             barangay: f.barangay,
-            address: f.address,
+            lot_number: f.lot_number,
+            street: f.street,
+            landmark: f.landmark,
             latitude: f.latitude,
             longitude: f.longitude,
           })
@@ -916,6 +975,124 @@ function AddFarmModal({ onClose, onSuccess, isMobile }) {
   )
 }
 
+/**
+ * Permanent farm deletion (Super Admin, Deactivated farms only).
+ *
+ * Step "confirm": the warning + Cancel / Continue.
+ * Step "otp": Continue has asked the server to email a 6-digit code to the
+ * Super Admin; nothing is deleted until that code is accepted by
+ * DELETE /superadmin/farms/{id}. Resend simply requests a fresh code.
+ */
+function DeleteFarmModal({ farm, isMobile, onClose, onDeleted }) {
+  const [step, setStep] = useState('confirm')
+  const [code, setCode] = useState('')
+  const [sentTo, setSentTo] = useState('')
+  const [error, setError] = useState('')
+  const [info, setInfo] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const requestCode = async () => {
+    setBusy(true)
+    setError('')
+    setInfo('')
+    try {
+      const res = await api.post(`/superadmin/farms//delete/otp/request`)
+      setSentTo(res.data?.message || 'A verification code has been sent to your email.')
+      setStep('otp')
+      return true
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to send the verification code.')
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleResend = async () => {
+    setCode('')
+    if (await requestCode()) setInfo('A new verification code has been sent.')
+  }
+
+  const handleVerify = async (e) => {
+    e.preventDefault()
+    if (code.trim().length !== 6) {
+      setError('Please enter the 6-digit verification code.')
+      return
+    }
+    setBusy(true)
+    setError('')
+    setInfo('')
+    try {
+      const res = await api.delete(`/superadmin/farms/`, { data: { code: code.trim() } })
+      onDeleted(res.data?.message || ` has been permanently deleted.`)
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to delete the farm. No changes were made.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div style={modalStyles.overlay} onClick={busy ? undefined : onClose}>
+      <div style={{ ...confirmStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
+        {step === 'confirm' ? (
+          <>
+            <h3 style={confirmStyles.title}>Delete Farm Permanently?</h3>
+            <p style={confirmStyles.message}>
+              This farm has existing historical records. Deleting this farm will permanently remove the farm and its associated records. This action cannot be undone.
+            </p>
+            <p style={{ ...confirmStyles.message, fontWeight: 600, color: '#16311d' }}>{farm.farm_name} — {farm.owner_name}</p>
+            {error && <div style={modalStyles.errorBox}>{error}</div>}
+            <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
+              <button type="button" onClick={onClose} disabled={busy} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>Cancel</button>
+              <button type="button" onClick={requestCode} disabled={busy} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}), backgroundColor: '#b91c1c' }}>
+                {busy ? 'Sending code...' : 'Continue'}
+              </button>
+            </div>
+          </>
+        ) : (
+          <form onSubmit={handleVerify}>
+            <h3 style={confirmStyles.title}>Enter Verification Code</h3>
+            <p style={confirmStyles.message}>
+              {sentTo} Enter the 6-digit code to permanently delete <strong>{farm.farm_name}</strong>. The code expires in 10 minutes and can only be used once.
+            </p>
+            <input
+              value={code}
+              onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="6-digit code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              autoFocus
+              style={{ ...modalStyles.inputFull, textAlign: 'center', letterSpacing: '0.35em', fontSize: '18px', fontWeight: 700 }}
+            />
+            {error && <div style={modalStyles.errorBox}>{error}</div>}
+            {info && <div style={deleteStyles.infoBox}>{info}</div>}
+            <div style={deleteStyles.resendRow}>
+              Didn't get the code?{' '}
+              <span style={{ ...deleteStyles.resendLink, ...(busy ? deleteStyles.resendDisabled : {}) }} onClick={busy ? undefined : handleResend}>Resend code</span>
+            </div>
+            <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
+              <button type="button" onClick={onClose} disabled={busy} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>Cancel</button>
+              <button type="submit" disabled={busy || code.length !== 6} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}), backgroundColor: '#b91c1c', opacity: busy || code.length !== 6 ? 0.6 : 1 }}>
+                {busy ? 'Deleting...' : 'Verify & Delete'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  )
+}
+
+const deleteStyles = {
+  notice: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', backgroundColor: '#f0f7f2', border: '1px solid #cfe5d6', color: '#2c8047', borderRadius: '10px', padding: '10px 14px', fontSize: '13px', fontWeight: 600, marginBottom: '14px' },
+  noticeClose: { cursor: 'pointer', fontSize: '18px', lineHeight: 1, color: '#6b7770' },
+  infoBox: { fontSize: '12.5px', color: '#2c8047', backgroundColor: '#f0f7f2', border: '1px solid #cfe5d6', borderRadius: '8px', padding: '8px 12px', marginTop: '8px' },
+  resendRow: { fontSize: '12.5px', color: '#6b7770', marginTop: '10px' },
+  resendLink: { color: '#2c8047', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' },
+  resendDisabled: { opacity: 0.5, cursor: 'default' },
+}
+
 function StepPill({ number, label, active, done }) {
   return (
     <div style={{ ...modalStyles.stepPill, ...(active ? modalStyles.stepPillActive : {}), ...(done ? modalStyles.stepPillDone : {}) }}>
@@ -931,69 +1108,17 @@ function Label({ text, required }) {
 
 function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
   const [geocodeStatus, setGeocodeStatus] = useState('idle')
-  const [adjustMode, setAdjustMode] = useState(false)
   const debounceRef = useRef(null)
-
-  const mapContainerRef = useRef(null)
   const mapRef = useRef(null)
-  const markerRef = useRef(null)
 
-  const addOrMoveMarker = (lat, lng) => {
-    if (!mapRef.current) return
-    if (markerRef.current) {
-      markerRef.current.setLatLng([lat, lng])
-    } else {
-      const marker = L.marker([lat, lng], { draggable: true }).addTo(mapRef.current)
-      marker.on('dragend', () => {
-        const pos = marker.getLatLng()
-        onChange('latitude', pos.lat)
-        onChange('longitude', pos.lng)
-        setGeocodeStatus('found')
-      })
-      markerRef.current = marker
-    }
-  }
-
+  // Returns false when the map refused the point (outside San Jose) — the
+  // pin and the form's coordinates are then left untouched.
   const placeMarker = (lat, lng) => {
-    addOrMoveMarker(lat, lng)
+    if (mapRef.current && !mapRef.current.setPosition(lat, lng)) return false
     onChange('latitude', lat)
     onChange('longitude', lng)
+    return true
   }
-
-  useEffect(() => {
-    if (!mapContainerRef.current || mapRef.current) return
-
-    const hasExisting = farm.latitude != null && farm.longitude != null
-    const initialCenter = hasExisting ? [farm.latitude, farm.longitude] : SAN_JOSE_CENTER
-
-    const map = L.map(mapContainerRef.current).setView(initialCenter, hasExisting ? 16 : 13)
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors',
-      maxZoom: 18,
-    }).addTo(map)
-
-    map.on('click', (e) => {
-      placeMarker(e.latlng.lat, e.latlng.lng)
-      setGeocodeStatus('found')
-    })
-
-    mapRef.current = map
-
-    if (hasExisting) {
-      addOrMoveMarker(farm.latitude, farm.longitude)
-      setGeocodeStatus('found')
-    }
-
-    setTimeout(() => map.invalidateSize(), 200)
-
-    return () => {
-      map.remove()
-      mapRef.current = null
-      markerRef.current = null
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   const handleBarangayChange = async (value) => {
     onChange('barangay', value)
@@ -1004,9 +1129,12 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
       if (results[0]) {
         const lat = parseFloat(results[0].lat)
         const lng = parseFloat(results[0].lon)
-        if (mapRef.current) mapRef.current.flyTo([lat, lng], 15, { duration: 0.6 })
-        placeMarker(lat, lng)
-        setGeocodeStatus('found')
+        if (placeMarker(lat, lng)) {
+          mapRef.current?.flyTo(lat, lng, 15)
+          setGeocodeStatus('found')
+        } else {
+          setGeocodeStatus('notfound')
+        }
       } else {
         setGeocodeStatus('notfound')
       }
@@ -1015,21 +1143,32 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
     }
   }
 
-  const handleAddressChange = (value) => {
-    onChange('address', value)
+  // Lot No. / Street change → re-geocode the composed address (lot, street,
+  // barangay) — the same query the backend's own geocode fallback uses.
+  const handleAddressPartChange = (field, value) => {
+    onChange(field, value)
+
+    const parts = { lot_number: farm.lot_number, street: farm.street, [field]: value }
+    const query = [parts.lot_number, parts.street, farm.barangay]
+      .map(s => (s || '').trim())
+      .filter(Boolean)
+      .join(', ')
 
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(async () => {
-      if (value.trim().length < 6) return
+      if (!farm.barangay || query.length < 6) return
       setGeocodeStatus('loading')
       try {
-        const results = await geocodeAddress(value)
+        const results = await geocodeAddress(query)
         if (results[0]) {
           const lat = parseFloat(results[0].lat)
           const lng = parseFloat(results[0].lon)
-          if (mapRef.current) mapRef.current.flyTo([lat, lng], 16, { duration: 0.6 })
-          placeMarker(lat, lng)
-          setGeocodeStatus('found')
+          if (placeMarker(lat, lng)) {
+            mapRef.current?.flyTo(lat, lng, 16)
+            setGeocodeStatus('found')
+          } else {
+            setGeocodeStatus('notfound')
+          }
         } else {
           setGeocodeStatus('notfound')
         }
@@ -1071,49 +1210,50 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
       </select>
       <p style={modalStyles.mapHint}>Selecting a barangay centers the map on that area.</p>
 
-      <Label text="Farm Address / Location Details" required />
-      <textarea
-        placeholder="Near Iglesia ni Cristo, Purok 3, Brgy. Calansayan, San Jose, Batangas"
-        value={farm.address}
-        onChange={e => handleAddressChange(e.target.value)}
-        style={{ ...modalStyles.inputFull, minHeight: '56px', resize: 'vertical', fontFamily: 'inherit' }}
-        required
-      />
-      <p style={modalStyles.mapHint}>Please provide the complete address, sitio/purok, and any nearby landmark.</p>
+      <div style={{ ...modalStyles.row, ...(isMobile ? modalStyles.rowMobile : {}) }}>
+        <div>
+          <Label text="Lot No. (optional)" />
+          <input placeholder="Lot No." value={farm.lot_number} onChange={e => handleAddressPartChange('lot_number', e.target.value)} style={modalStyles.input} />
+        </div>
+        <div>
+          <Label text="Street / Purok (optional)" />
+          <input placeholder="Street, sitio or purok" value={farm.street} onChange={e => handleAddressPartChange('street', e.target.value)} style={modalStyles.input} />
+        </div>
+      </div>
+
+      <Label text="Landmark (optional)" />
+      <input placeholder="Nearby landmark" value={farm.landmark} onChange={e => onChange('landmark', e.target.value)} style={modalStyles.inputFull} />
+      <p style={modalStyles.mapHint}>Enter farm address, sitio/purok, and nearby landmark. The map updates from these details.</p>
 
       <Label text="Location Preview" />
 
-      <div
-        ref={mapContainerRef}
-        style={{ ...modalStyles.mapContainer, ...(adjustMode ? modalStyles.mapContainerActive : {}) }}
+      <FarmLocationMap
+        ref={mapRef}
+        initialPosition={farm.latitude != null && farm.longitude != null ? { lat: farm.latitude, lng: farm.longitude } : null}
+        onPositionChange={(lat, lng) => {
+          onChange('latitude', lat)
+          onChange('longitude', lng)
+          setGeocodeStatus('found')
+        }}
+        onConflictChange={(conflictFarm) => onChange('locationConflict', !!conflictFarm)}
+        barangay={farm.barangay}
+        onValidityChange={(verdict) => onChange('locationCheck', verdict)}
       />
 
       <div style={modalStyles.locationStatusRow}>
         {geocodeStatus === 'loading' && (
           <span style={modalStyles.locationStatusLoading}>Locating…</span>
         )}
-        {geocodeStatus === 'found' && farm.latitude != null && (
+        {geocodeStatus === 'found' && farm.latitude != null && !farm.locationConflict && !(farm.locationCheck && !farm.locationCheck.ok) && (
           <span style={modalStyles.locationStatusFound}>✓ Location detected from address</span>
         )}
         {geocodeStatus === 'notfound' && (
-          <span style={modalStyles.locationStatusNotFound}>Could not find that address — adjust the pin manually.</span>
+          <span style={modalStyles.locationStatusNotFound}>Could not find that address — drag the pin to the right spot.</span>
         )}
         {geocodeStatus === 'idle' && farm.latitude == null && (
           <span style={modalStyles.locationStatusLoading}>Select a barangay to preview the location.</span>
         )}
-
-        <button
-          type="button"
-          onClick={() => setAdjustMode(v => !v)}
-          style={{ ...modalStyles.adjustBtn, ...(adjustMode ? modalStyles.adjustBtnActive : {}) }}
-        >
-          ✎ {adjustMode ? 'Done Adjusting' : 'Adjust Location'}
-        </button>
       </div>
-
-      {adjustMode && (
-        <div style={modalStyles.adjustHint}>Click on the map to move the pin, or drag it directly.</div>
-      )}
 
       {farm.latitude == null && (
         <div style={modalStyles.geocodeError}>A pinned location is required before this farm can be saved.</div>
@@ -1814,14 +1954,14 @@ function RegisterDeviceModal({ farmId, onClose, onSuccess }) {
         ) : (
           <>
             <div style={modalStyles.header}>
-              <h3 style={modalStyles.title}>Device Registered</h3>
+              <h3 style={modalStyles.title}>Device Registered Successfully</h3>
             </div>
 
             <div style={devicesStyles.successBox}>
               <div style={devicesStyles.successLabel}>Sensor Code</div>
               <div style={devicesStyles.successCode}>{registered.sensor_code}</div>
               <p style={devicesStyles.successHint}>
-                Write or print this code on the device's sticker now, so it's identifiable in the field without needing to look up the system.
+                {registered.device_name || registered.sensor_code} (<code>{registered.device_key}</code>) has been registered successfully and is ready for farm assignment.
               </p>
             </div>
 
@@ -1979,7 +2119,7 @@ const styles = {
     borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
     color: '#33413a', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
   },
-  filterBtnActive: { borderColor: '#2c8047', color: '#2c8047' },
+  filterBtnActive: { border: '1px solid #2c8047', color: '#2c8047' },
   filterCount: {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
     minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: '#2c8047',
@@ -2030,6 +2170,7 @@ const styles = {
   editBtn: { color: '#2c8047' },
   deactivateBtn: { color: '#b91c1c' },
   activateBtn: { color: '#2c8047' },
+  deleteBtn: { color: '#fff', backgroundColor: '#b91c1c', border: '1px solid #b91c1c' },
   empty: { padding: '32px', textAlign: 'center', color: '#9aa79d', fontSize: '14px' },
 }
 
@@ -2043,7 +2184,7 @@ const paginationStyles = {
   navBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '13px', cursor: 'pointer' },
   navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
-  pageBtnActive: { backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff' },
+  pageBtnActive: { backgroundColor: '#2c8047', border: '1px solid #2c8047', color: '#fff' },
   ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
 }
 
@@ -2099,15 +2240,10 @@ const modalStyles = {
   warnBox: { backgroundColor: '#fdf8f0', border: '1px solid #f0e2cf', color: '#92400e', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '14px' },
   hint: { fontSize: '12px', color: '#6b7770', marginTop: '14px', lineHeight: '1.5' },
   mapHint: { fontSize: '11.5px', color: '#9aa79d', margin: '-6px 0 8px', lineHeight: '1.4' },
-  mapContainer: { height: '260px', width: '100%', borderRadius: '10px', border: '1px solid #dcdfd6', overflow: 'hidden' },
-  mapContainerActive: { border: '2px solid #2c8047' },
   locationStatusRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginTop: '10px', flexWrap: 'wrap' },
   locationStatusLoading: { fontSize: '12px', color: '#8a968d' },
   locationStatusFound: { fontSize: '12.5px', color: '#2c8047', fontWeight: 600 },
   locationStatusNotFound: { fontSize: '12px', color: '#b45309' },
-  adjustBtn: { padding: '7px 14px', borderRadius: '8px', border: '1px solid #2c8047', backgroundColor: '#fff', color: '#2c8047', fontSize: '12.5px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' },
-  adjustBtnActive: { backgroundColor: '#2c8047', color: '#fff' },
-  adjustHint: { fontSize: '11.5px', color: '#6b7770', backgroundColor: '#f5faf6', border: '1px solid #cfe0d3', borderRadius: '8px', padding: '8px 12px', marginTop: '8px' },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' },
   actionsMobile: { flexDirection: 'column-reverse' },
   btnFull: { width: '100%', boxSizing: 'border-box' },

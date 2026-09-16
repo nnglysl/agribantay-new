@@ -3,6 +3,12 @@ import api from '../api/axios'
 
 const cache = new Map()
 
+// In-flight GETs keyed the same way as `cache`, so two components mounting
+// with the same url+params at the same time (e.g. the dashboard's map and
+// the Farms table both wanting /admin/farms-map) share ONE request instead
+// of firing duplicates.
+const inflight = new Map()
+
 // Several endpoints (e.g. /admin/service-requests) deliberately return
 // different data for the same URL depending on who's asking — Admin vs
 // Super Admin, for instance. Folding the active session's role into the
@@ -18,7 +24,32 @@ function currentRoleKey() {
   }
 }
 
-export function useCachedFetch(url, params = {}) {
+function fetchShared(cacheKey, url, params) {
+  if (inflight.has(cacheKey)) return inflight.get(cacheKey)
+  const p = api.get(url, { params })
+    .then(res => {
+      cache.set(cacheKey, res.data.data)
+      return res.data.data
+    })
+    .finally(() => { inflight.delete(cacheKey) })
+  inflight.set(cacheKey, p)
+  return p
+}
+
+/**
+ * useCachedFetch(url, params, options)
+ *
+ * options.pollMs — when set, silently re-fetches the same url+params every
+ * `pollMs` while the tab is visible and updates `data` in place. No loading
+ * state is toggled, so tables don't flicker and the caller's own filters /
+ * search / sort / pagination state is untouched — only the rows change.
+ * Polling pauses while the tab is hidden (document.hidden) and fires once
+ * immediately when it becomes visible again. Static pages simply don't
+ * pass it.
+ */
+export function useCachedFetch(url, params = {}, options = {}) {
+  const { pollMs = 0 } = options
+
   // url can now be falsy (null/undefined/'') to mean "don't fetch at all" —
   // e.g. a component conditionally fetching a second resource only for
   // certain roles. Every existing caller passes a real url string, so
@@ -66,11 +97,10 @@ export function useCachedFetch(url, params = {}) {
       setLoading(true)
     }
 
-    api.get(url, { params: paramsRef.current })
-      .then(res => {
+    fetchShared(cacheKey, url, paramsRef.current)
+      .then(result => {
         if (cancelled) return
-        cache.set(cacheKey, res.data.data)
-        setData(res.data.data)
+        setData(result)
         hasDataRef.current = true
         setError('')
       })
@@ -87,6 +117,45 @@ export function useCachedFetch(url, params = {}) {
 
     return () => { cancelled = true }
   }, [cacheKey, refetchTrigger, url])
+
+  // Background polling — see the header comment.
+  useEffect(() => {
+    if (!url || !pollMs) return undefined
+
+    let cancelled = false
+    let timer = null
+
+    const tick = async () => {
+      if (cancelled || document.hidden) return
+      try {
+        const result = await fetchShared(cacheKey, url, paramsRef.current)
+        if (!cancelled) {
+          setData(result)
+          hasDataRef.current = true
+          setError('')
+        }
+      } catch {
+        // Keep what's on screen; the next tick retries.
+      }
+    }
+
+    const start = () => {
+      if (timer) clearInterval(timer)
+      timer = setInterval(tick, pollMs)
+    }
+    const onVisibility = () => {
+      if (!document.hidden) { tick(); start() }
+    }
+
+    start()
+    document.addEventListener('visibilitychange', onVisibility)
+
+    return () => {
+      cancelled = true
+      if (timer) clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [cacheKey, url, pollMs])
 
   const refetch = () => {
     if (!cacheKey) return

@@ -26,7 +26,7 @@ class CheckMaintenanceCompliance extends Command
 
     public function handle(MaintenanceStatusService $statusService, SmsService $sms)
     {
-        $farms  = Farm::where('status', 'Active')->get();
+        $farms  = Farm::where('status', 'Active')->with('latestCleanout')->get();
         // 'overdue_reminder' is a routine operational nudge — Admin's own
         // day-to-day queue, not something Super Admin needs to see for
         // every farm. 'non_compliant_notice' is the escalated case (past

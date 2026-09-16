@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import SharedPagination from '../../components/Pagination'
-import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { useCachedFetch, invalidateCache } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { roleBadgeStyle } from '../../utils/roleBadgeStyle'
 import { sanitizePhoneInput } from '../../utils/phoneValidation'
 
@@ -76,7 +77,9 @@ export default function ManageAccounts() {
 
   const params = { status: statusTab === 'active' ? 'active' : 'inactive' }
   if (current.roleTab !== 'all') params.role = current.roleTab
-  if (current.search) params.search = current.search
+  // Debounced so typing doesn't fire a request per keystroke.
+  const debouncedSearch = useDebouncedValue(current.search)
+  if (debouncedSearch) params.search = debouncedSearch
 
   const { data, loading, error, refetch } = useCachedFetch('/superadmin/accounts', params)
   const accounts = data || []
@@ -103,6 +106,7 @@ export default function ManageAccounts() {
       danger: true,
       onConfirm: async () => {
         await api.patch(`/superadmin/accounts/${acc.id}/deactivate`)
+        invalidateCache('/superadmin/accounts') // dashboard account counts share this cache
         setConfirmAction(null)
         refetch()
       },
@@ -117,6 +121,7 @@ export default function ManageAccounts() {
       danger: false,
       onConfirm: async () => {
         await api.patch(`/superadmin/accounts/${acc.id}/activate`)
+        invalidateCache('/superadmin/accounts') // dashboard account counts share this cache
         setConfirmAction(null)
         refetch()
       },

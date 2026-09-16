@@ -29,6 +29,9 @@ class FarmController extends Controller
             'farm_name'    => $farm->farm_name,
             'barangay'     => $farm->barangay,
             'municipality' => $farm->municipality,
+            // Settings → Farm Information reads these for the selected farm.
+            'address'      => $farm->address,
+            'farm_size'    => $farm->farm_size,
             'status'       => $service->displayStatus($farm),
             'has_device'   => $service->hasActiveDevice($farm),
         ]);

@@ -7,9 +7,13 @@ import { isValidPhoneNumber, sanitizePhoneInput, PHONE_VALIDATION_MESSAGE } from
 import PasswordStrengthIndicator from '../../components/PasswordStrengthIndicator'
 import VerifyEmailChangeModal from '../../components/VerifyEmailChangeModal'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { useSelectedFarm } from '../../hooks/useSelectedFarm'
 
 export default function Settings() {
   const [profile, setProfile] = useState(null)
+  // Same selection the Dashboard farm dropdown writes to (FarmProvider), so
+  // the Farm Information card always reflects the currently selected farm.
+  const { selectedFarm } = useSelectedFarm()
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
@@ -206,7 +210,9 @@ export default function Settings() {
 
   const initials = `${profile.first_name?.[0] || ''}${profile.last_name?.[0] || ''}`.toUpperCase()
   const photoModalPreview = photoFile ? URL.createObjectURL(photoFile) : profile.profile_photo_url
-  const farm = profile.farm
+  // Prefer the selected farm; the profile's own farm is only a fallback for
+  // the moment before the farm list has loaded.
+  const farm = selectedFarm || profile.farm
 
   return (
     <FarmerLayout>

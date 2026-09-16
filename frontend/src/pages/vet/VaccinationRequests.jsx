@@ -3,10 +3,12 @@ import api from '../../api/axios'
 import VetLayout from '../../components/VetLayout'
 import ServiceRequestDetailsModal from '../../components/ServiceRequestDetailsModal'
 import SharedPagination from '../../components/Pagination'
+import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
-import { formatDate, formatDateTime } from '../../utils/formatDate'
+import { formatDate, formatDateTime, isWithinLocalDateRange } from '../../utils/formatDate'
 import { BADGE_SHAPE, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../../utils/serviceBadgeStyle'
+import { isRequestOverdue, requestDisplayStatus } from '../../utils/serviceRequestStatus'
 
 const BIRD_ESTIMATES = {
   'Small': 'Below 10,000 layers',
@@ -42,6 +44,8 @@ export default function VaccinationRequests() {
   const [declineReason, setDeclineReason] = useState('')
   const [declineError, setDeclineError] = useState('')
   const [completeTarget, setCompleteTarget] = useState(null)
+  const [confirmReopen, setConfirmReopen] = useState(null)
+  const [reopenError, setReopenError] = useState('')
   const [rescheduleTarget, setRescheduleTarget] = useState(null)
   const isMobile = useIsMobile()
 
@@ -69,6 +73,14 @@ export default function VaccinationRequests() {
     setFilterOpen(true)
   }
 
+  // One-click Clear Date: clears draft + applied dates immediately; type and
+  // sort are untouched.
+  const clearDates = () => {
+    setDraftFromDate(''); setDraftToDate('')
+    setFromDate(''); setToDate('')
+  }
+  const hasDate = !!(draftFromDate || draftToDate || fromDate || toDate)
+
   const applyFilter = () => {
     setTypeFilter(draftType)
     setSortMode(draftSort)
@@ -87,10 +99,10 @@ export default function VaccinationRequests() {
   const activeFilterCount =
     (typeFilter !== 'all' ? 1 : 0) +
     (sortMode !== 'oldest' ? 1 : 0) +
-    (tab === 'completed' && (fromDate || toDate) ? 1 : 0)
+    ((fromDate || toDate) ? 1 : 0)
 
-  const { data, loading, error, refetch } = useCachedFetch('/vet/vaccination-requests')
-  const requestData = data || { scheduled: [], completed: [] }
+  const { data, loading, error, refetch } = useCachedFetch('/vet/vaccination-requests', {}, { pollMs: 45000 })
+  const requestData = data || { scheduled: [], completed: [], history: [] }
 
   useEffect(() => {
     refetch()
@@ -111,32 +123,60 @@ export default function VaccinationRequests() {
     refetch()
   }
 
-  const filteredCompleted = useMemo(() => {
-    const completedList = requestData.completed || []
-    if (!fromDate && !toDate) return completedList
-    return completedList.filter(r => {
-      if (!r.completed_at) return false
-      const d = new Date(r.completed_at)
-      const dOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate())
-      if (fromDate && dOnly < new Date(fromDate)) return false
-      if (toDate && dOnly > new Date(toDate)) return false
-      return true
-    })
-  }, [requestData.completed, fromDate, toDate])
+  const handleReopenAction = async () => {
+    setReopenError('')
+    try {
+      await api.patch(`/vet/vaccination-requests/${confirmReopen.id}/reopen`)
+      setConfirmReopen(null)
+      refetch()
+    } catch (err) {
+      setReopenError(err.response?.data?.message || 'Failed to undo completion.')
+    }
+  }
+
+  // From/To filter on the REQUEST date (created_at) — the date the farmer
+  // submitted it — as inclusive local calendar dates. Same helper as Admin.
+  const inDateRange = (r) => isWithinLocalDateRange(r.created_at, fromDate, toDate)
+
+  const filteredCompleted = useMemo(
+    () => (requestData.completed || []).filter(inDateRange),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [requestData.completed, fromDate, toDate]
+  )
+
+  // Completed + declined (Cancelled), so declined requests stay visible.
+  const filteredHistory = useMemo(
+    () => (requestData.history || []).filter(inDateRange),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [requestData.history, fromDate, toDate]
+  )
 
   // The backend still groups Pending + Scheduled together under one
   // "scheduled" key — split them client-side so the page can show a
   // dedicated Pending tab without touching the API response shape.
+  // All three active lists honour the same From/To (request date) filter.
   const pendingList = useMemo(
-    () => (requestData.scheduled || []).filter(r => r.status === 'Pending'),
-    [requestData.scheduled]
+    () => (requestData.scheduled || []).filter(r => r.status === 'Pending' && inDateRange(r)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [requestData.scheduled, fromDate, toDate]
   )
+  // Overdue is the past-due slice of Scheduled (derived, not stored).
   const scheduledList = useMemo(
-    () => (requestData.scheduled || []).filter(r => r.status === 'Scheduled'),
-    [requestData.scheduled]
+    () => (requestData.scheduled || []).filter(r => r.status === 'Scheduled' && !isRequestOverdue(r) && inDateRange(r)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [requestData.scheduled, fromDate, toDate]
+  )
+  const overdueList = useMemo(
+    () => (requestData.scheduled || []).filter(r => isRequestOverdue(r) && inDateRange(r)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [requestData.scheduled, fromDate, toDate]
   )
 
-  const baseList = tab === 'pending' ? pendingList : tab === 'scheduled' ? scheduledList : filteredCompleted
+  const baseList = tab === 'pending' ? pendingList
+    : tab === 'scheduled' ? scheduledList
+    : tab === 'overdue' ? overdueList
+    : tab === 'history' ? filteredHistory
+    : filteredCompleted
 
   // First Come, First Served — sorts by submission date (created_at) if
   // available, falling back to id order if the backend hasn't been
@@ -209,10 +249,22 @@ export default function VaccinationRequests() {
             Scheduled
           </div>
           <div
+            style={{ ...styles.tab, ...(tab === 'overdue' ? styles.tabActive : {}) }}
+            onClick={() => setTab('overdue')}
+          >
+            Overdue
+          </div>
+          <div
             style={{ ...styles.tab, ...(tab === 'completed' ? styles.tabActive : {}) }}
             onClick={() => setTab('completed')}
           >
             Completed
+          </div>
+          <div
+            style={{ ...styles.tab, ...(tab === 'history' ? styles.tabActive : {}) }}
+            onClick={() => setTab('history')}
+          >
+            History
           </div>
         </div>
 
@@ -255,6 +307,28 @@ export default function VaccinationRequests() {
                   <span style={styles.filterPanelClose} onClick={() => setFilterOpen(false)}>×</span>
                 </div>
 
+                <DateRangeHeader>
+
+                  <label style={styles.filterLabel}>From Date</label>
+
+                  <ClearDateButton visible={hasDate} onClick={clearDates} />
+
+                </DateRangeHeader>
+                <input
+                  type="date"
+                  value={draftFromDate}
+                  onChange={e => setDraftFromDate(e.target.value)}
+                  style={styles.filterSelect}
+                />
+
+                <label style={styles.filterLabel}>To Date</label>
+                <input
+                  type="date"
+                  value={draftToDate}
+                  onChange={e => setDraftToDate(e.target.value)}
+                  style={styles.filterSelect}
+                />
+
                 <label style={styles.filterLabel}>Type</label>
                 <select value={draftType} onChange={e => setDraftType(e.target.value)} style={styles.filterSelect}>
                   {TYPE_OPTIONS.map(opt => (
@@ -268,26 +342,6 @@ export default function VaccinationRequests() {
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                 </select>
-
-                {tab === 'completed' && (
-                  <>
-                    <label style={styles.filterLabel}>From</label>
-                    <input
-                      type="date"
-                      value={draftFromDate}
-                      onChange={e => setDraftFromDate(e.target.value)}
-                      style={styles.filterSelect}
-                    />
-
-                    <label style={styles.filterLabel}>To</label>
-                    <input
-                      type="date"
-                      value={draftToDate}
-                      onChange={e => setDraftToDate(e.target.value)}
-                      style={styles.filterSelect}
-                    />
-                  </>
-                )}
 
                 <div style={styles.filterActions}>
                   <button type="button" onClick={resetFilter} style={styles.filterResetBtn}>Reset</button>
@@ -340,17 +394,14 @@ export default function VaccinationRequests() {
                         </span>
                       </td>
                       <td style={styles.td}>{r.owner_name}</td>
+                      <td style={styles.td}>{r.created_at ? formatDate(r.created_at) : '—'}</td>
                       <td style={styles.td}>
-                        {r.completed_at
-                          ? formatDate(r.completed_at)
-                          : r.scheduled_at
-                          ? formatDate(r.scheduled_at)
-                          : '—'}
-                      </td>
-                      <td style={styles.td}>
-                        <span style={{ ...BADGE_SHAPE, ...requestStatusBadgeStyle(r.status) }}>
-                          {r.status}
+                        <span style={{ ...BADGE_SHAPE, ...requestStatusBadgeStyle(requestDisplayStatus(r)) }}>
+                          {requestDisplayStatus(r)}
                         </span>
+                        {r.status === 'Cancelled' && r.decline_reason && (
+                          <div style={styles.farmMeta} title={r.decline_reason}>Reason: {r.decline_reason}</div>
+                        )}
                       </td>
                       <td style={styles.td}>
                         <div style={styles.actionGroup}>
@@ -374,12 +425,16 @@ export default function VaccinationRequests() {
                               </span>
                             </>
                           )}
-                          {r.status === 'Completed' && (
+                          {(r.status === 'Completed' || r.status === 'Cancelled') && (
                             <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => setDetailsTarget(r)}>
                               View
                             </span>
                           )}
-                          {r.status === 'Cancelled' && <span style={styles.noAction}>—</span>}
+                          {r.status === 'Completed' && (
+                            <span style={{ ...styles.actionBtn, ...styles.rescheduleBtn }} onClick={() => { setConfirmReopen(r); setReopenError('') }}>
+                              Undo Completion
+                            </span>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -391,7 +446,7 @@ export default function VaccinationRequests() {
 
           {list.length === 0 && (
             <div style={styles.empty}>
-              {search || typeFilter !== 'all' || (tab === 'completed' && (fromDate || toDate))
+              {search || typeFilter !== 'all' || (fromDate || toDate)
                 ? 'No requests match your search or filter.'
                 : 'No requests here yet.'}
             </div>
@@ -464,6 +519,36 @@ export default function VaccinationRequests() {
         </div>
       )}
 
+      {confirmReopen && (
+        <div style={modalStyles.overlay} onClick={() => setConfirmReopen(null)}>
+          <div style={{ ...confirmStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
+            <div style={modalStyles.header}>
+              <h3 style={modalStyles.title}>Undo Completion</h3>
+              <span style={modalStyles.close} onClick={() => setConfirmReopen(null)}>×</span>
+            </div>
+
+            <div style={{ ...confirmStyles.summaryBox, backgroundColor: serviceTypeBadgeStyle(confirmReopen.service_type).backgroundColor }}>
+              <span style={detailStyles.sectionLabel}>Request</span>
+              <div style={confirmStyles.summaryType}>{serviceTypeLabel(confirmReopen.service_type)}</div>
+              <div style={confirmStyles.summaryFarm}>{confirmReopen.farm_name}</div>
+            </div>
+
+            <p style={detailStyles.text}>
+              Are you sure you want to undo the completion of the {serviceTypeLabel(confirmReopen.service_type)} request at {confirmReopen.farm_name}?
+              This request will be returned to its active scheduled state.
+            </p>
+            {reopenError && <p style={{ color: '#b91c1c', fontSize: '12.5px', marginTop: '4px' }}>{reopenError}</p>}
+
+            <div style={modalStyles.actions}>
+              <button onClick={() => setConfirmReopen(null)} style={modalStyles.cancelBtn}>Cancel</button>
+              <button onClick={handleReopenAction} style={modalStyles.submitBtn}>
+                Undo Completion
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {completeTarget && (
         <CompleteModal
           request={completeTarget}
@@ -528,7 +613,7 @@ function CompleteModal({ request, onClose, onSuccess, isMobile }) {
 
     setLoading(true)
     try {
-      await api.patch(`/vet/vaccination-requests/${request.id}/complete`, { notes })
+      await api.patch(`/vet/vaccination-requests/${request.id}/complete`, { completion_notes: notes })
       onSuccess()
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to complete request.')

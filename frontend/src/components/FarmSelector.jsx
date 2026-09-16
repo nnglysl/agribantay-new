@@ -26,7 +26,9 @@ function ChevronIcon({ color = '#9aa79d' }) {
  * here. Picking a farm updates FarmContext, which every page's own data
  * fetch already keys off, so the whole page reloads for that farm's data.
  */
-export default function FarmSelector() {
+// `inline` drops the bottom margin for use inside a header row; `align="right"`
+// opens the menu from the trigger's right edge so it never overflows the page.
+export default function FarmSelector({ inline = false, align = 'left' }) {
   const { farms, selectedFarm, selectedFarmId, setSelectedFarmId } = useSelectedFarm()
   const [open, setOpen] = useState(false)
   const wrapRef = useRef(null)
@@ -45,7 +47,7 @@ export default function FarmSelector() {
   const isSingleFarm = farms.length === 1
 
   return (
-    <div ref={wrapRef} style={styles.wrap}>
+    <div ref={wrapRef} style={{ ...styles.wrap, ...(inline ? styles.wrapInline : {}) }}>
       <button
         type="button"
         style={{ ...styles.trigger, ...(isSingleFarm ? styles.triggerStatic : {}) }}
@@ -61,7 +63,7 @@ export default function FarmSelector() {
       </button>
 
       {open && !isSingleFarm && (
-        <div style={styles.dropdown}>
+        <div style={{ ...styles.dropdown, ...(align === 'right' ? styles.dropdownRight : {}) }}>
           {farms.map(f => {
             const active = f.id === selectedFarmId
             const color = STATUS_COLOR[f.status] || '#9aa79d'
@@ -91,6 +93,7 @@ const SANS = "'Inter', sans-serif"
 
 const styles = {
   wrap: { position: 'relative', display: 'inline-block', marginBottom: '20px' },
+  wrapInline: { marginBottom: 0 },
 
   trigger: {
     display: 'flex', alignItems: 'center', gap: '10px', fontFamily: SANS,
@@ -111,6 +114,7 @@ const styles = {
     background: '#fff', border: '1px solid #e5e7e0', borderRadius: '12px',
     boxShadow: '0 12px 28px rgba(20,48,28,0.14)', overflow: 'hidden', fontFamily: SANS, padding: '6px',
   },
+  dropdownRight: { left: 'auto', right: 0 },
   option: {
     display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 8px', borderRadius: '9px', cursor: 'pointer',
   },

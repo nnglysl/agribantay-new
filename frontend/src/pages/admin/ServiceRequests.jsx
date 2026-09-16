@@ -3,11 +3,13 @@ import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import ServiceRequestDetailsModal from '../../components/ServiceRequestDetailsModal'
 import SharedPagination from '../../components/Pagination'
+import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { getUser } from '../../utils/auth'
-import { formatDate, formatDateTime } from '../../utils/formatDate'
+import { formatDate, formatDateTime, isWithinLocalDateRange } from '../../utils/formatDate'
 import { BADGE_SHAPE, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../../utils/serviceBadgeStyle'
+import { isRequestOverdue, requestDisplayStatus } from '../../utils/serviceRequestStatus'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
@@ -41,13 +43,20 @@ export default function ServiceRequests() {
   const [declineError, setDeclineError] = useState('')
   const [confirmComplete, setConfirmComplete] = useState(null)
   const [completeNotes, setCompleteNotes] = useState('')
+  const [confirmReopen, setConfirmReopen] = useState(null)
+  const [reopenError, setReopenError] = useState('')
   const [viewRequest, setViewRequest] = useState(null)
   const [rescheduleTarget, setRescheduleTarget] = useState(null)
   const isMobile = useIsMobile()
 
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+
   const [filterOpen, setFilterOpen] = useState(false)
   const [draftType, setDraftType] = useState(typeFilter)
   const [draftSort, setDraftSort] = useState(sortMode)
+  const [draftFromDate, setDraftFromDate] = useState(fromDate)
+  const [draftToDate, setDraftToDate] = useState(toDate)
   const filterRef = useRef(null)
 
   useEffect(() => {
@@ -62,34 +71,58 @@ export default function ServiceRequests() {
   const openFilter = () => {
     setDraftType(typeFilter)
     setDraftSort(sortMode)
+    setDraftFromDate(fromDate)
+    setDraftToDate(toDate)
     setFilterOpen(true)
   }
+
+  // One-click Clear Date: clears draft + applied dates immediately; request
+  // type and sort are untouched.
+  const clearDates = () => {
+    setDraftFromDate(''); setDraftToDate('')
+    setFromDate(''); setToDate('')
+  }
+  const hasDate = !!(draftFromDate || draftToDate || fromDate || toDate)
 
   const applyFilter = () => {
     setTypeFilter(draftType)
     setSortMode(draftSort)
+    setFromDate(draftFromDate)
+    setToDate(draftToDate)
     setFilterOpen(false)
   }
 
   const resetFilter = () => {
     setDraftType('')
     setDraftSort('oldest')
+    setDraftFromDate('')
+    setDraftToDate('')
   }
 
-  const activeFilterCount = (typeFilter ? 1 : 0) + (sortMode !== 'oldest' ? 1 : 0)
+  const activeFilterCount =
+    (typeFilter ? 1 : 0) +
+    (sortMode !== 'oldest' ? 1 : 0) +
+    ((fromDate || toDate) ? 1 : 0)
 
   const params = { sort: sortMode }
   if (typeFilter) params.service_type = typeFilter
 
-  const { data, loading, error, refetch } = useCachedFetch('/admin/service-requests', params)
+  const { data, loading, error, refetch } = useCachedFetch('/admin/service-requests', params, { pollMs: 45000 })
   const allRequests = data || []
 
   const availableTypes = isSuperAdmin ? [...ADMIN_TYPES, ...SUPER_ADMIN_ONLY_TYPES] : ADMIN_TYPES
 
   const filtered = allRequests.filter(r => {
+    // Overdue is the past-due slice of Scheduled (derived, not stored).
     if (tab === 'pending' && r.status !== 'Pending') return false
-    if (tab === 'scheduled' && r.status !== 'Scheduled') return false
+    if (tab === 'scheduled' && (r.status !== 'Scheduled' || isRequestOverdue(r))) return false
+    if (tab === 'overdue' && !isRequestOverdue(r)) return false
     if (tab === 'completed' && r.status !== 'Completed') return false
+    if (tab === 'history' && r.status !== 'Completed' && r.status !== 'Cancelled') return false
+
+    // From/To filter on the REQUEST date (created_at) — the date the farmer
+    // submitted it — as inclusive local calendar dates. Same helper as Vet.
+    if (!isWithinLocalDateRange(r.created_at, fromDate, toDate)) return false
 
     if (search) {
       const q = search.toLowerCase()
@@ -102,7 +135,7 @@ export default function ServiceRequests() {
     return true
   })
 
-  useEffect(() => { setCurrentPage(1) }, [tab, pageSize, typeFilter, sortMode, search])
+  useEffect(() => { setCurrentPage(1) }, [tab, pageSize, typeFilter, sortMode, search, fromDate, toDate])
 
   const totalItems = filtered.length
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
@@ -133,11 +166,22 @@ export default function ServiceRequests() {
 
   const handleCompleteAction = async () => {
     await api.patch(`/admin/service-requests/${confirmComplete.id}/complete`, {
-      notes: completeNotes || undefined,
+      completion_notes: completeNotes || undefined,
     })
     setConfirmComplete(null)
     setCompleteNotes('')
     refetch()
+  }
+
+  const handleReopenAction = async () => {
+    setReopenError('')
+    try {
+      await api.patch(`/admin/service-requests/${confirmReopen.id}/reopen`)
+      setConfirmReopen(null)
+      refetch()
+    } catch (err) {
+      setReopenError(err.response?.data?.message || 'Failed to undo completion.')
+    }
   }
 
   return (
@@ -164,8 +208,14 @@ export default function ServiceRequests() {
           <div style={{ ...styles.tab, ...(tab === 'scheduled' ? styles.tabActive : {}) }} onClick={() => setTab('scheduled')}>
             Scheduled
           </div>
+          <div style={{ ...styles.tab, ...(tab === 'overdue' ? styles.tabActive : {}) }} onClick={() => setTab('overdue')}>
+            Overdue
+          </div>
           <div style={{ ...styles.tab, ...(tab === 'completed' ? styles.tabActive : {}) }} onClick={() => setTab('completed')}>
             Completed
+          </div>
+          <div style={{ ...styles.tab, ...(tab === 'history' ? styles.tabActive : {}) }} onClick={() => setTab('history')}>
+            History
           </div>
         </div>
 
@@ -207,6 +257,28 @@ export default function ServiceRequests() {
                   <span style={styles.filterPanelTitle}>Filter</span>
                   <span style={styles.filterPanelClose} onClick={() => setFilterOpen(false)}>×</span>
                 </div>
+
+                <DateRangeHeader>
+
+                  <label style={styles.filterLabel}>From Date</label>
+
+                  <ClearDateButton visible={hasDate} onClick={clearDates} />
+
+                </DateRangeHeader>
+                <input
+                  type="date"
+                  value={draftFromDate}
+                  onChange={e => setDraftFromDate(e.target.value)}
+                  style={styles.filterSelect}
+                />
+
+                <label style={styles.filterLabel}>To Date</label>
+                <input
+                  type="date"
+                  value={draftToDate}
+                  onChange={e => setDraftToDate(e.target.value)}
+                  style={styles.filterSelect}
+                />
 
                 <label style={styles.filterLabel}>Request Type</label>
                 <select value={draftType} onChange={e => setDraftType(e.target.value)} style={styles.filterSelect}>
@@ -274,17 +346,14 @@ export default function ServiceRequests() {
                         </span>
                       </td>
                       <td style={styles.td}>{r.farm_owner_name || r.requested_by}</td>
+                      <td style={styles.td}>{r.created_at ? formatDate(r.created_at) : '—'}</td>
                       <td style={styles.td}>
-                        {r.completed_at
-                          ? formatDate(r.completed_at)
-                          : r.scheduled_at
-                          ? formatDate(r.scheduled_at)
-                          : '—'}
-                      </td>
-                      <td style={styles.td}>
-                        <span style={{ ...BADGE_SHAPE, ...requestStatusBadgeStyle(r.status) }}>
-                          {r.status}
+                        <span style={{ ...BADGE_SHAPE, ...requestStatusBadgeStyle(requestDisplayStatus(r)) }}>
+                          {requestDisplayStatus(r)}
                         </span>
+                        {r.status === 'Cancelled' && r.decline_reason && (
+                          <div style={styles.farmMeta} title={r.decline_reason}>Reason: {r.decline_reason}</div>
+                        )}
                       </td>
                       <td style={styles.td}>
                         <div style={styles.actionGroup}>
@@ -311,9 +380,14 @@ export default function ServiceRequests() {
                               </span>
                             </>
                           )}
-                          {(isSuperAdmin || r.status === 'Completed') && (
+                          {(isSuperAdmin || r.status === 'Completed' || r.status === 'Cancelled') && (
                             <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => setViewRequest(r)}>
                               View
+                            </span>
+                          )}
+                          {!isSuperAdmin && r.status === 'Completed' && (
+                            <span style={{ ...styles.actionBtn, ...styles.rescheduleBtn }} onClick={() => { setConfirmReopen(r); setReopenError('') }}>
+                              Undo Completion
                             </span>
                           )}
                         </div>
@@ -327,7 +401,7 @@ export default function ServiceRequests() {
 
           {list.length === 0 && (
             <div style={styles.empty}>
-              {search || typeFilter ? 'No requests match your search or filter.' : 'No requests here yet.'}
+              {search || typeFilter || (fromDate || toDate) ? 'No requests match your search or filter.' : 'No requests here yet.'}
             </div>
           )}
 
@@ -415,6 +489,28 @@ export default function ServiceRequests() {
           </div>
         </div>
       )}
+      {confirmReopen && (
+        <div style={modalStyles.overlay} onClick={() => setConfirmReopen(null)}>
+          <div style={{ ...confirmStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
+            <h3 style={confirmStyles.title}>Undo Completion</h3>
+            <p style={confirmStyles.message}>
+              Are you sure you want to undo the completion of the {confirmReopen.service_type} request at {confirmReopen.farm_name}?
+            </p>
+            <p style={confirmStyles.message}>
+              This request will be returned to its active scheduled state.
+            </p>
+            {reopenError && <p style={{ ...confirmStyles.message, color: '#b91c1c' }}>{reopenError}</p>}
+
+            <div style={modalStyles.actions}>
+              <button onClick={() => setConfirmReopen(null)} style={modalStyles.cancelBtn}>Cancel</button>
+              <button onClick={handleReopenAction} style={{ ...modalStyles.submitBtn, backgroundColor: '#2c8047' }}>
+                Undo Completion
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {viewRequest && (
         <ServiceRequestDetailsModal
           request={{ ...viewRequest, owner_name: viewRequest.farm_owner_name || viewRequest.requested_by }}

@@ -36,7 +36,25 @@ class FarmController extends Controller
             });
         }
 
-        $farms = $query->orderBy('farm_name')->get()->map(fn($farm) => [
+        if ($request->farm_size) {
+            $query->where('farm_size', $request->farm_size);
+        }
+
+        $query->orderBy('farm_name')->orderBy('id');
+
+        // Server-side pagination when the Farms page asks for it (per_page);
+        // other callers still receive the complete list.
+        $paginator = null;
+        if ($request->filled('per_page')) {
+            $perPage = (int) $request->per_page;
+            $perPage = in_array($perPage, [10, 25, 50, 100], true) ? $perPage : 10;
+            $paginator = $query->paginate($perPage, ['*'], 'page', max(1, (int) $request->input('page', 1)));
+            $rows = $paginator->getCollection();
+        } else {
+            $rows = $query->get();
+        }
+
+        $farms = $rows->map(fn($farm) => [
             'id'                       => $farm->id,
             'farm_name'                => $farm->farm_name,
             'owner_name'               => $farm->owner_name,
@@ -51,6 +69,19 @@ class FarmController extends Controller
                 ? asset('storage/' . $farm->user->profile_photo_path)
                 : null,
         ]);
+
+        if ($paginator) {
+            return response()->json([
+                'success' => true,
+                'data'    => [
+                    'items'     => $farms->values(),
+                    'total'     => $paginator->total(),
+                    'page'      => $paginator->currentPage(),
+                    'per_page'  => $paginator->perPage(),
+                    'last_page' => max(1, $paginator->lastPage()),
+                ],
+            ]);
+        }
 
         return response()->json(['success' => true, 'data' => $farms]);
     }

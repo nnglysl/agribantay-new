@@ -26,10 +26,18 @@ class SensorIngestController extends Controller
             return response()->json(['success' => false, 'message' => 'Unknown device.'], 401);
         }
 
+        // Devices are rotated between farms, so the same device_key must be
+        // gated on its CURRENT state — an Admin-deactivated unit or one that
+        // has been unassigned (in transit between farms) is known but must
+        // not create readings. Neither case bumps last_seen_at.
+        if (!$sensor->isActive()) {
+            return response()->json(['success' => false, 'message' => 'Device is inactive.'], 403);
+        }
+
         $farm = $sensor->farm;
 
         if (!$farm) {
-            return response()->json(['success' => false, 'message' => 'Sensor is not linked to a farm.'], 422);
+            return response()->json(['success' => false, 'message' => 'Device is not assigned to a farm.'], 409);
         }
 
         // NOTE: these conversions are placeholders. Calibrate against a real
@@ -47,14 +55,32 @@ class SensorIngestController extends Controller
         // wet). Treating a faulty 0 as real would compute 100% moisture and
         // flag the farm Critical, which then cascades into false drainage
         // recommendations and unnecessary fly-control service suggestions on
-        // the farmer dashboard. Recording it as unknown keeps a broken sensor
+        // the farmer dashboard. Storing a null moisture keeps a broken sensor
         // from generating fabricated alerts.
+        //
+        // moisture_status is a strict ENUM('Safe','Warning','Critical') — there
+        // is no fourth "unknown" value and inserting one aborts the whole
+        // request under MySQL strict mode. So while the probe is faulty the
+        // status is carried forward from the farm's previous reading (Safe if
+        // there is none): a fault is neither an alert nor a recovery, which is
+        // exactly how the alert-history call below already treats it (the
+        // running moisture incident, if any, is left open until real data
+        // returns). The stored moisture value itself stays null.
         $soilRaw    = (int) $request->soil_raw;
         $soilFaulty = $soilRaw <= 0;
 
-        $moisture       = $soilFaulty ? null : round(100 - ($soilRaw / 4095) * 100, 2);
-        $moistureStatus = $soilFaulty ? 'Unknown' : $this->status($moisture, 60, 70);
+        $moisture = $soilFaulty ? null : round(100 - ($soilRaw / 4095) * 100, 2);
 
+        if ($soilFaulty) {
+            $previous = SensorReading::where('farm_id', $farm->id)->latest()->value('moisture_status');
+            $moistureStatus = $previous ?: 'Safe';
+        } else {
+            $moistureStatus = $this->status($moisture, 60, 70);
+        }
+
+        // farm_id is copied from the device's CURRENT assignment at this
+        // moment and never rewritten — when the device is later moved to
+        // another farm, this reading stays with the farm it was collected at.
         $reading = SensorReading::create([
             'farm_id'            => $farm->id,
             'sensor_id'          => $sensor->id,
@@ -69,9 +95,9 @@ class SensorIngestController extends Controller
             'is_mock'            => false,
         ]);
 
-        // Bumps the sensor's updated_at — doubles as a cheap "last seen"
-        // timestamp without needing a dedicated column.
-        $sensor->touch();
+        // Only an accepted reading counts as communication — rejected
+        // requests above never reach this line. Drives Online / Offline.
+        $sensor->forceFill(['last_seen_at' => now()])->save();
 
         // Objective 5.2 — one call per sensor type, opens/updates/closes
         // the running incident history. Separate from the SMS alert

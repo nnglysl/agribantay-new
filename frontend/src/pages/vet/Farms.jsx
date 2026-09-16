@@ -1,9 +1,11 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import VetLayout from '../../components/VetLayout'
 import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { useDebouncedValue } from '../../hooks/useDebouncedValue'
+import { BARANGAYS } from '../../constants/barangays'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 const FARM_SIZES = ['Small', 'Medium', 'Large']
@@ -29,26 +31,23 @@ export default function VetFarms() {
   const filterRef = useRef(null)
 
   const params = {}
-  if (search) params.search = search
+  // Debounced so typing doesn't fire a request per keystroke.
+  const debouncedSearch = useDebouncedValue(search)
+  if (debouncedSearch) params.search = debouncedSearch
+  if (barangayFilter) params.barangay = barangayFilter
+  if (sizeFilter) params.farm_size = sizeFilter
+  // Server-side pagination: only the current page comes back, with totals
+  // computed over the complete (filtered) dataset.
+  params.per_page = pageSize
+  params.page = currentPage
 
-  const { data: farms, loading, error } = useCachedFetch('/vet/farms', params)
-  const rawFarms = farms || []
+  const { data: farms, loading, error } = useCachedFetch('/vet/farms', params, { pollMs: 60000 })
+  const pageData = farms && !Array.isArray(farms)
+    ? farms
+    : { items: farms || [], total: (farms || []).length, page: 1, last_page: 1 }
+  const allFarms = pageData.items
 
-  const barangayOptions = useMemo(() => {
-    const set = new Set()
-    rawFarms.forEach(f => { if (f.barangay) set.add(f.barangay) })
-    return [...set].sort()
-  }, [rawFarms])
-
-  const allFarms = useMemo(() => {
-    return rawFarms.filter(f => {
-      if (barangayFilter && f.barangay !== barangayFilter) return false
-      if (sizeFilter && f.farm_size !== sizeFilter) return false
-      return true
-    })
-  }, [rawFarms, barangayFilter, sizeFilter])
-
-  useEffect(() => { setCurrentPage(1) }, [search, pageSize, barangayFilter, sizeFilter, allFarms.length])
+  useEffect(() => { setCurrentPage(1) }, [search, pageSize, barangayFilter, sizeFilter])
 
   useEffect(() => {
     if (!filterOpen) return
@@ -78,17 +77,14 @@ export default function VetFarms() {
 
   const activeFilterCount = [barangayFilter, sizeFilter].filter(Boolean).length
 
-  const totalItems = allFarms.length
-  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
+  const totalItems = pageData.total
+  const totalPages = Math.max(1, pageData.last_page || 1)
 
   useEffect(() => {
     if (currentPage > totalPages) setCurrentPage(totalPages)
   }, [totalPages, currentPage])
 
-  const paginatedFarms = useMemo(() => {
-    const start = (currentPage - 1) * pageSize
-    return allFarms.slice(start, start + pageSize)
-  }, [allFarms, currentPage, pageSize])
+  const paginatedFarms = allFarms
 
   const rangeStart = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1
   const rangeEnd = Math.min(currentPage * pageSize, totalItems)
@@ -142,7 +138,7 @@ export default function VetFarms() {
               <label style={styles.filterLabel}>Barangay</label>
               <select value={draftBarangay} onChange={e => setDraftBarangay(e.target.value)} style={styles.filterSelect}>
                 <option value="">All Barangays</option>
-                {barangayOptions.map(b => <option key={b} value={b}>{b}</option>)}
+                {BARANGAYS.map(b => <option key={b} value={b}>{b}</option>)}
               </select>
 
               <label style={styles.filterLabel}>Farm Size</label>
@@ -290,7 +286,7 @@ const styles = {
     borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
     color: '#33413a', fontSize: '13.5px', fontWeight: 600, cursor: 'pointer', fontFamily: SANS, whiteSpace: 'nowrap',
   },
-  filterBtnActive: { borderColor: '#2c8047', color: '#2c8047' },
+  filterBtnActive: { border: '1px solid #2c8047', color: '#2c8047' },
   filterCount: {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
     minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: '#2c8047',
@@ -364,6 +360,6 @@ const paginationStyles = {
   navBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '13px', cursor: 'pointer' },
   navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
-  pageBtnActive: { backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff' },
+  pageBtnActive: { backgroundColor: '#2c8047', border: '1px solid #2c8047', color: '#fff' },
   ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
 }

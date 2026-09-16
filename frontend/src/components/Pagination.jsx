@@ -75,6 +75,6 @@ const styles = {
     backgroundColor: '#fff', color: '#33413a', fontFamily: SANS, fontSize: '13px', fontWeight: 600,
     cursor: 'pointer',
   },
-  pageBtnActive: { backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff' },
+  pageBtnActive: { backgroundColor: '#2c8047', border: '1px solid #2c8047', color: '#fff' },
   ellipsis: { padding: '0 2px', color: '#9aa79d', fontSize: '13px', fontFamily: SANS },
 }

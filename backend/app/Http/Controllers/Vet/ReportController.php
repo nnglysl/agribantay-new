@@ -61,6 +61,32 @@ class ReportController extends Controller
                     : null,
             ]);
 
+        // Completed + Scheduled rows for Super Admin Reports (the Vet page
+        // keeps using completed_services). `date_raw` is the completion date
+        // for Completed rows and the scheduled date for Scheduled rows.
+        $serviceRecords = $baseQuery()
+            ->with(['farm', 'acceptedBy'])
+            ->whereIn('status', ['Completed', 'Scheduled'])
+            ->get()
+            ->map(function ($r) use ($isSuperAdmin) {
+                $date = $r->status === 'Completed' ? $r->completed_at : $r->scheduled_at;
+                return [
+                    'id' => $r->request_number,
+                    'service_type' => $r->service_type,
+                    'farm_name' => $r->farm->farm_name,
+                    'owner_name' => $r->farm->owner_name,
+                    'barangay' => $r->farm->barangay,
+                    'date' => $date?->format('M d, Y'),
+                    'date_raw' => $date?->toIso8601String(),
+                    'status' => $r->status,
+                    'vet_name' => $isSuperAdmin
+                        ? trim(($r->acceptedBy->first_name ?? '').' '.($r->acceptedBy->last_name ?? ''))
+                        : null,
+                ];
+            })
+            ->sortByDesc('date_raw')
+            ->values();
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -68,6 +94,7 @@ class ReportController extends Controller
                 'total_pending' => $totalPending,
                 'farms_covered' => $farmsCovered,
                 'completed_services' => $completedServices,
+                'service_records' => $serviceRecords,
             ],
         ]);
     }

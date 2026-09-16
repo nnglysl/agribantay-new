@@ -6,7 +6,11 @@ import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useSelectedFarm } from '../../hooks/useSelectedFarm'
 import { useIsMobile } from '../../hooks/useIsMobile'
-import { formatDate as formatDateFull } from '../../utils/formatDate'
+import { formatDate as formatDateFull, isWithinLocalDateRange } from '../../utils/formatDate'
+import { viewModalStyles as v } from '../../styles/viewModalStyles'
+import FilterPopover from '../../components/FilterPopover'
+import { filterStyles } from '../../styles/filterStyles'
+import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 import { BADGE_SHAPE, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../../utils/serviceBadgeStyle'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
@@ -24,6 +28,27 @@ export default function ServiceRequests() {
   const [pageSize, setPageSize] = useState(10)
   const [showModal, setShowModal] = useState(false)
   const [prefillType, setPrefillType] = useState('')
+  const [viewRequest, setViewRequest] = useState(null)
+
+  // From/To (request date, inclusive local calendar dates) + Request Type +
+  // Status. Page is scoped to one farm, so no Farm filter.
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+  const [typeFilter, setTypeFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [draftFrom, setDraftFrom] = useState('')
+  const [draftTo, setDraftTo] = useState('')
+  const [draftType, setDraftType] = useState('')
+  const [draftStatus, setDraftStatus] = useState('')
+
+  const openFilter = () => { setDraftFrom(fromDate); setDraftTo(toDate); setDraftType(typeFilter); setDraftStatus(statusFilter) }
+  const applyFilter = () => { setFromDate(draftFrom); setToDate(draftTo); setTypeFilter(draftType); setStatusFilter(draftStatus) }
+  const resetFilter = () => { setDraftFrom(''); setDraftTo(''); setDraftType(''); setDraftStatus('') }
+  // One-click Clear Date: clears draft + applied dates immediately; type and
+  // status filters are untouched.
+  const clearDates = () => { setDraftFrom(''); setDraftTo(''); setFromDate(''); setToDate('') }
+  const hasDate = !!(draftFrom || draftTo || fromDate || toDate)
+  const activeFilterCount = (fromDate || toDate ? 1 : 0) + (typeFilter ? 1 : 0) + (statusFilter ? 1 : 0)
   const isMobile = useIsMobile()
   const location = useLocation()
   const { selectedFarmId, farmsLoading } = useSelectedFarm()
@@ -40,15 +65,27 @@ export default function ServiceRequests() {
 
   // Reset to page 1 whenever the tab or page size changes so the farmer
   // isn't stuck on a page number that doesn't exist for the new list.
-  useEffect(() => { setCurrentPage(1) }, [tab, pageSize])
+  useEffect(() => { setCurrentPage(1) }, [tab, pageSize, fromDate, toDate, typeFilter, statusFilter])
 
   const { data, loading, error, refetch } = useCachedFetch(
     selectedFarmId ? '/farmer/service-requests' : null,
-    { farm_id: selectedFarmId }
+    { farm_id: selectedFarmId },
+    { pollMs: 45000 }
   )
   const requestData = data || { active: [], past: [] }
 
-  const list = tab === 'active' ? requestData.active : requestData.past
+  const baseList = tab === 'active' ? requestData.active : requestData.past
+  const list = useMemo(
+    () => baseList.filter(r =>
+      isWithinLocalDateRange(r.created_at, fromDate, toDate) &&
+      (!typeFilter || r.service_type === typeFilter) &&
+      (!statusFilter || r.status === statusFilter)
+    ),
+    [baseList, fromDate, toDate, typeFilter, statusFilter]
+  )
+  // Status options follow the tab: active work vs. finished records.
+  const statusOptions = tab === 'active' ? ['Pending', 'Scheduled'] : ['Completed', 'Cancelled']
+  const isFiltered = activeFilterCount > 0
 
   const totalItems = list.length
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
@@ -79,19 +116,46 @@ export default function ServiceRequests() {
         </button>
       </div>
 
-      <div style={styles.tabs}>
-        <div
-          style={{ ...styles.tab, ...(tab === 'active' ? styles.tabActive : {}) }}
-          onClick={() => setTab('active')}
-        >
-          My Requests
+      <div style={styles.tabsRow}>
+        <div style={{ ...styles.tabs, marginBottom: 0, borderBottom: 'none' }}>
+          <div
+            style={{ ...styles.tab, ...(tab === 'active' ? styles.tabActive : {}) }}
+            onClick={() => setTab('active')}
+          >
+            My Requests
+          </div>
+          <div
+            style={{ ...styles.tab, ...(tab === 'past' ? styles.tabActive : {}) }}
+            onClick={() => setTab('past')}
+          >
+            Past Records
+          </div>
         </div>
-        <div
-          style={{ ...styles.tab, ...(tab === 'past' ? styles.tabActive : {}) }}
-          onClick={() => setTab('past')}
-        >
-          Past Records
-        </div>
+
+        <FilterPopover activeCount={activeFilterCount} onOpen={openFilter} onReset={resetFilter} onApply={applyFilter} isMobile={isMobile}>
+          <DateRangeHeader>
+            <label style={filterStyles.filterLabel}>From Date</label>
+            <ClearDateButton visible={hasDate} onClick={clearDates} />
+          </DateRangeHeader>
+          <input type="date" value={draftFrom} onChange={e => setDraftFrom(e.target.value)} style={filterStyles.filterSelect} />
+
+          <label style={filterStyles.filterLabel}>To Date</label>
+          <input type="date" value={draftTo} onChange={e => setDraftTo(e.target.value)} style={filterStyles.filterSelect} />
+
+          <label style={filterStyles.filterLabel}>Request Type</label>
+          <select value={draftType} onChange={e => setDraftType(e.target.value)} style={filterStyles.filterSelect}>
+            <option value="">All Types</option>
+            {['Vaccine Request', 'Blood Test Request', 'Odor Control Request', 'Fly Control Request'].map(t => (
+              <option key={t} value={t}>{serviceTypeLabel(t)}</option>
+            ))}
+          </select>
+
+          <label style={filterStyles.filterLabel}>Status</label>
+          <select value={draftStatus} onChange={e => setDraftStatus(e.target.value)} style={filterStyles.filterSelect}>
+            <option value="">All Statuses</option>
+            {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </FilterPopover>
       </div>
 
       {(farmsLoading || loading) && <p style={styles.stateText}>Loading...</p>}
@@ -100,7 +164,9 @@ export default function ServiceRequests() {
       {!farmsLoading && !loading && !error && (
         <div style={styles.listCard}>
           {list.length === 0 ? (
-            <div style={styles.empty}>No {tab === 'active' ? 'active requests' : 'past records'} yet.</div>
+            <div style={styles.empty}>
+              {isFiltered ? 'No requests match your filter.' : `No ${tab === 'active' ? 'active requests' : 'past records'} yet.`}
+            </div>
           ) : isMobile ? (
             // Mobile stays a card list — table columns collapse into labeled
             // rows inside each card so nothing gets cramped on small screens.
@@ -129,12 +195,9 @@ export default function ServiceRequests() {
                       </div>
                     </div>
 
-                    {r.notes && <div style={styles.cardNotes}>{r.notes}</div>}
-                    {r.status === 'Cancelled' && r.decline_reason && (
-                      <div style={{ ...styles.cardNotes, color: '#b91c1c' }}>
-                        <strong>Reason declined:</strong> {r.decline_reason}
-                      </div>
-                    )}
+                    <div style={styles.cardMobileActions}>
+                      <span style={styles.viewBtn} onClick={() => setViewRequest(r)}>View</span>
+                    </div>
                   </div>
                 )
               })}
@@ -148,8 +211,8 @@ export default function ServiceRequests() {
                     <th style={styles.th}>Request Type</th>
                     <th style={styles.th}>Request Date</th>
                     <th style={styles.th}>Scheduled Date</th>
-                    <th style={styles.th}>Notes</th>
-                    <th style={{ ...styles.th, textAlign: 'right' }}>Status</th>
+                    <th style={styles.th}>Status</th>
+                    <th style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -161,15 +224,13 @@ export default function ServiceRequests() {
                         </td>
                         <td style={styles.td}>{formatDate(r.created_at)}</td>
                         <td style={styles.td}>{formatDate(r.scheduled_at, 'Awaiting review')}</td>
-                        <td style={{ ...styles.td, ...styles.tdNotes }} title={r.status === 'Cancelled' && r.decline_reason ? r.decline_reason : (r.notes || '')}>
-                          {r.status === 'Cancelled' && r.decline_reason
-                            ? <span style={{ color: '#b91c1c' }}><strong>Declined:</strong> {r.decline_reason}</span>
-                            : (r.notes || '—')}
-                        </td>
-                        <td style={{ ...styles.td, textAlign: 'right' }}>
+                        <td style={styles.td}>
                           <div style={{ ...styles.badge, ...requestStatusBadgeStyle(r.status) }}>
                             {r.status}
                           </div>
+                        </td>
+                        <td style={{ ...styles.td, textAlign: 'right' }}>
+                          <span style={styles.viewBtn} onClick={() => setViewRequest(r)}>View</span>
                         </td>
                       </tr>
                     )
@@ -195,6 +256,10 @@ export default function ServiceRequests() {
         </div>
       )}
 
+      {viewRequest && (
+        <RequestDetailModal request={viewRequest} onClose={() => setViewRequest(null)} />
+      )}
+
       {showModal && (
         <RequestModal
           isMobile={isMobile}
@@ -205,6 +270,74 @@ export default function ServiceRequests() {
         />
       )}
     </FarmerLayout>
+  )
+}
+
+// Everything about one request, so long text (farmer notes, decline reason,
+// visit notes) stays out of the table.
+function RequestDetailModal({ request, onClose }) {
+  const fieldRows = [
+    { label: 'Request Type', value: serviceTypeLabel(request.service_type) },
+    { label: 'Request Date', value: formatDate(request.created_at) },
+    { label: 'Scheduled Date', value: formatDate(request.scheduled_at, 'Awaiting review') },
+    { label: 'Handled By', value: request.accepted_by || '—' },
+    { label: 'Status', value: request.status },
+    ...(request.status === 'Completed'
+      ? [{ label: 'Completed Date', value: formatDate(request.completed_at) }]
+      : []),
+  ]
+
+  return (
+    <div style={v.overlay} onClick={onClose}>
+      <div style={v.modal} onClick={e => e.stopPropagation()}>
+        <div style={v.header}>
+          <div style={v.headerTitleRow}>
+            <h3 style={v.title}>{request.request_number || 'Service Request'}</h3>
+            <span style={{ ...v.badge, ...requestStatusBadgeStyle(request.status) }}>{request.status}</span>
+          </div>
+          <span style={v.close} onClick={onClose}>×</span>
+        </div>
+
+        <span style={v.sectionLabel}>Request Details</span>
+        <div style={v.grid}>
+          {fieldRows.map(r => (
+            <div key={r.label} style={v.fieldBox}>
+              <div style={v.fieldLabel}>{r.label}</div>
+              {r.label === 'Status'
+                ? <span style={{ ...v.badge, ...requestStatusBadgeStyle(request.status) }}>{r.value}</span>
+                : <div style={v.fieldValue}>{r.value ?? '—'}</div>}
+            </div>
+          ))}
+        </div>
+
+        <span style={v.sectionLabel}>Your Notes</span>
+        <div style={{ ...v.notesBox, marginBottom: '12px' }}>
+          <p style={v.notes}>{request.notes || 'No notes provided.'}</p>
+        </div>
+
+        {request.status === 'Cancelled' && request.decline_reason && (
+          <>
+            <span style={v.sectionLabel}>Decline Reason</span>
+            <div style={{ ...v.notesBox, marginBottom: '12px' }}>
+              <p style={{ ...v.notes, color: '#b91c1c' }}>{request.decline_reason}</p>
+            </div>
+          </>
+        )}
+
+        {request.completion_notes && (
+          <>
+            <span style={v.sectionLabel}>Visit Notes</span>
+            <div style={v.notesBox}>
+              <p style={v.notes}>{request.completion_notes}</p>
+            </div>
+          </>
+        )}
+
+        <div style={v.actions}>
+          <button onClick={onClose} style={v.closeBtn}>Close</button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -337,6 +470,7 @@ const styles = {
   },
   newBtnMobile: { width: '100%', boxSizing: 'border-box' },
 
+  tabsRow: { display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '12px', marginBottom: '18px', borderBottom: '1px solid #e7e8e0', flexWrap: 'wrap' },
   tabs: { display: 'flex', gap: '4px', marginBottom: '18px', borderBottom: '1px solid #e7e8e0' },
   tab: { padding: '10px 16px', fontSize: '14px', fontWeight: 600, color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent' },
   tabActive: { color: '#2c8047', fontWeight: 700, borderBottom: '2px solid #2c8047' },
@@ -356,9 +490,12 @@ const styles = {
   td: {
     padding: '14px 20px', fontSize: '12px', color: '#33413a', verticalAlign: 'middle', whiteSpace: 'nowrap',
   },
-  tdNotes: {
-    maxWidth: '260px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#4b5a50',
+  viewBtn: {
+    display: 'inline-block', padding: '6px 13px', borderRadius: '8px',
+    fontSize: '12.5px', fontWeight: 600, cursor: 'pointer',
+    border: '1px solid #e3e6dd', backgroundColor: '#fff', color: '#4b5a50', whiteSpace: 'nowrap',
   },
+  cardMobileActions: { display: 'flex', justifyContent: 'flex-end', marginTop: '10px' },
 
   // --- Mobile cards ---
   cardMobile: { padding: '14px 16px', borderBottom: '1px solid #f2f3ed' },
@@ -371,7 +508,6 @@ const styles = {
   cardMobileValue: { fontSize: '12px', fontWeight: 400, color: '#33413a', marginTop: '3px' },
 
   cardMeta: { fontSize: '13px', color: '#6b7770', marginTop: '4px' },
-  cardNotes: { fontSize: '13px', color: '#4b5a50', marginTop: '10px', lineHeight: '1.5' },
   badge: {
     display: 'inline-flex', alignItems: 'center',
     padding: '4px 11px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',

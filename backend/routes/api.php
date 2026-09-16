@@ -28,6 +28,7 @@ use App\Http\Controllers\Vet\ReportController as VetReportController;
 use App\Http\Controllers\Vet\GeneratedReportController as VetGeneratedReportController;
 use App\Http\Controllers\SensorIngestController;
 use App\Http\Controllers\SuperAdmin\AccountController;
+use App\Http\Controllers\SuperAdmin\FarmDeletionController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PasswordResetController;
 
@@ -67,6 +68,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/vaccination-requests/{id}/decline', [VaccinationRequestController::class, 'decline']);
         Route::patch('/vaccination-requests/{id}/complete', [VaccinationRequestController::class, 'complete']);
         Route::patch('/vaccination-requests/{id}/reschedule', [VaccinationRequestController::class, 'reschedule']);
+        Route::patch('/vaccination-requests/{id}/reopen', [VaccinationRequestController::class, 'reopen']);
         Route::get('/reports', [VetReportController::class, 'index']);
         Route::get('/generated-reports', [VetGeneratedReportController::class, 'index']);
         Route::get('/generated-reports/{generatedReport}', [VetGeneratedReportController::class, 'show']);
@@ -112,6 +114,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
         Route::get('/farms', [FarmController::class, 'index']);
         Route::get('/farms-map', [FarmController::class, 'mapData']);
+        Route::post('/farms/check-location', [FarmController::class, 'checkLocation']);
         Route::post('/farms', [FarmController::class, 'store']);
         Route::get('/farms/{id}', [FarmController::class, 'show']);
         Route::get('/farms/{id}/trend', [FarmController::class, 'trend']);
@@ -132,8 +135,14 @@ Route::middleware('auth:sanctum')->group(function () {
         // above since sensors have their own store/update actions rather
         // than being nested farm sub-resources like maintenance-logs etc.
         Route::get('/farms/{id}/sensors', [SensorController::class, 'index']);
+        Route::get('/sensors', [SensorController::class, 'all']);
         Route::post('/sensors', [SensorController::class, 'store']);
         Route::put('/sensors/{id}', [SensorController::class, 'update']);
+        // Device rotation: the same physical unit moves between farms.
+        // Both endpoints only change the device's CURRENT farm_id — readings
+        // already stored keep the farm_id stamped at ingestion time.
+        Route::patch('/sensors/{id}/assign', [SensorController::class, 'assign']);
+        Route::patch('/sensors/{id}/unassign', [SensorController::class, 'unassign']);
 
         Route::get('/inspections', [InspectionController::class, 'index']);
         Route::post('/inspections', [InspectionController::class, 'store']);
@@ -147,6 +156,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/service-requests/{id}/complete', [ServiceRequestController::class, 'complete']);
         Route::patch('/service-requests/{id}/reschedule', [ServiceRequestController::class, 'reschedule']);
         Route::patch('/service-requests/{id}/cancel', [ServiceRequestController::class, 'cancel']);
+        Route::patch('/service-requests/{id}/reopen', [ServiceRequestController::class, 'reopen']);
 
         Route::get('/reports', [ReportController::class, 'index']);
 
@@ -178,5 +188,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/accounts/{id}/reset-password', [AccountController::class, 'resetPassword']);
 
         Route::get('/activity-logs', [ActivityLogController::class, 'index']);
+
+        // Permanent farm deletion — Deactivated farms only, gated by an emailed
+        // verification code (see SuperAdmin\FarmDeletionController).
+        Route::post('/farms/{id}/delete/otp/request', [FarmDeletionController::class, 'requestOtp']);
+        Route::delete('/farms/{id}', [FarmDeletionController::class, 'destroy']);
     });
 });

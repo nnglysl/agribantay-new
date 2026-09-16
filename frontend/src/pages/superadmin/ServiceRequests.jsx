@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
 import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
@@ -6,6 +7,7 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 import { formatDateTime } from '../../utils/formatDate'
 import { viewModalStyles as v } from '../../styles/viewModalStyles'
 import { BADGE_SHAPE, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../../utils/serviceBadgeStyle'
+import { isRequestOverdue, requestDisplayStatus } from '../../utils/serviceRequestStatus'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
@@ -28,8 +30,12 @@ const SORT_OPTIONS = [
  * bleeding into each other.
  */
 export default function SuperAdminServiceRequests() {
-  const [tab, setTab] = useState('pending')
-  const [search, setSearch] = useState('')
+  // Deep links (e.g. from a Super Admin dashboard notification) can preset
+  // the tab and search via ?tab= / ?search= so the relevant record is in view.
+  const [searchParams] = useSearchParams()
+  const initialTab = ['pending', 'scheduled', 'overdue', 'history'].includes(searchParams.get('tab')) ? searchParams.get('tab') : 'pending'
+  const [tab, setTab] = useState(initialTab)
+  const [search, setSearch] = useState(() => searchParams.get('search') || '')
   const [typeFilter, setTypeFilter] = useState('')
   const [sortMode, setSortMode] = useState('oldest')
   const [currentPage, setCurrentPage] = useState(1)
@@ -73,12 +79,14 @@ export default function SuperAdminServiceRequests() {
   const params = { sort: sortMode }
   if (typeFilter) params.service_type = typeFilter
 
-  const { data, loading, error } = useCachedFetch('/admin/service-requests', params)
+  const { data, loading, error } = useCachedFetch('/admin/service-requests', params, { pollMs: 45000 })
   const allRequests = data || []
 
   const filtered = allRequests.filter(r => {
     if (tab === 'pending' && r.status !== 'Pending') return false
-    if (tab === 'scheduled' && r.status !== 'Scheduled') return false
+    // Overdue is the past-due slice of Scheduled (derived, not stored).
+    if (tab === 'scheduled' && (r.status !== 'Scheduled' || isRequestOverdue(r))) return false
+    if (tab === 'overdue' && !isRequestOverdue(r)) return false
     if (tab === 'history' && !(r.status === 'Completed' || r.status === 'Cancelled')) return false
 
     if (search) {
@@ -121,6 +129,9 @@ export default function SuperAdminServiceRequests() {
           </div>
           <div style={{ ...styles.tab, ...(tab === 'scheduled' ? styles.tabActive : {}) }} onClick={() => setTab('scheduled')}>
             Scheduled
+          </div>
+          <div style={{ ...styles.tab, ...(tab === 'overdue' ? styles.tabActive : {}) }} onClick={() => setTab('overdue')}>
+            Overdue
           </div>
           <div style={{ ...styles.tab, ...(tab === 'history' ? styles.tabActive : {}) }} onClick={() => setTab('history')}>
             History
@@ -227,9 +238,12 @@ export default function SuperAdminServiceRequests() {
                       <td style={styles.td}>{r.farm_name}</td>
                       <td style={styles.td}>{r.farm_owner_name || r.requested_by}</td>
                       <td style={styles.td}>
-                        <span style={{ ...BADGE_SHAPE, ...requestStatusBadgeStyle(r.status) }}>
-                          {r.status}
+                        <span style={{ ...BADGE_SHAPE, ...requestStatusBadgeStyle(requestDisplayStatus(r)) }}>
+                          {requestDisplayStatus(r)}
                         </span>
+                        {r.status === 'Cancelled' && r.decline_reason && (
+                          <div style={styles.notes} title={r.decline_reason}>Reason: {r.decline_reason}</div>
+                        )}
                       </td>
                       <td style={styles.td}>
                         <div style={styles.actionGroup}>
@@ -276,6 +290,9 @@ export default function SuperAdminServiceRequests() {
           ...(viewRequest.scheduled_at ? [{ label: 'Scheduled', value: formatDateTime(viewRequest.scheduled_at) }] : []),
           ...(viewRequest.completed_at ? [{ label: 'Completed', value: formatDateTime(viewRequest.completed_at) }] : []),
           { label: 'Submitted', value: formatDateTime(viewRequest.created_at) },
+          ...(viewRequest.status === 'Cancelled' && viewRequest.decline_reason
+            ? [{ label: 'Decline Reason', value: viewRequest.decline_reason }]
+            : []),
         ]
         return (
           <div style={v.overlay} onClick={() => setViewRequest(null)}>
@@ -283,7 +300,7 @@ export default function SuperAdminServiceRequests() {
               <div style={v.header}>
                 <div style={v.headerTitleRow}>
                   <h3 style={v.title}>{viewRequest.request_number || 'Service Request'}</h3>
-                  <span style={{ ...v.badge, ...requestStatusBadgeStyle(viewRequest.status) }}>{viewRequest.status}</span>
+                  <span style={{ ...v.badge, ...requestStatusBadgeStyle(requestDisplayStatus(viewRequest)) }}>{requestDisplayStatus(viewRequest)}</span>
                 </div>
                 <span style={v.close} onClick={() => setViewRequest(null)}>×</span>
               </div>
@@ -305,8 +322,17 @@ export default function SuperAdminServiceRequests() {
               {viewRequest.notes && (
                 <>
                   <span style={v.sectionLabel}>Notes</span>
-                  <div style={v.notesBox}>
+                  <div style={{ ...v.notesBox, ...(viewRequest.completion_notes ? { marginBottom: '12px' } : {}) }}>
                     <p style={v.notes}>{viewRequest.notes}</p>
+                  </div>
+                </>
+              )}
+
+              {viewRequest.completion_notes && (
+                <>
+                  <span style={v.sectionLabel}>Visit Notes</span>
+                  <div style={v.notesBox}>
+                    <p style={v.notes}>{viewRequest.completion_notes}</p>
                   </div>
                 </>
               )}

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import AdminLayout from '../../components/AdminLayout'
 import SharedPagination from '../../components/Pagination'
+import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { roleBadgeStyle } from '../../utils/roleBadgeStyle'
@@ -59,6 +60,14 @@ export default function ActivityLogs() {
     setFilterOpen(true)
   }
 
+  // One-click Clear Date: clears draft + applied dates immediately; role and
+  // type filters are untouched.
+  const clearDates = () => {
+    setDraftFrom(''); setDraftTo('')
+    setDateFrom(''); setDateTo('')
+  }
+  const hasDate = !!(draftFrom || draftTo || dateFrom || dateTo)
+
   const applyFilter = () => {
     setRoleFilter(draftRole)
     setTypeFilter(draftType)
@@ -80,7 +89,7 @@ export default function ActivityLogs() {
   if (roleFilter) params.role = roleFilter
   if (typeFilter) params.type = typeFilter
 
-  const { data: logs, loading, error } = useCachedFetch('/superadmin/activity-logs', params)
+  const { data: logs, loading, error } = useCachedFetch('/superadmin/activity-logs', params, { pollMs: 60000 })
 
   const allLogs = useMemo(() => logs || [], [logs])
 
@@ -174,7 +183,13 @@ export default function ActivityLogs() {
                 {TYPE_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
 
-              <label style={styles.filterLabel}>Date Range</label>
+              <DateRangeHeader>
+
+                <label style={styles.filterLabel}>Date Range</label>
+
+                <ClearDateButton visible={hasDate} onClick={clearDates} />
+
+              </DateRangeHeader>
               <div style={styles.dateRangeStack}>
                 <input type="date" value={draftFrom} onChange={e => setDraftFrom(e.target.value)} style={styles.filterSelect} />
                 <span style={styles.dateRangeSep}>to</span>

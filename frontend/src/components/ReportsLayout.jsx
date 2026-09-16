@@ -285,9 +285,19 @@ export function ReportStyles() {
 /* ---------------- building blocks ---------------- */
 
 /** Dashboard-matched stat card: dark green fill, white value, light-green label. */
-export function StatCard({ value, label, foot }) {
+// `onClick` makes the card a toggle button; `active` marks the selected one.
+// Both optional — pages that don't pass them render exactly as before.
+export function StatCard({ value, label, foot, onClick, active = false }) {
+  const clickable = typeof onClick === 'function'
   return (
-    <div style={styles.statCard}>
+    <div
+      style={{ ...styles.statCard, ...(clickable ? styles.statCardClickable : {}), ...(active ? styles.statCardActive : {}) }}
+      onClick={onClick}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      aria-pressed={clickable ? active : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } : undefined}
+    >
       <div style={styles.statValue}>{value ?? 0}</div>
       <div style={styles.statLabel}>{label}</div>
       {foot && <div style={styles.statFoot}>{foot}</div>}
@@ -545,6 +555,8 @@ export const styles = {
 
   // Dashboard-matched card
   statCard: { fontFamily: SANS, background: C.card, border: `1px solid ${C.cardBorder}`, borderRadius: 14, padding: '20px 22px' },
+  statCardClickable: { cursor: 'pointer', userSelect: 'none', transition: 'box-shadow .15s, transform .15s' },
+  statCardActive: { background: C.greenDeep, border: `1px solid ${C.green}`, boxShadow: `0 0 0 3px rgba(44,128,71,0.35)` },
   statValue: { fontSize: 30, fontWeight: 800, letterSpacing: '-0.02em', color: '#fff', lineHeight: 1, fontVariantNumeric: 'tabular-nums' },
   statLabel: { fontSize: 13, fontWeight: 700, color: C.cardLabel, marginTop: 8, lineHeight: 1.35 },
   statFoot: { fontSize: 12, color: C.cardFoot, marginTop: 3 },

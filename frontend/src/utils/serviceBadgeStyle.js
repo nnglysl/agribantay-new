@@ -28,7 +28,9 @@ const SERVICE_TYPE_BADGE_STYLE = {
 const REQUEST_STATUS_BADGE_STYLE = {
   Pending:   { color: '#c2410c', backgroundColor: '#fdece1' },
   Scheduled: { color: '#2f5fa0', backgroundColor: '#e9eef6' },
+  Overdue:   { color: '#b91c1c', backgroundColor: '#fdecec' },
   Completed: { color: '#256b3d', backgroundColor: '#eaf3ec' },
+  Cancelled: { color: '#6b7280', backgroundColor: '#eef1ea' },
 }
 
 // service_type as stored in the DB is always "<Label> Request" (e.g.

@@ -108,7 +108,7 @@ class GeneratedReportService
             ->values();
 
         $maintenanceService = app(MaintenanceStatusService::class);
-        $activeFarms = Farm::where('status', 'Active')->get();
+        $activeFarms = Farm::where('status', 'Active')->with('latestCleanout')->get();
 
         $maintenanceStatuses = $activeFarms->map(function ($farm) use ($maintenanceService) {
             $status = $maintenanceService->getStatus($farm);

@@ -3,10 +3,11 @@ import { useSearchParams } from 'react-router-dom'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import SharedPagination from '../../components/Pagination'
+import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useMonthFilter } from '../../hooks/useMonthFilter'
-import { formatDate, formatDateTime } from '../../utils/formatDate'
+import { formatDate, formatDateTime, parseLocalDate } from '../../utils/formatDate'
 import { viewModalStyles as v } from '../../styles/viewModalStyles'
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -35,6 +36,19 @@ function isPastDate(date) {
   return check < today
 }
 
+// Overdue is DERIVED, not stored: a Scheduled inspection whose calendar date
+// has passed without being completed or cancelled. Matches the date-only
+// rule the backend uses for scheduling (today's inspection is still
+// Scheduled until the day is over).
+function isOverdue(i) {
+  return i.status === 'Scheduled' && !!i.scheduled_at && isPastDate(i.scheduled_at)
+}
+
+// Label shown in badges/details — the stored status, except Overdue.
+function displayStatus(i) {
+  return isOverdue(i) ? 'Overdue' : i.status
+}
+
 export default function Inspections() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [tab, setTab] = useState('schedule')
@@ -47,7 +61,7 @@ export default function Inspections() {
   const [rescheduleInspection, setRescheduleInspection] = useState(null)
   const isMobile = useIsMobile()
 
-  const { data: inspectionsData, loading: loadingInspections, error: errorInspections, refetch: refetchInspections } = useCachedFetch('/admin/inspections')
+  const { data: inspectionsData, loading: loadingInspections, error: errorInspections, refetch: refetchInspections } = useCachedFetch('/admin/inspections', {}, { pollMs: 45000 })
   const { data: farmsData, loading: loadingFarms, error: errorFarms, refetch: refetchFarms } = useCachedFetch('/admin/farms')
 
   const inspections = inspectionsData || []
@@ -96,7 +110,7 @@ export default function Inspections() {
     setPrefillFarm(null)
   }
 
-  const statusColor = { Scheduled: '#b45309', Completed: '#256b3d', Cancelled: '#6b7280' }
+  const statusColor = { Scheduled: '#b45309', Overdue: '#b91c1c', Completed: '#256b3d', Cancelled: '#6b7280' }
 
   // One shared From/To date-range filter for the whole page (summary cards +
   // Scheduled/Completed/History tables). Independent from the Schedule
@@ -136,6 +150,16 @@ export default function Inspections() {
     setFilterOpen(false)
   }
 
+  // Clears From/To immediately (applied + draft) so the list returns to
+  // unfiltered results in one click; the type filter is left as-is.
+  const clearDates = () => {
+    setAppliedFromDate('')
+    setAppliedToDate('')
+    setDraftFromDate('')
+    setDraftToDate('')
+  }
+  const hasDate = !!(draftFromDate || draftToDate || appliedFromDate || appliedToDate)
+
   const activeFilterCount = ((appliedFromDate || appliedToDate) ? 1 : 0) + (appliedType ? 1 : 0)
   const fmtPeriodDate = (v) => new Date(`${v}T09:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   const periodLabel = (!appliedFromDate && !appliedToDate)
@@ -151,8 +175,10 @@ export default function Inspections() {
         if (!i.scheduled_at) return false
         const d = new Date(i.scheduled_at)
         const dOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate())
-        if (appliedFromDate && dOnly < new Date(appliedFromDate)) return false
-        if (appliedToDate && dOnly > new Date(appliedToDate)) return false
+        // parseLocalDate: "YYYY-MM-DD" as LOCAL midnight — new Date("YYYY-MM-DD")
+        // is UTC and shifted a July 13 inspection out of a July 13–21 range.
+        if (appliedFromDate && dOnly < parseLocalDate(appliedFromDate)) return false
+        if (appliedToDate && dOnly > parseLocalDate(appliedToDate)) return false
         return true
       })
     }
@@ -162,7 +188,8 @@ export default function Inspections() {
     return list
   }, [inspections, appliedFromDate, appliedToDate, appliedType])
 
-  const scheduled = periodInspections.filter(i => i.status === 'Scheduled')
+  const scheduled = periodInspections.filter(i => i.status === 'Scheduled' && !isOverdue(i))
+  const overdue = periodInspections.filter(isOverdue)
   const completed = periodInspections.filter(i => i.status === 'Completed')
   const history = periodInspections.filter(i => i.status === 'Completed' || i.status === 'Cancelled')
 
@@ -190,7 +217,7 @@ export default function Inspections() {
 
       <div className="no-print" style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
         <div style={styles.tabs}>
-          {['schedule', 'scheduled', 'completed', 'history'].map(t => (
+          {['schedule', 'scheduled', 'overdue', 'completed', 'history'].map(t => (
             <div
               key={t}
               style={{ ...styles.tab, ...(tab === t ? styles.tabActive : {}) }}
@@ -221,7 +248,10 @@ export default function Inspections() {
                 <span style={styles.filterPanelClose} onClick={() => setFilterOpen(false)}>×</span>
               </div>
 
-              <label style={styles.filterLabel}>From</label>
+              <DateRangeHeader>
+                <label style={styles.filterLabel}>From</label>
+                <ClearDateButton visible={hasDate} onClick={clearDates} />
+              </DateRangeHeader>
               <input type="date" value={draftFromDate} onChange={e => setDraftFromDate(e.target.value)} style={styles.filterSelect} />
 
               <label style={styles.filterLabel}>To</label>
@@ -278,6 +308,17 @@ export default function Inspections() {
         />
       )}
 
+      {!loading && !error && tab === 'overdue' && (
+        <InspectionList
+          list={overdue}
+          statusColor={statusColor}
+          onCancel={handleCancel}
+          onComplete={setCompleteInspection}
+          onReschedule={setRescheduleInspection}
+          isMobile={isMobile}
+        />
+      )}
+
       {!loading && !error && tab === 'completed' && (
         <InspectionList list={completed} statusColor={statusColor} onView={setViewInspection} isMobile={isMobile} />
       )}
@@ -322,7 +363,7 @@ export default function Inspections() {
       )}
 
       {viewInspection && (() => {
-        const c = statusColor[viewInspection.status] || '#6b7280'
+        const c = statusColor[displayStatus(viewInspection)] || '#6b7280'
         const fields = [
           { label: 'Farm', value: viewInspection.farm_name },
           { label: 'Type', value: viewInspection.inspection_type },
@@ -337,7 +378,7 @@ export default function Inspections() {
               <div style={v.header}>
                 <div style={v.headerTitleRow}>
                   <h3 style={v.title}>{viewInspection.inspection_number}</h3>
-                  <span style={{ ...v.badge, color: c, backgroundColor: badgeBg(viewInspection.status) }}>{viewInspection.status}</span>
+                  <span style={{ ...v.badge, color: c, backgroundColor: badgeBg(displayStatus(viewInspection)) }}>{displayStatus(viewInspection)}</span>
                 </div>
                 <span style={v.close} onClick={() => setViewInspection(null)}>×</span>
               </div>
@@ -429,6 +470,7 @@ function SummaryCard({ label, value, sub, variant, isMobile }) {
 
 function badgeBg(status) {
   if (status === 'Completed') return '#eaf3ec'
+  if (status === 'Overdue') return '#fdecec'
   if (status === 'Scheduled') return '#fbf1e2'
   return '#eef1ea'
 }
@@ -484,7 +526,7 @@ function InspectionList({ list, statusColor, onCancel, onComplete, onReschedule,
           </thead>
           <tbody>
             {paginated.map(i => {
-              const barColor = statusColor[i.status] || '#6b7280'
+              const barColor = statusColor[displayStatus(i)] || '#6b7280'
               return (
                 <tr key={i.id}>
                   <td style={styles.td}>
@@ -496,8 +538,8 @@ function InspectionList({ list, statusColor, onCancel, onComplete, onReschedule,
                   <td style={styles.td}>{i.inspection_type}</td>
                   <td style={styles.td}>{i.scheduled_by_name?.trim() || '—'}</td>
                   <td style={styles.td}>
-                    <span style={{ ...styles.badge, color: barColor, backgroundColor: badgeBg(i.status) }}>
-                      {i.status}
+                    <span style={{ ...styles.badge, color: barColor, backgroundColor: badgeBg(displayStatus(i)) }}>
+                      {displayStatus(i)}
                     </span>
                   </td>
                   <td style={styles.td}>{rowActions(i)}</td>

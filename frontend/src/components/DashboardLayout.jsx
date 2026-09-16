@@ -1,6 +1,7 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useState, useEffect, useRef } from 'react'
 import { getUser, clearAuth } from '../utils/auth'
+import { NOTIFICATION_CATEGORIES, notificationCategory, notificationDestination } from '../utils/notifications'
 import { useIsMobile } from '../hooks/useIsMobile'
 import api from '../api/axios'
 import agribantayLogo from '../assets/agribantay_logo.png'
@@ -92,10 +93,17 @@ function NotificationBell() {
   const isMobile = useIsMobile()
   const navigate = useNavigate()
 
-  const fetchNotifications = async () => {
-    setLoading(true)
+  // One request at a time: mount + poll + bell-open can overlap (and
+  // StrictMode double-mounts effects in dev), so overlapping calls share
+  // the in-flight request instead of firing again.
+  const inflightRef = useRef(null)
+  const fetchNotifications = async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true)
     try {
-      const res = await api.get('/notifications')
+      if (!inflightRef.current) {
+        inflightRef.current = api.get('/notifications').finally(() => { inflightRef.current = null })
+      }
+      const res = await inflightRef.current
       setNotifications(res.data.data || [])
       setUnreadCount(res.data.unread_count || 0)
     } catch {
@@ -106,8 +114,16 @@ function NotificationBell() {
     }
   }
 
+  // Initial load, then a quiet 60s background refresh (paused while the tab
+  // is hidden) so new notifications and the unread badge appear without a
+  // page reload. fetchNotifications() only swaps the list in place.
   useEffect(() => {
     fetchNotifications()
+    const tick = () => { if (!document.hidden) fetchNotifications({ silent: true }) }
+    const id = setInterval(tick, 60000)
+    document.addEventListener('visibilitychange', tick)
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', tick) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -156,13 +172,22 @@ function NotificationBell() {
   const handleNotificationClick = (n) => {
     if (!n.is_read) handleMarkRead(n.id)
     setOpen(false)
-    if (n.link) navigate(n.link)
+    // Super Admin rows resolve to module + tab + farm context; every other
+    // role keeps the link stored on the notification.
+    const to = notificationDestination(n, getUser()?.role)
+    if (to) navigate(to)
   }
 
-  const visibleItems = activeTab === 'unread' ? notifications.filter(n => !n.is_read) : notifications
-  const emptyMessage = notifications.length === 0
-    ? 'No notifications yet'
-    : 'No unread notifications'
+  // Super Admin's bell groups by category (All / Inspections / Service
+  // Requests / Farm Alerts); every other role keeps All / Unread.
+  const isSuperAdmin = getUser()?.role === 'super_admin'
+  const visibleItems = isSuperAdmin
+    ? notifications.filter(n => activeTab === 'all' || notificationCategory(n) === activeTab)
+    : activeTab === 'unread' ? notifications.filter(n => !n.is_read) : notifications
+  const unreadIn = (key) => notifications.filter(n => !n.is_read && (key === 'all' || notificationCategory(n) === key)).length
+  const emptyMessage = isSuperAdmin
+    ? NOTIFICATION_CATEGORIES.find(c => c.key === activeTab)?.empty
+    : notifications.length === 0 ? 'No notifications yet' : 'No unread notifications'
 
   return (
     <div ref={wrapRef} style={bellStyles.wrap}>
@@ -190,7 +215,7 @@ function NotificationBell() {
             <div style={bellStyles.mobileBackdrop} onClick={() => setOpen(false)} />
           )}
 
-          <div style={isMobile ? bellStyles.dropdownMobile : bellStyles.dropdown}>
+          <div style={isMobile ? bellStyles.dropdownMobile : { ...bellStyles.dropdown, ...(isSuperAdmin ? bellStyles.dropdownWide : {}) }}>
             <div style={bellStyles.dropdownHeader}>
               <span style={bellStyles.dropdownTitle}>Notifications</span>
               <div style={bellStyles.dropdownHeaderRight}>
@@ -205,19 +230,36 @@ function NotificationBell() {
               </div>
             </div>
 
-            <div style={bellStyles.tabsRow}>
-              <span
-                onClick={() => setActiveTab('all')}
-                style={{ ...bellStyles.tab, ...(activeTab === 'all' ? bellStyles.tabActive : {}) }}
-              >
-                All Notifications
-              </span>
-              <span
-                onClick={() => setActiveTab('unread')}
-                style={{ ...bellStyles.tab, ...(activeTab === 'unread' ? bellStyles.tabActive : {}) }}
-              >
-                Unread ({unreadCount})
-              </span>
+            <div style={{ ...bellStyles.tabsRow, ...(isSuperAdmin ? bellStyles.tabsRowCompact : {}) }}>
+              {isSuperAdmin ? (
+                NOTIFICATION_CATEGORIES.map(c => {
+                  const unread = unreadIn(c.key)
+                  return (
+                    <span
+                      key={c.key}
+                      onClick={() => setActiveTab(c.key)}
+                      style={{ ...bellStyles.tab, ...(activeTab === c.key ? bellStyles.tabActive : {}) }}
+                    >
+                      {c.label}{unread > 0 ? ` (${unread})` : ''}
+                    </span>
+                  )
+                })
+              ) : (
+                <>
+                  <span
+                    onClick={() => setActiveTab('all')}
+                    style={{ ...bellStyles.tab, ...(activeTab === 'all' ? bellStyles.tabActive : {}) }}
+                  >
+                    All Notifications
+                  </span>
+                  <span
+                    onClick={() => setActiveTab('unread')}
+                    style={{ ...bellStyles.tab, ...(activeTab === 'unread' ? bellStyles.tabActive : {}) }}
+                  >
+                    Unread ({unreadCount})
+                  </span>
+                </>
+              )}
             </div>
 
             <div style={{ ...bellStyles.dropdownList, ...(isMobile ? bellStyles.dropdownListMobile : {}) }}>
@@ -475,6 +517,10 @@ const bellStyles = {
   mobileBackdrop: {
     position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.35)', zIndex: 290,
   },
+  // Super Admin's four category tabs need a little more room than All / Unread.
+  dropdownWide: { width: '480px' },
+  tabsRowCompact: { gap: '12px' },
+
   dropdownMobile: {
     position: 'fixed', top: '64px', left: '10px', right: '10px', width: 'auto', maxWidth: 'none',
     backgroundColor: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px',
@@ -496,7 +542,7 @@ const bellStyles = {
 
   tabsRow: {
     display: 'flex', alignItems: 'center', gap: '18px',
-    padding: '0 16px 12px', borderBottom: '1px solid #eceee7', flexShrink: 0, overflowX: 'auto',
+    padding: '0 16px 12px', borderBottom: '1px solid #eceee7', flexShrink: 0, flexWrap: 'wrap', rowGap: '6px',
   },
   tab: {
     fontSize: '13px', fontWeight: 700, color: '#9aa79d', cursor: 'pointer',

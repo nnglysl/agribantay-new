@@ -2,9 +2,11 @@ import { useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import VetLayout from '../../components/VetLayout'
 import SharedPagination from '../../components/Pagination'
+import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 import ServiceRequestDetailsModal from '../../components/ServiceRequestDetailsModal'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { parseLocalDate } from '../../utils/formatDate'
 import { serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../../utils/serviceBadgeStyle'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
@@ -20,8 +22,8 @@ function matchesDateRange(dateValue, fromDate, toDate) {
   const d = new Date(dateValue)
   if (isNaN(d.getTime())) return false
   const dOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate())
-  if (fromDate && dOnly < new Date(fromDate)) return false
-  if (toDate && dOnly > new Date(toDate)) return false
+  if (fromDate && dOnly < parseLocalDate(fromDate)) return false
+  if (toDate && dOnly > parseLocalDate(toDate)) return false
   return true
 }
 
@@ -72,6 +74,14 @@ export default function VetFarmDetails() {
   )
 
   const handlePageSizeChange = (size) => { setRequestPageSize(size); setRequestPage(1) }
+
+  // One-click Clear Date: clears draft + applied dates immediately; the
+  // request-type filter is untouched.
+  const clearRequestDates = () => {
+    setDraftRequestFrom(''); setDraftRequestTo('')
+    setRequestFromDate(''); setRequestToDate('')
+  }
+  const hasRequestDate = !!(draftRequestFrom || draftRequestTo || requestFromDate || requestToDate)
 
   const applyRequestFilter = () => {
     setRequestTypeFilter(draftRequestType)
@@ -202,7 +212,10 @@ export default function VetFarmDetails() {
             <>
               <div className="no-print" style={filterStyles.filterBar}>
                 <div style={filterStyles.filterField}>
-                  <label style={filterStyles.filterLabel}>From</label>
+                  <DateRangeHeader>
+                    <label style={filterStyles.filterLabel}>From</label>
+                    <ClearDateButton visible={hasRequestDate} onClick={clearRequestDates} />
+                  </DateRangeHeader>
                   <input type="date" value={draftRequestFrom} onChange={e => setDraftRequestFrom(e.target.value)} style={filterStyles.filterSelect} />
                 </div>
 

@@ -2,14 +2,18 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
 import SharedPagination from '../../components/Pagination'
+import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 import { useCachedFetch, invalidateCache } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import api from '../../api/axios'
+import { parseLocalDate } from '../../utils/formatDate'
 import { BARANGAYS } from '../../constants/barangays'
 import { viewModalStyles as v } from '../../styles/viewModalStyles'
 import { isValidPhoneNumber, sanitizePhoneInput, PHONE_VALIDATION_MESSAGE } from '../../utils/phoneValidation'
 import { serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../../utils/serviceBadgeStyle'
 import VerifyEmailChangeModal from '../../components/VerifyEmailChangeModal'
+import FarmLocationMap from '../../components/FarmLocationMap'
+import { LOCATION_CONFLICT_MESSAGE, LOCATION_OUTSIDE_MESSAGE, isInsideSanJose } from '../../utils/farmLocation'
 
 const FARM_SIZES = ['Small', 'Medium', 'Large']
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
@@ -28,8 +32,8 @@ function matchesDateRange(dateValue, fromDate, toDate) {
   const d = new Date(dateValue)
   if (isNaN(d.getTime())) return false
   const dOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate())
-  if (fromDate && dOnly < new Date(fromDate)) return false
-  if (toDate && dOnly > new Date(toDate)) return false
+  if (fromDate && dOnly < parseLocalDate(fromDate)) return false
+  if (toDate && dOnly > parseLocalDate(toDate)) return false
   return true
 }
 
@@ -144,6 +148,12 @@ export default function SuperAdminFarmDetails() {
   const [editBarangay, setEditBarangay] = useState('')
   const [editLandmark, setEditLandmark] = useState('')
   const [editFarmSize, setEditFarmSize] = useState('')
+  // Pin dragged on the edit map — null means "untouched", so the backend
+  // keeps re-geocoding from the address exactly as before.
+  const [editPin, setEditPin] = useState(null)
+  const [editLocationConflict, setEditLocationConflict] = useState(false)
+  // Server verdict on the edited pin + barangay (null while unchanged).
+  const [editLocationCheck, setEditLocationCheck] = useState(null)
   const [accountEditError, setAccountEditError] = useState('')
   const [accountEditSuccess, setAccountEditSuccess] = useState('')
   const [accountSaving, setAccountSaving] = useState(false)
@@ -189,6 +199,24 @@ export default function SuperAdminFarmDetails() {
   const [draftServiceRequestTo, setDraftServiceRequestTo] = useState('')
 
   const [lightboxImage, setLightboxImage] = useState(null)
+
+  // One-click Clear Date per tab: clears draft + applied dates immediately;
+  // the tab's other filter (method/type) is untouched.
+  const clearDisposalDates = () => {
+    setDraftDisposalFrom(''); setDraftDisposalTo('')
+    setDisposalFromDate(''); setDisposalToDate('')
+  }
+  const hasDisposalDate = !!(draftDisposalFrom || draftDisposalTo || disposalFromDate || disposalToDate)
+  const clearInspectionDates = () => {
+    setDraftInspectionFrom(''); setDraftInspectionTo('')
+    setInspectionFromDate(''); setInspectionToDate('')
+  }
+  const hasInspectionDate = !!(draftInspectionFrom || draftInspectionTo || inspectionFromDate || inspectionToDate)
+  const clearServiceRequestDates = () => {
+    setDraftServiceRequestFrom(''); setDraftServiceRequestTo('')
+    setServiceRequestFromDate(''); setServiceRequestToDate('')
+  }
+  const hasServiceRequestDate = !!(draftServiceRequestFrom || draftServiceRequestTo || serviceRequestFromDate || serviceRequestToDate)
 
   const applyDisposalFilter = () => {
     setDisposalMethodFilter(draftDisposalMethod)
@@ -258,7 +286,9 @@ export default function SuperAdminFarmDetails() {
   const reading = farm?.sensor_readings?.[0] ?? farm?.sensorReadings?.[0] ?? null
   const initials = farm ? getInitials(farm.owner_name) : ''
   const isActive = farm?.status === 'Active'
-  const isSensorOnline = !!reading
+  // Online/Offline comes from the backend (sensors.last_seen_at vs the
+  // configured timeout) instead of "has this farm ever had a reading".
+  const isSensorOnline = farm?.connectivity === 'Online'
   // The registered device (from the Devices tab) is the single source of
   // truth for Device Name — shown here even before the device has ever
   // sent a reading. Online/Offline and Last Synchronization stay tied to
@@ -354,6 +384,9 @@ export default function SuperAdminFarmDetails() {
     setEditBarangay(farm.barangay || BARANGAYS[0])
     setEditLandmark(farm.landmark || '')
     setEditFarmSize(farm.farm_size || FARM_SIZES[0])
+    setEditPin(null)
+    setEditLocationConflict(false)
+    setEditLocationCheck(null)
     setAccountEditError('')
     setAccountEditSuccess('')
     setIsEditingAccount(true)
@@ -372,6 +405,21 @@ export default function SuperAdminFarmDetails() {
 
     if (!isValidPhoneNumber(editMobileNumber)) {
       setAccountEditError(PHONE_VALIDATION_MESSAGE)
+      return
+    }
+
+    if (editLocationConflict) {
+      setAccountEditError(LOCATION_CONFLICT_MESSAGE)
+      return
+    }
+    if (editPin && !isInsideSanJose(editPin.lat, editPin.lng)) {
+      setAccountEditError(LOCATION_OUTSIDE_MESSAGE)
+      return
+    }
+    // Outside / barangay mismatch / still checking — the server re-runs the
+    // same rules on save regardless.
+    if (editLocationCheck && !editLocationCheck.ok) {
+      setAccountEditError(editLocationCheck.message)
       return
     }
 
@@ -406,6 +454,10 @@ export default function SuperAdminFarmDetails() {
       formData.append('lot_number', editLotNumber)
       formData.append('street', editStreet)
       formData.append('landmark', editLandmark)
+      if (editPin) {
+        formData.append('latitude', editPin.lat)
+        formData.append('longitude', editPin.lng)
+      }
 
       await api.post(`/admin/farms/${farm.id}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -555,7 +607,7 @@ export default function SuperAdminFarmDetails() {
 
                 <div style={{ ...acctStyles.row, ...(isMobile ? acctStyles.rowMobile : {}) }}>
                   <FarmField label="Lot No. (optional)" value={editLotNumber} onChange={setEditLotNumber} editing={isEditingAccount} display={farm.lot_number || '—'} />
-                  <FarmField label="Street (optional)" value={editStreet} onChange={setEditStreet} editing={isEditingAccount} display={farm.street || '—'} />
+                  <FarmField label="Street / Purok (optional)" value={editStreet} onChange={setEditStreet} editing={isEditingAccount} display={farm.street || '—'} />
                 </div>
 
                 <div style={{ ...acctStyles.row, ...(isMobile ? acctStyles.rowMobile : {}) }}>
@@ -570,6 +622,21 @@ export default function SuperAdminFarmDetails() {
                     <input value={formatRegistrationDate(farm.created_at)} disabled style={{ ...acctStyles.input, ...acctStyles.inputDisabled }} />
                   </div>
                 </div>
+
+                {isEditingAccount && (
+                  <div style={acctStyles.fieldGroup}>
+                    <label style={acctStyles.label}>Location Preview</label>
+                    <FarmLocationMap
+                      excludeFarmId={farm.id}
+                      initialPosition={farm.latitude != null && farm.longitude != null ? { lat: Number(farm.latitude), lng: Number(farm.longitude) } : null}
+                      onPositionChange={(lat, lng) => setEditPin({ lat, lng })}
+                      onConflictChange={(conflictFarm) => setEditLocationConflict(!!conflictFarm)}
+                      initialBarangay={farm.barangay}
+                      barangay={editBarangay}
+                      onValidityChange={setEditLocationCheck}
+                    />
+                  </div>
+                )}
 
                 {isEditingAccount && (
                   <div style={{ display: 'flex', gap: '10px', ...(isMobile ? { flexDirection: 'column' } : {}) }}>
@@ -615,7 +682,7 @@ export default function SuperAdminFarmDetails() {
                     </span>
                   )}
                 </div>
-                <InfoCell label="Last Synchronization" value={reading?.created_at ? new Date(reading.created_at).toLocaleString() : null} />
+                <InfoCell label="Last Synchronization" value={farm?.last_seen_at ? new Date(farm.last_seen_at).toLocaleString() : null} />
               </div>
             </Card>
 
@@ -767,7 +834,10 @@ export default function SuperAdminFarmDetails() {
             <>
               <div className="no-print" style={filterStyles.filterBar}>
                 <div style={filterStyles.filterField}>
-                  <label style={filterStyles.filterLabel}>From</label>
+                  <DateRangeHeader>
+                    <label style={filterStyles.filterLabel}>From</label>
+                    <ClearDateButton visible={hasDisposalDate} onClick={clearDisposalDates} />
+                  </DateRangeHeader>
                   <input type="date" value={draftDisposalFrom} onChange={e => setDraftDisposalFrom(e.target.value)} style={filterStyles.filterSelect} />
                 </div>
 
@@ -850,7 +920,10 @@ export default function SuperAdminFarmDetails() {
             <>
               <div className="no-print" style={filterStyles.filterBar}>
                 <div style={filterStyles.filterField}>
-                  <label style={filterStyles.filterLabel}>From</label>
+                  <DateRangeHeader>
+                    <label style={filterStyles.filterLabel}>From</label>
+                    <ClearDateButton visible={hasInspectionDate} onClick={clearInspectionDates} />
+                  </DateRangeHeader>
                   <input type="date" value={draftInspectionFrom} onChange={e => setDraftInspectionFrom(e.target.value)} style={filterStyles.filterSelect} />
                 </div>
 
@@ -940,7 +1013,10 @@ export default function SuperAdminFarmDetails() {
             <>
               <div className="no-print" style={filterStyles.filterBar}>
                 <div style={filterStyles.filterField}>
-                  <label style={filterStyles.filterLabel}>From</label>
+                  <DateRangeHeader>
+                    <label style={filterStyles.filterLabel}>From</label>
+                    <ClearDateButton visible={hasServiceRequestDate} onClick={clearServiceRequestDates} />
+                  </DateRangeHeader>
                   <input type="date" value={draftServiceRequestFrom} onChange={e => setDraftServiceRequestFrom(e.target.value)} style={filterStyles.filterSelect} />
                 </div>
 
@@ -1020,7 +1096,7 @@ export default function SuperAdminFarmDetails() {
       )}
 
       {activeTab === 'devices' && (
-        <DevicesSection farmId={farm.id} onDeviceChange={() => { invalidateCache('/admin/farms'); refetch() }} />
+        <DevicesSection farmId={farm.id} farmName={farm.farm_name} onDeviceChange={() => { invalidateCache('/admin/farms'); refetch() }} />
       )}
 
       {lightboxImage && (
@@ -1340,16 +1416,40 @@ function RecordDetailModal({ title, rows, photoUrl, onPhotoClick, onClose }) {
   )
 }
 
-function DevicesSection({ farmId, onDeviceChange }) {
+// The physical devices rotate between farms, so this tab manages the
+// device's CURRENT assignment only. Device Name and Device Key never change
+// here, and reassigning never touches historical readings — the backend
+// stamps farm_id on each reading at ingestion time.
+function DevicesSection({ farmId, farmName, onDeviceChange }) {
   const { data: sensors, loading, error, refetch } = useCachedFetch(`/admin/farms/${farmId}/sensors`)
+  // Devices that are between farms (farm_id = null). Listed here so a unit
+  // that was unassigned from another farm can be picked up by this one
+  // without a separate Devices module.
+  const { data: allSensors, refetch: refetchAll } = useCachedFetch('/admin/sensors')
   const [showRegister, setShowRegister] = useState(false)
   const [editSensor, setEditSensor] = useState(null)
+  const [reassignSensor, setReassignSensor] = useState(null)
+  const [unassignSensor, setUnassignSensor] = useState(null)
+  const [assignSensor, setAssignSensor] = useState(null)
   const list = sensors || []
+  const unassigned = (allSensors || []).filter(s => !s.farm_id)
 
   const handleChanged = () => {
+    // A move affects the other farm's Devices tab and the Farms list too.
+    invalidateCache('/admin/farms')
+    invalidateCache('/admin/sensors')
     refetch()
+    refetchAll()
     onDeviceChange?.()
   }
+
+  const statusPill = (s) => (
+    <span style={{
+      fontSize: '10.5px', fontWeight: 700, padding: '2px 9px', borderRadius: '999px',
+      color: s.status === 'Active' ? '#2c8047' : '#6b7280',
+      backgroundColor: s.status === 'Active' ? '#eaf3ec' : '#f0f1ec',
+    }}>{s.status}</span>
+  )
 
   return (
     <Card
@@ -1363,31 +1463,59 @@ function DevicesSection({ farmId, onDeviceChange }) {
       {loading && <div style={styles.empty}>Loading devices...</div>}
       {error && <div style={{ ...styles.empty, color: '#b91c1c' }}>{error}</div>}
       {!loading && !error && list.length === 0 && (
-        <div style={styles.empty}>No devices registered for this farm yet.</div>
+        <div style={styles.empty}>No devices assigned to this farm yet.</div>
       )}
       {!loading && !error && list.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' }}>
           {list.map(s => (
-            <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', padding: '13px 0', borderBottom: '1px solid #f2f3ed' }}>
+            <div key={s.id} style={deviceStyles.row}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
                   <span style={{ fontSize: '14px', fontWeight: 700, color: '#16311d' }}>{s.device_name}</span>
-                  <span style={{
-                    fontSize: '10.5px', fontWeight: 700, padding: '2px 9px', borderRadius: '999px',
-                    color: s.status === 'Active' ? '#2c8047' : '#6b7280',
-                    backgroundColor: s.status === 'Active' ? '#eaf3ec' : '#f0f1ec',
-                  }}>{s.status}</span>
+                  {statusPill(s)}
                 </div>
                 <div style={{ fontSize: '12px', color: '#6b7770', marginTop: '3px', fontFamily: 'monospace' }}>
-                  {s.sensor_code}
+                  {s.device_key}
                 </div>
                 <div style={{ fontSize: '11.5px', color: '#9aa79d', marginTop: '3px' }}>
                   Installed {s.installed_at}{s.last_seen_at && ` · Last seen ${s.last_seen_at}`}
                 </div>
               </div>
-              <button type="button" style={deviceStyles.editBtn} onClick={() => setEditSensor(s)}>Edit</button>
+              <div style={deviceStyles.rowActions}>
+                <button type="button" style={deviceStyles.editBtn} onClick={() => setReassignSensor(s)}>Reassign</button>
+                <button type="button" style={deviceStyles.editBtn} onClick={() => setUnassignSensor(s)}>Unassign</button>
+                <button type="button" style={deviceStyles.editBtn} onClick={() => setEditSensor(s)}>Edit</button>
+              </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {unassigned.length > 0 && (
+        <div style={{ marginTop: '22px' }}>
+          <div style={deviceStyles.subheading}>Unassigned Devices</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {unassigned.map(s => (
+              <div key={s.id} style={deviceStyles.row}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
+                    <span style={{ fontSize: '14px', fontWeight: 700, color: '#16311d' }}>{s.device_name}</span>
+                    {statusPill(s)}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#6b7770', marginTop: '3px', fontFamily: 'monospace' }}>
+                    {s.device_key}
+                  </div>
+                  <div style={{ fontSize: '11.5px', color: '#9aa79d', marginTop: '3px' }}>
+                    Farm: <strong style={{ color: '#6b7770' }}>Unassigned</strong>
+                    {s.last_seen_at && ` · Last seen ${s.last_seen_at}`}
+                  </div>
+                </div>
+                <div style={deviceStyles.rowActions}>
+                  <button type="button" style={deviceStyles.editBtn} onClick={() => setAssignSensor(s)}>Assign to this farm</button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -1406,11 +1534,221 @@ function DevicesSection({ farmId, onDeviceChange }) {
           onSuccess={() => { setEditSensor(null); handleChanged() }}
         />
       )}
+
+      {reassignSensor && (
+        <ReassignDeviceModal
+          sensor={reassignSensor}
+          currentFarmId={farmId}
+          currentFarmName={farmName}
+          onClose={() => setReassignSensor(null)}
+          onSuccess={() => { setReassignSensor(null); handleChanged() }}
+        />
+      )}
+
+      {unassignSensor && (
+        <UnassignDeviceModal
+          sensor={unassignSensor}
+          onClose={() => setUnassignSensor(null)}
+          onSuccess={() => { setUnassignSensor(null); handleChanged() }}
+        />
+      )}
+
+      {assignSensor && (
+        <AssignDeviceModal
+          sensor={assignSensor}
+          farmId={farmId}
+          farmName={farmName}
+          onClose={() => setAssignSensor(null)}
+          onSuccess={() => { setAssignSensor(null); handleChanged() }}
+        />
+      )}
     </Card>
   )
 }
 
+// Read-only identity block shared by the assignment modals — the same
+// Device Name / Device Key are shown on every move so it is obvious they
+// are not what changes.
+function DeviceIdentity({ sensor, children }) {
+  return (
+    <div style={deviceStyles.identity}>
+      <div style={deviceStyles.identityRow}>
+        <span style={deviceStyles.identityLabel}>Device</span>
+        <span style={deviceStyles.identityValue}>{sensor.device_name}</span>
+      </div>
+      <div style={deviceStyles.identityRow}>
+        <span style={deviceStyles.identityLabel}>Device Key</span>
+        <span style={{ ...deviceStyles.identityValue, fontFamily: 'monospace' }}>{sensor.device_key}</span>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function ReassignDeviceModal({ sensor, currentFarmId, currentFarmName, onClose, onSuccess }) {
+  const { data: farms, loading: farmsLoading } = useCachedFetch('/admin/farms')
+  const [targetFarmId, setTargetFarmId] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  // The current farm is never a valid destination.
+  const options = (farms || []).filter(f => f.id !== currentFarmId)
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!targetFarmId) return
+    setError('')
+    setLoading(true)
+    try {
+      await api.patch(`/admin/sensors/${sensor.id}/assign`, { farm_id: Number(targetFarmId) })
+      onSuccess()
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to reassign device.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div style={deviceStyles.overlay} onClick={onClose}>
+      <div style={deviceStyles.modal} onClick={e => e.stopPropagation()}>
+        <div style={deviceStyles.header}>
+          <h3 style={deviceStyles.title}>Reassign Device</h3>
+          <span style={deviceStyles.close} onClick={onClose}>×</span>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          {error && <div style={deviceStyles.errorBox}>{error}</div>}
+
+          <DeviceIdentity sensor={sensor}>
+            <div style={deviceStyles.identityRow}>
+              <span style={deviceStyles.identityLabel}>Current Farm</span>
+              <span style={deviceStyles.identityValue}>{currentFarmName}</span>
+            </div>
+          </DeviceIdentity>
+
+          <label style={deviceStyles.label}>Assign to Farm *</label>
+          <select
+            value={targetFarmId}
+            onChange={e => setTargetFarmId(e.target.value)}
+            style={deviceStyles.inputFull}
+            required
+            autoFocus
+            disabled={farmsLoading}
+          >
+            <option value="">{farmsLoading ? 'Loading farms...' : 'Select another farm'}</option>
+            {options.map(f => (
+              <option key={f.id} value={f.id}>{f.farm_name} — {f.owner_name}</option>
+            ))}
+          </select>
+          <p style={deviceStyles.hint}>
+            Only the current farm assignment changes. Readings already collected here stay with {currentFarmName}.
+          </p>
+
+          <div style={deviceStyles.actions}>
+            <button type="button" onClick={onClose} style={deviceStyles.cancelBtn}>Cancel</button>
+            <button type="submit" disabled={loading || !targetFarmId} style={deviceStyles.submitBtn}>
+              {loading ? 'Reassigning...' : 'Reassign'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function UnassignDeviceModal({ sensor, onClose, onSuccess }) {
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const handleConfirm = async () => {
+    setError('')
+    setLoading(true)
+    try {
+      await api.patch(`/admin/sensors/${sensor.id}/unassign`)
+      onSuccess()
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to unassign device.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div style={deviceStyles.overlay} onClick={onClose}>
+      <div style={deviceStyles.modal} onClick={e => e.stopPropagation()}>
+        <div style={deviceStyles.header}>
+          <h3 style={deviceStyles.title}>Unassign Device</h3>
+          <span style={deviceStyles.close} onClick={onClose}>×</span>
+        </div>
+
+        {error && <div style={deviceStyles.errorBox}>{error}</div>}
+
+        <p style={deviceStyles.confirmText}>
+          Are you sure you want to unassign <strong>{sensor.device_name}</strong> from this farm?
+        </p>
+        <p style={deviceStyles.hint}>
+          The device stays registered and can be assigned to another farm later. This farm will show as Pending Setup until a device is assigned again.
+        </p>
+
+        <div style={deviceStyles.actions}>
+          <button type="button" onClick={onClose} style={deviceStyles.cancelBtn}>Cancel</button>
+          <button type="button" onClick={handleConfirm} disabled={loading} style={deviceStyles.submitBtn}>
+            {loading ? 'Unassigning...' : 'Unassign'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AssignDeviceModal({ sensor, farmId, farmName, onClose, onSuccess }) {
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const handleConfirm = async () => {
+    setError('')
+    setLoading(true)
+    try {
+      await api.patch(`/admin/sensors/${sensor.id}/assign`, { farm_id: farmId })
+      onSuccess()
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to assign device.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div style={deviceStyles.overlay} onClick={onClose}>
+      <div style={deviceStyles.modal} onClick={e => e.stopPropagation()}>
+        <div style={deviceStyles.header}>
+          <h3 style={deviceStyles.title}>Assign Device</h3>
+          <span style={deviceStyles.close} onClick={onClose}>×</span>
+        </div>
+
+        {error && <div style={deviceStyles.errorBox}>{error}</div>}
+
+        <DeviceIdentity sensor={sensor}>
+          <div style={deviceStyles.identityRow}>
+            <span style={deviceStyles.identityLabel}>Assign to Farm</span>
+            <span style={deviceStyles.identityValue}>{farmName}</span>
+          </div>
+        </DeviceIdentity>
+
+        <div style={deviceStyles.actions}>
+          <button type="button" onClick={onClose} style={deviceStyles.cancelBtn}>Cancel</button>
+          <button type="button" onClick={handleConfirm} disabled={loading} style={deviceStyles.submitBtn}>
+            {loading ? 'Assigning...' : 'Assign'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function RegisterDeviceModal({ farmId, onClose, onSuccess }) {
+  const [deviceName, setDeviceName] = useState('')
   const [deviceKey, setDeviceKey] = useState('')
   const [installedAt, setInstalledAt] = useState(() => new Date().toISOString().slice(0, 10))
   const [error, setError] = useState('')
@@ -1424,6 +1762,7 @@ function RegisterDeviceModal({ farmId, onClose, onSuccess }) {
     try {
       const res = await api.post('/admin/sensors', {
         farm_id: farmId,
+        label: deviceName,
         device_key: deviceKey,
         installed_at: installedAt,
       })
@@ -1448,14 +1787,26 @@ function RegisterDeviceModal({ farmId, onClose, onSuccess }) {
             <form onSubmit={handleSubmit}>
               {error && <div style={deviceStyles.errorBox}>{error}</div>}
 
+              <label style={deviceStyles.label}>Device Name *</label>
+              <input
+                value={deviceName}
+                onChange={e => setDeviceName(e.target.value)}
+                placeholder="e.g. AGB-D01"
+                style={deviceStyles.inputFull}
+                required
+                autoFocus
+              />
+              <p style={deviceStyles.hint}>
+                Permanent name of the physical unit. It stays the same when the device is moved to another farm.
+              </p>
+
               <label style={deviceStyles.label}>Device Key *</label>
               <input
                 value={deviceKey}
                 onChange={e => setDeviceKey(e.target.value)}
-                placeholder="e.g. AGB-AVL0FQW2ZEOP4INCQC17OWGQUR1U7ZAY"
+                placeholder="e.g. AGB-D01-X7K92"
                 style={deviceStyles.inputFull}
                 required
-                autoFocus
               />
               <p style={deviceStyles.hint}>
                 Enter the device_key printed/labeled on the physical sensor unit.
@@ -1470,7 +1821,7 @@ function RegisterDeviceModal({ farmId, onClose, onSuccess }) {
                 required
               />
               <p style={deviceStyles.hint}>
-                The Device Name is generated automatically from the farm and this date once you register the device.
+                Date the unit was first installed. Used only for record-keeping.
               </p>
 
               <div style={deviceStyles.actions}>
@@ -1484,14 +1835,14 @@ function RegisterDeviceModal({ farmId, onClose, onSuccess }) {
         ) : (
           <>
             <div style={deviceStyles.header}>
-              <h3 style={deviceStyles.title}>Device Registered</h3>
+              <h3 style={deviceStyles.title}>Device Registered Successfully</h3>
             </div>
 
             <div style={deviceStyles.successBox}>
               <div style={deviceStyles.successLabel}>Device Name</div>
               <div style={deviceStyles.successCode}>{registered.device_name}</div>
               <p style={deviceStyles.successHint}>
-                Write or print this on the device's sticker now, so it's identifiable in the field without needing to look up the system.
+                {registered.device_name} (<code>{registered.device_key}</code>) has been registered successfully and is ready for farm assignment.
               </p>
             </div>
 
@@ -1766,6 +2117,14 @@ const deviceStyles = {
     flexShrink: 0, padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer',
     border: '1px solid #e3e6dd', backgroundColor: '#fff', color: '#4b5a50', fontFamily: SANS,
   },
+  row: { display: 'flex', justifyContent: 'space-between', gap: '12px', padding: '13px 0', borderBottom: '1px solid #f2f3ed' },
+  rowActions: { display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'flex-start', flexShrink: 0 },
+  subheading: { fontSize: '12px', fontWeight: 700, color: '#5c8a6b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' },
+  identity: { backgroundColor: '#f7f8f4', border: '1px solid #e3e6dd', borderRadius: '12px', padding: '12px 14px', marginTop: '8px' },
+  identityRow: { display: 'flex', justifyContent: 'space-between', gap: '12px', padding: '4px 0', fontSize: '13px' },
+  identityLabel: { color: '#8a968d', fontWeight: 600, flexShrink: 0 },
+  identityValue: { color: '#16311d', fontWeight: 700, textAlign: 'right', wordBreak: 'break-all' },
+  confirmText: { fontSize: '14px', color: '#33413a', lineHeight: 1.5, margin: '8px 0 0' },
   overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '16px' },
   modal: { backgroundColor: '#fff', borderRadius: '16px', padding: '26px', width: '440px', maxWidth: '92vw', maxHeight: '90vh', overflowY: 'auto', fontFamily: SANS },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' },

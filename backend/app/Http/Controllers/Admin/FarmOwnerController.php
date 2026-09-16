@@ -29,7 +29,9 @@ class FarmOwnerController extends Controller
             });
         }
 
-        $owners = $query->orderBy('first_name')->limit(20)->get();
+        // withCount: one aggregate query for all owners instead of a
+        // Farm::count() per owner below.
+        $owners = $query->withCount('farms')->orderBy('first_name')->limit(20)->get();
 
         $owners = $owners->map(function ($owner) {
             return [
@@ -39,7 +41,7 @@ class FarmOwnerController extends Controller
                 'mobile_number'     => $owner->mobile_number,
                 'email'             => $owner->email,
                 'profile_photo_url' => $owner->profile_photo_path ? asset('storage/' . $owner->profile_photo_path) : null,
-                'farm_count'        => Farm::where('user_id', $owner->id)->count(),
+                'farm_count'        => $owner->farms_count,
             ];
         });
 
@@ -63,11 +65,11 @@ class FarmOwnerController extends Controller
      */
     public function store(Request $request)
     {
-        // Spaces are cosmetic (e.g. "0917 123 4567") — strip them before the
-        // regex check so the validation and the stored value both only see
-        // the actual digits, not how the user chose to space them out.
+        // Spaces/dashes are cosmetic (e.g. "0917 123 4567", "0917-123-4567") —
+        // normalize to digits before the regex and uniqueness checks so
+        // formatting can never disguise an already-registered number.
         if ($request->filled('mobile_number')) {
-            $request->merge(['mobile_number' => preg_replace('/\s+/', '', $request->mobile_number)]);
+            $request->merge(['mobile_number' => User::normalizeMobileNumber($request->mobile_number)]);
         }
 
         $request->validate([

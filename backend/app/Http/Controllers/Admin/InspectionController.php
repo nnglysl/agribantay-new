@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Inspection;
 use App\Models\ActivityLog;
 use App\Models\Notification;
+use App\Services\SuperAdminNotifier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -99,6 +100,13 @@ class InspectionController extends Controller
 
         $scheduledFor = $scheduledDate->format('F j, Y');
 
+        SuperAdminNotifier::notify(
+            'Inspection Scheduled',
+            "An inspection for \"{$inspection->farm->farm_name}\" has been scheduled on {$scheduledFor}.",
+            'Inspection Scheduled',
+            '/superadmin/inspections'
+        );
+
         if ($inspection->farm->user_id) {
             Notification::create([
                 'user_id' => $inspection->farm->user_id,
@@ -137,6 +145,13 @@ class InspectionController extends Controller
     {
         $inspection = Inspection::findOrFail($id);
         $inspection->update(['status' => 'Cancelled']);
+
+        SuperAdminNotifier::notify(
+            'Inspection Cancelled',
+            "Inspection {$inspection->inspection_number} for \"{$inspection->farm->farm_name}\" was cancelled.",
+            'Inspection Cancelled',
+            '/superadmin/inspections'
+        );
 
         return response()->json([
             'success' => true,
@@ -220,6 +235,13 @@ class InspectionController extends Controller
             'details' => "{$inspection->inspection_number} — {$inspection->farm->farm_name}",
             'type'    => 'Inspection',
         ]);
+
+        SuperAdminNotifier::notify(
+            'Inspection Completed',
+            "Inspection {$inspection->inspection_number} for \"{$inspection->farm->farm_name}\" has been completed.",
+            'Inspection Completed',
+            '/superadmin/inspections'
+        );
 
         return response()->json([
             'success' => true,

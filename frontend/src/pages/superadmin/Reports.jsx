@@ -11,6 +11,7 @@ import {
   IconFilter, chartOptions, lineDataset, fmtDate, makeInRange, rangeLabelOf, scopeLabelOf, monthlyBuckets,
   monthlyBucketsInRange, MONTH_NAMES, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle,
 } from '../../components/ReportsLayout'
+import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip)
 
@@ -59,18 +60,34 @@ export default function SuperAdminReports() {
   const inRange = makeInRange(fromDate, toDate)
   const rangeLabel = rangeLabelOf(fromDate, toDate)
 
+  // Overview charts: completed records only (as before).
   const allInspections = adminData?.completed_inspections ?? []
-  const allAdminServices = adminData?.completed_services ?? []
   const allVetServices = vetData?.completed_services ?? []
 
   const inspections = useMemo(() => allInspections.filter(r => inRange(r.completed_at_raw)), [allInspections, fromDate, toDate])
-  const adminServices = useMemo(() => allAdminServices.filter(r => inRange(r.completed_at_raw)), [allAdminServices, fromDate, toDate])
   const vetServices = useMemo(() => allVetServices.filter(r => inRange(r.completed_at_raw)), [allVetServices, fromDate, toDate])
 
-  const combinedServices = useMemo(() => [
-    ...adminServices.map(s => ({ ...s, handled_by: 'LGU Admin' })),
-    ...vetServices.map(v => ({ ...v, handled_by: v.vet_name || '—' })),
-  ], [adminServices, vetServices])
+  // Inspections / Service Requests tabs: Completed AND Scheduled records.
+  // `date_raw` is the completion date for Completed rows and the scheduled
+  // date for Scheduled rows, so the From/To filter applies to both alike.
+  const allInspectionRecords = adminData?.inspection_records ?? []
+  const allServiceRecords = useMemo(() => [
+    ...(adminData?.service_records ?? []).map(s => ({ ...s, handled_by: 'LGU Admin' })),
+    ...(vetData?.service_records ?? []).map(v => ({ ...v, handled_by: v.vet_name || '—' })),
+  ].sort((a, b) => (b.date_raw || '').localeCompare(a.date_raw || '')), [adminData, vetData])
+
+  const inspectionRecords = useMemo(() => allInspectionRecords.filter(r => inRange(r.date_raw)), [allInspectionRecords, fromDate, toDate])
+  const serviceRecords = useMemo(() => allServiceRecords.filter(r => inRange(r.date_raw)), [allServiceRecords, fromDate, toDate])
+
+  // Summary-card selection per tab: 'all' | 'Completed' | 'Scheduled'.
+  // Cards count the date-filtered records; the table shows the selected
+  // subset of those same records. Clicking Total (or the active card again)
+  // returns to all filtered records.
+  const [statusView, setStatusView] = useState({ Inspections: 'all', 'Service Requests': 'all' })
+  const selectStatusView = (t, value) => setStatusView(v => ({ ...v, [t]: v[t] === value ? 'all' : value }))
+  const countBy = (rows, status) => rows.filter(r => r.status === status).length
+  const visibleInspectionRecords = statusView.Inspections === 'all' ? inspectionRecords : inspectionRecords.filter(r => r.status === statusView.Inspections)
+  const visibleServiceRecords = statusView['Service Requests'] === 'all' ? serviceRecords : serviceRecords.filter(r => r.status === statusView['Service Requests'])
 
   const isRangeFiltered = Boolean(fromDate || toDate)
 
@@ -118,6 +135,14 @@ export default function SuperAdminReports() {
     setFilterOpen(true)
   }
 
+  // One-click Clear Date: clears draft + applied dates immediately (the
+  // Files tab's month/year filter is separate and untouched).
+  const clearDates = () => {
+    setDraftFrom(''); setDraftTo('')
+    setFromDate(''); setToDate('')
+  }
+  const hasDate = !!(draftFrom || draftTo || fromDate || toDate)
+
   const applyFilter = () => {
     if (tab === 'Files') {
       setFilesMonth(draftFilesMonth)
@@ -163,16 +188,17 @@ export default function SuperAdminReports() {
       { value: vetData.total_completed, label: 'Vet Services Completed' },
     ],
     Inspections: [
-      { value: insp.total, label: 'Total Inspections' },
-      { value: insp.completed, label: 'Completed' },
-      { value: insp.scheduled, label: 'Scheduled' },
+      { value: inspectionRecords.length, label: 'Total Inspections', onClick: () => selectStatusView('Inspections', 'all'), active: statusView.Inspections === 'all' },
+      { value: countBy(inspectionRecords, 'Completed'), label: 'Completed', onClick: () => selectStatusView('Inspections', 'Completed'), active: statusView.Inspections === 'Completed' },
+      { value: countBy(inspectionRecords, 'Scheduled'), label: 'Scheduled', onClick: () => selectStatusView('Inspections', 'Scheduled'), active: statusView.Inspections === 'Scheduled' },
     ],
     'Service Requests': [
-      { value: svc.total + vetData.total_completed + vetData.total_pending, label: 'Total Requests' },
-      { value: svc.completed + vetData.total_completed, label: 'Completed' },
-      { value: svc.pending + vetData.total_pending, label: 'Pending' },
+      { value: serviceRecords.length, label: 'Total Requests', onClick: () => selectStatusView('Service Requests', 'all'), active: statusView['Service Requests'] === 'all' },
+      { value: countBy(serviceRecords, 'Completed'), label: 'Completed', onClick: () => selectStatusView('Service Requests', 'Completed'), active: statusView['Service Requests'] === 'Completed' },
+      { value: countBy(serviceRecords, 'Scheduled'), label: 'Scheduled', onClick: () => selectStatusView('Service Requests', 'Scheduled'), active: statusView['Service Requests'] === 'Scheduled' },
     ],
   }
+  const viewLabel = (t) => [statusView[t] === 'all' ? '' : statusView[t], rangeLabel].filter(Boolean).join(' · ')
 
   return (
     <AdminLayout>
@@ -235,7 +261,10 @@ export default function SuperAdminReports() {
                 ) : (
                   <div style={styles.filterPopRow}>
                     <div>
-                      <label style={styles.filterPopLabel}>From</label>
+                      <DateRangeHeader>
+                        <label style={styles.filterPopLabel}>From</label>
+                        <ClearDateButton visible={hasDate} onClick={clearDates} />
+                      </DateRangeHeader>
                       <input
                         type="date"
                         style={styles.filterPopSelect}
@@ -301,36 +330,36 @@ export default function SuperAdminReports() {
 
           {tab === 'Inspections' && (
             <DataTable
-              title="Completed inspections"
-              subtitle={rangeLabel}
+              title="Inspection Records"
+              subtitle={viewLabel('Inspections')}
               columns={['ID', 'Farm', 'Owner', 'Type', 'Date', 'Status']}
-              emptyText="No completed inspections in this range."
-              rows={inspections.map(i => [
+              emptyText="No inspection records in this range."
+              rows={visibleInspectionRecords.map(i => [
                 { text: i.inspection_number },
                 { text: i.farm_name, strong: true },
                 { text: i.owner_name },
                 { text: i.inspection_type },
-                { text: fmtDate(i.completed_at) },
-                { text: i.status || 'Completed', tone: 'green', dot: false },
+                { text: fmtDate(i.date) },
+                { text: i.status, badgeStyle: requestStatusBadgeStyle(i.status), dot: false },
               ])}
             />
           )}
 
           {tab === 'Service Requests' && (
             <DataTable
-              title="Completed service requests"
-              subtitle={rangeLabel}
+              title="Service Request Records"
+              subtitle={viewLabel('Service Requests')}
               columns={['ID', 'Type', 'Farm', 'Owner', 'Barangay', 'Handled By', 'Date', 'Status']}
-              emptyText="No completed service requests in this range."
+              emptyText="No service request records in this range."
               minWidth="780px"
-              rows={combinedServices.map(s => [
+              rows={visibleServiceRecords.map(s => [
                 { text: s.id },
                 { text: serviceTypeLabel(s.service_type), badgeStyle: serviceTypeBadgeStyle(s.service_type), dot: false },
                 { text: s.farm_name },
                 { text: s.owner_name },
                 { text: s.barangay },
                 { text: s.handled_by },
-                { text: fmtDate(s.completed_at) },
+                { text: fmtDate(s.date) },
                 { text: s.status, badgeStyle: requestStatusBadgeStyle(s.status), dot: false },
               ])}
             />

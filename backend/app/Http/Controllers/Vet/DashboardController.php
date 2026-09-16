@@ -76,18 +76,22 @@ class DashboardController extends Controller
             ]);
 
         // Monthly vaccination progress — last 6 months, count of completed per month
+        // One grouped query for the whole window instead of one count per month.
+        $windowStart = now()->subMonths(5)->startOfMonth();
+        $countsByMonth = $baseQuery()
+            ->where('status', 'Completed')
+            ->where('completed_at', '>=', $windowStart)
+            ->selectRaw('YEAR(completed_at) as y, MONTH(completed_at) as m, COUNT(*) as c')
+            ->groupBy('y', 'm')
+            ->get()
+            ->keyBy(fn ($r) => $r->y . '-' . $r->m);
+
         $monthlyProgress = [];
         for ($i = 5; $i >= 0; $i--) {
             $month = now()->subMonths($i);
-            $count = $baseQuery()
-                ->where('status', 'Completed')
-                ->whereYear('completed_at', $month->year)
-                ->whereMonth('completed_at', $month->month)
-                ->count();
-
             $monthlyProgress[] = [
                 'month' => $month->format('M'),
-                'count' => $count,
+                'count' => (int) ($countsByMonth[$month->year . '-' . $month->month]->c ?? 0),
             ];
         }
 

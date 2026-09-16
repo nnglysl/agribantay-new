@@ -8,6 +8,7 @@ use App\Models\ServiceRequest;
 use App\Models\ActivityLog;
 use App\Models\Notification;
 use App\Models\User;
+use App\Services\SuperAdminNotifier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -31,6 +32,7 @@ class ServiceRequestController extends Controller
                 'request_number' => $r->request_number,
                 'service_type'   => $r->service_type,
                 'notes'          => $r->notes,
+                'completion_notes' => $r->completion_notes,
                 'status'         => $r->status,
                 'priority'       => $r->priority,
                 'accepted_by'    => $r->acceptedBy ? $r->acceptedBy->first_name . ' ' . $r->acceptedBy->last_name : null,
@@ -129,6 +131,14 @@ class ServiceRequestController extends Controller
                 'is_read' => false,
             ]);
         }
+
+        // Super Admin oversight copy (same event, separate recipient).
+        SuperAdminNotifier::notify(
+            'New Service Request',
+            "New {$request->service_type} from \"{$farm->farm_name}\" ({$farm->owner_name}).",
+            'Request Update',
+            '/superadmin/service-requests'
+        );
 
         return response()->json([
             'success' => true,

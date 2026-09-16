@@ -6,17 +6,35 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Carbon\Carbon;
 
+/**
+ * A physical IoT device. The same unit rotates between farms (2 devices,
+ * 10 farms, ~1 week each), so nothing here encodes the farm:
+ *
+ *   - device_key  permanent technical identity burned into the firmware,
+ *                 matched by SensorIngestController. Never changes.
+ *   - label       permanent Admin-facing Device Name (e.g. "AGB-D01").
+ *                 Entered at registration, never changes on reassignment.
+ *   - sensor_code auto-generated legacy code (SFN + install date), kept as
+ *                 a fallback display name for devices registered without a
+ *                 label.
+ *   - farm_id     the CURRENT assignment only. NULL = registered but not
+ *                 assigned to any farm. Readings copy this at ingestion
+ *                 time, so old readings stay with the farm they came from.
+ *   - last_seen_at timestamp of the last accepted reading — drives
+ *                 Online / Offline.
+ */
 class Sensor extends Model
 {
     use HasFactory;
 
     protected $fillable = [
         'farm_id', 'poultry_house_id', 'device_key', 'label', 'status',
-        'installed_at', 'sensor_code',
+        'installed_at', 'sensor_code', 'last_seen_at',
     ];
 
     protected $casts = [
         'installed_at' => 'date',
+        'last_seen_at' => 'datetime',
     ];
 
     protected static function booted(): void
@@ -33,12 +51,6 @@ class Sensor extends Model
             if (!$sensor->sensor_code) {
                 $sensor->sensor_code = static::generateSensorCode($sensor->installed_at);
             }
-
-            // label ("Device Name") is always system-generated, never
-            // Admin-entered — see generateDeviceName() below. Any caller-
-            // supplied value is intentionally overwritten so there is no
-            // path to a manually-typed or duplicate Device Name.
-            $sensor->label = static::generateDeviceName($sensor->farm_id, $sensor->installed_at);
         });
     }
 
@@ -65,27 +77,49 @@ class Sensor extends Model
     }
 
     /**
-     * Format: SFN + farm_id (zero-padded to at least 2 digits) + DDMMYY
-     * (installation date), e.g. SFN01210726 for farm #1's device installed
-     * on 21 July 2026. Unlike generateSensorCode() above, the farm id makes
-     * this unique across farms even when several farms install a device on
-     * the exact same date — a plain date-only code would collide there. A
-     * letter suffix (B, C, D...) still covers the remaining edge case of
-     * the *same* farm registering more than one device on the same day.
+     * Admin-facing Device Name: the permanent label when one was entered,
+     * otherwise the legacy auto-generated sensor_code.
      */
-    public static function generateDeviceName(int $farmId, $date): string
+    public function getDeviceNameAttribute(): ?string
     {
-        $date = $date instanceof Carbon ? $date : Carbon::parse($date);
-        $base = 'SFN' . str_pad((string) $farmId, 2, '0', STR_PAD_LEFT) . $date->format('dmy');
+        return $this->label ?: $this->sensor_code;
+    }
 
-        $name = $base;
-        $suffix = 65; // ASCII 'A'
-        while (static::where('label', $name)->exists()) {
-            $name = $base . chr($suffix);
-            $suffix++;
+    public function isActive(): bool
+    {
+        return $this->status === 'Active';
+    }
+
+    public function isAssigned(): bool
+    {
+        return $this->farm_id !== null;
+    }
+
+    /**
+     * True while the last accepted reading is younger than
+     * config('sensors.offline_after_minutes').
+     */
+    public function isOnline(): bool
+    {
+        if (!$this->last_seen_at) {
+            return false;
         }
 
-        return $name;
+        return $this->last_seen_at->gt(now()->subMinutes(config('sensors.offline_after_minutes')));
+    }
+
+    /**
+     * Device-level connectivity: 'Online' / 'Offline'. A device that is
+     * not assigned to any farm is reported as 'Unassigned' — the farm-level
+     * "Pending Setup" state lives in FarmStatusService::connectivity().
+     */
+    public function connectivity(): string
+    {
+        if (!$this->isAssigned()) {
+            return 'Unassigned';
+        }
+
+        return $this->isOnline() ? 'Online' : 'Offline';
     }
 
     public function farm()

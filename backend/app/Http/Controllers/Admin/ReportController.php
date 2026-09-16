@@ -54,6 +54,29 @@ class ReportController extends Controller
                 'status'            => $i->status,
             ]);
 
+        // Super Admin Reports lists Completed AND Scheduled inspections (the
+        // Admin page keeps using completed_inspections above). `date_raw` is
+        // whichever date the row is "about": completion date for Completed,
+        // scheduled date for Scheduled — that's what the date filter uses.
+        $inspectionRecordsList = Inspection::with('farm')
+            ->whereIn('status', ['Completed', 'Scheduled'])
+            ->get()
+            ->map(function ($i) {
+                $date = $i->status === 'Completed' ? $i->completed_at : $i->scheduled_at;
+                return [
+                    'id'                => $i->id,
+                    'inspection_number' => $i->inspection_number,
+                    'farm_name'         => $i->farm->farm_name,
+                    'owner_name'        => $i->farm->owner_name,
+                    'inspection_type'   => $i->inspection_type,
+                    'date'              => $date?->format('M d, Y'),
+                    'date_raw'          => $date?->toIso8601String(),
+                    'status'            => $i->status,
+                ];
+            })
+            ->sortByDesc('date_raw')
+            ->values();
+
         $serviceQuery = fn() => ServiceRequest::whereIn('service_type', self::ADMIN_SERVICE_TYPES);
 
         $totalServiceRequests     = $serviceQuery()->count();
@@ -77,12 +100,34 @@ class ReportController extends Controller
                 'status'           => $r->status,
             ]);
 
+        // Completed + Scheduled admin-handled requests for Super Admin
+        // Reports (same shape/date rule as $inspectionRecordsList).
+        $serviceRecordsList = $serviceQuery()
+            ->with('farm')
+            ->whereIn('status', ['Completed', 'Scheduled'])
+            ->get()
+            ->map(function ($r) {
+                $date = $r->status === 'Completed' ? $r->completed_at : $r->scheduled_at;
+                return [
+                    'id'           => $r->request_number,
+                    'service_type' => $r->service_type,
+                    'farm_name'    => $r->farm->farm_name,
+                    'owner_name'   => $r->farm->owner_name,
+                    'barangay'     => $r->farm->barangay,
+                    'date'         => $date?->format('M d, Y'),
+                    'date_raw'     => $date?->toIso8601String(),
+                    'status'       => $r->status,
+                ];
+            })
+            ->sortByDesc('date_raw')
+            ->values();
+
         // ------------------------------------------------------------- NEW
         // Maintenance tab — reuses the same MaintenanceStatusService the
         // Overdue Maintenance page already relies on, so "Overdue" /
         // "Non-Compliant" here mean exactly the same thing they do there.
         $maintenanceService = app(MaintenanceStatusService::class);
-        $activeFarms = Farm::where('status', 'Active')->get();
+        $activeFarms = Farm::where('status', 'Active')->with('latestCleanout')->get();
 
         $maintenanceStatuses = $activeFarms->map(function ($farm) use ($maintenanceService) {
             $status = $maintenanceService->getStatus($farm);
@@ -176,6 +221,9 @@ class ReportController extends Controller
                 ],
                 'completed_inspections' => $completedInspectionsList,
                 'completed_services'    => $completedServicesList,
+                // Super Admin Reports (Completed + Scheduled)
+                'inspection_records'    => $inspectionRecordsList,
+                'service_records'       => $serviceRecordsList,
 
                 // NEW — Overview tab
                 'overview_summary' => [

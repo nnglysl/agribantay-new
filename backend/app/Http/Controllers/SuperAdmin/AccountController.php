@@ -111,7 +111,13 @@ class AccountController extends Controller
 
         $isEmail = filter_var($request->contact, FILTER_VALIDATE_EMAIL);
 
-        if (!$isEmail && !preg_match('/^09\d{9}$/', $request->contact)) {
+        // Phone branch only: dashes etc. are cosmetic too, so compare and
+        // store the canonical digits-only form (see User::normalizeMobileNumber).
+        if (!$isEmail) {
+            $request->merge(['contact' => User::normalizeMobileNumber($request->contact)]);
+        }
+
+        if (!$isEmail && !preg_match('/^09\d{9}$/', (string) $request->contact)) {
             return response()->json([
                 'success' => false,
                 'message' => 'Please enter a valid Philippine mobile number (e.g. 09171234567).',
@@ -127,7 +133,7 @@ class AccountController extends Controller
                 'success' => false,
                 'message' => $isEmail
                     ? 'An account with this email already exists.'
-                    : 'An account with this mobile number already exists.',
+                    : 'The mobile number has already been taken.',
             ], 422);
         }
 
@@ -199,15 +205,28 @@ class AccountController extends Controller
             'contact_number' => 'required|string',
         ]);
 
-        // Spaces are cosmetic (e.g. "0917 123 4567") — strip them before the
-        // regex check so the validation and the stored value both only see
-        // the actual digits, not how the user chose to space them out.
-        $request->merge(['contact_number' => preg_replace('/\s+/', '', (string) $request->contact_number)]);
+        // Spaces/dashes are cosmetic (e.g. "0917 123 4567", "0917-123-4567") —
+        // normalize to digits before the regex and uniqueness checks so
+        // formatting can never disguise an already-registered number.
+        $request->merge(['contact_number' => User::normalizeMobileNumber((string) $request->contact_number)]);
 
-        if (!preg_match('/^09\d{9}$/', $request->contact_number)) {
+        if (!preg_match('/^09\d{9}$/', (string) $request->contact_number)) {
             return response()->json([
                 'success' => false,
                 'message' => 'Please enter a valid Philippine mobile number (e.g. 09171234567).',
+            ], 422);
+        }
+
+        // A mobile number belongs to exactly one account system-wide; ignore
+        // this account's own row so re-saving the same number still works.
+        $taken = User::where('mobile_number', $request->contact_number)
+            ->where('id', '!=', $account->id)
+            ->exists();
+
+        if ($taken) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The mobile number has already been taken.',
             ], 422);
         }
 

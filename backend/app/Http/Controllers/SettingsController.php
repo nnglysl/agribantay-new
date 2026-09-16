@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\EmailVerificationOtp;
 use App\Mail\OtpCodeMail;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
@@ -61,32 +62,26 @@ class SettingsController extends Controller
         /** @var \App\Models\User $user */
         $user = Auth::user();
 
-        // Spaces are cosmetic (e.g. "0917 123 4567") — strip them before the
-        // regex check so the validation and the stored value both only see
-        // the actual digits, not how the user chose to space them out.
+        // Spaces/dashes are cosmetic (e.g. "0917 123 4567", "0917-123-4567") —
+        // normalize to digits before the regex and uniqueness checks so
+        // formatting can never disguise an already-registered number.
         if ($request->filled('mobile_number')) {
-            $request->merge(['mobile_number' => preg_replace('/\s+/', '', $request->mobile_number)]);
+            $request->merge(['mobile_number' => User::normalizeMobileNumber($request->mobile_number)]);
         }
 
         $request->validate([
             'first_name'    => 'required|string',
             'last_name'     => 'required|string',
-            'mobile_number' => ['required', 'string', 'regex:/^09\d{9}$/'],
+            // A mobile number belongs to exactly one account system-wide;
+            // ignore this user's own row so keeping the same number still saves.
+            'mobile_number' => [
+                'required', 'string', 'regex:/^09\d{9}$/',
+                Rule::unique('users', 'mobile_number')->ignore($user->id),
+            ],
             'profile_photo' => 'nullable|image|max:5120',
         ], [
             'mobile_number.regex' => 'Please enter a valid Philippine mobile number (e.g. 09171234567).',
         ]);
-
-        $mobileExists = User::where('mobile_number', $request->mobile_number)
-            ->where('id', '!=', $user->id)
-            ->exists();
-
-        if ($mobileExists) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Another account already uses this mobile number.',
-            ], 422);
-        }
 
        $updates = [
             'first_name'    => $request->first_name,

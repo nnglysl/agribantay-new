@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import AdminLayout from '../../components/AdminLayout'
 import FarmMap from '../../components/FarmMap'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
@@ -6,13 +6,31 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 import { useMonthFilter, filterByMonth } from '../../hooks/useMonthFilter'
 
 export default function SuperAdminDashboard() {
-  const { data, loading, error } = useCachedFetch('/admin/dashboard')
-  const { data: mapFarms } = useCachedFetch('/admin/farms-map')
-  const { data: inspectionsData } = useCachedFetch('/admin/inspections')
+  const { data, loading, error, refetch: refetchDashboard } = useCachedFetch('/admin/dashboard')
+  const { data: mapFarms, refetch: refetchMap } = useCachedFetch('/admin/farms-map')
+  const { data: inspectionsData, refetch: refetchInspections } = useCachedFetch('/admin/inspections')
 
-  const { data: accounts } = useCachedFetch('/superadmin/accounts')
-  const { data: adminReportData } = useCachedFetch('/admin/reports')
-  const { data: vetReportData } = useCachedFetch('/vet/reports')
+  const { data: accounts, refetch: refetchAccounts } = useCachedFetch('/superadmin/accounts')
+  const { data: adminReportData, refetch: refetchAdminReports } = useCachedFetch('/admin/reports')
+  const { data: vetReportData, refetch: refetchVetReports } = useCachedFetch('/vet/reports')
+
+  // Background sync. If the numbers came from the in-memory cache (revisiting
+  // the dashboard after e.g. reactivating a Vet elsewhere), refresh them right
+  // away; a first load is already fresh. Then re-sync every 60s while the
+  // dashboard is open. refetch() only flips isRefetching once data exists, so
+  // cards update in place without a loading flash. Notifications poll on
+  // their own inside the panel.
+  const servedFromCache = useRef(data != null)
+  useEffect(() => {
+    const sync = () => {
+      refetchDashboard(); refetchMap(); refetchInspections()
+      refetchAccounts(); refetchAdminReports(); refetchVetReports()
+    }
+    if (servedFromCache.current) sync()
+    const id = setInterval(sync, 60000)
+    return () => clearInterval(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const isMobile = useIsMobile()
   const [modalOpen, setModalOpen] = useState(null)
@@ -39,9 +57,12 @@ export default function SuperAdminDashboard() {
       <p style={styles.subtitle}>Welcome back, Super Administrator</p>
 
       <div style={{ ...styles.statsGrid, ...(isMobile ? styles.statsGridMobile : {}) }}>
-        <StatCard value={totalAdmins} label="Admin Accounts" isMobile={isMobile} />
-        <StatCard value={totalVets} label="Veterinarian Accounts" isMobile={isMobile} />
+        {/* Order matters: Total Farms → Admin Accounts → Vet Accounts. Each
+            card is bound to its own value (farm count from /admin/dashboard;
+            active admin/vet counts from /superadmin/accounts). */}
         <StatCard value={data.total_farms} label="Total Farms" isMobile={isMobile} />
+        <StatCard value={totalAdmins} label="Admin Accounts" isMobile={isMobile} />
+        <StatCard value={totalVets} label="Vet Accounts" isMobile={isMobile} />
       </div>
 
       <h3 style={styles.mapTitle}>Farm monitoring map</h3>

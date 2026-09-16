@@ -12,9 +12,11 @@
                     </tr>
                     <tr>
                         <td style="padding:32px 30px;">
-                            <h2 style="color:#16311d; margin:0 0 14px;">{{ ($purpose ?? 'password_reset') === 'email_verification' ? 'Email Verification Code' : 'Password Reset Code' }}</h2>
+                            <h2 style="color:#16311d; margin:0 0 14px;">{{ match($purpose ?? 'password_reset') { 'email_verification' => 'Email Verification Code', 'farm_deletion' => 'Farm Deletion Verification Code', default => 'Password Reset Code' } }}</h2>
                             <p style="color:#4b5a50; font-size:14px; line-height:1.6; margin:0 0 22px;">
-                                @if(($purpose ?? 'password_reset') === 'email_verification')
+                                @if(($purpose ?? 'password_reset') === 'farm_deletion')
+                                    Hi {{ $user->first_name }}, use the code below to confirm the permanent deletion of a farm and its records in AgriBantay. This code expires in 10 minutes.
+                                @elseif(($purpose ?? 'password_reset') === 'email_verification')
                                     Hi {{ $user->first_name }}, use the code below to verify this email address for your AgriBantay account. This code expires in 10 minutes.
                                 @else
                                     Hi {{ $user->first_name }}, use the code below to verify your identity and reset your AgriBantay password. This code expires in 10 minutes.
@@ -24,7 +26,9 @@
                                 {{ $code }}
                             </div>
                             <p style="color:#9aa79d; font-size:12.5px; margin:22px 0 0;">
-                                @if(($purpose ?? 'password_reset') === 'email_verification')
+                                @if(($purpose ?? 'password_reset') === 'farm_deletion')
+                                    If you didn't request this, you can safely ignore this email — nothing will be deleted unless this code is used.
+                                @elseif(($purpose ?? 'password_reset') === 'email_verification')
                                     If you didn't request this, you can safely ignore this email — this email address won't be added to any account unless this code is used.
                                 @else
                                     If you didn't request this, you can safely ignore this email — your password won't change unless this code is used.

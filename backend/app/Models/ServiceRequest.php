@@ -13,6 +13,7 @@ class ServiceRequest extends Model
         'accepted_by',
         'service_type',
         'notes',
+        'completion_notes',
         'status',
         'priority',
         'scheduled_at',

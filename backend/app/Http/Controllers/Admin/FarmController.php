@@ -9,6 +9,7 @@ use App\Models\ActivityLog;
 use App\Services\SmsService;
 use App\Services\FarmStatusService;
 use App\Services\GeocodingService;
+use App\Services\FarmLocationService;
 use App\Services\TrendAnalysisService;
 use App\Services\RootCauseService;
 use App\Services\PreventiveActionService;
@@ -20,15 +21,25 @@ use App\Models\Inspection;
 use App\Models\ServiceRequest;
 use App\Mail\TempPasswordMail;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Validation\ValidationException;
 
 class FarmController extends Controller
 {
+    // Farms list: columns the table may sort by, the page sizes its pager
+    // offers, and the timezone its registration-date filter is expressed
+    // in (created_at is stored in UTC).
+    private const SORTABLE_COLUMNS = ['farm_name', 'owner_name', 'barangay', 'farm_size', 'created_at'];
+    private const PAGE_SIZES = [10, 25, 50, 100];
+    private const DISPLAY_TIMEZONE = 'Asia/Manila';
+
     public function index(Request $request)
     {
-        $query = Farm::with(['user', 'sensors', 'sensorReadings' => function ($q) {
+        $query = Farm::with(['user', 'sensors', 'latestReading', 'sensorReadings' => function ($q) {
             $q->latest()->limit(1)->with('sensor');
         }]);
 
@@ -48,20 +59,72 @@ class FarmController extends Controller
             });
         }
 
-        $farms = $query->latest()->get();
+        // Every filter runs in SQL so a paginated page is cut from the
+        // complete, already-filtered dataset (counts stay exact).
+        if ($request->farm_size) {
+            $query->where('farm_size', $request->farm_size);
+        }
+
+        // Monitoring status is derived (FarmStatusService::displayStatus):
+        // "Pending Setup" = no Active device OR no reading yet; otherwise the
+        // farm's current_status. Expressed here as the equivalent SQL so the
+        // filter can apply before pagination instead of after fetching all rows.
+        if ($request->monitoring_status) {
+            $hasActiveDevice = fn ($q) => $q->whereHas('sensors', fn ($s) => $s->where('status', 'Active'));
+            if ($request->monitoring_status === 'Pending Setup') {
+                $query->where(function ($q) {
+                    $q->whereDoesntHave('sensors', fn ($s) => $s->where('status', 'Active'))
+                      ->orWhereDoesntHave('sensorReadings');
+                });
+            } else {
+                $query->where(function ($q) use ($hasActiveDevice, $request) {
+                    $hasActiveDevice($q)->whereHas('sensorReadings')->where('current_status', $request->monitoring_status);
+                });
+            }
+        }
+
+        // Registration-date range, inclusive, as calendar days in the LGU's
+        // local timezone (the app stores UTC). Matches what the table shows.
+        if ($request->from || $request->to) {
+            $tz = self::DISPLAY_TIMEZONE;
+            if ($request->from) {
+                $query->where('created_at', '>=', Carbon::parse($request->from, $tz)->startOfDay()->utc());
+            }
+            if ($request->to) {
+                $query->where('created_at', '<=', Carbon::parse($request->to, $tz)->endOfDay()->utc());
+            }
+        }
+
+        // Sorting: whitelisted columns only; anything else falls back to the
+        // original newest-first order.
+        $sort = $request->input('sort');
+        $dir = strtolower((string) $request->input('dir', 'asc')) === 'desc' ? 'desc' : 'asc';
+        if (in_array($sort, self::SORTABLE_COLUMNS, true)) {
+            $query->orderBy($sort, $dir)->orderBy('id', 'desc');
+        } else {
+            $query->latest();
+        }
+
+        // Server-side pagination when the caller asks for it (Farms pages).
+        // Callers that omit per_page (farm dropdowns, device assignment)
+        // still get the complete list exactly as before.
+        $paginator = null;
+        if ($request->filled('per_page')) {
+            $perPage = (int) $request->per_page;
+            $perPage = in_array($perPage, self::PAGE_SIZES, true) ? $perPage : 10;
+            $paginator = $query->paginate($perPage, ['*'], 'page', max(1, (int) $request->input('page', 1)));
+            $farms = $paginator->getCollection();
+        } else {
+            $farms = $query->get();
+        }
 
         $statusService = app(FarmStatusService::class);
 
+        // Ingest already keeps current_status in step with each new reading;
+        // this read-side sync is the same safety net as before, now only
+        // for the rows being returned.
         foreach ($farms as $farm) {
             $statusService->syncStatus($farm);
-        }
-
-        if ($request->monitoring_status) {
-            $farms = $farms->filter(fn($f) => $statusService->displayStatus($f) === $request->monitoring_status)->values();
-        }
-
-        if ($request->farm_size) {
-            $farms = $farms->filter(fn($f) => $f->farm_size === $request->farm_size)->values();
         }
 
         $farms = $farms->map(function ($farm) use ($statusService) {
@@ -91,13 +154,28 @@ class FarmController extends Controller
                 'farm_area_unit' => $farm->farm_area_unit,
                 'status'      => $farm->status,
                 'current_status' => $displayStatus,
-                'device_name' => $sensor?->label ?: $sensor?->sensor_code,
+                'device_name' => $sensor?->device_name,
+                'connectivity' => $statusService->connectivity($farm),
+                'last_seen_at' => $statusService->lastSeenAt($farm),
                 'ammonia'     => $latestReading?->ammonia,
                 'ammonia_status' => $latestReading?->ammonia_status,
                 'sensor_status'  => $displayStatus,
                 'created_at'  => $farm->created_at,
             ];
         });
+
+        if ($paginator) {
+            return response()->json([
+                'success' => true,
+                'data'    => [
+                    'items'     => $farms->values(),
+                    'total'     => $paginator->total(),
+                    'page'      => $paginator->currentPage(),
+                    'per_page'  => $paginator->perPage(),
+                    'last_page' => max(1, $paginator->lastPage()),
+                ],
+            ]);
+        }
 
         return response()->json(['success' => true, 'data' => $farms]);
     }
@@ -106,7 +184,7 @@ class FarmController extends Controller
     {
         $farms = Farm::whereNotNull('latitude')
             ->whereNotNull('longitude')
-            ->with(['sensors', 'sensorReadings' => function ($q) {
+            ->with(['sensors', 'latestReading', 'sensorReadings' => function ($q) {
                 $q->latest()->limit(1);
             }])
             ->get();
@@ -127,7 +205,13 @@ class FarmController extends Controller
                 'current_status' => $statusService->displayStatus($f),
             ]);
 
-        return response()->json(['success' => true, 'data' => $farms]);
+        return response()->json([
+            'success' => true,
+            'data'    => $farms,
+            // Lets the Location Preview run the same "area already marked"
+            // proximity check the server enforces on save.
+            'duplicate_radius_meters' => app(FarmLocationService::class)->radiusMeters(),
+        ]);
     }
 
     private function geocodeWithFallback(?string $lotNumber, ?string $street, string $barangay): ?array
@@ -168,12 +252,14 @@ class FarmController extends Controller
      */
     public function store(Request $request)
     {
-        // Spaces are cosmetic (e.g. "0917 123 4567") — strip them before the
-        // regex check so the validation and the stored value both only see
-        // the actual digits, not how the user chose to space them out.
+        // Spaces/dashes are cosmetic (e.g. "0917 123 4567", "0917-123-4567") —
+        // normalize to digits before the regex and uniqueness checks so
+        // formatting can never disguise an already-registered number.
         if ($request->filled('mobile_number')) {
-            $request->merge(['mobile_number' => preg_replace('/\s+/', '', $request->mobile_number)]);
+            $request->merge(['mobile_number' => User::normalizeMobileNumber($request->mobile_number)]);
         }
+
+        $location = app(FarmLocationService::class);
 
         $request->validate([
             'farm_owner_id' => 'nullable|exists:users,id',
@@ -187,15 +273,62 @@ class FarmController extends Controller
             'farm_type'     => 'nullable|string',
             'farm_area'     => 'nullable|numeric',
             'farm_area_unit'=> 'nullable|in:sqm,hectare',
-            'barangay'      => 'required|string',
+            // Only the 33 official barangays (config/geography.php) — a
+            // hand-crafted request can't smuggle in a made-up one.
+            'barangay'      => ['required', 'string', Rule::in($location->officialBarangays())],
             'lot_number'    => 'nullable|string',
             'street'        => 'nullable|string',
             'landmark'      => 'nullable|string',
             'address'       => 'nullable|string',
-            'latitude'      => 'nullable|numeric',
-            'longitude'     => 'nullable|numeric',
+            'latitude'      => 'nullable|numeric|between:-90,90|required_with:longitude',
+            'longitude'     => 'nullable|numeric|between:-180,180|required_with:latitude',
             'farm_size'     => 'required|in:Small,Medium,Large',
+        ], [
+            'barangay.in' => FarmLocationService::INVALID_BARANGAY_MESSAGE,
         ]);
+
+        // Resolve the pin BEFORE creating anything: a location conflict must
+        // reject the whole request without leaving a stray owner account.
+        // Same composition as update(), so a farm's address reads identically
+        // whether it was just registered or later edited. A free-text
+        // `address` is only honoured when no structured parts were given.
+        $addressParts = array_filter([
+            $request->lot_number,
+            $request->street,
+            $request->barangay,
+            'San Jose',
+            'Batangas',
+            'Philippines',
+        ]);
+        $fullAddress = (!$request->lot_number && !$request->street && $request->address)
+            ? $request->address
+            : implode(', ', $addressParts);
+
+        if ($request->filled('latitude') && $request->filled('longitude')) {
+            $latitude  = $request->latitude;
+            $longitude = $request->longitude;
+        } else {
+            $coordinates = $this->geocodeWithFallback(
+                $request->lot_number,
+                $request->street,
+                $request->barangay
+            );
+            $latitude  = $coordinates['latitude'] ?? null;
+            $longitude = $coordinates['longitude'] ?? null;
+        }
+
+        // A farm can't be saved without a pin: the frontend always sends
+        // one, and the geocode fallback above covers direct API callers.
+        if ($latitude === null || $longitude === null) {
+            throw ValidationException::withMessages([
+                'location' => ['A pinned location is required before this farm can be saved.'],
+            ]);
+        }
+
+        // Ordered location rules — inside San Jose, official barangay,
+        // barangay <-> pin consistency, then the one-farm-per-area check.
+        // Any failure is a 422 before an owner account or farm is written.
+        $locationCheck = $location->assertValidLocation((float) $latitude, (float) $longitude, $request->barangay);
 
         $smsSent = null;
         $delivered = null;
@@ -242,32 +375,6 @@ class FarmController extends Controller
             }
         }
 
-        if ($request->filled('latitude') && $request->filled('longitude')) {
-            $latitude  = $request->latitude;
-            $longitude = $request->longitude;
-            $fullAddress = $request->address ?: implode(', ', array_filter([
-                $request->barangay, 'San Jose', 'Batangas', 'Philippines',
-            ]));
-        } else {
-            $addressParts = array_filter([
-                $request->lot_number,
-                $request->street,
-                $request->barangay,
-                'San Jose',
-                'Batangas',
-                'Philippines',
-            ]);
-            $fullAddress = implode(', ', $addressParts);
-
-            $coordinates = $this->geocodeWithFallback(
-                $request->lot_number,
-                $request->street,
-                $request->barangay
-            );
-            $latitude  = $coordinates['latitude'] ?? null;
-            $longitude = $coordinates['longitude'] ?? null;
-        }
-
         $farm = Farm::create([
             'user_id'        => $user->id,
             'farm_name'      => $request->farm_name,
@@ -275,6 +382,9 @@ class FarmController extends Controller
             'mobile_number'  => $user->mobile_number,
             'barangay'       => $request->barangay,
             'address'        => $fullAddress . ($request->landmark ? " (near {$request->landmark})" : ''),
+            'lot_number'     => $request->lot_number,
+            'street'         => $request->street,
+            'landmark'       => $request->landmark,
             'farm_size'      => $request->farm_size,
             'farm_type'      => $request->farm_type,
             'farm_area'      => $request->farm_area,
@@ -299,6 +409,7 @@ class FarmController extends Controller
             'sms_sent'       => $smsSent,
             'delivered'      => $delivered,
             'contact_method' => $contactMethod,
+            'location'       => $locationCheck,
             'data'           => ['user' => $user, 'farm' => $farm],
         ]);
     }
@@ -350,7 +461,12 @@ class FarmController extends Controller
             },
         ])->findOrFail($id);
 
-        $farm->display_status = app(FarmStatusService::class)->displayStatus($farm);
+        $statusService = app(FarmStatusService::class);
+        $farm->display_status = $statusService->displayStatus($farm);
+        // Device communication state (Pending Setup / Online / Offline) —
+        // derived from sensors.last_seen_at, not from whether a reading exists.
+        $farm->connectivity = $statusService->connectivity($farm);
+        $farm->last_seen_at = $statusService->lastSeenAt($farm);
         $farm->maintenance_status = app(MaintenanceStatusService::class)->getStatus($farm);
         $farm->maintenance_logs = MaintenanceLog::where('farm_id', $farm->id)
             ->latest('performed_at')
@@ -581,53 +697,127 @@ class FarmController extends Controller
     {
         $farm = Farm::with('user')->findOrFail($id);
 
-        // Spaces are cosmetic (e.g. "0917 123 4567") — strip them before the
-        // regex check so the validation and the stored value both only see
-        // the actual digits, not how the user chose to space them out.
+        // Spaces/dashes are cosmetic (e.g. "0917 123 4567", "0917-123-4567") —
+        // normalize to digits before the regex and uniqueness checks so
+        // formatting can never disguise an already-registered number.
         if ($request->filled('mobile_number')) {
-            $request->merge(['mobile_number' => preg_replace('/\s+/', '', $request->mobile_number)]);
+            $request->merge(['mobile_number' => User::normalizeMobileNumber($request->mobile_number)]);
         }
+
+        $location = app(FarmLocationService::class);
 
         $request->validate([
             'first_name'    => 'sometimes|string',
             'last_name'     => 'sometimes|string',
-            'mobile_number' => ['sometimes', 'string', 'regex:/^09\d{9}$/'],
+            // Ignore the farm's own owner so re-saving an unchanged number
+            // passes; another owner already holding it must be rejected here
+            // rather than surfacing as a raw DB integrity error.
+            'mobile_number' => [
+                'sometimes', 'string', 'regex:/^09\d{9}$/',
+                Rule::unique('users', 'mobile_number')->ignore($farm->user_id),
+            ],
             'farm_name'     => 'sometimes|string',
-            'barangay'      => 'sometimes|string',
+            'barangay'      => ['sometimes', 'string', Rule::in($location->officialBarangays())],
             'lot_number'    => 'nullable|string',
             'street'        => 'nullable|string',
             'landmark'      => 'nullable|string',
             'farm_size'     => 'sometimes|in:Small,Medium,Large',
+            'latitude'      => 'nullable|numeric|between:-90,90|required_with:longitude',
+            'longitude'     => 'nullable|numeric|between:-180,180|required_with:latitude',
             'profile_photo' => 'nullable|image|max:5120',
+        ], [
+            'barangay.in' => FarmLocationService::INVALID_BARANGAY_MESSAGE,
         ]);
+
+        // Work out where the pin will end up before writing anything, so a
+        // location conflict rejects the request as a clean 422. A pin sent
+        // explicitly (marker dragged on the edit form) wins; otherwise the
+        // address is re-geocoded — but ONLY when lot/street/barangay actually
+        // differ from what's stored. The edit form always re-sends them, and
+        // lot/purok-level queries rarely resolve, so re-geocoding an unchanged
+        // address would snap the pin back to the barangay centroid on every
+        // save (discarding a dragged pin, and colliding with any other farm
+        // in the same barangay that fell back to the same centroid).
+        $pinnedByUser = $request->filled('latitude') && $request->filled('longitude');
+        $addressChanged = false;
+        foreach (['barangay', 'lot_number', 'street'] as $part) {
+            if ($request->has($part) && trim((string) $request->input($part)) !== trim((string) $farm->{$part})) {
+                $addressChanged = true;
+                break;
+            }
+        }
+
+        $newLatitude  = $farm->latitude;
+        $newLongitude = $farm->longitude;
+        $fullAddress  = null;
+
+        $part = fn (string $k) => $request->has($k) ? $request->input($k) : $farm->{$k};
+
+        if ($addressChanged || $request->has('landmark')) {
+            $addressParts = array_filter([
+                $part('lot_number'),
+                $part('street'),
+                $part('barangay'),
+                'San Jose',
+                'Batangas',
+                'Philippines',
+            ]);
+            $fullAddress = implode(', ', $addressParts);
+        }
+
+        if ($pinnedByUser) {
+            $newLatitude  = $request->latitude;
+            $newLongitude = $request->longitude;
+        } elseif ($addressChanged) {
+            $coordinates = $this->geocodeWithFallback(
+                $part('lot_number'),
+                $part('street'),
+                $part('barangay')
+            );
+            $newLatitude  = $coordinates['latitude'] ?? $farm->latitude;
+            $newLongitude = $coordinates['longitude'] ?? $farm->longitude;
+        }
+
+        // Location rules run when the pin or the barangay is actually
+        // changing. An edit that leaves both alone (owner details, farm
+        // size, landmark…) must keep saving even for farms registered before
+        // these rules existed, whose stored pin may not pass them today.
+        // The farm's own current pin never counts against it in the
+        // one-farm-per-area check, so an unchanged location always passes.
+        $pinChanged = $newLatitude !== null && $newLongitude !== null && (
+            $farm->latitude === null || $farm->longitude === null
+            || $location->distanceMeters((float) $newLatitude, (float) $newLongitude, (float) $farm->latitude, (float) $farm->longitude) > 1
+        );
+        $barangayChanged = $request->has('barangay') && $request->input('barangay') !== $farm->barangay;
+
+        $locationCheck = null;
+        if ($pinChanged || $barangayChanged) {
+            if ($newLatitude === null || $newLongitude === null) {
+                throw ValidationException::withMessages([
+                    'location' => ['A pinned location is required before this farm can be saved.'],
+                ]);
+            }
+            $locationCheck = $location->assertValidLocation((float) $newLatitude, (float) $newLongitude, $part('barangay'), $farm->id);
+        } elseif ($newLatitude !== null && $newLongitude !== null) {
+            $location->assertLocationAvailable((float) $newLatitude, (float) $newLongitude, $farm->id);
+        }
 
         $farm->update($request->only([
             'farm_name', 'barangay', 'farm_size', 'mobile_number',
             'lot_number', 'street', 'landmark',
         ]));
 
-        if ($request->barangay || $request->lot_number || $request->street) {
-            $addressParts = array_filter([
-                $request->lot_number,
-                $request->street,
-                $request->barangay ?? $farm->barangay,
-                'San Jose',
-                'Batangas',
-                'Philippines',
-            ]);
-            $fullAddress = implode(', ', $addressParts);
-
-            $coordinates = $this->geocodeWithFallback(
-                $request->lot_number,
-                $request->street,
-                $request->barangay ?? $farm->barangay
-            );
-
-            $farm->update([
-                'address'   => $fullAddress . ($request->landmark ? " (near {$request->landmark})" : ''),
-                'latitude'  => $coordinates['latitude'] ?? $farm->latitude,
-                'longitude' => $coordinates['longitude'] ?? $farm->longitude,
-            ]);
+        $locationUpdate = [];
+        if ($fullAddress !== null) {
+            $landmark = $part('landmark');
+            $locationUpdate['address'] = $fullAddress . ($landmark ? " (near {$landmark})" : '');
+        }
+        if ($pinnedByUser || $addressChanged) {
+            $locationUpdate['latitude']  = $newLatitude;
+            $locationUpdate['longitude'] = $newLongitude;
+        }
+        if ($locationUpdate) {
+            $farm->update($locationUpdate);
         }
 
         // Email is deliberately excluded here — changing it to a NEW address
@@ -658,9 +848,40 @@ class FarmController extends Controller
         ]);
 
         return response()->json([
+            'success'  => true,
+            'message'  => 'Farm updated successfully.',
+            'location' => $locationCheck,
+            'data'     => $farm,
+        ]);
+    }
+
+    /**
+     * Live check behind the Location Preview: the frontend calls this
+     * (debounced) whenever the pin or barangay changes so the user sees the
+     * same verdict — outside / mismatch / duplicate / verified / unverified —
+     * that store()/update() will enforce on save. Nothing is written.
+     */
+    public function checkLocation(Request $request)
+    {
+        $location = app(FarmLocationService::class);
+
+        $request->validate([
+            'latitude'        => 'required|numeric|between:-90,90',
+            'longitude'       => 'required|numeric|between:-180,180',
+            'barangay'        => ['required', 'string', Rule::in($location->officialBarangays())],
+            'exclude_farm_id' => 'nullable|integer|exists:farms,id',
+        ], [
+            'barangay.in' => FarmLocationService::INVALID_BARANGAY_MESSAGE,
+        ]);
+
+        return response()->json([
             'success' => true,
-            'message' => 'Farm updated successfully.',
-            'data'    => $farm,
+            'data'    => $location->validate(
+                (float) $request->latitude,
+                (float) $request->longitude,
+                $request->barangay,
+                $request->exclude_farm_id ? (int) $request->exclude_farm_id : null
+            ),
         ]);
     }
 

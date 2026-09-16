@@ -18,10 +18,14 @@ class MaintenanceStatusService
 
     public function getStatus(Farm $farm): array
     {
-        $lastLog = MaintenanceLog::where('farm_id', $farm->id)
-            ->where('maintenance_type', 'Full Manure Clean-out')
-            ->latest('performed_at')
-            ->first();
+        // Callers iterating many farms eager-load latestCleanout so this is
+        // one query in total rather than one per farm.
+        $lastLog = $farm->relationLoaded('latestCleanout')
+            ? $farm->latestCleanout
+            : MaintenanceLog::where('farm_id', $farm->id)
+                ->where('maintenance_type', 'Full Manure Clean-out')
+                ->latest('performed_at')
+                ->first();
 
         $anchorDate = $lastLog
             ? Carbon::parse($lastLog->performed_at)

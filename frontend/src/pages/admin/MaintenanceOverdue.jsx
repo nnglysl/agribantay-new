@@ -1,9 +1,11 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
 import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { useDebouncedValue } from '../../hooks/useDebouncedValue'
+import { BARANGAYS } from '../../constants/barangays'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 const FARM_SIZES = ['Small', 'Medium', 'Large']
@@ -13,7 +15,10 @@ const STATUS_BG = { Overdue: '#fbf1e2', 'Non-Compliant': '#fbeaea' }
 
 export default function MaintenanceOverdue() {
   const navigate = useNavigate()
-  const [search, setSearch] = useState('')
+  // Deep links (e.g. from a Super Admin dashboard notification) can preset
+  // the tab and search via ?tab= / ?search= so the relevant record is in view.
+  const [searchParams] = useSearchParams()
+  const [search, setSearch] = useState(() => searchParams.get('search') || '')
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const isMobile = useIsMobile()
@@ -27,17 +32,13 @@ export default function MaintenanceOverdue() {
   const filterRef = useRef(null)
 
   const params = {}
-  if (search) params.search = search
+  // Debounced so typing doesn't fire a request per keystroke.
+  const debouncedSearch = useDebouncedValue(search)
+  if (debouncedSearch) params.search = debouncedSearch
 
-  const { data: farms, loading, error } = useCachedFetch('/admin/maintenance/overdue', params)
+  const { data: farms, loading, error } = useCachedFetch('/admin/maintenance/overdue', params, { pollMs: 45000 })
 
   const overdueFarms = farms || []
-
-  const barangayOptions = useMemo(() => {
-    const set = new Set()
-    overdueFarms.forEach(f => { if (f.barangay) set.add(f.barangay) })
-    return [...set].sort()
-  }, [overdueFarms])
 
   const filteredFarms = useMemo(() => {
     return overdueFarms.filter(f => {
@@ -150,7 +151,7 @@ export default function MaintenanceOverdue() {
               <label style={styles.filterLabel}>Barangay</label>
               <select value={draftBarangay} onChange={e => setDraftBarangay(e.target.value)} style={styles.filterSelect}>
                 <option value="">All Barangays</option>
-                {barangayOptions.map(b => <option key={b} value={b}>{b}</option>)}
+                {BARANGAYS.map(b => <option key={b} value={b}>{b}</option>)}
               </select>
 
               <label style={styles.filterLabel}>Farm Size</label>

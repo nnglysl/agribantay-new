@@ -1,6 +1,7 @@
 import { formatDate, formatDateTime } from '../utils/formatDate'
 import { viewModalStyles as v } from '../styles/viewModalStyles'
 import { serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../utils/serviceBadgeStyle'
+import { requestDisplayStatus } from '../utils/serviceRequestStatus'
 
 const BIRD_ESTIMATES = {
   Small: 'Below 10,000 layers',
@@ -29,6 +30,8 @@ function farmSizeLabel(size) {
  * from the farm already loaded on that page — before passing `request` in.
  */
 export default function ServiceRequestDetailsModal({ request, onClose, isMobile }) {
+  // "Overdue" is derived from the schedule; the stored status stays Scheduled.
+  const status = requestDisplayStatus(request)
   const farmFields = [
     { label: 'Farm Name', value: request.farm_name },
     { label: 'Farm Owner', value: request.owner_name },
@@ -44,7 +47,7 @@ export default function ServiceRequestDetailsModal({ request, onClose, isMobile 
       ? [{ label: 'Completed Date', value: request.completed_at ? formatDateTime(request.completed_at) : null }]
       : []),
     { label: 'Handled By', value: request.accepted_by },
-    { label: 'Status', value: request.status },
+    { label: 'Status', value: status },
     ...(request.status === 'Cancelled' && request.decline_reason
       ? [{ label: 'Decline Reason', value: request.decline_reason }]
       : []),
@@ -57,7 +60,7 @@ export default function ServiceRequestDetailsModal({ request, onClose, isMobile 
           <div style={styles.headerTop}>
             <div style={v.headerTitleRow}>
               <h3 style={v.title}>{request.request_number || 'Service Request'}</h3>
-              <span style={{ ...v.badge, ...requestStatusBadgeStyle(request.status) }}>{request.status}</span>
+              <span style={{ ...v.badge, ...requestStatusBadgeStyle(status) }}>{status}</span>
             </div>
             <span style={v.close} onClick={onClose}>×</span>
           </div>
@@ -83,7 +86,7 @@ export default function ServiceRequestDetailsModal({ request, onClose, isMobile 
               {f.label === 'Service Type' && request.service_type ? (
                 <span style={{ ...v.badge, ...serviceTypeBadgeStyle(request.service_type) }}>{f.value}</span>
               ) : f.label === 'Status' && request.status ? (
-                <span style={{ ...v.badge, ...requestStatusBadgeStyle(request.status) }}>{f.value}</span>
+                <span style={{ ...v.badge, ...requestStatusBadgeStyle(status) }}>{f.value}</span>
               ) : (
                 <div style={v.fieldValue}>{f.value || '—'}</div>
               )}
@@ -91,10 +94,27 @@ export default function ServiceRequestDetailsModal({ request, onClose, isMobile 
           ))}
         </div>
 
-        <span style={v.sectionLabel}>Visit Notes</span>
-        <div style={v.notesBox}>
-          <p style={v.notes}>{request.notes || 'No notes recorded.'}</p>
-        </div>
+        {request.completion_notes ? (
+          // New records keep the farmer's request text and the completion
+          // notes apart; older rows only have `notes`, shown as before.
+          <>
+            <span style={v.sectionLabel}>Request Notes</span>
+            <div style={{ ...v.notesBox, marginBottom: '12px' }}>
+              <p style={v.notes}>{request.notes || 'No notes recorded.'}</p>
+            </div>
+            <span style={v.sectionLabel}>Visit Notes</span>
+            <div style={v.notesBox}>
+              <p style={v.notes}>{request.completion_notes}</p>
+            </div>
+          </>
+        ) : (
+          <>
+            <span style={v.sectionLabel}>Visit Notes</span>
+            <div style={v.notesBox}>
+              <p style={v.notes}>{request.notes || 'No notes recorded.'}</p>
+            </div>
+          </>
+        )}
 
         <div style={v.actions}>
           <button onClick={onClose} style={v.closeBtn}>Close</button>

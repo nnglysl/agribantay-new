@@ -6,11 +6,11 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 import { serviceTypeBadgeStyle, serviceTypeLabel } from '../../utils/serviceBadgeStyle'
 
 export default function VetDashboard() {
-  const { data, loading, error, refetch } = useCachedFetch('/vet/dashboard')
+  const { data, loading, error, refetch } = useCachedFetch('/vet/dashboard', {}, { pollMs: 60000 })
   // The Pending/Scheduled cards and tabs need both statuses, which is what
   // /vet/vaccination-requests's `scheduled` bucket already contains — the
   // same endpoint the Vet's own module page uses.
-  const { data: vaccinationData, loading: loadingVaccinations, refetch: refetchVaccinations } = useCachedFetch('/vet/vaccination-requests')
+  const { data: vaccinationData, loading: loadingVaccinations, refetch: refetchVaccinations } = useCachedFetch('/vet/vaccination-requests', {}, { pollMs: 60000 })
   // Every registered farm's coordinates — the map's default "show all
   // farms" layer, independent of which farms currently have a request.
   const { data: farmsData } = useCachedFetch('/vet/farms')

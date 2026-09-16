@@ -4,7 +4,11 @@ import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useSelectedFarm } from '../../hooks/useSelectedFarm'
 import { viewModalStyles as v } from '../../styles/viewModalStyles'
-import { formatDate as formatDateFull } from '../../utils/formatDate'
+import { formatDate as formatDateFull, isWithinLocalDateRange } from '../../utils/formatDate'
+import { useIsMobile } from '../../hooks/useIsMobile'
+import FilterPopover from '../../components/FilterPopover'
+import { filterStyles } from '../../styles/filterStyles'
+import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 
 const responsiveCss = `
   .insp-tabs {
@@ -73,15 +77,40 @@ function formatDateTime(value) {
 
 export default function Inspections() {
   const { selectedFarmId, farmsLoading } = useSelectedFarm()
-  const { data, loading } = useCachedFetch(selectedFarmId ? '/farmer/inspections' : null, { farm_id: selectedFarmId })
+  const { data, loading } = useCachedFetch(selectedFarmId ? '/farmer/inspections' : null, { farm_id: selectedFarmId }, { pollMs: 45000 })
   const [activeTab, setActiveTab] = useState('upcoming') // 'upcoming' | 'past'
   const [viewInspection, setViewInspection] = useState(null)
+  const isMobile = useIsMobile()
+
+  // From/To (scheduled date, inclusive local calendar dates) + Inspection
+  // Type. Upcoming/Past tabs already split by status, so no Status filter;
+  // the page is scoped to one farm, so no Farm filter.
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+  const [typeFilter, setTypeFilter] = useState('')
+  const [draftFrom, setDraftFrom] = useState('')
+  const [draftTo, setDraftTo] = useState('')
+  const [draftType, setDraftType] = useState('')
+
+  const openFilter = () => { setDraftFrom(fromDate); setDraftTo(toDate); setDraftType(typeFilter) }
+  const applyFilter = () => { setFromDate(draftFrom); setToDate(draftTo); setTypeFilter(draftType) }
+  const resetFilter = () => { setDraftFrom(''); setDraftTo(''); setDraftType('') }
+  // One-click Clear Date: clears draft + applied dates immediately; the type
+  // filter is untouched.
+  const clearDates = () => { setDraftFrom(''); setDraftTo(''); setFromDate(''); setToDate('') }
+  const hasDate = !!(draftFrom || draftTo || fromDate || toDate)
+  const activeFilterCount = (fromDate || toDate ? 1 : 0) + (typeFilter ? 1 : 0)
 
   if (farmsLoading || loading || !data) return <FarmerLayout><p style={styles.stateText}>Loading...</p></FarmerLayout>
 
-  const upcoming = (data?.upcoming || []).slice(0, RECENT_LIMIT)
-  const past = (data?.past || []).slice(0, RECENT_LIMIT)
+  const matches = (i) =>
+    isWithinLocalDateRange(i.scheduled_at, fromDate, toDate) &&
+    (!typeFilter || i.inspection_type === typeFilter)
+
+  const upcoming = (data?.upcoming || []).filter(matches).slice(0, RECENT_LIMIT)
+  const past = (data?.past || []).filter(matches).slice(0, RECENT_LIMIT)
   const list = activeTab === 'upcoming' ? upcoming : past
+  const isFiltered = activeFilterCount > 0
 
   return (
     <FarmerLayout>
@@ -89,10 +118,11 @@ export default function Inspections() {
 
       <h1 style={styles.title}>Inspections</h1>
       <p style={styles.subtitle}>
-        See when the LGU has scheduled a farm inspection and who is assigned.
+        See when the LGU has scheduled a farm inspection.
       </p>
 
-      <div className="insp-tabs">
+      <div style={styles.tabsRow}>
+        <div className="insp-tabs" style={{ marginBottom: 0, borderBottom: 'none', flex: 1 }}>
         <button
           className={`insp-tab-btn ${activeTab === 'upcoming' ? 'active' : ''}`}
           onClick={() => setActiveTab('upcoming')}
@@ -105,6 +135,25 @@ export default function Inspections() {
         >
           Past Inspections
         </button>
+        </div>
+
+        <FilterPopover activeCount={activeFilterCount} onOpen={openFilter} onReset={resetFilter} onApply={applyFilter} isMobile={isMobile}>
+          <DateRangeHeader>
+            <label style={filterStyles.filterLabel}>From Date</label>
+            <ClearDateButton visible={hasDate} onClick={clearDates} />
+          </DateRangeHeader>
+          <input type="date" value={draftFrom} onChange={e => setDraftFrom(e.target.value)} style={filterStyles.filterSelect} />
+
+          <label style={filterStyles.filterLabel}>To Date</label>
+          <input type="date" value={draftTo} onChange={e => setDraftTo(e.target.value)} style={filterStyles.filterSelect} />
+
+          <label style={filterStyles.filterLabel}>Inspection Type</label>
+          <select value={draftType} onChange={e => setDraftType(e.target.value)} style={filterStyles.filterSelect}>
+            <option value="">All Types</option>
+            <option value="General Inspection">General Inspection</option>
+            <option value="Follow-up">Follow-up Inspection</option>
+          </select>
+        </FilterPopover>
       </div>
 
       <section style={styles.card}>
@@ -117,7 +166,6 @@ export default function Inspections() {
                     <th style={styles.th}>Inspection #</th>
                     <th style={styles.th}>Type</th>
                     <th style={styles.th}>Scheduled Date</th>
-                    <th style={styles.th}>Assigned Inspector</th>
                     <th style={styles.th}>Status</th>
                     <th style={{ ...styles.th, textAlign: 'right' }}>Action</th>
                   </tr>
@@ -128,7 +176,6 @@ export default function Inspections() {
                       <td style={styles.tdStrong}>{i.inspection_number}</td>
                       <td style={styles.td}>{i.inspection_type}</td>
                       <td style={styles.td}>{formatDateTime(i.scheduled_at)}</td>
-                      <td style={styles.td}>{i.assigned_to || 'Not yet assigned'}</td>
                       <td style={styles.td}>
                         <span style={{ ...styles.badge, ...statusBadgeStyle(i.status) }}>{i.status}</span>
                       </td>
@@ -154,7 +201,9 @@ export default function Inspections() {
           </>
         ) : (
           <p style={styles.emptyText}>
-            {activeTab === 'upcoming' ? 'No upcoming inspections scheduled.' : 'No past inspections yet.'}
+            {isFiltered
+              ? 'No inspections match your filter.'
+              : activeTab === 'upcoming' ? 'No upcoming inspections scheduled.' : 'No past inspections yet.'}
           </p>
         )}
       </section>
@@ -170,7 +219,6 @@ function InspectionDetailModal({ inspection, onClose }) {
   const fieldRows = [
     { label: 'Inspection Type', value: inspection.inspection_type },
     { label: 'Scheduled Date', value: formatDateTime(inspection.scheduled_at) },
-    { label: 'Assigned Inspector', value: inspection.assigned_to || 'Not yet assigned' },
     { label: 'Scheduled By', value: inspection.scheduled_by },
     { label: 'Status', value: inspection.status },
     ...(inspection.reschedule_reason
@@ -224,6 +272,7 @@ const SANS = "'Inter', sans-serif"
 const styles = {
   stateText: { fontFamily: SANS, fontSize: '14px', color: '#4b5a50' },
 
+  tabsRow: { display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '12px', borderBottom: '1px solid #e7e8e0', marginBottom: '20px', flexWrap: 'wrap' },
   title: { fontSize: '25px', fontWeight: 800, letterSpacing: '-0.01em', color: '#16311d', margin: 0, fontFamily: SANS },
   subtitle: { fontSize: '14px', color: '#6b7770', marginTop: '5px', marginBottom: '22px', fontFamily: SANS, lineHeight: 1.6 },
 

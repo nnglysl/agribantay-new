@@ -13,6 +13,7 @@ import {
   fmtDate, makeInRange, rangeLabelOf, scopeLabelOf, monthlyBuckets, monthlyBucketsInRange, dailyBuckets,
   MONTH_NAMES, serviceTypeBadgeStyle, serviceTypeLabel,
 } from '../../components/ReportsLayout'
+import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Tooltip)
 
@@ -112,6 +113,14 @@ export default function AdminReports() {
     setDraftFilesYear(filesYear)
     setFilterOpen(true)
   }
+
+  // One-click Clear Date: clears draft + applied dates immediately (the
+  // Files tab's month/year filter is separate and untouched).
+  const clearDates = () => {
+    setDraftFrom(''); setDraftTo('')
+    setFromDate(''); setToDate('')
+  }
+  const hasDate = !!(draftFrom || draftTo || fromDate || toDate)
 
   const applyFilter = () => {
     if (tab === 'Files') {
@@ -251,7 +260,10 @@ export default function AdminReports() {
                 ) : (
                   <div style={styles.filterPopRow}>
                     <div>
-                      <label style={styles.filterPopLabel}>From</label>
+                      <DateRangeHeader>
+                        <label style={styles.filterPopLabel}>From</label>
+                        <ClearDateButton visible={hasDate} onClick={clearDates} />
+                      </DateRangeHeader>
                       <input
                         type="date"
                         style={styles.filterPopSelect}

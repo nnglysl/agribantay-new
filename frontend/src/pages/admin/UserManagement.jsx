@@ -3,6 +3,7 @@ import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 
 export default function UserManagement() {
   const [search, setSearch] = useState('')
@@ -14,7 +15,9 @@ export default function UserManagement() {
   const isMobile = useIsMobile()
 
   const params = {}
-  if (search) params.search = search
+  // Debounced so typing doesn't fire a request per keystroke.
+  const debouncedSearch = useDebouncedValue(search)
+  if (debouncedSearch) params.search = debouncedSearch
   if (statusFilter) params.status = statusFilter
 
   const { data: vets, loading, error, refetch } = useCachedFetch('/admin/veterinarians', params)

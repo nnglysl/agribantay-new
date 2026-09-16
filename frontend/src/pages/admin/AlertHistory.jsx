@@ -1,8 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
 import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 const SENSOR_TYPES = ['Ammonia', 'Temperature', 'Humidity', 'Moisture']
@@ -14,8 +16,12 @@ const SORT_OPTIONS = [
 export default function AlertHistory() {
   const [severityFilter, setSeverityFilter] = useState('') // '' | 'Warning' | 'Critical'
   const [sensorFilter, setSensorFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('') // '' | 'Ongoing' | 'Resolved'
   const [sortMode, setSortMode] = useState('newest')
-  const [search, setSearch] = useState('')
+  // Deep links (e.g. from a Super Admin dashboard notification) can preset
+  // the tab and search via ?tab= / ?search= so the relevant record is in view.
+  const [searchParams] = useSearchParams()
+  const [search, setSearch] = useState(() => searchParams.get('search') || '')
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const isMobile = useIsMobile()
@@ -23,6 +29,7 @@ export default function AlertHistory() {
   const [filterOpen, setFilterOpen] = useState(false)
   const [draftSeverity, setDraftSeverity] = useState(severityFilter)
   const [draftSensor, setDraftSensor] = useState(sensorFilter)
+  const [draftStatus, setDraftStatus] = useState(statusFilter)
   const [draftSort, setDraftSort] = useState(sortMode)
   const filterRef = useRef(null)
 
@@ -38,6 +45,7 @@ export default function AlertHistory() {
   const openFilter = () => {
     setDraftSeverity(severityFilter)
     setDraftSensor(sensorFilter)
+    setDraftStatus(statusFilter)
     setDraftSort(sortMode)
     setFilterOpen(true)
   }
@@ -45,6 +53,7 @@ export default function AlertHistory() {
   const applyFilter = () => {
     setSeverityFilter(draftSeverity)
     setSensorFilter(draftSensor)
+    setStatusFilter(draftStatus)
     setSortMode(draftSort)
     setFilterOpen(false)
   }
@@ -52,17 +61,23 @@ export default function AlertHistory() {
   const resetFilter = () => {
     setDraftSeverity('')
     setDraftSensor('')
+    setDraftStatus('')
     setDraftSort('newest')
   }
 
-  const activeFilterCount = (severityFilter ? 1 : 0) + (sensorFilter ? 1 : 0) + (sortMode !== 'newest' ? 1 : 0)
+  const activeFilterCount = (severityFilter ? 1 : 0) + (sensorFilter ? 1 : 0) + (statusFilter ? 1 : 0) + (sortMode !== 'newest' ? 1 : 0)
 
   const params = {}
   if (severityFilter) params.status = severityFilter
   if (sensorFilter) params.sensor_type = sensorFilter
-  if (search) params.search = search
+  // Ongoing / Resolved — distinct from `status`, which the backend already
+  // uses for severity (Warning / Critical).
+  if (statusFilter) params.alert_status = statusFilter
+  // Debounced so typing doesn't fire a request per keystroke.
+  const debouncedSearch = useDebouncedValue(search)
+  if (debouncedSearch) params.search = debouncedSearch
 
-  const { data: history, loading, error } = useCachedFetch('/admin/alert-history', params)
+  const { data: history, loading, error } = useCachedFetch('/admin/alert-history', params, { pollMs: 45000 })
 
   const severityColor = { Warning: '#b45309', Critical: '#b91c1c' }
   const severityBg = { Warning: '#fbf1e2', Critical: '#fbeaea' }
@@ -80,7 +95,7 @@ export default function AlertHistory() {
     return sortMode === 'oldest' ? [...rawHistory].reverse() : rawHistory
   }, [rawHistory, sortMode])
 
-  useEffect(() => { setCurrentPage(1) }, [severityFilter, sensorFilter, sortMode, search, pageSize])
+  useEffect(() => { setCurrentPage(1) }, [severityFilter, sensorFilter, statusFilter, sortMode, search, pageSize])
 
   const totalItems = allHistory.length
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
@@ -161,6 +176,13 @@ export default function AlertHistory() {
                 {SENSOR_TYPES.map(s => <option key={s} value={s.toLowerCase()}>{s}</option>)}
               </select>
 
+              <label style={styles.filterLabel}>Status</label>
+              <select value={draftStatus} onChange={e => setDraftStatus(e.target.value)} style={styles.filterSelect}>
+                <option value="">All Statuses</option>
+                <option value="Ongoing">Ongoing</option>
+                <option value="Resolved">Resolved</option>
+              </select>
+
               <div style={styles.filterActions}>
                 <button type="button" onClick={resetFilter} style={styles.filterResetBtn}>Reset</button>
                 <button type="button" onClick={applyFilter} style={styles.filterApplyBtn}>Apply</button>
@@ -221,7 +243,7 @@ export default function AlertHistory() {
           </div>
           {allHistory.length === 0 && (
             <div style={styles.empty}>
-              {search || severityFilter || sensorFilter
+              {search || severityFilter || sensorFilter || statusFilter
                 ? 'No alerts match your search or filter.'
                 : 'No alert history recorded yet.'}
             </div>

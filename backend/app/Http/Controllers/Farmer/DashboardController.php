@@ -73,6 +73,8 @@ class DashboardController extends Controller
                     'scheduled_at' => $nextScheduledVisit->scheduled_at,
                 ] : null,
                 'last_reading_at'       => $latestReading?->created_at,
+                // Device communication state — never exposes the device key.
+                'connectivity'          => app(FarmStatusService::class)->connectivity($farm),
             ],
         ]);
     }
