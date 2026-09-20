@@ -8,6 +8,7 @@ use App\Models\ServiceRequest;
 use App\Models\Inspection;
 use App\Models\Notification;
 use App\Models\User;
+use App\Support\LocalTime;
 
 class FarmStatusService
 {
@@ -264,7 +265,7 @@ class FarmStatusService
             default    => '',
         };
 
-        $detectedAt = now()->format('M d, Y g:i A');
+        $detectedAt = LocalTime::dateTime(now());
 
         $message = "AgriBantay Update: {$farm->farm_name} is now at {$status} level as of {$detectedAt}. {$action}";
 

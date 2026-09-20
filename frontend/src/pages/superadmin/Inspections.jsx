@@ -5,8 +5,9 @@ import SharedPagination from '../../components/Pagination'
 import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { useOverflowX } from '../../hooks/useOverflowX'
 import { useMonthFilter, filterByMonth } from '../../hooks/useMonthFilter'
-import { formatDate, formatDateTime, parseLocalDate } from '../../utils/formatDate'
+import { formatDate, formatDateTime, parseLocalDate, DISPLAY_TIME_ZONE } from '../../utils/formatDate'
 import { viewModalStyles as v } from '../../styles/viewModalStyles'
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -592,6 +593,7 @@ const HISTORY_COLUMNS = [
 ]
 
 function InspectionTable({ list, columns, actionLabel, onView, isMobile, emptyText }) {
+  const [tableScrollRef, tableOverflows] = useOverflowX()
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
 
@@ -608,9 +610,9 @@ function InspectionTable({ list, columns, actionLabel, onView, isMobile, emptyTe
 
   return (
     <div style={styles.tableCard}>
-      {isMobile && <p style={styles.scrollHint}>Swipe left/right to see all columns →</p>}
-      <div style={isMobile ? styles.tableScroll : undefined}>
-        <table style={{ ...styles.table, ...(isMobile ? styles.tableMobile : {}) }}>
+      {tableOverflows && <p style={styles.scrollHint}>{isMobile ? 'Swipe' : 'Scroll'} left/right to see all columns →</p>}
+      <div ref={tableScrollRef} style={styles.tableScroll}>
+        <table style={{ ...styles.table, ...styles.tableMinWidth }}>
           <thead>
             <tr>
               {columns.map(c => <th key={c.header} style={styles.th}>{c.header}</th>)}
@@ -788,7 +790,7 @@ function CalendarView({ inspections, viewDate, setViewDate, onViewEvent, isMobil
                               <div style={styles.calendarEventType}>{t.label}</div>
                               <div style={{ ...styles.calendarEventFarm, color: t.text }}>{insp.farm_name}</div>
                               <div style={{ ...styles.calendarEventTime, color: t.text }}>
-                                {new Date(insp.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                {new Date(insp.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: DISPLAY_TIME_ZONE })}
                               </div>
                             </div>
                           )
@@ -942,7 +944,7 @@ const styles = {
   scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0' },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  tableMobile: { minWidth: '820px' },
+  tableMinWidth: { minWidth: '820px' },
   th: {
     textAlign: 'left', padding: '13px 20px', fontSize: '13px', fontWeight: 600, color: '#8a968d',
     borderBottom: '1px solid #eceee7',

@@ -6,6 +6,7 @@ import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButt
 import ServiceRequestDetailsModal from '../../components/ServiceRequestDetailsModal'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { DISPLAY_TIME_ZONE } from '../../utils/formatDate'
 import { parseLocalDate } from '../../utils/formatDate'
 import { serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../../utils/serviceBadgeStyle'
 
@@ -37,11 +38,13 @@ function getInitials(name) {
   return name.split(' ').filter(Boolean).slice(0, 2).map(n => n[0].toUpperCase()).join('')
 }
 
+// Short form of the shared display convention: same Asia/Manila timezone as
+// utils/formatDate, abbreviated month to fit this page's dense detail rows.
 function formatDate(value) {
   if (!value) return '—'
   const d = new Date(value)
   if (isNaN(d.getTime())) return '—'
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: DISPLAY_TIME_ZONE })
 }
 
 /**

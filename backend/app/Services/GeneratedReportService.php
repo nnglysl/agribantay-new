@@ -11,6 +11,7 @@ use App\Models\SensorReading;
 use App\Models\ServiceRequest;
 use App\Services\FarmStatusService;
 use Illuminate\Support\Carbon;
+use App\Support\LocalTime;
 
 /**
  * Builds and persists the frozen monthly report snapshot used by the
@@ -36,6 +37,22 @@ class GeneratedReportService
         ]);
     }
 
+    /**
+     * Actual generation instant of a report, in the reader's local time.
+     *
+     * Single-sourced through App\Support\LocalTime so this agrees with every
+     * other user-facing timestamp in the system; the PHT suffix is kept because
+     * an official document should state the clock it is quoting.
+     */
+    public function generatedLabel($timestamp, bool $withTime = true): string
+    {
+        $local = LocalTime::forDisplay($timestamp);
+
+        return $withTime
+            ? $local->format('M d, Y').' at '.$local->format('g:i A').' PHT'
+            : $local->format('M d, Y');
+    }
+
     public function periodLabel($start, $end): string
     {
         $start = Carbon::parse($start);
@@ -54,6 +71,22 @@ class GeneratedReportService
 
     public function buildSnapshot(Carbon $start, Carbon $end): array
     {
+        // $start/$end are the reporting period as PHILIPPINE calendar dates, and
+        // stay that way for everything the reader sees: the stored period_start /
+        // period_end, the period label, and the status cutoff.
+        //
+        // Queries need the same window as UTC instants, because PDO binds a Carbon
+        // with format('Y-m-d H:i:s') in the Carbon's OWN timezone — a Manila-zoned
+        // bound would otherwise be sent as its local wall clock and silently compared
+        // against UTC-stored values. September in San Jose is 31 Aug 16:00:00Z to
+        // 30 Sep 15:59:59Z, which is the eight hours at each end that used to land in
+        // the wrong month.
+        //
+        // Callers that still pass UTC-zoned bounds are unaffected: ->utc() is then a
+        // no-op and the window is exactly what it was.
+        $from = $start->copy()->utc();
+        $to = $end->copy()->utc();
+
         $totalInspections = Inspection::count();
         $completedInspections = Inspection::where('status', 'Completed')->count();
         $scheduledInspections = Inspection::where('status', 'Scheduled')->count();
@@ -72,7 +105,7 @@ class GeneratedReportService
 
         $completedInspectionsList = Inspection::with('farm')
             ->where('status', 'Completed')
-            ->whereBetween('completed_at', [$start, $end])
+            ->whereBetween('completed_at', [$from, $to])
             ->latest('completed_at')
             ->get()
             ->map(fn ($i) => [
@@ -80,7 +113,7 @@ class GeneratedReportService
                 'farm_name' => $i->farm->farm_name ?? '—',
                 'owner_name' => $i->farm->owner_name ?? '—',
                 'inspection_type' => $i->inspection_type,
-                'completed_at' => $i->completed_at?->format('M d, Y'),
+                'completed_at' => LocalTime::date($i->completed_at),
                 'status' => $i->status,
             ])
             ->values();
@@ -94,7 +127,7 @@ class GeneratedReportService
         $completedServicesList = $serviceQuery()
             ->with('farm')
             ->where('status', 'Completed')
-            ->whereBetween('completed_at', [$start, $end])
+            ->whereBetween('completed_at', [$from, $to])
             ->latest('completed_at')
             ->get()
             ->map(fn ($r) => [
@@ -102,16 +135,25 @@ class GeneratedReportService
                 'farm_name' => $r->farm->farm_name ?? '—',
                 'owner_name' => $r->farm->owner_name ?? '—',
                 'barangay' => $r->farm->barangay ?? '—',
-                'completed_at' => $r->completed_at?->format('M d, Y'),
+                'completed_at' => LocalTime::date($r->completed_at),
                 'notes' => $r->notes,
             ])
             ->values();
 
+        // Compliance is a status snapshot, not period activity. It is taken at
+        // the END of the reporting period so a September report states September's
+        // position rather than whatever happens to be true on the day it runs —
+        // and farms registered after the cutoff are excluded, since they did not
+        // exist in the period being reported. snapshot['status_as_of'] carries the
+        // cutoff through to the printed document so the date is stated on the page.
         $maintenanceService = app(MaintenanceStatusService::class);
-        $activeFarms = Farm::where('status', 'Active')->with('latestCleanout')->get();
+        $activeFarms = Farm::where('status', 'Active')
+            ->where('created_at', '<=', $to)
+            ->with('latestCleanout')
+            ->get();
 
-        $maintenanceStatuses = $activeFarms->map(function ($farm) use ($maintenanceService) {
-            $status = $maintenanceService->getStatus($farm);
+        $maintenanceStatuses = $activeFarms->map(function ($farm) use ($maintenanceService, $to) {
+            $status = $maintenanceService->getStatus($farm, $to);
 
             return array_merge($status, [
                 'farm_name' => $farm->farm_name,
@@ -132,12 +174,19 @@ class GeneratedReportService
             ])
             ->values();
 
-        $completedMaintenanceThisMonth = MaintenanceLog::whereMonth('performed_at', now()->month)
-            ->whereYear('performed_at', now()->year)
+        // Clean-outs completed inside the report period. This previously used
+        // now()->month / now()->year, i.e. the month the snapshot happens to run
+        // in rather than the month being reported. reports:generate-monthly
+        // archives *last* month on the 1st, so a September report generated on
+        // 1 October counted October's clean-outs, and the figure contradicted the
+        // period-filtered $maintenanceCompletedList table it summarises.
+        // The snapshot key stays completed_this_month so existing archived
+        // reports and all three report views keep working unchanged.
+        $completedMaintenanceThisMonth = MaintenanceLog::whereBetween('performed_at', [$from, $to])
             ->count();
 
         $maintenanceCompletedList = MaintenanceLog::with('farm')
-            ->whereBetween('performed_at', [$start, $end])
+            ->whereBetween('performed_at', [$from, $to])
             ->latest('performed_at')
             ->get()
             ->map(fn ($log) => [
@@ -151,7 +200,7 @@ class GeneratedReportService
             ->values();
 
         $alertRecordsList = AlertHistory::with('farm')
-            ->whereBetween('triggered_at', [$start, $end])
+            ->whereBetween('triggered_at', [$from, $to])
             ->latest('triggered_at')
             ->get()
             ->map(fn ($a) => [
@@ -159,8 +208,8 @@ class GeneratedReportService
                 'owner_name' => $a->farm->owner_name ?? '—',
                 'sensor_type' => $a->sensor_type,
                 'status' => $a->status,
-                'triggered_at' => $a->triggered_at->format('M d, Y g:i A'),
-                'resolved_at' => $a->resolved_at?->format('M d, Y g:i A'),
+                'triggered_at' => LocalTime::dateTime($a->triggered_at),
+                'resolved_at' => LocalTime::dateTime($a->resolved_at),
             ])
             ->values();
 
@@ -182,7 +231,7 @@ class GeneratedReportService
         $vetServicesList = $vetQuery()
             ->with(['farm', 'acceptedBy'])
             ->where('status', 'Completed')
-            ->whereBetween('completed_at', [$start, $end])
+            ->whereBetween('completed_at', [$from, $to])
             ->latest('completed_at')
             ->get()
             ->map(fn ($r) => [
@@ -191,12 +240,37 @@ class GeneratedReportService
                 'owner_name' => $r->farm->owner_name ?? '—',
                 'barangay' => $r->farm->barangay ?? '—',
                 'vet_name' => trim(($r->acceptedBy->first_name ?? '').' '.($r->acceptedBy->last_name ?? '')) ?: '—',
-                'completed_at' => $r->completed_at?->format('M d, Y'),
+                'completed_at' => LocalTime::date($r->completed_at),
                 'notes' => $r->notes,
             ])
             ->values();
 
+        // Period-scoped activity counts. These are taken from the very same
+        // collections rendered as the detail tables below, so a summary figure
+        // can never disagree with the rows it summarises. The pre-existing
+        // all-time summaries are left exactly as they were and are labelled
+        // as all-time in the report views; these are additive, so snapshots
+        // archived before this change keep rendering unchanged.
+        $vetFarmsCoveredInPeriod = $vetQuery()
+            ->where('status', 'Completed')
+            ->whereBetween('completed_at', [$from, $to])
+            ->distinct('farm_id')
+            ->count('farm_id');
+
         return [
+            'period' => [
+                'start' => $start->toDateTimeString(),
+                'end' => $end->toDateTimeString(),
+            ],
+            'status_as_of' => $end->format('M d, Y'),
+            'period_activity' => [
+                'inspections_completed' => $completedInspectionsList->count(),
+                'alerts_recorded' => $alertRecordsList->count(),
+                'cleanouts_completed' => $maintenanceCompletedList->count(),
+                'services_completed' => $completedServicesList->count(),
+                'vet_services_completed' => $vetServicesList->count(),
+                'vet_farms_covered' => $vetFarmsCoveredInPeriod,
+            ],
             'inspection_summary' => [
                 'total' => $totalInspections,
                 'completed' => $completedInspections,

@@ -4,7 +4,7 @@ import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useSelectedFarm } from '../../hooks/useSelectedFarm'
 import { viewModalStyles as v } from '../../styles/viewModalStyles'
-import { formatDate as formatDateFull, isWithinLocalDateRange } from '../../utils/formatDate'
+import { formatDate as formatDateFull, isWithinLocalDateRange, DISPLAY_TIME_ZONE } from '../../utils/formatDate'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import FilterPopover from '../../components/FilterPopover'
 import { filterStyles } from '../../styles/filterStyles'
@@ -72,7 +72,7 @@ function statusBadgeStyle(status) {
 function formatDateTime(value) {
   if (!value) return '—'
   const d = new Date(value)
-  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: DISPLAY_TIME_ZONE })
 }
 
 export default function Inspections() {

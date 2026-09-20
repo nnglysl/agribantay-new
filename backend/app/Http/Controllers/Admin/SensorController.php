@@ -8,6 +8,7 @@ use App\Models\Farm;
 use App\Models\ActivityLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use App\Support\LocalTime;
 
 /**
  * Sensor/device registration and farm assignment. device_key (the
@@ -219,7 +220,7 @@ class SensorController extends Controller
             'farm_name'    => $s->farm?->farm_name,
             'connectivity' => $s->connectivity(),
             'installed_at' => $s->installed_at?->format('M d, Y'),
-            'last_seen_at' => $s->last_seen_at?->format('M d, Y g:i A'),
+            'last_seen_at' => LocalTime::dateTime($s->last_seen_at),
         ];
     }
 }

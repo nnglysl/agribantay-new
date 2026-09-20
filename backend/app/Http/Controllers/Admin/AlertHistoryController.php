@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\AlertHistory;
 use Illuminate\Http\Request;
+use App\Support\LocalTime;
 
 /**
  * Objective 5.2 — read side. AlertHistoryService (called from
@@ -77,8 +78,8 @@ class AlertHistoryController extends Controller
             'sensor_type'     => ucfirst($a->sensor_type),
             'status'          => $a->status,
             'value'           => $a->value,
-            'triggered_at'    => $a->triggered_at->format('M d, Y g:i A'),
-            'resolved_at'     => $a->resolved_at?->format('M d, Y g:i A'),
+            'triggered_at'    => LocalTime::dateTime($a->triggered_at),
+            'resolved_at'     => LocalTime::dateTime($a->resolved_at),
             'is_ongoing'      => is_null($a->resolved_at),
             'duration'        => $this->formatDuration($a->triggered_at, $a->resolved_at),
         ]);

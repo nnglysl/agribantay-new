@@ -15,6 +15,7 @@ L.Icon.Default.mergeOptions({
 // The polygon now lives in constants/sanJoseBoundary.js so the location
 // validation can share it; re-exported here for existing importers.
 import { SAN_JOSE_CENTER, SAN_JOSE_BOUNDARY, WORLD_RING } from '../constants/sanJoseBoundary'
+import { DISPLAY_TIME_ZONE } from '../utils/formatDate'
 export { SAN_JOSE_CENTER, SAN_JOSE_BOUNDARY, WORLD_RING }
 
 const statusColor = {
@@ -468,7 +469,7 @@ export default function FarmMap({
                 <span style={{ ...styles.itemDot, backgroundColor: color }} />
                 <div style={styles.itemText}>
                   <div style={styles.itemName}>{i.farm_name}</div>
-                  <div style={styles.itemSub}>{new Date(i.scheduled_at).toLocaleDateString()} · {i.inspection_type}</div>
+                  <div style={styles.itemSub}>{new Date(i.scheduled_at).toLocaleDateString(undefined, { timeZone: DISPLAY_TIME_ZONE })} · {i.inspection_type}</div>
                 </div>
                 <span style={{ ...styles.itemStatus, color }}>{i.inspection_type}</span>
               </div>
@@ -485,7 +486,7 @@ export default function FarmMap({
                 <span style={{ ...styles.itemDot, backgroundColor: color }} />
                 <div style={styles.itemText}>
                   <div style={styles.itemName}>{r.farm_name}</div>
-                  <div style={styles.itemSub}>{status} · {r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}</div>
+                  <div style={styles.itemSub}>{status} · {r.created_at ? new Date(r.created_at).toLocaleDateString(undefined, { timeZone: DISPLAY_TIME_ZONE }) : '—'}</div>
                 </div>
                 <span style={{ ...styles.itemStatus, color }}>{status}</span>
               </div>

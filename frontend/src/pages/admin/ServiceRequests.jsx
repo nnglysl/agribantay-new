@@ -6,6 +6,7 @@ import SharedPagination from '../../components/Pagination'
 import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { useOverflowX } from '../../hooks/useOverflowX'
 import { getUser } from '../../utils/auth'
 import { formatDate, formatDateTime, isWithinLocalDateRange } from '../../utils/formatDate'
 import { BADGE_SHAPE, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../../utils/serviceBadgeStyle'
@@ -26,6 +27,18 @@ const SORT_OPTIONS = [
   { value: 'oldest', label: 'Oldest Request First (Default)' },
   { value: 'newest', label: 'Newest Request First' },
 ]
+
+// Which date the table's single date column shows, per tab. Pending requests
+// have no schedule yet, so they show when the owner asked; once a visit is on
+// the calendar (Scheduled/Overdue) that visit date is what matters, and it must
+// match the "Current Scheduled Date" shown in the reschedule modal.
+const DATE_COLUMNS = {
+  pending:   { header: 'Date Requested', value: r => (r.created_at ? formatDate(r.created_at) : '—') },
+  scheduled: { header: 'Scheduled Date', value: r => (r.scheduled_at ? formatDateTime(r.scheduled_at) : '—') },
+  overdue:   { header: 'Scheduled Date', value: r => (r.scheduled_at ? formatDateTime(r.scheduled_at) : '—') },
+  completed: { header: 'Completed Date', value: r => (r.completed_at ? formatDateTime(r.completed_at) : '—') },
+  history:   { header: 'Date Requested', value: r => (r.created_at ? formatDate(r.created_at) : '—') },
+}
 
 export default function ServiceRequests() {
   const user = getUser()
@@ -48,6 +61,9 @@ export default function ServiceRequests() {
   const [viewRequest, setViewRequest] = useState(null)
   const [rescheduleTarget, setRescheduleTarget] = useState(null)
   const isMobile = useIsMobile()
+  const [tableScrollRef, tableOverflows] = useOverflowX()
+
+  const dateColumn = DATE_COLUMNS[tab] || DATE_COLUMNS.pending
 
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
@@ -310,19 +326,19 @@ export default function ServiceRequests() {
 
       {!loading && !error && (
         <div style={styles.tableCard}>
-          {isMobile && list.length > 0 && (
-            <p style={styles.scrollHint}>Swipe left/right to see all columns →</p>
+          {tableOverflows && list.length > 0 && (
+            <p style={styles.scrollHint}>{isMobile ? 'Swipe' : 'Scroll'} left/right to see all columns →</p>
           )}
 
-          <div style={isMobile ? styles.tableScroll : undefined}>
-            <table style={{ ...styles.table, ...(isMobile ? styles.tableMobile : {}) }}>
+          <div ref={tableScrollRef} style={styles.tableScroll}>
+            <table style={{ ...styles.table, ...styles.tableMinWidth }}>
               <thead>
                 <tr>
                   <th style={styles.th}>Request No.</th>
                   <th style={styles.th}>Farm</th>
                   <th style={styles.th}>Type</th>
                   <th style={styles.th}>Farm Owner</th>
-                  <th style={styles.th}>Date</th>
+                  <th style={styles.th}>{dateColumn.header}</th>
                   <th style={styles.th}>Status</th>
                   <th style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
                 </tr>
@@ -346,7 +362,7 @@ export default function ServiceRequests() {
                         </span>
                       </td>
                       <td style={styles.td}>{r.farm_owner_name || r.requested_by}</td>
-                      <td style={styles.td}>{r.created_at ? formatDate(r.created_at) : '—'}</td>
+                      <td style={styles.td}>{dateColumn.value(r)}</td>
                       <td style={styles.td}>
                         <span style={{ ...BADGE_SHAPE, ...requestStatusBadgeStyle(requestDisplayStatus(r)) }}>
                           {requestDisplayStatus(r)}
@@ -814,7 +830,7 @@ const styles = {
   scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0' },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  tableMobile: { minWidth: '960px' },
+  tableMinWidth: { minWidth: '960px' },
   th: {
     textAlign: 'left', padding: '13px 20px', fontSize: '13px', fontWeight: 600, color: '#8a968d',
     borderBottom: '1px solid #eceee7', whiteSpace: 'nowrap',

@@ -4,6 +4,7 @@ import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch, invalidateCache } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { useOverflowX } from '../../hooks/useOverflowX'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { BARANGAYS } from '../../constants/barangays'
 import { sanitizePhoneInput } from '../../utils/phoneValidation'
@@ -11,6 +12,7 @@ import { LOCATION_CONFLICT_MESSAGE, LOCATION_OUTSIDE_MESSAGE, isInsideSanJose } 
 import SharedPagination from '../../components/Pagination'
 import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 import FarmLocationMap from '../../components/FarmLocationMap'
+import { DISPLAY_TIME_ZONE } from '../../utils/formatDate'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
@@ -84,6 +86,7 @@ export default function SuperAdminFarms() {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleteNotice, setDeleteNotice] = useState('')
   const isMobile = useIsMobile()
+  const [tableScrollRef, tableOverflows] = useOverflowX()
 
   const current = tabState[statusTab]
   const updateCurrent = (patch) => {
@@ -349,11 +352,11 @@ export default function SuperAdminFarms() {
 
       {!loading && !error && (
         <div style={styles.tableCard}>
-          {isMobile && allFarms.length > 0 && (
-            <p style={styles.scrollHint}>Swipe left/right to see all columns →</p>
+          {tableOverflows && allFarms.length > 0 && (
+            <p style={styles.scrollHint}>{isMobile ? 'Swipe' : 'Scroll'} left/right to see all columns →</p>
           )}
-          <div style={isMobile ? styles.tableScroll : undefined}>
-            <table style={{ ...styles.table, ...(isMobile ? styles.tableMobile : {}) }}>
+          <div ref={tableScrollRef} style={styles.tableScroll}>
+            <table style={{ ...styles.table, ...styles.tableMinWidth }}>
               <thead>
                 <tr>
                   <th style={styles.th}></th>
@@ -996,7 +999,7 @@ function DeleteFarmModal({ farm, isMobile, onClose, onDeleted }) {
     setError('')
     setInfo('')
     try {
-      const res = await api.post(`/superadmin/farms//delete/otp/request`)
+      const res = await api.post(`/superadmin/farms/${farm.id}/delete/otp/request`)
       setSentTo(res.data?.message || 'A verification code has been sent to your email.')
       setStep('otp')
       return true
@@ -1023,8 +1026,8 @@ function DeleteFarmModal({ farm, isMobile, onClose, onDeleted }) {
     setError('')
     setInfo('')
     try {
-      const res = await api.delete(`/superadmin/farms/`, { data: { code: code.trim() } })
-      onDeleted(res.data?.message || ` has been permanently deleted.`)
+      const res = await api.delete(`/superadmin/farms/${farm.id}`, { data: { code: code.trim() } })
+      onDeleted(res.data?.message || `${farm.farm_name} has been permanently deleted.`)
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to delete the farm. No changes were made.')
     } finally {
@@ -1519,7 +1522,7 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                           {isSensorOnline ? 'Online' : 'Offline'}
                         </span>
                       </div>
-                      <InfoCell label="Last Synchronization" value={reading?.created_at ? new Date(reading.created_at).toLocaleString() : null} />
+                      <InfoCell label="Last Synchronization" value={reading?.created_at ? new Date(reading.created_at).toLocaleString(undefined, { timeZone: DISPLAY_TIME_ZONE }) : null} />
                     </div>
 
                     {reading ? (
@@ -2155,7 +2158,7 @@ const styles = {
   scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0' },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  tableMobile: { minWidth: '1000px' },
+  tableMinWidth: { minWidth: '1000px' },
   th: { textAlign: 'left', padding: '13px 20px', fontSize: '13px', fontWeight: 600, color: '#8a968d', borderBottom: '1px solid #eceee7', whiteSpace: 'nowrap', backgroundColor: '#fafbf8' },
   thSortable: { cursor: 'pointer', userSelect: 'none' },
   sortArrow: { color: '#2c8047', fontSize: '10px' },

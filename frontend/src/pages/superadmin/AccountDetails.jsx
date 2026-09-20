@@ -6,6 +6,7 @@ import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { isValidPhoneNumber, sanitizePhoneInput, PHONE_VALIDATION_MESSAGE } from '../../utils/phoneValidation'
 import VerifyEmailChangeModal from '../../components/VerifyEmailChangeModal'
+import { DISPLAY_TIME_ZONE } from '../../utils/formatDate'
 
 function getInitials(first, last) {
   return ((first?.[0] || '') + (last?.[0] || '')).toUpperCase()
@@ -221,7 +222,7 @@ export default function AccountDetails() {
             <div style={styles.fieldGroup}>
               <label style={styles.label}>Date Created</label>
               <input
-                value={account.created_at ? new Date(account.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                value={account.created_at ? new Date(account.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: DISPLAY_TIME_ZONE }) : '—'}
                 disabled
                 style={{ ...styles.input, ...styles.inputDisabled }}
               />

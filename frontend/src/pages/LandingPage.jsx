@@ -1,9 +1,16 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useIsMobile } from '../hooks/useIsMobile'
 import agribantayLogo from '../assets/agribantay_logo.png'
 import agribantayName from '../assets/agribantay_name.png'
 import heroImage from '../assets/poultry_bg.jpg'
+import overviewVideo from '../assets/poultryvidlp.mp4'
+
+// Native size of the overview video (1920x1014). The poster and the player
+// both use it so the frame matches the footage exactly — any other ratio
+// letterboxes the video with black bars, and swapping the clip means
+// updating this one value.
+const VIDEO_ASPECT = '1920 / 1014'
 
 const NAV_LINKS = [
   { label: 'Home', href: '#home' },
@@ -75,11 +82,60 @@ const CONTACT_ITEMS = [
 // pad the top of the hero section so nothing sits hidden underneath it.
 const HEADER_HEIGHT = 92
 
+// Honours the OS-level "reduce motion" setting, and keeps honouring it if the
+// viewer changes it while the page is open.
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(
+    () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+  )
+
+  useEffect(() => {
+    const mq = window.matchMedia?.('(prefers-reduced-motion: reduce)')
+    if (!mq) return
+    const onChange = e => setReduced(e.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+
+  return reduced
+}
+
 export default function LandingPage() {
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const [navOpen, setNavOpen] = useState(false)
   const [videoPlaying, setVideoPlaying] = useState(false)
+  const [soundOn, setSoundOn] = useState(false)
+  const videoRef = useRef(null)
+
+  // Browsers only allow an unprompted play() on a muted video, so the hero clip
+  // starts silent and the viewer opts into audio. It also waits until the frame
+  // is actually on screen before fetching anything — the file is ~18MB and most
+  // visitors never scroll this far.
+  const reduceMotion = usePrefersReducedMotion()
+
+  useEffect(() => {
+    const el = videoRef.current
+    if (!el || reduceMotion) return
+    const io = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        el.muted = true
+        el.play().catch(() => {})
+      } else {
+        el.pause()
+      }
+    }, { threshold: 0.4 })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [reduceMotion])
+
+  const enableSound = () => {
+    const el = videoRef.current
+    if (!el) return
+    el.muted = false
+    setSoundOn(true)
+    el.play().catch(() => {})
+  }
 
   const scrollTo = (id) => (e) => {
     e.preventDefault()
@@ -261,7 +317,9 @@ export default function LandingPage() {
             </div>
 
             <div className="agb-video-frame" style={styles.videoFrame}>
-              {!videoPlaying ? (
+              {reduceMotion && !videoPlaying ? (
+                // Visitors who asked their OS for reduced motion keep the manual
+                // poster: nothing moves, and nothing downloads, until they choose.
                 <button
                   type="button"
                   style={{ ...styles.videoPoster, backgroundImage: `url(${heroImage})` }}
@@ -272,19 +330,31 @@ export default function LandingPage() {
                   <span className="agb-play-btn" style={styles.playBtn}>
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="#1f5a34"><path d="M8 5v14l11-7z" /></svg>
                   </span>
-                  <span style={styles.videoCaption}>See how AgriBantay works — 0:30</span>
+                  <span style={styles.videoCaption}>See how AgriBantay works — 0:24</span>
                 </button>
               ) : (
-                // NOTE: replace this src with the actual overview video once
-                // it's produced (e.g. /assets/agribantay-overview.mp4).
-                <video
-                  style={styles.videoEl}
-                  controls
-                  autoPlay
-                  poster={heroImage}
-                >
-                  <source src="/assets/agribantay-overview.mp4" type="video/mp4" />
-                </video>
+                <div style={styles.videoStage}>
+                  <video
+                    ref={videoRef}
+                    style={styles.videoEl}
+                    poster={heroImage}
+                    controls
+                    loop
+                    playsInline
+                    preload="none"
+                    autoPlay={reduceMotion}
+                  >
+                    <source src={overviewVideo} type="video/mp4" />
+                  </video>
+                  {!soundOn && !reduceMotion && (
+                    <button type="button" style={styles.soundBtn} onClick={enableSound} aria-label="Turn on sound for the overview video">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M3 9v6h4l5 4V5L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z" />
+                      </svg>
+                      Sound on
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -567,8 +637,17 @@ const styles = {
     display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '48px', alignItems: 'center',
   },
   videoFrame: { width: '100%' },
+  videoStage: { position: 'relative', lineHeight: 0 },
+  soundBtn: {
+    position: 'absolute', top: '14px', right: '14px', zIndex: 2,
+    display: 'flex', alignItems: 'center', gap: '6px',
+    padding: '7px 12px', borderRadius: '999px', border: 'none', cursor: 'pointer',
+    backgroundColor: 'rgba(15,38,22,0.72)', color: '#fff',
+    fontSize: '13px', fontWeight: 600, lineHeight: 1.2,
+    backdropFilter: 'blur(4px)',
+  },
   videoPoster: {
-    position: 'relative', width: '100%', aspectRatio: '16 / 10', borderRadius: '18px',
+    position: 'relative', width: '100%', aspectRatio: VIDEO_ASPECT, borderRadius: '18px',
     border: 'none', padding: 0, cursor: 'pointer', overflow: 'hidden',
     backgroundSize: 'cover', backgroundPosition: 'center',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -589,7 +668,7 @@ const styles = {
     textShadow: '0 1px 6px rgba(0,0,0,0.4)',
   },
   videoEl: {
-    width: '100%', aspectRatio: '16 / 10', borderRadius: '18px', display: 'block',
+    width: '100%', aspectRatio: VIDEO_ASPECT, borderRadius: '18px', display: 'block',
     boxShadow: '0 24px 50px -24px rgba(15,38,22,0.45)', backgroundColor: '#000',
   },
 

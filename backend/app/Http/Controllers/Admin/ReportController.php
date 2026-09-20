@@ -10,6 +10,7 @@ use App\Models\Farm;
 use App\Models\MaintenanceLog;
 use App\Models\AlertHistory;
 use App\Services\MaintenanceStatusService;
+use App\Support\LocalTime;
 
 class ReportController extends Controller
 {
@@ -44,7 +45,7 @@ class ReportController extends Controller
                 'farm_name'         => $i->farm->farm_name,
                 'owner_name'        => $i->farm->owner_name,
                 'inspection_type'   => $i->inspection_type,
-                'completed_at'      => $i->completed_at?->format('M d, Y'),
+                'completed_at'      => LocalTime::date($i->completed_at),
                 // NEW — ISO date alongside the display string, so the new
                 // Inspections tab's date-range filter can parse it
                 // reliably instead of re-parsing the formatted string
@@ -69,7 +70,7 @@ class ReportController extends Controller
                     'farm_name'         => $i->farm->farm_name,
                     'owner_name'        => $i->farm->owner_name,
                     'inspection_type'   => $i->inspection_type,
-                    'date'              => $date?->format('M d, Y'),
+                    'date'              => LocalTime::date($date),
                     'date_raw'          => $date?->toIso8601String(),
                     'status'            => $i->status,
                 ];
@@ -94,7 +95,7 @@ class ReportController extends Controller
                 'farm_name'        => $r->farm->farm_name,
                 'owner_name'       => $r->farm->owner_name,
                 'barangay'         => $r->farm->barangay,
-                'completed_at'     => $r->completed_at?->format('M d, Y'),
+                'completed_at'     => LocalTime::date($r->completed_at),
                 'completed_at_raw' => $r->completed_at?->toIso8601String(), // NEW, same reasoning as above
                 'notes'            => $r->notes,
                 'status'           => $r->status,
@@ -114,7 +115,7 @@ class ReportController extends Controller
                     'farm_name'    => $r->farm->farm_name,
                     'owner_name'   => $r->farm->owner_name,
                     'barangay'     => $r->farm->barangay,
-                    'date'         => $date?->format('M d, Y'),
+                    'date'         => LocalTime::date($date),
                     'date_raw'     => $date?->toIso8601String(),
                     'status'       => $r->status,
                 ];
@@ -179,9 +180,9 @@ class ReportController extends Controller
                 'owner_name'       => $a->farm->owner_name ?? '—',
                 'sensor_type'      => $a->sensor_type,
                 'status'           => $a->status,
-                'triggered_at'     => $a->triggered_at->format('M d, Y g:i A'),
+                'triggered_at'     => LocalTime::dateTime($a->triggered_at),
                 'triggered_at_raw' => $a->triggered_at->toIso8601String(),
-                'resolved_at'      => $a->resolved_at?->format('M d, Y g:i A'),
+                'resolved_at'      => LocalTime::dateTime($a->resolved_at),
                 'is_ongoing'       => is_null($a->resolved_at),
             ]);
 

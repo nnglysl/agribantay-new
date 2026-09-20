@@ -4,6 +4,7 @@ import AdminLayout from '../../components/AdminLayout'
 import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { useOverflowX } from '../../hooks/useOverflowX'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { BARANGAYS } from '../../constants/barangays'
 
@@ -22,6 +23,7 @@ export default function MaintenanceOverdue() {
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const isMobile = useIsMobile()
+  const [tableScrollRef, tableOverflows] = useOverflowX()
 
   const [barangayFilter, setBarangayFilter] = useState('')
   const [sizeFilter, setSizeFilter] = useState('')
@@ -178,11 +180,11 @@ export default function MaintenanceOverdue() {
 
       {!loading && !error && (
         <div style={styles.tableCard}>
-          {isMobile && filteredFarms.length > 0 && (
-            <p style={styles.scrollHint}>Swipe left/right to see all columns →</p>
+          {tableOverflows && filteredFarms.length > 0 && (
+            <p style={styles.scrollHint}>{isMobile ? 'Swipe' : 'Scroll'} left/right to see all columns →</p>
           )}
-          <div style={isMobile ? styles.tableScroll : undefined}>
-            <table style={{ ...styles.table, ...(isMobile ? styles.tableMobile : {}) }}>
+          <div ref={tableScrollRef} style={styles.tableScroll}>
+            <table style={{ ...styles.table, ...styles.tableMinWidth }}>
               <thead>
                 <tr>
                   <th style={styles.th}>Farm</th>
@@ -351,7 +353,7 @@ const styles = {
   scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0' },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  tableMobile: { minWidth: '960px' },
+  tableMinWidth: { minWidth: '960px' },
   th: {
     textAlign: 'left', padding: '13px 20px', fontSize: '13px', fontWeight: 600, color: '#8a968d',
     borderBottom: '1px solid #eceee7', whiteSpace: 'nowrap',

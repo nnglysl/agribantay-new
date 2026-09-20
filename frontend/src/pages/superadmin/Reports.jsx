@@ -12,6 +12,7 @@ import {
   monthlyBucketsInRange, MONTH_NAMES, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle,
 } from '../../components/ReportsLayout'
 import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
+import { DISPLAY_TIME_ZONE } from '../../utils/formatDate'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip)
 
@@ -32,7 +33,7 @@ export default function SuperAdminReports() {
   if (adminData !== prevAdminData || vetData !== prevVetData) {
     setPrevAdminData(adminData)
     setPrevVetData(vetData)
-    if (adminData && vetData) setGeneratedAt(new Date().toLocaleString('en-PH', { dateStyle: 'long', timeStyle: 'short' }))
+    if (adminData && vetData) setGeneratedAt(new Date().toLocaleString('en-PH', { dateStyle: 'long', timeStyle: 'short', timeZone: DISPLAY_TIME_ZONE }))
   }
 
   const [tab, setTab] = useState('Overview')

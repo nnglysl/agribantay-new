@@ -16,16 +16,36 @@ class MaintenanceStatusService
 
     private const GRACE_PERIOD_DAYS = 30;
 
-    public function getStatus(Farm $farm): array
+    /**
+     * @param  Carbon|null  $asOf  Evaluate the farm's status at this instant
+     *   rather than right now, so a historical monthly report can state the
+     *   compliance position at the end of its own period instead of today's.
+     *   Passing it also restricts the clean-out lookup to logs on or before
+     *   that cutoff: a clean-out performed in October must not make a farm
+     *   look compliant in a September report. The interval and grace-period
+     *   rules themselves are unchanged, and omitting the argument reproduces
+     *   the previous behaviour exactly for all existing callers.
+     */
+    public function getStatus(Farm $farm, ?Carbon $asOf = null): array
     {
-        // Callers iterating many farms eager-load latestCleanout so this is
-        // one query in total rather than one per farm.
-        $lastLog = $farm->relationLoaded('latestCleanout')
-            ? $farm->latestCleanout
-            : MaintenanceLog::where('farm_id', $farm->id)
+        if ($asOf === null) {
+            // Callers iterating many farms eager-load latestCleanout so this is
+            // one query in total rather than one per farm.
+            $lastLog = $farm->relationLoaded('latestCleanout')
+                ? $farm->latestCleanout
+                : MaintenanceLog::where('farm_id', $farm->id)
+                    ->where('maintenance_type', 'Full Manure Clean-out')
+                    ->latest('performed_at')
+                    ->first();
+        } else {
+            // The eager-loaded relation is deliberately not reused here: it holds
+            // the newest clean-out overall, which may post-date the cutoff.
+            $lastLog = MaintenanceLog::where('farm_id', $farm->id)
                 ->where('maintenance_type', 'Full Manure Clean-out')
+                ->where('performed_at', '<=', $asOf)
                 ->latest('performed_at')
                 ->first();
+        }
 
         $anchorDate = $lastLog
             ? Carbon::parse($lastLog->performed_at)
@@ -35,7 +55,7 @@ class MaintenanceStatusService
         $dueDate      = $anchorDate->copy()->addDays($intervalDays);
         $overdueDate  = $dueDate->copy()->addDays(self::GRACE_PERIOD_DAYS);
 
-        $today = Carbon::now();
+        $today = $asOf ? $asOf->copy() : Carbon::now();
 
         if ($today->lessThan($dueDate)) {
             $status = 'Compliant';

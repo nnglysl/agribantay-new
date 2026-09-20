@@ -5,6 +5,7 @@ import AdminLayout from '../../components/AdminLayout'
 import SharedPagination from '../../components/Pagination'
 import { useCachedFetch, invalidateCache } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { useOverflowX } from '../../hooks/useOverflowX'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { roleBadgeStyle } from '../../utils/roleBadgeStyle'
 import { sanitizePhoneInput } from '../../utils/phoneValidation'
@@ -43,6 +44,7 @@ export default function ManageAccounts() {
   const [draftRole, setDraftRole] = useState('all')
   const filterRef = useRef(null)
   const isMobile = useIsMobile()
+  const [tableScrollRef, tableOverflows] = useOverflowX()
 
   const current = tabState[statusTab]
 
@@ -218,11 +220,11 @@ export default function ManageAccounts() {
 
       {!loading && !error && (
         <div style={styles.tableCard}>
-          {isMobile && accounts.length > 0 && (
-            <p style={styles.scrollHint}>Swipe left/right to see all columns →</p>
+          {tableOverflows && accounts.length > 0 && (
+            <p style={styles.scrollHint}>{isMobile ? 'Swipe' : 'Scroll'} left/right to see all columns →</p>
           )}
-          <div style={isMobile ? styles.tableScroll : undefined}>
-            <table style={{ ...styles.table, ...(isMobile ? styles.tableMobile : {}) }}>
+          <div ref={tableScrollRef} style={styles.tableScroll}>
+            <table style={{ ...styles.table, ...styles.tableMinWidth }}>
               <thead>
                 <tr>
                   <th style={styles.th}></th>
@@ -523,7 +525,7 @@ const styles = {
   scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0', fontFamily: SANS },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  tableMobile: { minWidth: '800px' },
+  tableMinWidth: { minWidth: '800px' },
   th: {
     textAlign: 'left', padding: '13px 20px', fontSize: '13px', fontWeight: 600, color: '#8a968d',
     borderBottom: '1px solid #eceee7',

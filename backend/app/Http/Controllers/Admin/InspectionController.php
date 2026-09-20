@@ -9,6 +9,7 @@ use App\Models\Notification;
 use App\Services\SuperAdminNotifier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use App\Support\LocalTime;
 
 class InspectionController extends Controller
 {
@@ -98,7 +99,7 @@ class InspectionController extends Controller
             'type'    => 'Inspection',
         ]);
 
-        $scheduledFor = $scheduledDate->format('F j, Y');
+        $scheduledFor = LocalTime::longDate($scheduledDate);
 
         SuperAdminNotifier::notify(
             'Inspection Scheduled',

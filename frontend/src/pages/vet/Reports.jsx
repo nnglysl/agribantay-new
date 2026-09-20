@@ -15,6 +15,7 @@ import {
   monthlyBucketsInRange, MONTH_NAMES, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle,
 } from '../../components/ReportsLayout'
 import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
+import { DISPLAY_TIME_ZONE } from '../../utils/formatDate'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip)
 
@@ -45,7 +46,7 @@ export default function VetReports() {
   const [generatedAt, setGeneratedAt] = useState('')
   if (data !== prevData) {
     setPrevData(data)
-    if (data) setGeneratedAt(new Date().toLocaleString('en-PH', { dateStyle: 'long', timeStyle: 'short' }))
+    if (data) setGeneratedAt(new Date().toLocaleString('en-PH', { dateStyle: 'long', timeStyle: 'short', timeZone: DISPLAY_TIME_ZONE }))
   }
 
   const [tab, setTab] = useState('Overview')
@@ -383,14 +384,18 @@ export default function VetReports() {
       </div>
 
       <div className="print-view" ref={printRef}>
-        <ReportLetterhead />
-        <h1 style={styles.printHead}>AgriBantay Vet Service Report</h1>
-        <p style={styles.printSub}>Vaccination and blood test history and records</p>
-        <p style={styles.printSub}>Period: {rangeLabel}</p>
-        <p style={styles.printMeta}>Generated {generatedAt}</p>
+        <div className="print-headblock">
+          <ReportLetterhead />
+          <h1 style={styles.printHead}>AgriBantay Vet Service Report</h1>
+          <p style={styles.printSub}>Vaccination and blood test history and records</p>
+          <p style={styles.printSub}>Reporting period: {rangeLabel}</p>
+          <p style={styles.printMeta}>Generated {generatedAt}</p>
+        </div>
 
-        <div className="print-section-title">Summary</div>
-        <table className="print-table">
+        <div className="print-section-title">
+          Summary <span className="print-scope">(selected range; your own accepted services)</span>
+        </div>
+        <table className="print-table print-kv">
           <tbody>
             <tr><th>Total completed</th><td>{data.total_completed}</td></tr>
             <tr><th>Farms covered</th><td>{data.farms_covered}</td></tr>
@@ -400,9 +405,14 @@ export default function VetReports() {
 
         <div className="print-section-title">Completed vaccinations and blood tests — {rangeLabel}</div>
         {services.length === 0 ? (
-          <p style={{ fontSize: 12 }}>No completed services in this range.</p>
+          <p className="print-empty">No completed services in this range.</p>
         ) : (
           <table className="print-table">
+            <colgroup>
+              <col style={{ width: '5%' }} /><col style={{ width: '13%' }} /><col style={{ width: '13%' }} />
+              <col style={{ width: '12%' }} /><col style={{ width: '11%' }} /><col style={{ width: '11%' }} />
+              <col style={{ width: '10%' }} /><col style={{ width: '16%' }} /><col style={{ width: '9%' }} />
+            </colgroup>
             <thead>
               <tr><th>ID</th><th>Type</th><th>Farm</th><th>Owner</th><th>Barangay</th><th>Est. birds</th><th>Date</th><th>Notes</th><th>Status</th></tr>
             </thead>

@@ -27,15 +27,15 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
+use App\Support\LocalTime;
 
 class FarmController extends Controller
 {
     // Farms list: columns the table may sort by, the page sizes its pager
     // offers, and the timezone its registration-date filter is expressed
-    // in (created_at is stored in UTC).
+    // in (created_at is stored in UTC) — see AppSupportLocalTime.
     private const SORTABLE_COLUMNS = ['farm_name', 'owner_name', 'barangay', 'farm_size', 'created_at'];
     private const PAGE_SIZES = [10, 25, 50, 100];
-    private const DISPLAY_TIMEZONE = 'Asia/Manila';
 
     public function index(Request $request)
     {
@@ -86,7 +86,7 @@ class FarmController extends Controller
         // Registration-date range, inclusive, as calendar days in the LGU's
         // local timezone (the app stores UTC). Matches what the table shows.
         if ($request->from || $request->to) {
-            $tz = self::DISPLAY_TIMEZONE;
+            $tz = LocalTime::timezone();
             if ($request->from) {
                 $query->where('created_at', '>=', Carbon::parse($request->from, $tz)->startOfDay()->utc());
             }
@@ -578,9 +578,9 @@ class FarmController extends Controller
                     'id'                  => $i->id,
                     'inspection_type'     => $i->inspection_type,
                     'status'              => $i->status,
-                    'scheduled_at'        => $i->scheduled_at?->format('M d, Y'),
+                    'scheduled_at'        => LocalTime::date($i->scheduled_at),
                     'scheduled_at_raw'    => $i->scheduled_at?->toIso8601String(),
-                    'completed_at'        => $i->completed_at?->format('M d, Y'),
+                    'completed_at'        => LocalTime::date($i->completed_at),
                     'completed_at_raw'    => $i->completed_at?->toIso8601String(),
                 ]),
                 'current_page' => $inspections->currentPage(),
@@ -625,11 +625,11 @@ class FarmController extends Controller
                 'requests' => $requests->getCollection()->map(fn($r) => [
                     'id'                => $r->id,
                     'request_type'      => $r->service_type,
-                    'request_date'      => $r->created_at?->format('M d, Y'),
+                    'request_date'      => LocalTime::date($r->created_at),
                     'request_date_raw'  => $r->created_at?->toIso8601String(),
                     'status'            => $r->status,
                     'accepted_by'       => $r->acceptedBy ? $r->acceptedBy->first_name . ' ' . $r->acceptedBy->last_name : null,
-                    'completed_at'      => $r->completed_at?->format('M d, Y'),
+                    'completed_at'      => LocalTime::date($r->completed_at),
                     'completed_at_raw'  => $r->completed_at?->toIso8601String(),
                 ]),
                 'current_page' => $requests->currentPage(),

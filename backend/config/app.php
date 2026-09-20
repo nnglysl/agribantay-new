@@ -69,6 +69,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Display Timezone
+    |--------------------------------------------------------------------------
+    |
+    | Timestamps are STORED in the timezone above. This is the timezone they are
+    | SHOWN in: the municipality this system serves is in San Jose, Batangas.
+    | AppSupportLocalTime routes every user-facing instant through it so the
+    | backend and the browser never disagree about what day something happened.
+    | Date-only columns are never converted — see that class for why.
+    |
+    */
+
+    'display_timezone' => env('APP_DISPLAY_TIMEZONE', 'Asia/Manila'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Locale Configuration
     |--------------------------------------------------------------------------
     |

@@ -2,7 +2,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useState, useEffect, useRef } from 'react'
 import { getUser, clearAuth } from '../utils/auth'
 import { NOTIFICATION_CATEGORIES, notificationCategory, notificationDestination } from '../utils/notifications'
-import { useIsMobile } from '../hooks/useIsMobile'
+import { useIsMobile, LAYOUT_BREAKPOINT } from '../hooks/useIsMobile'
 import api from '../api/axios'
 import agribantayLogo from '../assets/agribantay_logo.png'
 import agribantayName from '../assets/agribantay_name.png'
@@ -90,7 +90,7 @@ function NotificationBell() {
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('all')
   const wrapRef = useRef(null)
-  const isMobile = useIsMobile()
+  const isMobile = useIsMobile(LAYOUT_BREAKPOINT)
   const navigate = useNavigate()
 
   // One request at a time: mount + poll + bell-open can overlap (and
@@ -309,7 +309,7 @@ export default function DashboardLayout({ children, navItems = [], roleLabel = '
   const navigate = useNavigate()
   const location = useLocation()
   const user = getUser()
-  const isMobile = useIsMobile()
+  const isMobile = useIsMobile(LAYOUT_BREAKPOINT)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
 

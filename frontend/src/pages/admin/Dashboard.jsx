@@ -4,6 +4,7 @@ import FarmMap from '../../components/FarmMap'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { serviceTypeBadgeStyle } from '../../utils/serviceBadgeStyle'
+import { DISPLAY_TIME_ZONE } from '../../utils/formatDate'
 
 export default function AdminDashboard() {
   const { data, loading, error } = useCachedFetch('/admin/dashboard', {}, { pollMs: 60000 })
@@ -88,7 +89,7 @@ export default function AdminDashboard() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={styles.alertFarm}>{i.farm_name}</div>
                   <div style={styles.alertDetail}>
-                    {new Date(i.scheduled_at).toLocaleDateString()} · {i.inspection_type}
+                    {new Date(i.scheduled_at).toLocaleDateString(undefined, { timeZone: DISPLAY_TIME_ZONE })} · {i.inspection_type}
                   </div>
                 </div>
                 <span style={{ ...styles.badge, backgroundColor: c }}>
@@ -117,7 +118,7 @@ export default function AdminDashboard() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={styles.alertFarm}>{r.farm_name}</div>
                   <div style={styles.alertDetail}>
-                    {r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'} · {r.status}
+                    {r.created_at ? new Date(r.created_at).toLocaleDateString(undefined, { timeZone: DISPLAY_TIME_ZONE }) : '—'} · {r.status}
                   </div>
                 </div>
                 <span style={{ ...styles.badge, backgroundColor: c }}>{r.status}</span>

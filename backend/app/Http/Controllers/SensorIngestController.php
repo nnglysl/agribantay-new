@@ -6,6 +6,7 @@ use App\Models\Sensor;
 use App\Models\SensorReading;
 use App\Services\FarmStatusService;
 use App\Services\AlertHistoryService;
+use App\Services\MoistureThresholdService;
 use Illuminate\Http\Request;
 
 class SensorIngestController extends Controller
@@ -69,13 +70,18 @@ class SensorIngestController extends Controller
         $soilRaw    = (int) $request->soil_raw;
         $soilFaulty = $soilRaw <= 0;
 
-        $moisture = $soilFaulty ? null : round(100 - ($soilRaw / 4095) * 100, 2);
+        // Classify on the RAW computed percentage; the 2-decimal rounding
+        // below is only for the decimal(8,2) column / display and must
+        // never be what decides Safe/Warning/Critical (thresholds live in
+        // config/sensors.php via MoistureThresholdService).
+        $moistureRaw = $soilFaulty ? null : 100 - ($soilRaw / 4095) * 100;
+        $moisture    = $soilFaulty ? null : round($moistureRaw, 2);
 
         if ($soilFaulty) {
             $previous = SensorReading::where('farm_id', $farm->id)->latest()->value('moisture_status');
             $moistureStatus = $previous ?: 'Safe';
         } else {
-            $moistureStatus = $this->status($moisture, 60, 70);
+            $moistureStatus = app(MoistureThresholdService::class)->classify($moistureRaw);
         }
 
         // farm_id is copied from the device's CURRENT assignment at this

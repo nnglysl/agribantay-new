@@ -4,6 +4,7 @@ import VetScheduleMap from '../../components/VetScheduleMap'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { serviceTypeBadgeStyle, serviceTypeLabel } from '../../utils/serviceBadgeStyle'
+import { DISPLAY_TIME_ZONE } from '../../utils/formatDate'
 
 export default function VetDashboard() {
   const { data, loading, error, refetch } = useCachedFetch('/vet/dashboard', {}, { pollMs: 60000 })
@@ -158,7 +159,7 @@ function ScheduledPanel({ items, isMobile, onSeeAll, activeTab: tab, onTabChange
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={styles.rowName}>{r.farm_name}</div>
                 <div style={styles.rowDetail}>
-                  {new Date(r.scheduled_at).toLocaleDateString()}
+                  {new Date(r.scheduled_at).toLocaleDateString(undefined, { timeZone: DISPLAY_TIME_ZONE })}
                 </div>
               </div>
               <span style={{ ...styles.rowTag, ...serviceTypeBadgeStyle(r.service_type) }}>{type}</span>

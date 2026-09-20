@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../utils/serviceBadgeStyle'
 import SharedPagination from './Pagination'
+import { DISPLAY_TIME_ZONE } from '../utils/formatDate'
 
 export { serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle }
 
@@ -57,11 +58,22 @@ export const monthBounds = (month, year) => ({
 
 export const dayOf = v => (v ? String(v).slice(0, 10) : '')
 
+// Report tables show the LOCAL calendar day of an instant.
+//
+// This used to take dayOf(v) — the first 10 characters of the ISO string, i.e.
+// the UTC date — which printed the wrong day for anything stored after 16:00
+// UTC. A service request completed 2026-09-11 20:35 UTC is 12 September in
+// San Jose, and the list beside it already said so. Parsing the full value and
+// formatting it in the display timezone makes the two agree.
+//
+// A bare "YYYY-MM-DD" (a date-only value, or a filter bound) has no time of
+// day, so it is still anchored at midday to keep it on its own calendar date.
 export const fmtDate = v => {
-  const day = dayOf(v)
-  if (!day) return '—'
-  const d = new Date(`${day}T09:00:00`)
-  return Number.isNaN(d.getTime()) ? v : d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
+  if (!v) return '—'
+  const raw = String(v)
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? new Date(`${raw}T12:00:00`) : new Date(raw)
+  if (Number.isNaN(d.getTime())) return v
+  return d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', timeZone: DISPLAY_TIME_ZONE })
 }
 
 export const makeInRange = (from, to) => v => {
@@ -275,9 +287,80 @@ export function ReportStyles() {
       .gr-hidden-capture { position: absolute; left: -9999px; top: 0; width: 800px; padding: 40px; box-sizing: border-box;
                             font-family: Georgia, 'Times New Roman', serif; color: #000; background: #fff; }
 
+      /* ---- shared print document rules (all three role reports) ----
+         The three report views (GeneratedReportView, AdminGeneratedReportView,
+         VetGeneratedReportView) render the same .print-table / .print-section-title
+         markup, so everything below applies to all of them at once. */
+
+      /* Key/value summary tables: keep the figure column narrow and right
+         aligned instead of letting auto-layout split the table 50/50, which
+         left a wide empty column next to every count. */
+      .print-table.print-kv td { width: 90px; text-align: right; font-variant-numeric: tabular-nums; }
+
+      /* Long farm names, owner names and service notes must wrap rather than
+         push the table past the printable width. */
+      .print-table th, .print-table td { vertical-align: top; overflow-wrap: anywhere; word-break: break-word; }
+
+      /* Empty states sit tight under their heading instead of leaving a gap
+         the size of a missing table. */
+      .print-empty { font-size: 12px; margin: 0 0 18px; font-style: italic; }
+
+      /* Scope qualifier shown next to a section heading. */
+      .print-scope { font-weight: normal; text-transform: none; font-style: italic; }
+
+      /* DashboardLayout also declares @page { margin: 1.5cm } inside its own
+         print block. @page cannot be scoped, so the two coexist; this rule is
+         in the page-level stylesheet, which React renders after the layout
+         wrapper, so it wins on the Reports pages where reports are printed. */
+      @page { size: A4 portrait; margin: 14mm 12mm; }
+
+      @media print {
+        html, body { background: #fff; }
+
+        /* Repeat column headers on every page a table continues onto, and
+           keep individual rows whole. Browser print honours these; the
+           html2canvas PDF path cannot (it rasterises one tall image). */
+        .print-table thead { display: table-header-group; }
+        .print-table tfoot { display: table-footer-group; }
+        .print-table tr { page-break-inside: avoid; break-inside: avoid; }
+
+        /* Never strand a heading at the foot of a page without its table. */
+        .print-section-title { page-break-after: avoid; break-after: avoid;
+                               page-break-inside: avoid; break-inside: avoid; }
+        .print-empty { page-break-before: avoid; break-before: avoid; }
+
+        /* Letterhead + title block stay together with what follows. */
+        .print-headblock { page-break-after: avoid; break-after: avoid; }
+        .print-signatures { page-break-inside: avoid; break-inside: avoid; }
+
+        /* On screen these documents are a fixed 800px sheet with their own
+           40px paper margin. In print the @page margin box already provides
+           the margin, and 800px is wider than A4's printable width, so the
+           document would otherwise be clipped or shrunk. */
+        .print-view,
+        body.gr-printing .gr-print-area { width: 100% !important; padding: 0 !important; }
+
+        /* The app shell is hidden with visibility, which still reserves its
+           full height and emits blank trailing pages after the report. */
+        body.gr-printing #root { display: none !important; }
+      }
+
       .gr-doc { width: 800px; max-width: 100%; margin: 0 auto; padding: 40px; box-sizing: border-box;
                 font-family: Georgia, 'Times New Roman', serif; color: #000; background: #fff;
                 border: 1px solid ${C.border}; border-radius: 10px; }
+
+      /* The archived-report viewer is a fixed 800px document. On a phone the
+         40px paper margins plus six-column tables leave the text unreadable,
+         so on screen only, the margins tighten and each table scrolls in place.
+         Scoped to .gr-doc and to screen so the 800px print and html2canvas
+         capture targets (.print-view, .gr-hidden-capture) are untouched. */
+      @media screen and (max-width: 760px) {
+        .gr-doc { padding: 22px 16px; }
+        .gr-doc .print-table {
+          display: block; overflow-x: auto; white-space: nowrap;
+          -webkit-overflow-scrolling: touch;
+        }
+      }
     `}</style>
   )
 }
@@ -521,7 +604,7 @@ export function DonutCenter({ total, caption = 'farms' }) {
 
 export function Signatures({ right }) {
   return (
-    <div style={{ marginTop: 40, display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+    <div className="print-signatures" style={{ marginTop: 40, display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
       <div style={{ borderTop: '1px solid #000', width: 220, paddingTop: 4 }}>Prepared by</div>
       <div style={{ borderTop: '1px solid #000', width: 220, paddingTop: 4 }}>{right}</div>
     </div>

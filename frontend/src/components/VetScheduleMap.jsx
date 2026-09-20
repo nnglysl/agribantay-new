@@ -4,6 +4,7 @@ import 'leaflet/dist/leaflet.css'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { SAN_JOSE_CENTER, SAN_JOSE_BOUNDARY, WORLD_RING } from './FarmMap'
 import { serviceTypeBadgeStyle } from '../utils/serviceBadgeStyle'
+import { DISPLAY_TIME_ZONE } from '../utils/formatDate'
 
 const DEFAULT_COLOR = '#d4d8cf' // same "no request" neutral used on the Admin Farm Map
 const requestTypeColor = (type) => serviceTypeBadgeStyle(type).color
@@ -101,7 +102,7 @@ const VetScheduleMap = forwardRef(function VetScheduleMap({ farms = [], requests
       if (request) {
         popupLines.push(request.service_type)
         popupLines.push(request.status || 'Scheduled')
-        if (request.scheduled_at) popupLines.push(new Date(request.scheduled_at).toLocaleDateString())
+        if (request.scheduled_at) popupLines.push(new Date(request.scheduled_at).toLocaleDateString(undefined, { timeZone: DISPLAY_TIME_ZONE }))
       }
 
       const marker = L.marker([farm.latitude, farm.longitude], { icon })

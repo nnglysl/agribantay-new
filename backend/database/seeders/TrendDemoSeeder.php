@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use Illuminate\Database\Seeder;
 use App\Models\SensorReading;
 use App\Models\Sensor;
+use App\Services\MoistureThresholdService;
 use Carbon\Carbon;
 
 /**
@@ -54,7 +55,7 @@ class TrendDemoSeeder extends Seeder
                 'humidity'           => $humidity,
                 'humidity_status'    => $this->status($humidity, 70, 80),
                 'moisture'           => $moisture,
-                'moisture_status'    => $this->status($moisture, 60, 70),
+                'moisture_status'    => app(MoistureThresholdService::class)->classify($moisture),
                 'is_mock'            => true,
                 'created_at'         => $timestamp,
                 'updated_at'         => $timestamp,
@@ -77,7 +78,7 @@ class TrendDemoSeeder extends Seeder
                 round(18 + $step * 1.8 + $noise(0.8), 2),   // ammonia: ~18 -> ~34
                 round(28 + $step * 0.6 + $noise(0.4), 2),   // temperature: ~28 -> ~33
                 round(60 + $step * 1.5 + $noise(1), 2),     // humidity: ~60 -> ~73
-                round(45 + $step * 2.0 + $noise(1), 2),     // moisture: ~45 -> ~63
+                round(18 + $step * 2.0 + $noise(1), 2),     // moisture: ~18 -> ~36 (Safe -> Warning -> Critical)
             ],
 
             // Flat within Normal range the whole time — demonstrates
@@ -86,7 +87,7 @@ class TrendDemoSeeder extends Seeder
                 round(15 + $noise(1.5), 2),
                 round(27 + $noise(0.5), 2),
                 round(55 + $noise(2), 2),
-                round(40 + $noise(2), 2),
+                round(20 + $noise(2), 2),                  // moisture: Safe (<25)
             ],
 
             // Starts elevated and improves over time — demonstrates a
@@ -96,7 +97,7 @@ class TrendDemoSeeder extends Seeder
                 round(32 - $step * 1.4 + $noise(0.6), 2),   // ammonia: ~32 -> ~19
                 round(31 - $step * 0.3 + $noise(0.3), 2),
                 round(75 - $step * 1.2 + $noise(1), 2),
-                round(58 - $step * 1.0 + $noise(1), 2),
+                round(38 - $step * 1.0 + $noise(1), 2),   // moisture: ~38 -> ~29 (Critical -> Warning)
             ],
 
             // Realistic noisy Warning-level oscillation — no clean
@@ -106,10 +107,10 @@ class TrendDemoSeeder extends Seeder
                 round(24 + $noise(4), 2),
                 round(31 + $noise(1.5), 2),
                 round(68 + $noise(5), 2),
-                round(55 + $noise(5), 2),
+                round(30 + $noise(4), 2),                  // moisture: Warning band jitter
             ],
 
-            default => [15, 27, 55, 40],
+            default => [15, 27, 55, 20],
         };
     }
 

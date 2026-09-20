@@ -3,6 +3,7 @@ import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { useOverflowX } from '../../hooks/useOverflowX'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 
 export default function UserManagement() {
@@ -13,6 +14,7 @@ export default function UserManagement() {
   const [confirmAction, setConfirmAction] = useState(null)
   const [resetPasswordResult, setResetPasswordResult] = useState(null)
   const isMobile = useIsMobile()
+  const [tableScrollRef, tableOverflows] = useOverflowX()
 
   const params = {}
   // Debounced so typing doesn't fire a request per keystroke.
@@ -110,11 +112,11 @@ export default function UserManagement() {
 
       {!loading && !error && (
         <div style={styles.tableCard}>
-          {isMobile && allVets.length > 0 && (
-            <p style={styles.scrollHint}>Swipe left/right to see all columns →</p>
+          {tableOverflows && allVets.length > 0 && (
+            <p style={styles.scrollHint}>{isMobile ? 'Swipe' : 'Scroll'} left/right to see all columns →</p>
           )}
-          <div style={isMobile ? styles.tableScroll : undefined}>
-            <table style={{ ...styles.table, ...(isMobile ? styles.tableMobile : {}) }}>
+          <div ref={tableScrollRef} style={styles.tableScroll}>
+            <table style={{ ...styles.table, ...styles.tableMinWidth }}>
               <thead>
                 <tr>
                   <th style={styles.th}>Name</th>
@@ -407,7 +409,7 @@ const styles = {
   scrollHint: { fontSize: '11px', color: '#9ca3af', margin: '12px 16px 0' },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  tableMobile: { minWidth: '760px' },
+  tableMinWidth: { minWidth: '760px' },
   th: { textAlign: 'left', padding: '14px 16px', fontSize: '13px', fontWeight: 600, color: '#6b7280', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' },
   td: { padding: '14px 16px', fontSize: '12px', color: '#374151', borderBottom: '1px solid #f3f4f6' },
   badge: { padding: '3px 10px', borderRadius: '999px', color: 'white', fontSize: '11px', fontWeight: '600', whiteSpace: 'nowrap' },

@@ -23,7 +23,8 @@ class TrendAnalysisService
     private const THRESHOLDS = [
         'ammonia'  => ['warning' => 25, 'critical' => 35],
         'humidity' => ['warning' => 70, 'critical' => 80],
-        'moisture' => ['warning' => 60, 'critical' => 70],
+        // moisture: read from config/sensors.php via MoistureThresholdService
+        // (see criticalThresholdFor) — 25 / 35 per the IoT Thresholds RRL.
     ];
 
     private const TEMP_CRITICAL_HIGH = 35;
@@ -123,6 +124,10 @@ class TrendAnalysisService
     {
         if ($field === 'temperature') {
             return $slope >= 0 ? self::TEMP_CRITICAL_HIGH : self::TEMP_CRITICAL_LOW;
+        }
+
+        if ($field === 'moisture') {
+            return app(MoistureThresholdService::class)->critical();
         }
 
         return self::THRESHOLDS[$field]['critical'] ?? null;

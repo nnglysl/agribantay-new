@@ -4,6 +4,7 @@ import FarmMap from '../../components/FarmMap'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useMonthFilter, filterByMonth } from '../../hooks/useMonthFilter'
+import { DISPLAY_TIME_ZONE } from '../../utils/formatDate'
 
 export default function SuperAdminDashboard() {
   const { data, loading, error, refetch: refetchDashboard } = useCachedFetch('/admin/dashboard')
@@ -134,7 +135,7 @@ export default function SuperAdminDashboard() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={styles.alertFarm}>{i.farm_name}</div>
                   <div style={styles.alertDetail}>
-                    {new Date(i.scheduled_at).toLocaleDateString()} · {i.inspection_type}
+                    {new Date(i.scheduled_at).toLocaleDateString(undefined, { timeZone: DISPLAY_TIME_ZONE })} · {i.inspection_type}
                   </div>
                 </div>
                 <span style={{ ...styles.softBadge, color: followUp ? '#b45309' : '#2f6bb0', backgroundColor: followUp ? '#fbf1e2' : '#e8eff8' }}>

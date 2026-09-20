@@ -41,14 +41,25 @@ class RootCauseService
         $humidity    = (float) $current['humidity'];
         $moisture    = (float) $current['moisture'];
 
+        // Moisture breakpoints come from config/sensors.php (25 / 35 per
+        // the IoT Thresholds RRL) so the fuzzy curves stay anchored to the
+        // same Warning/Critical lines the ingest classifier uses. Same
+        // shape as before: Low fades out across the band below Warning,
+        // Medium peaks at Warning and fades to 0 at Critical, High ramps
+        // from Warning and saturates at Critical.
+        $thresholds = app(MoistureThresholdService::class);
+        $mWarn      = $thresholds->warning();
+        $mCrit      = $thresholds->critical();
+        $mShoulder  = max(0, $mWarn - ($mCrit - $mWarn)); // Low band's last "fully low" point
+
         return [
             'ammonia_low'     => $this->trapezoid($ammonia, 0, 0, 15, 25),
             'ammonia_medium'  => $this->trapezoid($ammonia, 15, 25, 30, 35),
             'ammonia_high'    => $this->trapezoid($ammonia, 25, 35, 100, 100),
 
-            'moisture_low'    => $this->trapezoid($moisture, 0, 0, 45, 60),
-            'moisture_medium' => $this->trapezoid($moisture, 45, 60, 60, 70),
-            'moisture_high'   => $this->trapezoid($moisture, 60, 70, 100, 100),
+            'moisture_low'    => $this->trapezoid($moisture, 0, 0, $mShoulder, $mWarn),
+            'moisture_medium' => $this->trapezoid($moisture, $mShoulder, $mWarn, $mWarn, $mCrit),
+            'moisture_high'   => $this->trapezoid($moisture, $mWarn, $mCrit, 100, 100),
 
             'humidity_low'    => $this->trapezoid($humidity, 0, 0, 55, 70),
             'humidity_medium' => $this->trapezoid($humidity, 55, 70, 70, 80),

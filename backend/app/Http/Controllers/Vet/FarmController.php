@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Farm;
 use App\Models\ServiceRequest;
 use Illuminate\Http\Request;
+use App\Support\LocalTime;
 
 /**
  * Read-only farm directory for the Vet role. Deliberately scoped to
@@ -138,13 +139,13 @@ class FarmController extends Controller
                     'id'               => $r->id,
                     'request_number'   => $r->request_number,
                     'request_type'     => $r->service_type,
-                    'request_date'     => $r->created_at?->format('M d, Y'),
+                    'request_date'     => LocalTime::date($r->created_at),
                     'created_at'       => $r->created_at,
                     'scheduled_at'     => $r->scheduled_at,
                     'notes'            => $r->notes,
                     'status'           => $r->status,
                     'accepted_by'      => $r->acceptedBy ? $r->acceptedBy->first_name . ' ' . $r->acceptedBy->last_name : null,
-                    'completed_at'     => $r->completed_at?->format('M d, Y'),
+                    'completed_at'     => LocalTime::date($r->completed_at),
                     'completed_at_raw' => $r->completed_at,
                 ]),
                 'current_page' => $requests->currentPage(),

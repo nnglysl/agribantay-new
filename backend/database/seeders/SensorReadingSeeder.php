@@ -19,7 +19,7 @@ class SensorReadingSeeder extends Seeder
                 'ammonia_status'     => 'Safe',
                 'temperature_status' => 'Safe',
                 'humidity_status'    => 'Safe',
-                'moisture_status'    => 'Safe',
+                'moisture_status'    => 'Critical',
                 'is_mock'            => true,
             ],
             [
@@ -31,7 +31,7 @@ class SensorReadingSeeder extends Seeder
                 'ammonia_status'     => 'Critical',
                 'temperature_status' => 'Warning',
                 'humidity_status'    => 'Warning',
-                'moisture_status'    => 'Warning',
+                'moisture_status'    => 'Critical',
                 'is_mock'            => true,
             ],
             [
@@ -43,7 +43,7 @@ class SensorReadingSeeder extends Seeder
                 'ammonia_status'     => 'Warning',
                 'temperature_status' => 'Safe',
                 'humidity_status'    => 'Safe',
-                'moisture_status'    => 'Safe',
+                'moisture_status'    => 'Critical',
                 'is_mock'            => true,
             ],
             [
@@ -55,7 +55,7 @@ class SensorReadingSeeder extends Seeder
                 'ammonia_status'     => 'Safe',
                 'temperature_status' => 'Safe',
                 'humidity_status'    => 'Safe',
-                'moisture_status'    => 'Safe',
+                'moisture_status'    => 'Critical',
                 'is_mock'            => true,
             ],
         ];

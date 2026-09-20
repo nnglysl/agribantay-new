@@ -14,6 +14,7 @@ import {
   MONTH_NAMES, serviceTypeBadgeStyle, serviceTypeLabel,
 } from '../../components/ReportsLayout'
 import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
+import { DISPLAY_TIME_ZONE } from '../../utils/formatDate'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Tooltip)
 
@@ -32,7 +33,7 @@ export default function AdminReports() {
   const [generatedAt, setGeneratedAt] = useState('')
   if (data !== prevData) {
     setPrevData(data)
-    if (data) setGeneratedAt(new Date().toLocaleString('en-PH', { dateStyle: 'long', timeStyle: 'short' }))
+    if (data) setGeneratedAt(new Date().toLocaleString('en-PH', { dateStyle: 'long', timeStyle: 'short', timeZone: DISPLAY_TIME_ZONE }))
   }
 
   const [tab, setTab] = useState('Overview')

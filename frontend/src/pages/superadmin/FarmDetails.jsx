@@ -6,7 +6,7 @@ import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButt
 import { useCachedFetch, invalidateCache } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import api from '../../api/axios'
-import { parseLocalDate } from '../../utils/formatDate'
+import { parseLocalDate, DISPLAY_TIME_ZONE } from '../../utils/formatDate'
 import { BARANGAYS } from '../../constants/barangays'
 import { viewModalStyles as v } from '../../styles/viewModalStyles'
 import { isValidPhoneNumber, sanitizePhoneInput, PHONE_VALIDATION_MESSAGE } from '../../utils/phoneValidation'
@@ -682,7 +682,7 @@ export default function SuperAdminFarmDetails() {
                     </span>
                   )}
                 </div>
-                <InfoCell label="Last Synchronization" value={farm?.last_seen_at ? new Date(farm.last_seen_at).toLocaleString() : null} />
+                <InfoCell label="Last Synchronization" value={farm?.last_seen_at ? new Date(farm.last_seen_at).toLocaleString(undefined, { timeZone: DISPLAY_TIME_ZONE }) : null} />
               </div>
             </Card>
 
@@ -755,7 +755,7 @@ export default function SuperAdminFarmDetails() {
                     <tbody>
                       {alertsData.map(a => (
                         <tr key={a.id}>
-                          <td style={tableStyles.td}>{new Date(a.created_at).toLocaleString()}</td>
+                          <td style={tableStyles.td}>{new Date(a.created_at).toLocaleString(undefined, { timeZone: DISPLAY_TIME_ZONE })}</td>
                           <td style={tableStyles.td}>{a.type}</td>
                           <td style={tableStyles.td}>{a.reading}</td>
                           <td style={tableStyles.td}>

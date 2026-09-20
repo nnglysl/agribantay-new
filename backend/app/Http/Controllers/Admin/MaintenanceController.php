@@ -8,6 +8,7 @@ use App\Models\MaintenanceLog;
 use App\Models\MaintenanceNotification;
 use App\Services\MaintenanceStatusService;
 use Illuminate\Http\Request;
+use App\Support\LocalTime;
 
 class MaintenanceController extends Controller
 {
@@ -80,7 +81,7 @@ class MaintenanceController extends Controller
                     ? 'Your manure clean-out is overdue. Please clean and properly dispose of accumulated manure and update your manure record.'
                     : 'Your manure clean-out is still overdue and has exceeded the 30-day grace period. Please complete the required clean-out and update your manure record.',
 
-                'sent_at' => $n->sent_at->format('M d, Y g:i A'),
+                'sent_at' => LocalTime::dateTime($n->sent_at),
 
                 'status' => $n->smsLog?->status ?? 'Unknown',
             ]);
@@ -110,7 +111,7 @@ class MaintenanceController extends Controller
                     'mobile_number' => $farm->mobile_number,
                     'barangay'      => $farm->barangay,
                     'farm_size'     => $farm->farm_size,
-                    'created_at'    => $farm->created_at->format('M d, Y'),
+                    'created_at'    => LocalTime::date($farm->created_at),
                 ],
 
                 'maintenance' => [

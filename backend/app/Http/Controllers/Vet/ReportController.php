@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Vet;
 use App\Http\Controllers\Controller;
 use App\Models\ServiceRequest;
 use Illuminate\Support\Facades\Auth;
+use App\Support\LocalTime;
 
 class ReportController extends Controller
 {
@@ -50,7 +51,7 @@ class ReportController extends Controller
                 'owner_name' => $r->farm->owner_name,
                 'barangay' => $r->farm->barangay,
                 'farm_size' => $r->farm->farm_size,
-                'completed_at' => $r->completed_at?->format('M d, Y'),
+                'completed_at' => LocalTime::date($r->completed_at),
                 'completed_at_raw' => $r->completed_at?->toIso8601String(),
                 'notes' => $r->notes,
                 'status' => $r->status,
@@ -76,7 +77,7 @@ class ReportController extends Controller
                     'farm_name' => $r->farm->farm_name,
                     'owner_name' => $r->farm->owner_name,
                     'barangay' => $r->farm->barangay,
-                    'date' => $date?->format('M d, Y'),
+                    'date' => LocalTime::date($date),
                     'date_raw' => $date?->toIso8601String(),
                     'status' => $r->status,
                     'vet_name' => $isSuperAdmin
