@@ -2,11 +2,13 @@ import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
-import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { useCachedFetch, invalidateCache } from '../../hooks/useCachedFetch'
+import { LIVE_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { isValidPhoneNumber, sanitizePhoneInput, PHONE_VALIDATION_MESSAGE } from '../../utils/phoneValidation'
 import VerifyEmailChangeModal from '../../components/VerifyEmailChangeModal'
 import { DISPLAY_TIME_ZONE } from '../../utils/formatDate'
+import { BtnBusy } from '../../components/Loading'
 
 function getInitials(first, last) {
   return ((first?.[0] || '') + (last?.[0] || '')).toUpperCase()
@@ -17,7 +19,7 @@ export default function AccountDetails() {
   const navigate = useNavigate()
   const isMobile = useIsMobile()
 
-  const { data: account, loading, error, refetch } = useCachedFetch(`/superadmin/accounts/${id}`)
+  const { data: account, loading, error, refetch } = useCachedFetch(`/superadmin/accounts/${id}`, {}, { pollMs: LIVE_POLL_MS })
 
   const [isEditing, setIsEditing] = useState(false)
   const [firstName, setFirstName] = useState('')
@@ -30,7 +32,9 @@ export default function AccountDetails() {
 
   const [confirmReset, setConfirmReset] = useState(false)
   const [resetting, setResetting] = useState(false)
+  // Holds the server's confirmation sentence — never a credential.
   const [resetResult, setResetResult] = useState(null)
+  const [resetError, setResetError] = useState('')
   const [pendingEmail, setPendingEmail] = useState(null)
 
   if (loading) return <AdminLayout><p style={styles.stateText}>Loading account…</p></AdminLayout>
@@ -39,7 +43,7 @@ export default function AccountDetails() {
   }
 
   const isActive = account.status === 'active'
-  const roleLabel = account.role === 'admin' ? 'Administrator' : 'Veterinarian'
+  const roleLabel = account.role === 'admin' ? 'Staff' : 'Veterinarian'
   const initials = getInitials(account.first_name, account.last_name)
 
   const startEdit = () => {
@@ -92,6 +96,11 @@ export default function AccountDetails() {
         email: currentEmail,
         contact_number: mobileNumber,
       })
+      // The Manage Accounts table reads /superadmin/accounts through the
+      // same in-memory cache, keyed per role+params. Refetching only this
+      // detail endpoint left those list entries holding the pre-edit name,
+      // which is why the old name persisted until a reload cleared the Map.
+      invalidateCache('/superadmin/accounts')
       await refetch()
       setIsEditing(false)
 
@@ -107,13 +116,23 @@ export default function AccountDetails() {
     }
   }
 
+  // The temporary password is no longer part of this response, and must not
+  // be: it is delivered to the account holder over their own registered email
+  // or mobile. All that is shown here is whether that delivery happened.
   const handleResetPassword = async () => {
     setResetting(true)
+    setResetError('')
     try {
       const res = await api.post(`/superadmin/accounts/${id}/reset-password`)
       setConfirmReset(false)
-      setResetResult(res.data.temp_password)
+      setResetResult(res.data.message || 'Password reset successfully. The temporary password has been sent to the user\'s registered contact information.')
       refetch()
+    } catch (err) {
+      // A failed send still means the old password is gone, so this must never
+      // be swallowed into a success state — the server's message says what to
+      // do next.
+      setConfirmReset(false)
+      setResetError(err.response?.data?.message || 'Unable to reset the password. Please try again.')
     } finally {
       setResetting(false)
     }
@@ -236,7 +255,7 @@ export default function AccountDetails() {
                 disabled={profileLoading}
                 style={{ ...styles.saveBtn, ...(isMobile ? styles.btnFull : {}) }}
               >
-                {profileLoading ? 'Saving...' : 'Save Changes'}
+                {profileLoading ? <BtnBusy label="Saving…" /> : 'Save Changes'}
               </button>
               <button
                 type="button"
@@ -274,6 +293,9 @@ export default function AccountDetails() {
             setEmail(account.email || '')
           }}
           onVerified={async () => {
+            // Same reason as the profile save: the verified email is shown in
+            // the Manage Accounts table, so its cached list must be dropped too.
+            invalidateCache('/superadmin/accounts')
             await refetch()
             setPendingEmail(null)
             setProfileSuccess('Email verified successfully.')
@@ -302,13 +324,22 @@ export default function AccountDetails() {
       {resetResult && (
         <div style={modalStyles.overlay} onClick={() => setResetResult(null)}>
           <div style={modalStyles.modal} onClick={e => e.stopPropagation()}>
-            <h3 style={modalStyles.title}>Temporary Password</h3>
-            <p style={styles.securityNote}>
-              For <strong>{account.first_name} {account.last_name}</strong> — shown once, relay this to them directly:
-            </p>
-            <div style={styles.tempPasswordBox}>{resetResult}</div>
+            <h3 style={modalStyles.title}>Password Reset</h3>
+            <p style={styles.securityNote}>{resetResult}</p>
             <div style={modalStyles.actions}>
               <button onClick={() => setResetResult(null)} style={styles.saveBtn}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {resetError && (
+        <div style={modalStyles.overlay} onClick={() => setResetError('')}>
+          <div style={modalStyles.modal} onClick={e => e.stopPropagation()}>
+            <h3 style={modalStyles.title}>Password Reset Failed</h3>
+            <p style={styles.securityNote}>{resetError}</p>
+            <div style={modalStyles.actions}>
+              <button onClick={() => setResetError('')} style={styles.saveBtn}>Close</button>
             </div>
           </div>
         </div>
@@ -364,7 +395,7 @@ const styles = {
   statusPill: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 12px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, flexShrink: 0 },
   pillDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
 
-  row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' },
+  row: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '16px' },
   rowMobile: { gridTemplateColumns: '1fr', gap: '0px' },
   fieldGroup: { display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '14px' },
   label: { fontSize: '13px', fontWeight: '500', color: '#374151' },
@@ -395,11 +426,6 @@ const styles = {
 
   securityNote: { fontSize: '13px', color: '#6b7280', lineHeight: 1.5, marginTop: 0, marginBottom: '16px' },
 
-  tempPasswordBox: {
-    fontFamily: 'monospace', fontSize: '18px', fontWeight: '700', color: '#111827',
-    backgroundColor: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px',
-    padding: '14px', textAlign: 'center', letterSpacing: '1px', marginBottom: '4px',
-  },
 }
 
 const modalStyles = {

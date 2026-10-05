@@ -11,6 +11,8 @@ use App\Services\GeneratedReportService;
 use App\Support\LocalTime;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Carbon;
+use App\Models\User;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
@@ -40,7 +42,36 @@ class ReportPeriodTimezoneTest extends TestCase
             $this->markTestSkipped('Run with: DB_CONNECTION=mysql DB_DATABASE=db_agribantay php artisan test --filter=ReportPeriodTimezoneTest');
         }
 
-        $this->farm = Farm::where('status', 'Active')->firstOrFail();
+        // Created, not borrowed. Reaching for the first Active farm already in
+        // the database made this class fail outright once the pre-launch
+        // cleanup left none — the timezone logic under test never changed.
+        $this->farm = $this->makeFarm();
+    }
+
+    private function makeFarm(): Farm
+    {
+        $owner = User::create([
+            'first_name'    => 'Tz',
+            'last_name'     => Str::random(6),
+            'email'         => Str::lower(Str::random(10)) . '@agribantay.test',
+            'mobile_number' => '09' . random_int(100000000, 999999999),
+            'password'      => bcrypt('password'),
+            'role'          => 'farm_owner',
+            'status'        => 'active',
+        ]);
+
+        return Farm::create([
+            'user_id'       => $owner->id,
+            'farm_name'     => 'Timezone Test Farm',
+            'owner_name'    => 'Tz Owner',
+            'mobile_number' => $owner->mobile_number,
+            'barangay'      => 'Calansayan',
+            'municipality'  => 'San Jose',
+            'province'      => 'Batangas',
+            'address'       => 'Calansayan, San Jose, Batangas',
+            'farm_size'     => 'Small',
+            'status'        => 'Active',
+        ]);
     }
 
     protected function tearDown(): void

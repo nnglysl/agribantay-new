@@ -131,7 +131,7 @@ const VetScheduleMap = forwardRef(function VetScheduleMap({ farms = [], requests
 
       <div style={{ ...styles.legend, ...(isMobile ? styles.legendMobile : {}) }}>
         <div style={styles.legendTitle}>Request type</div>
-        <LegendRow color={requestTypeColor('Vaccine Request')} label="Vaccination" />
+        <LegendRow color={requestTypeColor('Farm Biosecurity Request')} label="Farm Biosecurity" />
         <LegendRow color={requestTypeColor('Blood Test Request')} label="Blood Test" />
         <LegendRow color={DEFAULT_COLOR} label="No selected-type request" />
       </div>

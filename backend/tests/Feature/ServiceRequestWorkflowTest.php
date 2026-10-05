@@ -196,7 +196,8 @@ class ServiceRequestWorkflowTest extends TestCase
     {
         foreach (self::roles() as $role => [$base, $type]) {
             foreach (['Pending', 'Scheduled'] as $otherStatus) {
-                $done  = $this->request($type, 'Completed', ['scheduled_at' => now()->subDays(3), 'completed_at' => now()->subDays(2)]);
+                // A completed request always has an acceptor; ownership is now enforced.
+                $done  = $this->request($type, 'Completed', ['scheduled_at' => now()->subDays(3), 'completed_at' => now()->subDays(2), 'accepted_by' => $this->actor($role)->id]);
                 $other = $this->request($type, $otherStatus, ['scheduled_at' => now()->addDays(2)]);
 
                 $this->actingAs($this->actor($role))->patchJson("$base/{$done->id}/reopen")
@@ -211,7 +212,7 @@ class ServiceRequestWorkflowTest extends TestCase
             }
 
             // A different service type must NOT block it.
-            $done  = $this->request($type, 'Completed', ['scheduled_at' => now()->subDays(3), 'completed_at' => now()]);
+            $done  = $this->request($type, 'Completed', ['scheduled_at' => now()->subDays(3), 'completed_at' => now(), 'accepted_by' => $this->actor($role)->id]);
             $otherType = $role === 'vet' ? 'Blood Test Request' : 'Fly Control Request';
             $this->request($otherType, 'Pending');
             $this->actingAs($this->actor($role))->patchJson("$base/{$done->id}/reopen")->assertStatus(200);

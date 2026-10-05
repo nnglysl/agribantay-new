@@ -80,7 +80,7 @@ class SettingsController extends Controller
             ],
             'profile_photo' => 'nullable|image|max:5120',
         ], [
-            'mobile_number.regex' => 'Please enter a valid Philippine mobile number (e.g. 09171234567).',
+            'mobile_number.regex' => 'Please enter a valid mobile number.',
         ]);
 
        $updates = [

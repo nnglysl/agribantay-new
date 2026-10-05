@@ -204,9 +204,13 @@ class FarmDeletionTest extends TestCase
         $this->assertDatabaseMissing('sensor_readings', ['farm_id' => $farm->id]);
         $this->assertDatabaseMissing('inspections', ['farm_id' => $farm->id]);
         $this->assertDatabaseMissing('service_requests', ['farm_id' => $farm->id]);
-        // Devices are detached, not destroyed; the owner account is untouched.
+        // Devices are detached, not destroyed — they outlive the farm.
         $this->assertDatabaseHas('sensors', ['id' => $sensor->id, 'farm_id' => null]);
-        $this->assertDatabaseHas('users', ['id' => $ownerId]);
+
+        // makeFarm() gives this owner exactly one farm, so deleting it leaves
+        // them with none and the account goes with it. The multi-farm case is
+        // covered in FarmOwnerLifecycleTest.
+        $this->assertDatabaseMissing('users', ['id' => $ownerId]);
 
         $log = ActivityLog::where('action', 'Deleted Farm')->latest('id')->first();
         $this->assertNotNull($log);

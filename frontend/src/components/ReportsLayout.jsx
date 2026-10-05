@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../utils/serviceBadgeStyle'
 import SharedPagination from './Pagination'
 import { DISPLAY_TIME_ZONE } from '../utils/formatDate'
+import { BtnBusy } from '../components/Loading'
 
 export { serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle }
 
@@ -240,10 +241,13 @@ export function ReportStyles() {
     <style>{`
       .rp { container-type: inline-size; max-width: 100%; font-family: ${SANS}; }
 
-      .rp-tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid #e0e2d9; margin-top: 20px; }
+      .rp-tabs { display: flex; flex-wrap: nowrap; gap: 2px; border-bottom: 1px solid #e0e2d9; margin-top: 20px;
+                 min-width: 0; overflow-x: auto; -webkit-overflow-scrolling: touch;
+                 scrollbar-width: none; }
+      .rp-tabs::-webkit-scrollbar { display: none; }
       .rp-tab { appearance: none; background: transparent; border: none; border-bottom: 2px solid transparent;
                 padding: 11px 14px; margin-bottom: -1px; font-family: ${SANS}; font-size: 13.5px; font-weight: 600;
-                color: ${C.mute}; cursor: pointer; }
+                color: ${C.mute}; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
       .rp-tab:hover { color: ${C.dark}; }
       .rp-tab[aria-selected="true"] { border-bottom-color: ${C.green}; color: ${C.dark}; font-weight: 700; }
 
@@ -262,7 +266,7 @@ export function ReportStyles() {
       @container (max-width: 620px) {
         .rp-table-scroll { display: none; }
         .rp-cards { display: flex; }
-        .rp-actions { width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); }
+        .rp-actions { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
         .rp-actions > button { width: 100%; padding: 0 8px; }
       }
 
@@ -360,6 +364,15 @@ export function ReportStyles() {
           display: block; overflow-x: auto; white-space: nowrap;
           -webkit-overflow-scrolling: touch;
         }
+
+        /* The letterhead is a two-column row. Below this width the office
+           block is squeezed to a third of the page and every line in it
+           wraps mid-phrase, so the two halves stack and the office block
+           centres under the brand instead. */
+        .gr-doc .rl-head { flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+        .gr-doc .rl-office { text-align: center !important; }
+        .gr-doc .rl-brand img:first-child { width: 48px; height: 48px; }
+        .gr-doc .rl-brand img:last-child { height: 26px; }
       }
     `}</style>
   )
@@ -404,7 +417,7 @@ export function PageHeader({ title, subtitle, onPrint, onCsv, onPdf, exportingPd
             onClick={onPdf}
             disabled={exportingPdf}
           >
-            <IconFile />{exportingPdf ? 'Generating...' : 'Export PDF'}
+            <IconFile />{exportingPdf ? <BtnBusy label="Generating…" /> : 'Export PDF'}
           </button>
         </div>
       )}
@@ -453,13 +466,23 @@ export function Badge({ text, tone = 'green', dot = true, badgeStyle }) {
   )
 }
 
-/** Cell: { text } | { text, strong } | { text, tone: 'green'|'amber'|'red' } | { text, badgeStyle } | { actions: [{ label, onClick }] } */
+/** Cell: { text } | { text, strong } | { text, tone: 'green'|'amber'|'red' } | { text, badgeStyle } | { actions: [{ label, onClick, danger? }] } */
 function Cell({ cell }) {
   if (cell.actions) {
     return (
       <span style={styles.cellActions}>
         {cell.actions.map((a, i) => (
-          <button key={i} type="button" style={styles.cellActionBtn} onClick={a.onClick}>{a.label}</button>
+          <button
+            key={i}
+            type="button"
+            /* danger is opt-in and additive: a destructive action should not look
+               like View or Print beside it. Every existing caller omits it and
+               renders exactly as before. */
+            style={{ ...styles.cellActionBtn, ...(a.danger ? styles.cellActionBtnDanger : {}) }}
+            onClick={a.onClick}
+          >
+            {a.label}
+          </button>
         ))}
       </span>
     )
@@ -602,11 +625,50 @@ export function DonutCenter({ total, caption = 'farms' }) {
   )
 }
 
-export function Signatures({ right }) {
+/**
+ * The two signature lines at the foot of a report.
+ *
+ * Names come from the SNAPSHOT, not from whoever happens to be viewing: an
+ * archived report was prepared by one particular person on one particular
+ * day, and that does not change when someone else opens it later.
+ *
+ * `fallbackTitle` keeps reports archived before signatures were captured
+ * printing the role line they always had, with a blank name to sign.
+ */
+export function Signatures({ signatures, fallbackTitle }) {
+  const prepared = signatures?.prepared_by
+  const noted = signatures?.noted_by
+
+  // A report the Head generated himself carries no "Prepared by" — the
+  // server sends prepared_by as null rather than repeating his name on both
+  // lines. Reports archived before that change still hold two blocks and
+  // keep printing with two; a snapshot is never rewritten.
+  //
+  // Checked against the key being explicitly null, not against a missing
+  // signatures object: an older archive with no signatures at all must still
+  // print both lines with the fallback titles.
+  const headOnly = signatures != null && prepared === null
+
   return (
-    <div className="print-signatures" style={{ marginTop: 40, display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-      <div style={{ borderTop: '1px solid #000', width: 220, paddingTop: 4 }}>Prepared by</div>
-      <div style={{ borderTop: '1px solid #000', width: 220, paddingTop: 4 }}>{right}</div>
+    <div className="print-signatures" style={{ marginTop: 40, display: 'flex', justifyContent: headOnly ? 'flex-end' : 'space-between', gap: 32, fontSize: 12 }}>
+      {!headOnly && (
+        <SignatureLine role="Prepared by:" name={prepared?.name} title={prepared?.title || fallbackTitle} />
+      )}
+      <SignatureLine role="Noted by:" name={noted?.name} title={noted?.title || 'Head, Agriculture Office'} />
+    </div>
+  )
+}
+
+function SignatureLine({ role, name, title }) {
+  return (
+    <div style={{ width: 240 }}>
+      <div style={{ fontSize: 11, color: '#4b5a50', marginBottom: 26 }}>{role}</div>
+      {/* The rule sits under the name, so the printed name reads as the
+          signatory and the line is still there to sign over. */}
+      <div style={{ borderBottom: '1px solid #000', paddingBottom: 3, fontWeight: 700, minHeight: 16 }}>
+        {name || '\u00a0'}
+      </div>
+      <div style={{ paddingTop: 4 }}>{title}</div>
     </div>
   )
 }
@@ -676,12 +738,17 @@ export const styles = {
   filterPop: {
     position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 40,
     background: '#fff', border: `1px solid ${C.border}`, borderRadius: 14,
-    boxShadow: '0 8px 24px rgba(15,38,22,0.12)', padding: 18, width: 280,
+    boxShadow: '0 8px 24px rgba(15,38,22,0.12)', padding: 18,
+    // Never wider than the screen it has to fit inside. Anchored to the
+    // button's right edge, so capping the width is what keeps the left
+    // edge on the page.
+    width: 'min(420px, calc(100vw - 32px))', maxWidth: 'calc(100vw - 32px)', boxSizing: 'border-box',
   },
   filterPopHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   filterPopTitle: { fontSize: 15, fontWeight: 800, color: C.dark, fontFamily: SANS },
   filterPopClose: { fontSize: 19, cursor: 'pointer', color: C.label, lineHeight: 1 },
-  filterPopRow: { display: 'flex', flexDirection: 'column', gap: 14 },
+  // From and To side by side inside a fixed-width card.
+  filterPopRow: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 14 },
   filterPopLabel: { display: 'block', fontSize: 12, fontWeight: 700, color: C.body, fontFamily: SANS, marginBottom: 7 },
   filterPopSelect: {
     width: '100%', padding: '9px 12px', borderRadius: 10, border: `1px solid ${C.border}`,
@@ -717,6 +784,9 @@ export const styles = {
   cellActionBtn: { appearance: 'none', background: '#fff', border: `1px solid #cfe0d3`, borderRadius: 7,
                    padding: '5px 10px', font: 'inherit', fontFamily: SANS, fontSize: 11.5, fontWeight: 700,
                    color: C.greenDeep, cursor: 'pointer', whiteSpace: 'nowrap' },
+  // Outlined rather than filled: it still reads as one of the row buttons, but
+  // not as the one to press by default.
+  cellActionBtnDanger: { borderColor: '#e3b7b7', color: '#b91c1c' },
   badge: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 11px', borderRadius: 999, fontSize: 11.5, fontWeight: 700, whiteSpace: 'nowrap' },
   badgeDot: { width: 6, height: 6, borderRadius: '50%', flexShrink: 0 },
 

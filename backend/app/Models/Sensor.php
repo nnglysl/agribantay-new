@@ -2,9 +2,9 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Carbon\Carbon;
 
 /**
  * A physical IoT device. The same unit rotates between farms (2 devices,
@@ -28,7 +28,7 @@ class Sensor extends Model
     use HasFactory;
 
     protected $fillable = [
-        'farm_id', 'poultry_house_id', 'device_key', 'label', 'status',
+        'farm_id', 'device_key', 'label', 'status',
         'installed_at', 'sensor_code', 'last_seen_at',
     ];
 
@@ -42,13 +42,13 @@ class Sensor extends Model
         static::creating(function (Sensor $sensor) {
             // installed_at defaults to right now if not explicitly set —
             // e.g. registering a sensor that's being installed on the spot.
-            if (!$sensor->installed_at) {
+            if (! $sensor->installed_at) {
                 $sensor->installed_at = now();
             }
 
             // sensor_code is generated once, here, and never touched again
             // after that — it's the sensor's permanent identifier.
-            if (!$sensor->sensor_code) {
+            if (! $sensor->sensor_code) {
                 $sensor->sensor_code = static::generateSensorCode($sensor->installed_at);
             }
         });
@@ -64,12 +64,12 @@ class Sensor extends Model
     public static function generateSensorCode($date): string
     {
         $date = $date instanceof Carbon ? $date : Carbon::parse($date);
-        $base = 'SFN' . $date->format('dmy');
+        $base = 'SFN'.$date->format('dmy');
 
         $code = $base;
         $suffix = 65; // ASCII 'A'
         while (static::where('sensor_code', $code)->exists()) {
-            $code = $base . chr($suffix);
+            $code = $base.chr($suffix);
             $suffix++;
         }
 
@@ -101,7 +101,7 @@ class Sensor extends Model
      */
     public function isOnline(): bool
     {
-        if (!$this->last_seen_at) {
+        if (! $this->last_seen_at) {
             return false;
         }
 
@@ -115,7 +115,7 @@ class Sensor extends Model
      */
     public function connectivity(): string
     {
-        if (!$this->isAssigned()) {
+        if (! $this->isAssigned()) {
             return 'Unassigned';
         }
 
@@ -125,11 +125,6 @@ class Sensor extends Model
     public function farm()
     {
         return $this->belongsTo(Farm::class);
-    }
-
-    public function poultryHouse()
-    {
-        return $this->belongsTo(PoultryHouse::class);
     }
 
     public function readings()

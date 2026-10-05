@@ -10,6 +10,7 @@ export default function AdminLayout({ children }) {
     { label: 'Dashboard', path: dashPath, icon: 'dashboard', section: 'Overview' },
     ...(isSuper ? [{ label: 'Manage Accounts', path: '/superadmin/accounts', icon: 'accounts', section: 'Management' }] : []),
     { label: 'Farms', path: isSuper ? '/superadmin/farms' : '/admin/farms', icon: 'farms', section: 'Management' },
+    { label: 'Devices', path: isSuper ? '/superadmin/devices' : '/admin/devices', icon: 'devices', section: 'Management' },
     { label: 'Inspections', path: isSuper ? '/superadmin/inspections' : '/admin/inspections', icon: 'inspections', section: 'Management' },
     { label: 'Service Requests', path: isSuper ? '/superadmin/service-requests' : '/admin/service-requests', icon: 'serviceRequests', section: 'Management' },
     { label: 'Alert History', path: '/admin/alert-history', icon: 'activity', section: 'Monitoring' },
@@ -20,7 +21,7 @@ export default function AdminLayout({ children }) {
   ]
 
   return (
-    <DashboardLayout navItems={navItems} roleLabel={isSuper ? 'Super Administrator' : 'Administrator'} logoutRedirect="/" hideSidebarUserInfo>
+    <DashboardLayout navItems={navItems} roleLabel={isSuper ? 'Super Administrator' : 'Staff'} logoutRedirect="/" hideSidebarUserInfo>
       {children}
     </DashboardLayout>
   )

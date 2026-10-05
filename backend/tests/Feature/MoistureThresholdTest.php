@@ -130,7 +130,20 @@ class MoistureThresholdTest extends TestCase
         $this->assertSame($expectedStored, (float) $reading->moisture);
     }
 
-    /** Overall farm status aggregates the moisture label (Critical > Warning > Safe). */
+    /**
+     * Moisture is an ALERTING metric: its label moves the farm's level.
+     *
+     * It earns that because urease-producing bacteria need water to turn uric
+     * acid into ammonia, so manure moisture is the cause of the hazard the
+     * system exists to catch — and unlike the temperature and humidity bands,
+     * its published cut points describe the manure itself rather than a
+     * temperate climate, so they still hold in Batangas. See
+     * config('sensors.alerting_metrics').
+     *
+     * Asserting the reading label AND the farm level together is deliberate:
+     * classifying correctly while failing to roll up is exactly the kind of
+     * break that would otherwise go unnoticed.
+     */
     public function test_farm_status_follows_moisture_severity(): void
     {
         $this->requireMysql();
@@ -139,16 +152,93 @@ class MoistureThresholdTest extends TestCase
         $device = $this->makeDevice($farm);
 
         // raw 3072 -> 24.98% Safe on moisture; other fields in the payload are Safe.
-        $this->postJson('/api/sensor-readings', $this->payload($device, ['soil_raw' => 3072]))->assertOk();
+        $this->postJson('/api/sensor-readings', $this->payload($device, ['soil_raw' => 3072]))
+            ->assertOk()
+            ->assertJsonPath('data.moisture_status', 'Safe');
         $this->assertSame('Safe', $farm->fresh()->current_status);
 
-        // raw 3000 -> 26.74% Warning
-        $this->postJson('/api/sensor-readings', $this->payload($device, ['soil_raw' => 3000]))->assertOk();
+        // raw 3000 -> 26.74% Warning, and the farm follows.
+        $this->postJson('/api/sensor-readings', $this->payload($device, ['soil_raw' => 3000]))
+            ->assertOk()
+            ->assertJsonPath('data.moisture_status', 'Warning');
         $this->assertSame('Warning', $farm->fresh()->current_status);
 
-        // raw 2500 -> 38.95% Critical
-        $this->postJson('/api/sensor-readings', $this->payload($device, ['soil_raw' => 2500]))->assertOk();
+        // raw 2500 -> 38.95% Critical, and the farm follows.
+        $this->postJson('/api/sensor-readings', $this->payload($device, ['soil_raw' => 2500]))
+            ->assertOk()
+            ->assertJsonPath('data.moisture_status', 'Critical');
         $this->assertSame('Critical', $farm->fresh()->current_status);
+    }
+
+    /**
+     * Temperature and humidity are ADVISORY: still classified on the reading,
+     * but they cannot move the farm's level.
+     *
+     * Their published bands come from temperate-climate work, and a San Jose
+     * layer house runs at 32-37 C for most of the day - leaving them in the
+     * rollup would paint every farm permanently Critical, which is the same
+     * as having no alert at all. This test is the guard against quietly
+     * putting them back.
+     */
+    public function test_temperature_and_humidity_are_advisory_only(): void
+    {
+        $this->requireMysql();
+
+        $farm   = $this->makeFarm('Advisory Metrics Farm');
+        $device = $this->makeDevice($farm);
+
+        // 38 C is past high_critical (30) and 20% humidity is past
+        // low_critical (30) - both Critical on the reading itself.
+        $this->postJson('/api/sensor-readings', $this->payload($device, [
+            'temperature' => 38,
+            'humidity'    => 20,
+        ]))
+            ->assertOk()
+            ->assertJsonPath('data.temperature_status', 'Critical')
+            ->assertJsonPath('data.humidity_status', 'Critical');
+
+        // ...and the farm is still Safe, because neither one alerts.
+        $this->assertSame('Safe', $farm->fresh()->current_status);
+    }
+
+    /**
+     * The farmer insight describes the WORST house, not the newest reading.
+     *
+     * With two devices reporting a minute apart, a single farm-wide "latest"
+     * row is whichever house happened to send last — so a farm with one
+     * Critical house showed no advice at all whenever the healthy house
+     * reported more recently. The alert cards are per house and the
+     * recommendations sit right under them, so they have to agree.
+     */
+    public function test_insight_follows_the_worst_house_not_the_newest_reading(): void
+    {
+        $this->requireMysql();
+
+        $farm = $this->makeFarm('Two House Insight Farm');
+        $bad  = $this->makeDevice($farm);
+        $good = $this->makeDevice($farm);
+
+        // House 1 goes Critical on moisture (raw 2500 -> 38.95%)...
+        $this->postJson('/api/sensor-readings', $this->payload($bad, ['soil_raw' => 2500]))->assertOk();
+
+        // ...then House 2 reports perfectly normal conditions, LAST.
+        $this->postJson('/api/sensor-readings', $this->payload($good, ['soil_raw' => 3072]))->assertOk();
+
+        $owner = $farm->user;
+        $this->assertNotNull($owner, 'farm fixture must have an owner to authenticate as');
+
+        $response = $this->actingAs($owner)
+            ->getJson('/api/farmer/insights?farm_id=' . $farm->id)
+            ->assertOk()
+            ->assertJsonPath('data.available', true);
+
+        $tips = $response->json('data.tips');
+
+        $this->assertIsArray($tips);
+        $this->assertNotEmpty(
+            $tips,
+            'The wet house should still produce advice even though the dry house reported last.'
+        );
     }
 
     // ------------------------------------------------------------------
@@ -201,15 +291,20 @@ class MoistureThresholdTest extends TestCase
     }
 
     /**
-     * Ammonia raw 500 -> 12.21 ppm (Safe), temperature 29.4 (Safe under the
-     * current 22-32 band), humidity 65 (Safe) — so only moisture drives
-     * the per-reading and farm-level status in these tests.
+     * Ammonia raw 500 -> 12.21 (Safe on the placeholder scale), temperature 22
+     * and humidity 65 (both mid-band Safe under the RRL thresholds in
+     * config/sensors.php) — so only moisture drives the per-reading and
+     * farm-level status in these tests.
+     *
+     * Temperature was 29.4 while the safe band was a flat 22-32. The RRL puts
+     * 25-29 in the moderate band, so that value now reads Warning and would
+     * mask the moisture status these tests exist to check.
      */
     private function payload(Sensor $sensor, array $overrides = []): array
     {
         return array_merge([
             'device_key'  => $sensor->device_key,
-            'temperature' => 29.4,
+            'temperature' => 22,
             'humidity'    => 65,
             'soil_raw'    => 3072,
             'ammonia_raw' => 500,

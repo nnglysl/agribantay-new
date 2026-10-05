@@ -1,12 +1,14 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useState, useEffect, useRef } from 'react'
 import { getUser, clearAuth } from '../utils/auth'
+import { DISPLAY_TIME_ZONE } from '../utils/formatDate'
 import { NOTIFICATION_CATEGORIES, notificationCategory, notificationDestination } from '../utils/notifications'
 import { useIsMobile, LAYOUT_BREAKPOINT } from '../hooks/useIsMobile'
 import api from '../api/axios'
 import agribantayLogo from '../assets/agribantay_logo.png'
 import agribantayName from '../assets/agribantay_name.png'
 import agriLogoName from '../assets/agri_logo_name.png'
+import { SectionLoader } from '../components/Loading'
 
 function IconGrid({ color }) { return <svg width="16" height="16" viewBox="0 0 24 24" fill={color}><path d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z" /></svg> }
 function IconFarm({ color }) { return <svg width="16" height="16" viewBox="0 0 24 24" fill={color}><path d="M3 21V9l9-6 9 6v12h-6v-7H9v7H3z" /></svg> }
@@ -44,11 +46,14 @@ function IconMenu({ color }) {
 function IconClose({ color }) {
   return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round"><path d="M18 6L6 18" /><path d="M6 6l12 12" /></svg>
 }
+function IconDevices({ color }) {
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round"><rect x="7" y="3" width="10" height="14" rx="2" /><path d="M12 17v4" /><path d="M8 21h8" /><path d="M10.5 7.5h3" /></svg>
+}
 const iconMap = {
   dashboard: IconGrid, farms: IconFarm, inspections: IconInspections,
   serviceRequests: IconServiceRequests, requests: IconRequests, vaccination: IconVaccination,
   accounts: IconAccounts, activity: IconActivity, overdue: IconOverdue,
-  reports: IconReports, settings: IconSettings,
+  reports: IconReports, settings: IconSettings, devices: IconDevices,
 }
 
 function timeAgo(dateStr) {
@@ -61,7 +66,61 @@ function timeAgo(dateStr) {
   const days = Math.floor(hours / 24)
   if (days === 1) return 'Yesterday'
   if (days < 7) return `${days}d ago`
-  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  // Past a week the relative wording stops helping and a date is shown —
+  // in Manila time, so it names the same day the rest of the system does.
+  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: DISPLAY_TIME_ZONE })
+}
+
+// How many the bell shows before "See More", and how many each press adds.
+const NOTIFICATION_PAGE_SIZE = 10
+
+/**
+ * Splits a list into Today / This Week / This Month / Earlier, keeping each
+ * group newest-first.
+ *
+ * These are dividers, not filters — nothing here is clickable and no row is
+ * ever hidden by its group. The boundaries are calendar boundaries in Manila
+ * (the timezone the whole system displays in), not "24 hours ago": something
+ * sent at 11pm last night belongs under THIS WEEK this morning, which is how
+ * a reader thinks about it.
+ *
+ * Sorting uses the raw timestamp, never the "3m ago" label.
+ */
+function groupNotificationsByDate(items) {
+  const dayKey = value =>
+    new Date(value).toLocaleDateString('en-CA', { timeZone: DISPLAY_TIME_ZONE })
+
+  const now = new Date()
+  const todayKey = dayKey(now)
+
+  // Start of the current week (Monday) and of the current month, as Manila
+  // calendar days, compared as plain YYYY-MM-DD strings so no timezone maths
+  // has to be repeated per row.
+  const manilaNow = new Date(now.toLocaleString('en-US', { timeZone: DISPLAY_TIME_ZONE }))
+  const weekStart = new Date(manilaNow)
+  weekStart.setDate(manilaNow.getDate() - ((manilaNow.getDay() + 6) % 7))
+  const weekStartKey = `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, '0')}-${String(weekStart.getDate()).padStart(2, '0')}`
+  const monthStartKey = `${manilaNow.getFullYear()}-${String(manilaNow.getMonth() + 1).padStart(2, '0')}-01`
+
+  const buckets = { today: [], week: [], month: [], earlier: [] }
+
+  for (const n of items) {
+    const key = dayKey(n.created_at)
+    if (Number.isNaN(new Date(n.created_at).getTime())) buckets.earlier.push(n)
+    else if (key === todayKey) buckets.today.push(n)
+    else if (key >= weekStartKey) buckets.week.push(n)
+    else if (key >= monthStartKey) buckets.month.push(n)
+    else buckets.earlier.push(n)
+  }
+
+  const byNewest = (a, b) => new Date(b.created_at) - new Date(a.created_at)
+
+  return [
+    { key: 'today', label: 'TODAY', items: buckets.today.sort(byNewest) },
+    { key: 'week', label: 'THIS WEEK', items: buckets.week.sort(byNewest) },
+    { key: 'month', label: 'THIS MONTH', items: buckets.month.sort(byNewest) },
+    { key: 'earlier', label: 'EARLIER', items: buckets.earlier.sort(byNewest) },
+  ].filter(group => group.items.length > 0)
 }
 
 function NotificationIcon({ type }) {
@@ -89,28 +148,52 @@ function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0)
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('all')
+  // "See More" asks the server for a LONGER list rather than for the next
+  // page. The rows already on screen come back in the same order with the
+  // same read state, so nothing can appear twice and nothing jumps.
+  const [limit, setLimit] = useState(NOTIFICATION_PAGE_SIZE)
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const wrapRef = useRef(null)
   const isMobile = useIsMobile(LAYOUT_BREAKPOINT)
   const navigate = useNavigate()
 
   // One request at a time: mount + poll + bell-open can overlap (and
   // StrictMode double-mounts effects in dev), so overlapping calls share
-  // the in-flight request instead of firing again.
+  // the in-flight request instead of firing again. Keyed by the size being
+  // asked for, so a "See More" is never answered by a shorter list that was
+  // already on its way.
   const inflightRef = useRef(null)
-  const fetchNotifications = async ({ silent = false } = {}) => {
+  const inflightSizeRef = useRef(null)
+  const fetchNotifications = async ({ silent = false, size } = {}) => {
+    const wanted = size ?? limit
     if (!silent) setLoading(true)
     try {
-      if (!inflightRef.current) {
-        inflightRef.current = api.get('/notifications').finally(() => { inflightRef.current = null })
+      if (!inflightRef.current || inflightSizeRef.current !== wanted) {
+        inflightSizeRef.current = wanted
+        inflightRef.current = api.get('/notifications', { params: { limit: wanted } })
+          .finally(() => { inflightRef.current = null })
       }
       const res = await inflightRef.current
       setNotifications(res.data.data || [])
       setUnreadCount(res.data.unread_count || 0)
+      setHasMore(Boolean(res.data.has_more))
     } catch {
       // Silent — notification bell shouldn't visibly break the whole layout
       // if this one call fails.
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleSeeMore = async () => {
+    const next = limit + NOTIFICATION_PAGE_SIZE
+    setLoadingMore(true)
+    setLimit(next)
+    try {
+      await fetchNotifications({ silent: true, size: next })
+    } finally {
+      setLoadingMore(false)
     }
   }
 
@@ -263,29 +346,52 @@ function NotificationBell() {
             </div>
 
             <div style={{ ...bellStyles.dropdownList, ...(isMobile ? bellStyles.dropdownListMobile : {}) }}>
-              {loading && <div style={bellStyles.empty}>Loading...</div>}
+              {loading && <SectionLoader label="Loading notifications…" padding="18px 12px" />}
               {!loading && visibleItems.length === 0 && (
                 <div style={bellStyles.empty}>{emptyMessage}</div>
               )}
-              {!loading && visibleItems.map(n => (
-                <div
-                  key={n.id}
-                  style={{ ...bellStyles.item, ...(n.is_read ? {} : bellStyles.itemUnread) }}
-                  onClick={() => handleNotificationClick(n)}
-                >
-                  <span style={bellStyles.itemIconWrap}>
-                    <NotificationIcon type={n.type} />
-                  </span>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={bellStyles.itemTitleRow}>
-                      <span style={bellStyles.itemTitle}>{n.title}</span>
-                      {!n.is_read && <span style={bellStyles.itemDot} />}
-                    </div>
-                    <div style={bellStyles.itemMessage}>{n.message}</div>
-                    <div style={bellStyles.itemTime}>{timeAgo(n.created_at)}</div>
+              {!loading && groupNotificationsByDate(visibleItems).map(group => (
+                <div key={group.key}>
+                  {/* A divider, not a control: no handler, not focusable. */}
+                  <div style={bellStyles.groupDivider} aria-hidden="true">
+                    <span style={bellStyles.groupLabel}>{group.label}</span>
+                    <span style={bellStyles.groupRule} />
                   </div>
+
+                  {group.items.map(n => (
+                    <div
+                      key={n.id}
+                      style={{ ...bellStyles.item, ...(n.is_read ? {} : bellStyles.itemUnread) }}
+                      onClick={() => handleNotificationClick(n)}
+                    >
+                      <span style={bellStyles.itemIconWrap}>
+                        <NotificationIcon type={n.type} />
+                      </span>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={bellStyles.itemTitleRow}>
+                          <span style={bellStyles.itemTitle}>{n.title}</span>
+                          {!n.is_read && <span style={bellStyles.itemDot} />}
+                        </div>
+                        <div style={bellStyles.itemMessage}>{n.message}</div>
+                        <div style={bellStyles.itemTime}>{timeAgo(n.created_at)}</div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               ))}
+
+              {/* Hidden once the server says there is nothing further, so the
+                  action is never offered when it would return the same rows. */}
+              {!loading && hasMore && (
+                <button
+                  type="button"
+                  onClick={handleSeeMore}
+                  disabled={loadingMore}
+                  style={bellStyles.seeMoreBtn}
+                >
+                  {loadingMore ? 'Loading…' : 'See More'}
+                </button>
+              )}
             </div>
           </div>
         </>
@@ -313,6 +419,21 @@ export default function DashboardLayout({ children, navItems = [], roleLabel = '
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
+  // The drawer sits over the page, so the page must not scroll underneath
+  // it — on a phone that scroll was being stolen from the nav list, which
+  // made the lower menu items and "Log out" feel unreachable.
+  useEffect(() => {
+    if (!isMobile) return
+    document.body.style.overflow = sidebarOpen ? 'hidden' : ''
+    return () => { document.body.style.overflow = '' }
+  }, [sidebarOpen, isMobile])
+
+  // A drawer left open from a narrow window would stay stuck half-open after
+  // the sidebar becomes permanent again.
+  useEffect(() => {
+    if (!isMobile) setSidebarOpen(false)
+  }, [isMobile])
+
   const handleLogout = () => {
     clearAuth()
     navigate(logoutRedirect)
@@ -339,6 +460,22 @@ export default function DashboardLayout({ children, navItems = [], roleLabel = '
         .agb-nav-item { transition: background-color .14s ease, color .14s ease; }
         .agb-nav-item:hover { background-color: rgba(255,255,255,0.06); }
         .agb-logout:hover { background-color: rgba(230,180,85,0.12); }
+
+        /* 100dvh tracks the area actually visible on a phone browser; the
+           100vh line before it is the fallback for anything without it.
+           The bottom padding keeps "Log out" clear of the home indicator. */
+        .agb-sidebar { height: 100vh; height: 100dvh; padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px)); }
+
+        /* A page that laid out wider than the phone used to drag the whole
+           document sideways, so the heading, the tabs and the topbar scrolled
+           off to the left. Wide tables keep their own horizontal scrollbar
+           inside this box; nothing can push past it. 'clip' is preferred
+           where supported because, unlike 'hidden', it does not turn this
+           into a scroll container (which would break sticky cells inside). */
+        .agb-page-content { max-width: 100%; overflow-x: hidden; }
+        @supports (overflow: clip) {
+          .agb-page-content { overflow-x: clip; overflow-y: visible; }
+        }
                 * { scrollbar-width: none; }
         ::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
       `}</style>
@@ -347,7 +484,7 @@ export default function DashboardLayout({ children, navItems = [], roleLabel = '
         <div style={styles.sidebarOverlay} className="no-print" onClick={() => setSidebarOpen(false)} />
       )}
 
-      <aside style={sidebarStyle} className="no-print">
+      <aside style={sidebarStyle} className="agb-sidebar no-print">
         <div style={styles.logo}>
           <img src={agribantayLogo} alt="AgriBantay logo" style={styles.logoImg} />
           <div style={styles.logoTextBlock}>
@@ -423,7 +560,7 @@ export default function DashboardLayout({ children, navItems = [], roleLabel = '
             </>
           )}
         </div>
-        <div style={{ ...styles.content, ...(isMobile ? styles.contentMobile : {}) }}>{children}</div>
+        <div className="agb-page-content" style={{ ...styles.content, ...(isMobile ? styles.contentMobile : {}) }}>{children}</div>
       </main>
 
       {showLogoutConfirm && (
@@ -447,43 +584,52 @@ const SANS = "'Inter', sans-serif"
 const styles = {
   wrapper: { display: 'flex', minHeight: '100vh', backgroundColor: '#f3f4ef', fontFamily: SANS },
 
+  // height lives in CSS (.agb-sidebar) so 100dvh can fall back to 100vh: on a
+  // phone browser 100vh is TALLER than the area actually visible (the URL bar
+  // is excluded from it), which pushed "Log out" below the fold with no way
+  // to reach it. The aside itself no longer scrolls - only the nav list does -
+  // so the footer stays pinned and visible at every screen height.
   sidebar: {
     width: '250px', backgroundColor: '#14301c', display: 'flex', flexDirection: 'column',
-    padding: '20px 14px', position: 'fixed', top: 0, left: 0, height: '100vh', overflowY: 'auto', zIndex: 20,
+    padding: '20px 14px', position: 'fixed', top: 0, left: 0, overflow: 'hidden', zIndex: 20,
   },
-  sidebarMobile: { boxShadow: '4px 0 24px rgba(0,0,0,0.3)', transition: 'transform 0.25s ease', zIndex: 100 },
+  sidebarMobile: { width: 'min(84vw, 272px)', boxShadow: '4px 0 24px rgba(0,0,0,0.3)', transition: 'transform 0.25s ease', zIndex: 100 },
   sidebarOverlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.45)', zIndex: 90 },
   sidebarCloseBtn: { marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px' },
 
-  logo: { display: 'flex', alignItems: 'center', gap: '11px', marginBottom: '10px', padding: '4px 8px 0' },
+  logo: { display: 'flex', alignItems: 'center', gap: '11px', marginBottom: '10px', padding: '4px 8px 0', flexShrink: 0 },
   logoImg: { width: '44px', height: '44px', objectFit: 'contain', flexShrink: 0 },
   logoTextBlock: { minWidth: 0, maxWidth: '100%' },
   logoNameImg: { maxHeight: '19px', maxWidth: '100%', width: 'auto', height: 'auto', display: 'block', objectFit: 'contain' },
   logoSub: { fontSize: '11px', color: '#7d9585', marginTop: '5px' },
 
-  nav: { display: 'flex', flexDirection: 'column', gap: '2px', flex: 1, marginTop: '18px', overflowY: 'auto' },
+  nav: { display: 'flex', flexDirection: 'column', gap: '2px', flex: 1, minHeight: 0, marginTop: '18px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' },
   navSection: { fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#5f7867', padding: '0 12px', margin: '14px 0 7px' },
   navItem: { display: 'flex', alignItems: 'center', gap: '11px', padding: '10px 12px', borderRadius: '9px', fontSize: '13.5px', color: '#b8ccbd', cursor: 'pointer' },
   navItemActive: { backgroundColor: '#7cc795', color: '#14301c', fontWeight: 600 },
 
-  sidebarFooter: { borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '12px', marginTop: '10px' },
+  sidebarFooter: { borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '12px', marginTop: '10px', flexShrink: 0 },
   userMini: { display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 8px 12px' },
   userAvatar: { width: '34px', height: '34px', borderRadius: '50%', background: '#2c8047', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 700, color: '#fff', flexShrink: 0, textTransform: 'uppercase' },
   userMiniName: { fontSize: '13px', fontWeight: 700, color: '#eef4ef', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   userMiniRole: { fontSize: '11px', color: '#7d9585' },
   logout: { display: 'flex', alignItems: 'center', gap: '11px', padding: '10px 12px', borderRadius: '9px', fontSize: '13.5px', fontWeight: 600, color: '#e6b455', cursor: 'pointer' },
 
-  main: { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, marginLeft: '250px' },
+  main: { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, maxWidth: '100%', marginLeft: '250px' },
   mainMobile: { marginLeft: 0 },
 
-  topbar: { backgroundColor: '#ffffff', borderBottom: '1px solid #e7e8e0', padding: '15px 32px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '16px' },
+  // Sticky so the bell and the account name stay reachable on a long table
+  // instead of scrolling away with the page. z-index 30 sits above the page
+  // content but below the mobile drawer (100) and any modal (200), so those
+  // still cover it when they open.
+  topbar: { backgroundColor: '#ffffff', borderBottom: '1px solid #e7e8e0', padding: '15px 32px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '16px', position: 'sticky', top: 0, zIndex: 30 },
   topbarMobile: { padding: '13px 16px', justifyContent: 'space-between' },
   mobileTopbarLogoImg: { height: '38px', width: 'auto', objectFit: 'contain' },
   mobileTopbarRight: { display: 'flex', alignItems: 'center', gap: '10px' },
   menuBtn: { background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px' },
   userName: { fontSize: '14px', fontWeight: 700, color: '#16311d', textAlign: 'right' },
   userRole: { fontSize: '12px', color: '#6b7770', textAlign: 'right' },
-  content: { padding: '30px 32px', flex: 1 },
+  content: { padding: '30px 32px', flex: 1, minWidth: 0, maxWidth: '100%' },
   contentMobile: { padding: '16px' },
 }
 
@@ -567,6 +713,18 @@ const bellStyles = {
   itemTitle: { fontSize: '12.5px', fontWeight: 700, color: '#16311d', fontFamily: SANS },
   itemMessage: { fontSize: '11.5px', color: '#4b5a50', marginTop: '3px', lineHeight: 1.4, fontFamily: SANS },
   itemTime: { fontSize: '10.5px', color: '#9aa79d', marginTop: '5px', fontFamily: SANS },
+
+  // Date dividers. Deliberately not buttons and with no cursor change —
+  // nothing here is pressable.
+  groupDivider: { display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 14px 6px', userSelect: 'none' },
+  groupLabel: { fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.08em', color: '#9aa79d', fontFamily: SANS, whiteSpace: 'nowrap' },
+  groupRule: { flex: 1, height: '1px', backgroundColor: '#eceee7' },
+
+  seeMoreBtn: {
+    display: 'block', width: '100%', padding: '11px 14px', border: 'none',
+    borderTop: '1px solid #eceee7', backgroundColor: '#fff', color: '#2c8047',
+    fontSize: '12.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
+  },
 }
 
 const confirmStyles = {

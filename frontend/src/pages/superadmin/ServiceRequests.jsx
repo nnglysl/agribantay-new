@@ -3,19 +3,24 @@ import { useSearchParams } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
 import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { LIVE_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useOverflowX } from '../../hooks/useOverflowX'
 import { formatDateTime } from '../../utils/formatDate'
 import { viewModalStyles as v } from '../../styles/viewModalStyles'
 import { BADGE_SHAPE, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../../utils/serviceBadgeStyle'
 import { isRequestOverdue, requestDisplayStatus } from '../../utils/serviceRequestStatus'
+import { ALL_TYPES as ALL_SERVICE_TYPES } from '../../constants/serviceTypes'
+import AttachmentSummary from '../../components/AttachmentSummary'
+import { SkeletonTable } from '../../components/Loading'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
 // Super Admin has system-wide oversight — sees every service request type,
 // including the two Vet-only ones that Admin's own Service Requests page
 // (pages/admin/ServiceRequests.jsx) deliberately excludes.
-const ALL_TYPES = ['Odor Control Request', 'Fly Control Request', 'Vaccine Request', 'Blood Test Request']
+// Every stored value, including the retired Vaccine type, so old rows stay filterable.
+const ALL_TYPES = ALL_SERVICE_TYPES
 
 const SORT_OPTIONS = [
   { value: 'oldest', label: 'Oldest Request First (Default)' },
@@ -81,7 +86,7 @@ export default function SuperAdminServiceRequests() {
   const params = { sort: sortMode }
   if (typeFilter) params.service_type = typeFilter
 
-  const { data, loading, error } = useCachedFetch('/admin/service-requests', params, { pollMs: 45000 })
+  const { data, loading, error } = useCachedFetch('/admin/service-requests', params, { pollMs: LIVE_POLL_MS })
   const allRequests = data || []
 
   const filtered = allRequests.filter(r => {
@@ -204,7 +209,7 @@ export default function SuperAdminServiceRequests() {
         </div>
       </div>
 
-      {loading && <p style={styles.stateText}>Loading...</p>}
+      {loading && <SkeletonTable rows={6} columns={7} />}
       {error && <p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p>}
 
       {!loading && !error && (
@@ -222,6 +227,11 @@ export default function SuperAdminServiceRequests() {
                   <th style={styles.th}>Farm</th>
                   <th style={styles.th}>Farm Owner</th>
                   <th style={styles.th}>Status</th>
+                  {/* Its own column rather than a line inside Status: who is
+                      responsible is a fact about the request, not part of its
+                      state, and it cannot be scanned down the page when it is
+                      buried in another cell. */}
+                  <th style={styles.th}>Handled By</th>
                   <th style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
@@ -243,9 +253,11 @@ export default function SuperAdminServiceRequests() {
                         <span style={{ ...BADGE_SHAPE, ...requestStatusBadgeStyle(requestDisplayStatus(r)) }}>
                           {requestDisplayStatus(r)}
                         </span>
-                        {r.status === 'Cancelled' && r.decline_reason && (
-                          <div style={styles.notes} title={r.decline_reason}>Reason: {r.decline_reason}</div>
-                        )}
+                      </td>
+                      <td style={styles.td}>
+                        {r.accepted_by && r.status !== 'Cancelled'
+                          ? r.accepted_by
+                          : <span style={styles.unassignedCell}>&mdash;</span>}
                       </td>
                       <td style={styles.td}>
                         <div style={styles.actionGroup}>
@@ -333,11 +345,13 @@ export default function SuperAdminServiceRequests() {
               {viewRequest.completion_notes && (
                 <>
                   <span style={v.sectionLabel}>Visit Notes</span>
-                  <div style={v.notesBox}>
+                  <div style={{ ...v.notesBox, ...(viewRequest.attachments?.length || viewRequest.attachment ? { marginBottom: '12px' } : {}) }}>
                     <p style={v.notes}>{viewRequest.completion_notes}</p>
                   </div>
                 </>
               )}
+
+              <AttachmentSummary requestId={viewRequest.id} attachments={viewRequest.attachments} attachment={viewRequest.attachment} />
 
               <div style={v.actions}>
                 <button onClick={() => setViewRequest(null)} style={v.closeBtn}>Close</button>
@@ -385,10 +399,13 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     gap: '14px', marginBottom: '18px', borderBottom: '1px solid #e7e8e0', flexWrap: 'wrap',
   },
-  toolbarMobile: { flexDirection: 'column', alignItems: 'stretch', gap: '12px' },
+  toolbarMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch', gap: '12px' },
 
-  tabs: { display: 'flex', gap: '4px', overflowX: 'auto' },
-  tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap' },
+  // minWidth 0 is what lets overflowX work: without it a flex item refuses
+  // to be narrower than its contents, so the row pushed the whole page
+  // sideways instead of scrolling inside itself.
+  tabs: { display: 'flex', gap: '4px', overflowX: 'auto', minWidth: 0, maxWidth: '100%', flexWrap: 'nowrap', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', },
+  tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap', flexShrink: 0, },
   tabActive: { color: '#2c8047', fontWeight: 700, borderBottom: '2px solid #2c8047' },
 
   toolbarRight: { display: 'flex', alignItems: 'center', gap: '10px', paddingBottom: '10px' },
@@ -450,7 +467,7 @@ const styles = {
   scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0' },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  tableMinWidth: { minWidth: '860px' },
+  tableMinWidth: { minWidth: '980px' },
   th: {
     textAlign: 'left', padding: '13px 20px', fontSize: '13px', fontWeight: 600, color: '#8a968d',
     borderBottom: '1px solid #eceee7', whiteSpace: 'nowrap',
@@ -459,6 +476,7 @@ const styles = {
   td: { padding: '13px 20px', fontSize: '12px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top' },
   reqNumberCell: { fontSize: '12px', color: '#4b5a50' },
   notes: { fontSize: '12px', color: '#8a968d', marginTop: '4px', maxWidth: '260px' },
+  unassignedCell: { color: '#b7bdb4' },
   actionGroup: { display: 'flex', gap: '6px', whiteSpace: 'nowrap', justifyContent: 'flex-end' },
   actionBtn: {
     padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600,
@@ -473,7 +491,7 @@ const paginationStyles = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px',
   },
-  wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  wrapMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch' },
   info: { fontSize: '12px', color: '#8a968d', whiteSpace: 'nowrap' },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },

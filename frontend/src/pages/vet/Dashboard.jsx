@@ -2,16 +2,18 @@ import { useEffect, useMemo, useState, useRef, useLayoutEffect, useCallback } fr
 import VetLayout from '../../components/VetLayout'
 import VetScheduleMap from '../../components/VetScheduleMap'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { BACKGROUND_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { serviceTypeBadgeStyle, serviceTypeLabel } from '../../utils/serviceBadgeStyle'
 import { DISPLAY_TIME_ZONE } from '../../utils/formatDate'
+import { SkeletonStatCards, SkeletonBlock } from '../../components/Loading'
 
 export default function VetDashboard() {
-  const { data, loading, error, refetch } = useCachedFetch('/vet/dashboard', {}, { pollMs: 60000 })
+  const { data, loading, error, refetch } = useCachedFetch('/vet/dashboard', {}, { pollMs: BACKGROUND_POLL_MS })
   // The Pending/Scheduled cards and tabs need both statuses, which is what
   // /vet/vaccination-requests's `scheduled` bucket already contains — the
   // same endpoint the Vet's own module page uses.
-  const { data: vaccinationData, loading: loadingVaccinations, refetch: refetchVaccinations } = useCachedFetch('/vet/vaccination-requests', {}, { pollMs: 60000 })
+  const { data: vaccinationData, loading: loadingVaccinations, refetch: refetchVaccinations } = useCachedFetch('/vet/vaccination-requests', {}, { pollMs: BACKGROUND_POLL_MS })
   // Every registered farm's coordinates — the map's default "show all
   // farms" layer, independent of which farms currently have a request.
   const { data: farmsData } = useCachedFetch('/vet/farms')
@@ -25,9 +27,9 @@ export default function VetDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  if (loading || loadingVaccinations) return <VetLayout><p style={styles.stateText}>Loading...</p></VetLayout>
+  if (loading || loadingVaccinations) return <VetLayout><SkeletonStatCards count={3} columns="repeat(3, minmax(0, 1fr))" /><SkeletonBlock height={320} /></VetLayout>
   if (error) return <VetLayout><p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p></VetLayout>
-  if (!data) return <VetLayout><p style={styles.stateText}>Loading...</p></VetLayout>
+  if (!data) return <VetLayout><SkeletonStatCards count={3} columns="repeat(3, minmax(0, 1fr))" /><SkeletonBlock height={320} /></VetLayout>
 
   const farms = farmsData ?? []
 
@@ -59,7 +61,7 @@ export default function VetDashboard() {
 
       <h3 style={styles.mapTitle}>Scheduled Service Map</h3>
       <p style={styles.mapSubtitle}>
-        Farms with confirmed vaccination or blood test schedules
+        Farms with confirmed farm biosecurity or blood test schedules
       </p>
 
       <div style={{ ...styles.mainGrid, ...(isMobile ? styles.mainGridMobile : {}) }}>
@@ -88,7 +90,7 @@ function StatCard({ value, label, foot, isMobile }) {
 
 const TABS = [
   { value: 'Blood Test', label: 'Blood Test' },
-  { value: 'Vaccine', label: 'Vaccination' },
+  { value: 'Farm Biosecurity', label: 'Farm Biosecurity' },
 ]
 const ITEM_HEIGHT = 60 // matches FarmMap's list row height (Admin Dashboard)
 
@@ -141,7 +143,7 @@ function ScheduledPanel({ items, isMobile, onSeeAll, activeTab: tab, onTabChange
 
       <div style={styles.panelHead}>
         <div style={styles.panelHeadLeft}>
-          <span style={styles.panelTitle}>{tab === 'Blood Test' ? 'Blood Test Requests' : 'Vaccination Requests'}</span>
+          <span style={styles.panelTitle}>{tab === 'Blood Test' ? 'Blood Test Requests' : 'Farm Biosecurity Requests'}</span>
         </div>
         <span style={styles.panelCount}>{filtered.length}</span>
       </div>
@@ -149,7 +151,7 @@ function ScheduledPanel({ items, isMobile, onSeeAll, activeTab: tab, onTabChange
       <div ref={listRef} style={styles.panelBody}>
         {visible.length === 0 && (
           <div style={styles.emptyText}>
-            No {tab === 'Blood Test' ? 'blood test' : 'vaccination'} activities scheduled.
+            No {tab === 'Blood Test' ? 'blood test' : 'farm biosecurity'} activities scheduled.
           </div>
         )}
         {visible.map((r, i) => {
@@ -185,8 +187,8 @@ const styles = {
   titleMobile: { fontSize: '20px' },
   subtitle: { fontFamily: SANS, fontSize: '13.5px', color: '#6b7770', marginTop: '5px', marginBottom: '24px' },
 
-  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px', marginBottom: '28px' },
-  statsGridMobile: { gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '20px' },
+  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '20px', marginBottom: '28px' },
+  statsGridMobile: { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '12px', marginBottom: '20px' },
 
   statCard: { fontFamily: SANS, background: '#234A35', border: '1px solid #1c3c2b', borderRadius: '14px', padding: '20px 22px' },
   statCardMobile: { padding: '16px' },

@@ -5,7 +5,9 @@
 // matter which page shows it. Text-only pills — no dots, circles, or icons.
 //
 // Service type: Odor Control -> Purple, Fly Control -> Amber (existing
-// system amber, reused), Vaccination -> Indigo, Blood Test -> Teal.
+// system amber, reused), Farm Biosecurity -> Indigo (took over the slot of
+// the retired Vaccination service, which keeps its own colour on old rows),
+// Blood Test -> Teal.
 // Request status: Pending -> Orange, Scheduled -> Blue (existing system
 // blue, reused), Completed -> Green (existing system green, reused).
 // Red stays reserved for Critical elsewhere in the system — never reused
@@ -21,7 +23,8 @@ const NEUTRAL = { color: '#6b7280', backgroundColor: '#eef1ea' }
 const SERVICE_TYPE_BADGE_STYLE = {
   'Odor Control': { color: '#7c3aed', backgroundColor: '#f3ecfd' },
   'Fly Control':  { color: '#b45309', backgroundColor: '#fbf1e2' },
-  'Vaccine':      { color: '#4338ca', backgroundColor: '#eeecfb' },
+  'Farm Biosecurity': { color: '#4338ca', backgroundColor: '#eeecfb' },
+  'Vaccine':      { color: '#475569', backgroundColor: '#e8edf3' },
   'Blood Test':   { color: '#0f766e', backgroundColor: '#e6f4f2' },
 }
 

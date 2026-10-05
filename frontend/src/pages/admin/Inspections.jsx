@@ -4,12 +4,16 @@ import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import SharedPagination from '../../components/Pagination'
 import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
-import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { useCachedFetch, invalidateCache } from '../../hooks/useCachedFetch'
+import { getUser } from '../../utils/auth'
+import { LIVE_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useOverflowX } from '../../hooks/useOverflowX'
 import { useMonthFilter } from '../../hooks/useMonthFilter'
 import { formatDate, formatDateTime, parseLocalDate, DISPLAY_TIME_ZONE } from '../../utils/formatDate'
 import { viewModalStyles as v } from '../../styles/viewModalStyles'
+import { SkeletonTable, BtnBusy } from '../../components/Loading'
+import { useBusyAction } from '../../hooks/useBusyAction'
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
@@ -23,6 +27,13 @@ function inspectionTypeStyle(type) {
     bg: isFollowUp ? '#b45309' : '#2c8047',
     text: '#ffffff',
   }
+}
+
+// The Staff member who scheduled the inspection is the one who conducts it —
+// there is no separate assignment step — so scheduled_by is the responsible
+// Staff member shown everywhere.
+function responsibleStaff(i) {
+  return i.scheduled_by_name?.trim() || '—'
 }
 
 function sameDay(a, b) {
@@ -52,17 +63,25 @@ function displayStatus(i) {
 
 export default function Inspections() {
   const [searchParams, setSearchParams] = useSearchParams()
+  // Read once per render from the stored session, the same way Service
+  // Requests does. The daily limit is per PERSON, so the page has to know
+  // which person is looking at it.
+  const currentUserId = getUser()?.id ?? null
+
   const [tab, setTab] = useState('schedule')
   const { month: viewDate, setMonth: setViewDate, prevMonth, nextMonth } = useMonthFilter()
   const [modalDate, setModalDate] = useState(null)
   const [prefillFarm, setPrefillFarm] = useState(null)
   const [confirmCancel, setConfirmCancel] = useState(null)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelError, setCancelError] = useState('')
+  const [actionBusy, runAction] = useBusyAction()
   const [completeInspection, setCompleteInspection] = useState(null)
   const [viewInspection, setViewInspection] = useState(null)
   const [rescheduleInspection, setRescheduleInspection] = useState(null)
   const isMobile = useIsMobile()
 
-  const { data: inspectionsData, loading: loadingInspections, error: errorInspections, refetch: refetchInspections } = useCachedFetch('/admin/inspections', {}, { pollMs: 45000 })
+  const { data: inspectionsData, loading: loadingInspections, error: errorInspections, refetch: refetchInspections } = useCachedFetch('/admin/inspections', {}, { pollMs: LIVE_POLL_MS })
   const { data: farmsData, loading: loadingFarms, error: errorFarms, refetch: refetchFarms } = useCachedFetch('/admin/farms')
 
   const inspections = inspectionsData || []
@@ -97,12 +116,36 @@ export default function Inspections() {
   }
 
   const handleCancel = (inspection) => {
+    setCancelReason('')
+    setCancelError('')
     setConfirmCancel(inspection)
   }
 
   const confirmCancelAction = async () => {
-    await api.patch(`/admin/inspections/${confirmCancel.id}/cancel`)
+    const reason = cancelReason.trim()
+
+    // Checked here too so an empty box never reaches the API, but the server
+    // enforces the same rule — this is convenience, not the guarantee.
+    if (!reason) {
+      setCancelError('A cancellation reason is required.')
+      return
+    }
+
+    setCancelError('')
+
+    try {
+      await api.patch(`/admin/inspections/${confirmCancel.id}/cancel`, { reason })
+    } catch (err) {
+      // Left open with the typed reason intact so it can be corrected and
+      // resubmitted, and nothing is refreshed as though it had worked.
+      setCancelError(err.response?.data?.message || 'Could not cancel this inspection. Please try again.')
+      return
+    }
+
     setConfirmCancel(null)
+    setCancelReason('')
+    // The farm owner's own inspection views show this record too.
+    invalidateCache('/farmer/inspections')
     refetchInspections()
   }
 
@@ -284,12 +327,13 @@ export default function Inspections() {
         </div>
       )}
 
-      {loading && <p style={styles.stateText}>Loading...</p>}
+      {loading && <SkeletonTable rows={6} columns={6} />}
       {error && <p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p>}
 
       {!loading && !error && tab === 'schedule' && (
         <CalendarView
           inspections={inspections}
+          currentUserId={currentUserId}
           viewDate={viewDate}
           setViewDate={setViewDate}
           onAddSchedule={(date) => setModalDate(date)}
@@ -367,9 +411,14 @@ export default function Inspections() {
         const c = statusColor[displayStatus(viewInspection)] || '#6b7280'
         const fields = [
           { label: 'Farm', value: viewInspection.farm_name },
+          ...(viewInspection.owner_name ? [{ label: 'Farm Owner', value: viewInspection.owner_name }] : []),
           { label: 'Type', value: viewInspection.inspection_type },
-          { label: 'Scheduled By', value: viewInspection.scheduled_by_name?.trim() || '—' },
+          { label: 'Staff', value: responsibleStaff(viewInspection) },
           { label: 'Scheduled', value: formatDateTime(viewInspection.scheduled_at) },
+          // Shown only on a cancelled record, where it is the point of the row.
+          ...(viewInspection.status === 'Cancelled' && viewInspection.cancellation_reason
+            ? [{ label: 'Cancellation Reason', value: viewInspection.cancellation_reason }]
+            : []),
           ...(viewInspection.completed_at ? [{ label: 'Completed', value: formatDateTime(viewInspection.completed_at) }] : []),
         ]
         const hasText = viewInspection.notes || viewInspection.findings
@@ -425,7 +474,19 @@ export default function Inspections() {
             <h3 style={confirmStyles.title}>Cancel Inspection</h3>
             <p style={confirmStyles.message}>
               Cancel {confirmCancel.inspection_number} for {confirmCancel.farm_name}?
+              The farm owner will be notified, and the reason below is sent to them.
             </p>
+
+            <label style={styles.label}>Cancellation Reason *</label>
+            <textarea
+              value={cancelReason}
+              onChange={e => { setCancelReason(e.target.value); if (cancelError) setCancelError('') }}
+              placeholder="Why is this inspection being cancelled?"
+              rows={3}
+              style={{ ...styles.input, resize: 'vertical', ...(cancelError ? { borderColor: '#d98a8a', backgroundColor: '#fdf7f7' } : {}) }}
+              autoFocus
+            />
+            {cancelError && <div style={confirmStyles.fieldError}>{cancelError}</div>}
             <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
               <button
                 onClick={() => setConfirmCancel(null)}
@@ -434,8 +495,9 @@ export default function Inspections() {
                 Keep it
               </button>
               <button
-                onClick={confirmCancelAction}
-                style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}), backgroundColor: '#b91c1c' }}
+                onClick={() => runAction(confirmCancelAction)}
+                disabled={actionBusy || !cancelReason.trim()}
+                style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}), backgroundColor: '#b91c1c', ...(actionBusy ? { opacity: 0.7, cursor: 'wait' } : {}) }}
               >
                 Cancel Inspection
               </button>
@@ -521,7 +583,7 @@ function InspectionList({ list, statusColor, onCancel, onComplete, onReschedule,
               <th style={styles.th}>Date</th>
               <th style={styles.th}>Time</th>
               <th style={styles.th}>Type</th>
-              <th style={styles.th}>Scheduled By</th>
+              <th style={styles.th}>Staff</th>
               <th style={styles.th}>Status</th>
               <th style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
             </tr>
@@ -534,11 +596,14 @@ function InspectionList({ list, statusColor, onCancel, onComplete, onReschedule,
                   <td style={styles.td}>
                     <div style={styles.rowTitle}>{i.inspection_number}</div>
                   </td>
-                  <td style={styles.td}>{i.farm_name}</td>
+                  <td style={styles.td}>
+                    <div>{i.farm_name}</div>
+                    {i.owner_name && <div style={styles.rowMeta}>{i.owner_name}</div>}
+                  </td>
                   <td style={styles.td}>{formatDate(i.scheduled_at)}</td>
                   <td style={styles.td}>{new Date(i.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: DISPLAY_TIME_ZONE })}</td>
                   <td style={styles.td}>{i.inspection_type}</td>
-                  <td style={styles.td}>{i.scheduled_by_name?.trim() || '—'}</td>
+                  <td style={styles.td}>{responsibleStaff(i)}</td>
                   <td style={styles.td}>
                     <span style={{ ...styles.badge, color: barColor, backgroundColor: badgeBg(displayStatus(i)) }}>
                       {displayStatus(i)}
@@ -583,7 +648,7 @@ function Pagination({ currentPage, totalPages, pageSize, onPageChange, onPageSiz
   )
 }
 
-function CalendarView({ inspections, viewDate, setViewDate, onAddSchedule, onViewEvent, isMobile }) {
+function CalendarView({ inspections, currentUserId, viewDate, setViewDate, onAddSchedule, onViewEvent, isMobile }) {
   const year = viewDate.getFullYear()
   const month = viewDate.getMonth()
   const today = new Date()
@@ -597,9 +662,14 @@ function CalendarView({ inspections, viewDate, setViewDate, onAddSchedule, onVie
   for (let d = 1; d <= daysInMonth; d++) cells.push(d)
   while (cells.length % 7 !== 0) cells.push(null)
 
+  // Cancelled inspections are kept in the record and still appear in
+  // History — but the calendar shows what is actually going to happen, and
+  // a cancelled visit is not. Excluded here rather than at the call site so
+  // the day tiles, the "+N more" count and the day detail panel all agree.
   const getInspectionsForDay = (day) => {
     if (!day) return []
     return inspections.filter(i => {
+      if (i.status === 'Cancelled') return false
       const d = new Date(i.scheduled_at)
       return d.getFullYear() === year && d.getMonth() === month && d.getDate() === day
     })
@@ -621,9 +691,27 @@ function CalendarView({ inspections, viewDate, setViewDate, onAddSchedule, onVie
 
   const selectDay = (date) => setSelectedDate(date)
 
+  // Same exclusion as the day tiles. Filtering only the tiles left the panel
+  // as a second way to reach a cancelled visit: the date read as free on the
+  // grid while the panel beside it still listed the call-off.
+  // Mirrors Rule 3 in AdminInspectionController::store(): one farm per
+  // staff member per day, counting Scheduled and Completed (the visit
+  // happened) but not Cancelled (nobody went).
+  //
+  // This is a convenience only — the server still refuses a duplicate, which
+  // is what covers a stale page, two tabs, or a direct API call. Derived from
+  // the same `inspections` list the calendar draws from, so one refetch
+  // after scheduling, cancelling or completing updates the button too.
+  const myInspectionThatDay = selectedDate && currentUserId
+    ? inspections.find(i =>
+        i.assigned_to_id === currentUserId
+        && (i.status === 'Scheduled' || i.status === 'Completed')
+        && sameDay(new Date(i.scheduled_at), selectedDate))
+    : null
+
   const panelInspections = selectedDate
     ? inspections
-        .filter(i => sameDay(new Date(i.scheduled_at), selectedDate))
+        .filter(i => i.status !== 'Cancelled' && sameDay(new Date(i.scheduled_at), selectedDate))
         .slice()
         .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
     : []
@@ -747,6 +835,16 @@ function CalendarView({ inspections, viewDate, setViewDate, onAddSchedule, onVie
           <div style={styles.sidePanelBtnWrap}>
             {isPastDate(selectedDate) ? (
               <div style={styles.pastDateNote}>Past dates cannot be scheduled.</div>
+            ) : myInspectionThatDay ? (
+              <>
+                <button style={{ ...styles.addInspectionBtn, ...styles.addInspectionBtnDisabled }} disabled>
+                  + Add Inspection
+                </button>
+                <div style={styles.limitNote}>
+                  You already have an inspection scheduled for this date. A staff
+                  member can only conduct one inspection per day.
+                </div>
+              </>
             ) : (
               <button style={styles.addInspectionBtn} onClick={() => onAddSchedule(selectedDate)}>
                 + Add Inspection
@@ -794,14 +892,27 @@ function ScheduleModal({ date, farms, prefillFarm, onClose, onSuccess, isMobile,
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const dateAlreadyBooked = existingInspections.some(i => {
-    const d = new Date(i.scheduled_at)
-    return sameDay(d, date) && i.status !== 'Cancelled'
-  })
+  // One ACTIVE inspection per farm: a farm with an inspection still in
+  // 'Scheduled' status (overdue ones included) cannot be booked again until it
+  // is completed or cancelled.
+  //
+  // Separate from the one-farm-per-STAFF-per-day limit, which is handled
+  // before this modal opens (the Add Inspection button is disabled). Two
+  // different rules: this one is about the farm, that one about the person.
+  // The backend enforces both under a lock; these are only so the user never
+  // picks something that is going to be refused.
+  const activeByFarm = new Map(
+    existingInspections
+      .filter(i => i.status === 'Scheduled' && i.farm_id != null)
+      .map(i => [String(i.farm_id), i])
+  )
+  const selectedFarmActive = farmId ? activeByFarm.get(String(farmId)) : null
 
   const dateLabel = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
 
   const filteredFarms = farms.filter(f => {
+    // Farms with an active inspection are not offered at all — see above.
+    if (activeByFarm.has(String(f.id))) return false
     const combined = `${f.farm_name} — ${f.owner_name}`.toLowerCase()
     const search = farmSearch.toLowerCase()
     return combined.includes(search) ||
@@ -857,9 +968,10 @@ function ScheduleModal({ date, farms, prefillFarm, onClose, onSuccess, isMobile,
 
         <form onSubmit={handleSubmit}>
           {error && <div style={modalStyles.errorBox}>{error}</div>}
-          {dateAlreadyBooked && (
+          {selectedFarmActive && (
             <div style={modalStyles.errorBox}>
-              An inspection has already been scheduled for this date. Please select another available date.
+              This farm already has an active inspection ({selectedFarmActive.inspection_number} on{' '}
+              {formatDate(selectedFarmActive.scheduled_at)}). Complete or cancel it before scheduling another.
             </div>
           )}
 
@@ -893,7 +1005,11 @@ function ScheduleModal({ date, farms, prefillFarm, onClose, onSuccess, isMobile,
                   </div>
                 ))}
                 {filteredFarms.length === 0 && (
-                  <div style={modalStyles.dropdownEmpty}>No farms match your search.</div>
+                  <div style={modalStyles.dropdownEmpty}>
+                    {farms.some(f => activeByFarm.has(String(f.id)) && `${f.farm_name} — ${f.owner_name}`.toLowerCase().includes(farmSearch.toLowerCase()))
+                      ? 'That farm already has an active inspection.'
+                      : 'No farms match your search.'}
+                  </div>
                 )}
               </div>
             )}
@@ -931,10 +1047,10 @@ function ScheduleModal({ date, farms, prefillFarm, onClose, onSuccess, isMobile,
             </button>
             <button
               type="submit"
-              disabled={loading || dateAlreadyBooked}
-              style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}), ...(dateAlreadyBooked ? modalStyles.submitBtnDisabled : {}) }}
+              disabled={loading || !!selectedFarmActive}
+              style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}), ...(selectedFarmActive ? modalStyles.submitBtnDisabled : {}) }}
             >
-              {loading ? 'Scheduling...' : 'Schedule Inspection'}
+              {loading ? <BtnBusy label="Scheduling…" /> : 'Schedule Inspection'}
             </button>
           </div>
         </form>
@@ -1001,7 +1117,7 @@ function CompleteModal({ inspection, onClose, onSuccess, isMobile }) {
               disabled={loading}
               style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
             >
-              {loading ? 'Saving...' : 'Mark as Completed'}
+              {loading ? <BtnBusy label="Saving…" /> : 'Mark as Completed'}
             </button>
           </div>
         </form>
@@ -1097,7 +1213,7 @@ function RescheduleModal({ inspection, onClose, onSuccess, isMobile }) {
               disabled={loading}
               style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
             >
-              {loading ? 'Saving...' : 'Reschedule Inspection'}
+              {loading ? <BtnBusy label="Saving…" /> : 'Reschedule Inspection'}
             </button>
           </div>
         </form>
@@ -1116,8 +1232,8 @@ const styles = {
   titleMobile: { fontSize: '20px' },
   subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px' },
 
-  summaryGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px', marginBottom: '22px' },
-  summaryGridMobile: { gridTemplateColumns: 'repeat(3, 1fr)', gap: '11px' },
+  summaryGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '14px', marginBottom: '22px' },
+  summaryGridMobile: { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '11px' },
   summaryCard: { backgroundColor: '#234A35', border: '1px solid #1b3a29', borderRadius: '14px', padding: '20px 22px' },
   summaryValue: { fontSize: '30px', fontWeight: 800, lineHeight: 1, letterSpacing: '-0.02em', color: '#ffffff' },
   summaryLabel: { fontSize: '12px', fontWeight: 700, marginTop: '8px', textTransform: 'uppercase', letterSpacing: '0.04em', color: '#eaf3ec' },
@@ -1135,10 +1251,13 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     gap: '14px', marginBottom: '18px', borderBottom: '1px solid #e7e8e0', flexWrap: 'wrap',
   },
-  toolbarMobile: { flexDirection: 'column', alignItems: 'stretch', gap: '12px' },
+  toolbarMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch', gap: '12px' },
 
-  tabs: { display: 'flex', gap: '4px', overflowX: 'auto' },
-  tab: { padding: '10px 16px', fontSize: '14px', fontWeight: 700, color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap' },
+  // minWidth 0 is what lets overflowX work: without it a flex item refuses
+  // to be narrower than its contents, so the row pushed the whole page
+  // sideways instead of scrolling inside itself.
+  tabs: { display: 'flex', gap: '4px', overflowX: 'auto', minWidth: 0, maxWidth: '100%', flexWrap: 'nowrap', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', },
+  tab: { padding: '10px 16px', fontSize: '14px', fontWeight: 700, color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap', flexShrink: 0, },
   tabActive: { color: '#2c8047', borderBottom: '2px solid #2c8047' },
 
   filterAnchor: { position: 'relative', flexShrink: 0 },
@@ -1199,6 +1318,7 @@ const styles = {
     whiteSpace: 'nowrap', backgroundColor: '#fafbf8',
   },
   td: { padding: '13px 20px', fontSize: '12px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle' },
+  rowMeta: { fontSize: '12px', color: '#8a968d', marginTop: '2px' },
   rowTitle: { fontSize: '14px', fontWeight: 400, color: '#16311d' },
 
   badge: {
@@ -1271,6 +1391,8 @@ const styles = {
     width: '100%', boxSizing: 'border-box', padding: '11px', borderRadius: '10px', border: 'none',
     backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer',
   },
+  addInspectionBtnDisabled: { backgroundColor: '#e7e8e0', color: '#9aa79d', cursor: 'not-allowed', boxShadow: 'none' },
+  limitNote: { fontSize: '12px', color: '#8a6a2f', backgroundColor: '#fdf8f0', border: '1px solid #f0e2cf', borderRadius: '10px', padding: '9px 11px', marginTop: '8px', lineHeight: 1.55 },
   pastDateNote: {
     fontSize: '12.5px', color: '#9aa79d', textAlign: 'center', padding: '10px', fontStyle: 'italic',
   },
@@ -1295,7 +1417,7 @@ const styles = {
 
 const paginationStyles = {
   wrap: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px' },
-  wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  wrapMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch' },
   info: { fontSize: '12px', color: '#8a968d', whiteSpace: 'nowrap' },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },
@@ -1325,7 +1447,7 @@ const modalStyles = {
   contextNote: { fontSize: '12px', color: '#6b7770', backgroundColor: '#fafbf8', border: '1px solid #eceee7', borderRadius: '9px', padding: '9px 12px', marginTop: '12px', lineHeight: '1.4' },
   label: { display: 'block', fontSize: '13px', fontWeight: 600, color: '#33413a', marginBottom: '6px', marginTop: '12px' },
   input: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', fontFamily: 'inherit' },
-  row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' },
+  row: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '12px' },
   rowMobile: { gridTemplateColumns: '1fr' },
   errorBox: { backgroundColor: '#fbeaea', border: '1px solid #f0c9c9', color: '#b91c1c', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '14px' },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' },
@@ -1345,7 +1467,8 @@ const modalStyles = {
 }
 
 const confirmStyles = {
-  modal: { backgroundColor: '#fff', borderRadius: '16px', padding: '28px', width: '400px', maxWidth: '90%' },
+  modal: { backgroundColor: '#fff', borderRadius: '16px', padding: '28px', width: '400px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto' },
   title: { fontSize: '17px', fontWeight: 800, color: '#16311d', marginTop: 0, marginBottom: '10px' },
-  message: { fontSize: '14px', color: '#6b7770', lineHeight: '1.5', marginBottom: '4px' },
+  message: { fontSize: '14px', color: '#6b7770', lineHeight: '1.5', marginBottom: '14px' },
+  fieldError: { color: '#b91c1c', fontSize: '12px', marginTop: '6px' },
 }

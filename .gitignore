@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Environment files — never commit credentials
+.env
+.env.*
+!.env.example
+
+# Build output
+dist/
+build/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Arduino build artifacts
+firmware/**/build/
+*.hex
+*.elf
+
+# Deployment archives
+*.zip
+backend-upload/
+frontend-files/
+
+# Database backups — a full dump carries every user row (emails, mobile
+# numbers, password hashes). Once committed it stays in git history forever,
+# so new dumps are never tracked. agribantay_dump.sql and dump_utf8.sql were
+# committed before this rule existed; this does not untrack them.
+*.sql
+!deploy/*.sql

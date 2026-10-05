@@ -5,11 +5,20 @@ import ServiceRequestDetailsModal from '../../components/ServiceRequestDetailsMo
 import SharedPagination from '../../components/Pagination'
 import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { LIVE_POLL_MS } from '../../constants/polling'
+import { matchesHandledBy } from '../../utils/handledBy'
+import HandledByFilter from '../../components/HandledByFilter'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { getUser } from '../../utils/auth'
 import { useOverflowX } from '../../hooks/useOverflowX'
 import { formatDate, formatDateTime, isWithinLocalDateRange } from '../../utils/formatDate'
 import { BADGE_SHAPE, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../../utils/serviceBadgeStyle'
 import { isRequestOverdue, requestDisplayStatus } from '../../utils/serviceRequestStatus'
+import { VET_ACTIVE_TYPES, FARM_BIOSECURITY, ATTACHMENT_MAX_FILES } from '../../constants/serviceTypes'
+import AttachmentField from '../../components/AttachmentField'
+import { validateAttachment } from '../../utils/attachment'
+import { SkeletonTable, BtnBusy } from '../../components/Loading'
+import { useBusyAction } from '../../hooks/useBusyAction'
 
 const BIRD_ESTIMATES = {
   'Small': 'Below 10,000 layers',
@@ -17,10 +26,11 @@ const BIRD_ESTIMATES = {
   'Large': 'Above 50,000 layers',
 }
 
+// Farm Biosecurity replaced Vaccination as the Vet's service; rows stored
+// with the old value still appear under "All Types" with their own badge.
 const TYPE_OPTIONS = [
   { value: 'all', label: 'All Types' },
-  { value: 'Vaccine Request', label: 'Vaccination' },
-  { value: 'Blood Test Request', label: 'Blood Test' },
+  ...VET_ACTIVE_TYPES.map(t => ({ value: t, label: serviceTypeLabel(t) })),
 ]
 
 const SORT_OPTIONS = [
@@ -33,6 +43,9 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50]
 export default function VaccinationRequests() {
   const [tab, setTab] = useState('pending')
   const [search, setSearch] = useState('')
+  // Separate from the status tabs: all | mine | unassigned | others (by user id).
+  const [handledBy, setHandledBy] = useState('all')
+  const [actionBusy, runAction] = useBusyAction()
   const [typeFilter, setTypeFilter] = useState('all')
   const [sortMode, setSortMode] = useState('oldest')
   const [fromDate, setFromDate] = useState('')
@@ -49,6 +62,12 @@ export default function VaccinationRequests() {
   const [reopenError, setReopenError] = useState('')
   const [rescheduleTarget, setRescheduleTarget] = useState(null)
   const isMobile = useIsMobile()
+
+  // Ownership: the Vet who accepted a request is the only one who can complete,
+  // reschedule or undo it. The backend enforces this (403); the buttons are
+  // hidden here so nobody is offered an action that will fail.
+  const user = getUser()
+  const isOwnedByMe = (r) => r.accepted_by_id != null && r.accepted_by_id === user?.id
   const [tableScrollRef, tableOverflows] = useOverflowX()
 
   const [filterOpen, setFilterOpen] = useState(false)
@@ -103,7 +122,7 @@ export default function VaccinationRequests() {
     (sortMode !== 'oldest' ? 1 : 0) +
     ((fromDate || toDate) ? 1 : 0)
 
-  const { data, loading, error, refetch } = useCachedFetch('/vet/vaccination-requests', {}, { pollMs: 45000 })
+  const { data, loading, error, refetch } = useCachedFetch('/vet/vaccination-requests', handledBy !== 'all' ? { handled_by: handledBy } : {}, { pollMs: LIVE_POLL_MS })
   const requestData = data || { scheduled: [], completed: [], history: [] }
 
   useEffect(() => {
@@ -111,7 +130,7 @@ export default function VaccinationRequests() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  useEffect(() => { setCurrentPage(1) }, [tab, search, typeFilter, sortMode, fromDate, toDate, pageSize])
+  useEffect(() => { setCurrentPage(1) }, [tab, search, typeFilter, sortMode, fromDate, toDate, pageSize, handledBy])
 
   const handleDeclineAction = async () => {
     if (!declineReason.trim()) {
@@ -194,9 +213,12 @@ export default function VaccinationRequests() {
   }, [baseList, sortMode])
 
   const typeFilteredList = useMemo(() => {
-    if (typeFilter === 'all') return sortedList
-    return sortedList.filter(r => r.service_type === typeFilter)
-  }, [sortedList, typeFilter])
+    // The server already applied handled_by; re-checked here so a cached
+    // response from a previous selection never shows the wrong rows.
+    const base = sortedList.filter(r => matchesHandledBy(r, handledBy, user?.id))
+    if (typeFilter === 'all') return base
+    return base.filter(r => r.service_type === typeFilter)
+  }, [sortedList, typeFilter, handledBy, user?.id])
 
   const searchedList = useMemo(() => {
     if (!search) return typeFilteredList
@@ -234,7 +256,7 @@ export default function VaccinationRequests() {
         }
       `}</style>
       <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Service Requests</h1>
-      <p style={styles.subtitle}>Manage vaccination and blood test requests</p>
+      <p style={styles.subtitle}>Manage farm biosecurity and blood test requests</p>
 
       <div className="no-print" style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
         <div style={styles.tabs}>
@@ -288,6 +310,8 @@ export default function VaccinationRequests() {
               </button>
             )}
           </div>
+
+          <HandledByFilter value={handledBy} onChange={setHandledBy} isMobile={isMobile} />
 
           <div style={styles.filterAnchor} ref={filterRef}>
             <button
@@ -355,7 +379,7 @@ export default function VaccinationRequests() {
         </div>
       </div>
 
-      {loading && <p style={styles.stateText}>Loading...</p>}
+      {loading && <SkeletonTable rows={6} columns={8} />}
       {error && <p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p>}
 
       {!loading && !error && (
@@ -374,6 +398,7 @@ export default function VaccinationRequests() {
                   <th style={styles.th}>Farm Owner</th>
                   <th style={styles.th}>Date</th>
                   <th style={styles.th}>Status</th>
+                  <th style={styles.th}>Handled By</th>
                   <th style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
@@ -401,8 +426,15 @@ export default function VaccinationRequests() {
                         <span style={{ ...BADGE_SHAPE, ...requestStatusBadgeStyle(requestDisplayStatus(r)) }}>
                           {requestDisplayStatus(r)}
                         </span>
-                        {r.status === 'Cancelled' && r.decline_reason && (
-                          <div style={styles.farmMeta} title={r.decline_reason}>Reason: {r.decline_reason}</div>
+                      </td>
+                      <td style={styles.td}>
+                        {r.accepted_by && r.status !== 'Cancelled' ? (
+                          <>
+                            <div style={{ ...styles.farmName, whiteSpace: 'nowrap' }}>{r.accepted_by}</div>
+                            {isOwnedByMe(r) && <div style={styles.farmMeta}>You</div>}
+                          </>
+                        ) : (
+                          <span style={styles.farmMeta}>{r.status === 'Pending' ? 'Unassigned' : '—'}</span>
                         )}
                       </td>
                       <td style={styles.td}>
@@ -417,7 +449,7 @@ export default function VaccinationRequests() {
                               </span>
                             </>
                           )}
-                          {r.status === 'Scheduled' && (
+                          {r.status === 'Scheduled' && isOwnedByMe(r) && (
                             <>
                               <span style={{ ...styles.actionBtn, ...styles.primaryCompleteBtn }} onClick={() => setCompleteTarget(r)}>
                                 Complete
@@ -427,12 +459,12 @@ export default function VaccinationRequests() {
                               </span>
                             </>
                           )}
-                          {(r.status === 'Completed' || r.status === 'Cancelled') && (
+                          {(r.status === 'Completed' || r.status === 'Cancelled' || (r.status === 'Scheduled' && !isOwnedByMe(r))) && (
                             <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => setDetailsTarget(r)}>
                               View
                             </span>
                           )}
-                          {r.status === 'Completed' && (
+                          {r.status === 'Completed' && isOwnedByMe(r) && (
                             <span style={{ ...styles.actionBtn, ...styles.rescheduleBtn }} onClick={() => { setConfirmReopen(r); setReopenError('') }}>
                               Undo Completion
                             </span>
@@ -448,7 +480,7 @@ export default function VaccinationRequests() {
 
           {list.length === 0 && (
             <div style={styles.empty}>
-              {search || typeFilter !== 'all' || (fromDate || toDate)
+              {search || typeFilter !== 'all' || handledBy !== 'all' || (fromDate || toDate)
                 ? 'No requests match your search or filter.'
                 : 'No requests here yet.'}
             </div>
@@ -513,8 +545,8 @@ export default function VaccinationRequests() {
 
             <div style={modalStyles.actions}>
               <button onClick={() => { setConfirmDecline(null); setDeclineReason(''); setDeclineError('') }} style={modalStyles.cancelBtn}>Cancel</button>
-              <button onClick={handleDeclineAction} style={{ ...modalStyles.submitBtn, backgroundColor: '#b91c1c' }}>
-                Decline Request
+              <button onClick={() => runAction(handleDeclineAction)} disabled={actionBusy} style={{ ...modalStyles.submitBtn, backgroundColor: '#b91c1c', ...(actionBusy ? { opacity: 0.7, cursor: 'wait' } : {}) }}>
+                {actionBusy ? <BtnBusy label="Declining…" /> : 'Decline Request'}
               </button>
             </div>
           </div>
@@ -543,8 +575,8 @@ export default function VaccinationRequests() {
 
             <div style={modalStyles.actions}>
               <button onClick={() => setConfirmReopen(null)} style={modalStyles.cancelBtn}>Cancel</button>
-              <button onClick={handleReopenAction} style={modalStyles.submitBtn}>
-                Undo Completion
+              <button onClick={() => runAction(handleReopenAction)} disabled={actionBusy} style={{ ...modalStyles.submitBtn, ...(actionBusy ? { opacity: 0.7, cursor: 'wait' } : {}) }}>
+                {actionBusy ? <BtnBusy label="Undoing…" /> : 'Undo Completion'}
               </button>
             </div>
           </div>
@@ -603,22 +635,75 @@ function CompleteModal({ request, onClose, onSuccess, isMobile }) {
   const [notes, setNotes] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  // The accomplished form: 1 to ATTACHMENT_MAX_FILES files (pages of the
+  // 3-page form plus supporting photos). Required for a Farm Biosecurity
+  // visit; a Blood Test (or a legacy Vaccination) may carry files but does
+  // not have to. Files already on the request (from a completion that was
+  // undone) are kept, shown, and count toward the limit.
+  const [files, setFiles] = useState([])
+  const [existing, setExisting] = useState(() => request.attachments || (request.attachment ? [request.attachment] : []))
+  const [fileError, setFileError] = useState('')
+  const [progress, setProgress] = useState(null)
+  const formRequired = request.service_type === FARM_BIOSECURITY
+
+  // Only possible while the request is Scheduled (i.e. reopened); the row
+  // and its private file are deleted together on the server.
+  const removeExisting = async (att) => {
+    setFileError('')
+    try {
+      const res = await api.delete(`/vet/vaccination-requests/${request.id}/attachments/${att.id}`)
+      setExisting(res.data?.data?.attachments || existing.filter(a => a.id !== att.id))
+    } catch (err) {
+      setFileError(err.response?.data?.message || 'The attachment could not be removed.')
+    }
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (loading) return
     setError('')
+    setFileError('')
 
     if (!notes.trim()) {
       setError('Please document what happened during the farm visit.')
       return
     }
+    const total = existing.length + files.length
+    if (formRequired && total === 0) {
+      setFileError('Please attach the accomplished Farm Biosecurity form (at least one file) before completing this request.')
+      return
+    }
+    if (total > ATTACHMENT_MAX_FILES) {
+      setFileError(`A request can have at most ${ATTACHMENT_MAX_FILES} attachments. Please remove ${total - ATTACHMENT_MAX_FILES}.`)
+      return
+    }
+    for (const f of files) {
+      const problem = validateAttachment(f)
+      if (problem) { setFileError(`${f.name}: ${problem}`); return }
+    }
+
+    // One multipart request carries the notes and every file; the backend's
+    // POST route is the same handler as the old PATCH one.
+    const body = new FormData()
+    body.append('completion_notes', notes)
+    files.forEach(f => body.append('attachments[]', f, f.name))
 
     setLoading(true)
+    setProgress(files.length ? 0 : null)
     try {
-      await api.patch(`/vet/vaccination-requests/${request.id}/complete`, { completion_notes: notes })
+      await api.post(`/vet/vaccination-requests/${request.id}/complete`, body, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (ev) => { if (files.length && ev.total) setProgress(Math.min(100, Math.round((ev.loaded / ev.total) * 100))) },
+      })
       onSuccess()
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to complete request.')
+      // Notes and the selected files stay as they are; only the message changes.
+      const errors = err.response?.data?.errors || {}
+      const fileMsg = errors.attachments?.[0] || errors.attachment?.[0]
+        || Object.keys(errors).filter(k => /^attachments?\./.test(k)).map(k => errors[k][0])[0]
+      if (fileMsg) setFileError(fileMsg)
+      setError(errors.completion_notes?.[0] || err.response?.data?.message || 'Failed to complete request.')
+      setProgress(null)
     } finally {
       setLoading(false)
     }
@@ -671,12 +756,27 @@ function CompleteModal({ request, onClose, onSuccess, isMobile }) {
             placeholder="Example: Inspected the poultry area and checked the reported concern. Recommended improving ventilation and cleaning the affected area..."
           />
 
+          <AttachmentField
+            label="Completed Farm Biosecurity Forms"
+            hint={formRequired
+              ? `Attach the accomplished form (3 pages) as PDF or photos. You can upload multiple files or take several photos. Minimum 1 file required, up to ${ATTACHMENT_MAX_FILES}.`
+              : `Optional for this service: attach the accomplished form if one was filled out (up to ${ATTACHMENT_MAX_FILES} files).`}
+            required={formRequired}
+            files={files}
+            existing={existing}
+            onRemoveExisting={removeExisting}
+            error={fileError}
+            disabled={loading}
+            progress={loading ? progress : null}
+            onChange={(next) => { setFiles(next); setFileError('') }}
+          />
+
           <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
-            <button type="button" onClick={onClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
+            <button type="button" onClick={onClose} disabled={loading} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
               Cancel
             </button>
-            <button type="submit" disabled={loading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
-              {loading ? 'Saving...' : 'Complete Request'}
+            <button type="submit" disabled={loading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}), ...(loading ? { opacity: 0.7, cursor: 'wait' } : {}) }}>
+              {loading ? (files.length && progress != null && progress < 100 ? `Uploading ${progress}%` : 'Saving...') : 'Complete Request'}
             </button>
           </div>
         </form>
@@ -783,7 +883,7 @@ function RescheduleModal({ request, onClose, onSuccess, isMobile }) {
               Cancel
             </button>
             <button type="submit" disabled={loading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
-              {loading ? 'Saving...' : 'Reschedule Request'}
+              {loading ? <BtnBusy label="Saving…" /> : 'Reschedule Request'}
             </button>
           </div>
         </form>
@@ -848,7 +948,7 @@ function AcceptModal({ request, onClose, onSuccess, isMobile }) {
               Cancel
             </button>
             <button type="submit" disabled={loading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
-              {loading ? 'Scheduling...' : 'Confirm Schedule'}
+              {loading ? <BtnBusy label="Scheduling…" /> : 'Confirm Schedule'}
             </button>
           </div>
         </form>
@@ -869,14 +969,17 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     gap: '14px', marginBottom: '18px', borderBottom: '1px solid #e7e8e0', flexWrap: 'wrap',
   },
-  toolbarMobile: { flexDirection: 'column', alignItems: 'stretch', gap: '12px' },
+  toolbarMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch', gap: '12px' },
 
-  tabs: { display: 'flex', gap: '4px', overflowX: 'auto' },
-  tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap' },
+  // minWidth 0 is what lets overflowX work: without it a flex item refuses
+  // to be narrower than its contents, so the row pushed the whole page
+  // sideways instead of scrolling inside itself.
+  tabs: { display: 'flex', gap: '4px', overflowX: 'auto', minWidth: 0, maxWidth: '100%', flexWrap: 'nowrap', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', },
+  tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap', flexShrink: 0, },
   tabActive: { color: '#2c8047', fontWeight: 700, borderBottom: '2px solid #2c8047' },
 
   toolbarRight: { display: 'flex', alignItems: 'center', gap: '10px', paddingBottom: '10px' },
-  toolbarRightMobile: { paddingBottom: '2px' },
+  toolbarRightMobile: { paddingBottom: '2px', flexWrap: 'wrap' },
 
   searchWrap: { position: 'relative', width: '240px', maxWidth: '100%' },
   searchIcon: { position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' },
@@ -943,8 +1046,10 @@ const styles = {
   },
   td: { padding: '13px 20px', fontSize: '12px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top' },
   reqNumberCell: { fontSize: '12px', color: '#4b5a50' },
-  farmName: { fontSize: '14px', fontWeight: 700, color: '#16311d' },
-  farmMeta: { fontSize: '12px', color: '#8a968d', marginTop: '2px' },
+  // nowrap on both: the column widens to fit instead of breaking the farm
+  // name and the barangay line into four short lines each.
+  farmName: { fontSize: '14px', fontWeight: 700, color: '#16311d', whiteSpace: 'nowrap' },
+  farmMeta: { fontSize: '12px', color: '#8a968d', marginTop: '2px', whiteSpace: 'nowrap' },
   actionGroup: { display: 'flex', gap: '6px', alignItems: 'center', whiteSpace: 'nowrap', justifyContent: 'flex-end' },
   // Same button treatment used everywhere else in AgriBantay (Farms,
   // Manage Accounts): one neutral bordered/white pill shape, differentiated
@@ -967,7 +1072,7 @@ const paginationStyles = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px',
   },
-  wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  wrapMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch' },
   info: { fontSize: '12px', color: '#8a968d', whiteSpace: 'nowrap' },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },
@@ -991,7 +1096,7 @@ const modalStyles = {
   helperText: { fontSize: '12px', color: '#8a968d', marginTop: '0', marginBottom: '8px', lineHeight: '1.4' },
   contextNote: { fontSize: '12px', color: '#6b7770', backgroundColor: '#fafbf8', border: '1px solid #eceee7', borderRadius: '9px', padding: '9px 12px', marginTop: '12px', lineHeight: '1.4' },
   input: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', fontFamily: 'inherit' },
-  row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' },
+  row: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '12px' },
   rowMobile: { gridTemplateColumns: '1fr' },
   errorBox: { backgroundColor: '#fbeaea', border: '1px solid #f0c9c9', color: '#b91c1c', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '14px' },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' },
@@ -1002,7 +1107,7 @@ const modalStyles = {
 }
 
 const confirmStyles = {
-  modal: { backgroundColor: '#fff', borderRadius: '16px', padding: '24px', width: '420px', maxWidth: '90%' },
+  modal: { backgroundColor: '#fff', borderRadius: '16px', padding: '24px', width: '420px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto' },
   summaryBox: { borderRadius: '10px', padding: '12px 14px', margin: '14px 0' },
   summaryType: { fontSize: '15px', fontWeight: 800, color: '#16311d', marginTop: '2px' },
   summaryFarm: { fontSize: '12.5px', color: '#6b7770', marginTop: '2px' },

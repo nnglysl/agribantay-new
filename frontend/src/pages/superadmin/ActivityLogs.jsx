@@ -3,24 +3,45 @@ import AdminLayout from '../../components/AdminLayout'
 import SharedPagination from '../../components/Pagination'
 import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { BACKGROUND_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useOverflowX } from '../../hooks/useOverflowX'
 import { roleBadgeStyle } from '../../utils/roleBadgeStyle'
 import { serviceTypeBadgeStyle } from '../../utils/serviceBadgeStyle'
+import { SkeletonTable } from '../../components/Loading'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
+/**
+ * "Oct 04, 2026 3:09 PM" split into its date and its time.
+ *
+ * The backend sends one string (LocalTime::dateTime, format 'M d, Y g:i A').
+ * Left whole, the browser wraps it wherever the column happens to run out —
+ * usually stranding "PM" alone on a second line, which reads as a broken
+ * value rather than a timestamp. Splitting it here puts the break where it
+ * belongs, so the cell is two deliberate lines at any width instead of a
+ * different accident at each one.
+ *
+ * The year anchors the split: the date half always ends in four digits. If
+ * the shape ever changes, the whole string is rendered unchanged rather than
+ * mangled.
+ */
+function splitTimestamp(value) {
+  const m = /^(.*\d{4}),?\s+(.+)$/.exec(String(value ?? ''))
+  return m ? { date: m[1], time: m[2] } : { date: value, time: null }
+}
+
 const roleLabel = {
-  admin: 'Admin',
+  admin: 'Staff',
   super_admin: 'Super Admin',
   farm_owner: 'Farm Owner',
   vet: 'Veterinarian',
   System: 'System',
 }
 
-const TYPE_OPTIONS = ['Alert', 'Vaccination', 'Blood Test', 'Request', 'Inspection', 'Account', 'Farm']
+const TYPE_OPTIONS = ['Alert', 'Farm Biosecurity', 'Blood Test', 'Vaccination', 'Request', 'Inspection', 'Account', 'Farm']
 const ROLE_OPTIONS = [
-  { value: 'admin', label: 'Admin' },
+  { value: 'admin', label: 'Staff' },
   { value: 'super_admin', label: 'Super Admin' },
   { value: 'farm_owner', label: 'Farm Owner' },
   { value: 'vet', label: 'Veterinarian' },
@@ -91,7 +112,7 @@ export default function ActivityLogs() {
   if (roleFilter) params.role = roleFilter
   if (typeFilter) params.type = typeFilter
 
-  const { data: logs, loading, error } = useCachedFetch('/superadmin/activity-logs', params, { pollMs: 60000 })
+  const { data: logs, loading, error } = useCachedFetch('/superadmin/activity-logs', params, { pollMs: BACKGROUND_POLL_MS })
 
   const allLogs = useMemo(() => logs || [], [logs])
 
@@ -141,7 +162,7 @@ export default function ActivityLogs() {
             <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="#9aa79d" strokeWidth="2" strokeLinecap="round" />
           </svg>
           <input
-            placeholder="Search actor, action, or details..."
+            placeholder="Search name, action, or details..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             style={styles.searchInput}
@@ -207,7 +228,7 @@ export default function ActivityLogs() {
         </div>
       </div>
 
-      {loading && <p style={styles.stateText}>Loading...</p>}
+      {loading && <SkeletonTable rows={6} columns={6} />}
       {error && <p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p>}
 
       {!loading && !error && (
@@ -217,10 +238,24 @@ export default function ActivityLogs() {
           )}
           <div ref={tableScrollRef} style={styles.tableScroll}>
             <table style={{ ...styles.table, ...styles.tableMinWidth }}>
+              {/* Widths are declared once here rather than left to the
+                  content, so every page of the log lines up with the last. */}
+              <colgroup>
+                <col style={{ width: '11%' }} />
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '11%' }} />
+                <col style={{ width: '17%' }} />
+                <col style={{ width: '36%' }} />
+                <col style={{ width: '12%' }} />
+              </colgroup>
               <thead>
                 <tr>
                   <th style={styles.th}>Time</th>
-                  <th style={styles.th}>Actor</th>
+                  {/* "Performed By" rather than "Actor": the column holds a
+                      person OR the word System, and "User" would be wrong for the
+                      latter. Audit-log wording that only developers read fluently
+                      has no place on a screen an LGU office uses. */}
+                  <th style={styles.th}>Performed By</th>
                   <th style={styles.th}>Role</th>
                   <th style={styles.th}>Action</th>
                   <th style={styles.th}>Details</th>
@@ -230,7 +265,17 @@ export default function ActivityLogs() {
               <tbody>
                 {paginatedLogs.map(log => (
                   <tr key={log.id}>
-                    <td style={styles.td}>{log.created_at}</td>
+                    <td style={styles.td}>
+                      {(() => {
+                        const t = splitTimestamp(log.created_at)
+                        return (
+                          <>
+                            <div style={styles.timeDate}>{t.date}</div>
+                            {t.time && <div style={styles.timeClock}>{t.time}</div>}
+                          </>
+                        )
+                      })()}
+                    </td>
                     <td style={{ ...styles.td, fontWeight: 600, color: '#16311d' }}>{log.user}</td>
                     <td style={styles.td}>
                       <span style={{ ...styles.badge, ...roleBadgeStyle(log.role) }}>
@@ -238,9 +283,11 @@ export default function ActivityLogs() {
                       </span>
                     </td>
                     <td style={styles.td}>{log.action}</td>
-                    <td style={styles.td}>{log.details}</td>
                     <td style={styles.td}>
-                      {['Vaccination', 'Blood Test'].includes(log.type) ? (
+                      <div style={styles.detailsCell} title={log.details}>{log.details}</div>
+                    </td>
+                    <td style={styles.td}>
+                      {['Farm Biosecurity', 'Vaccination', 'Blood Test'].includes(log.type) ? (
                         <span style={{ ...styles.badge, ...serviceTypeBadgeStyle(log.type) }}>{log.type}</span>
                       ) : log.type}
                     </td>
@@ -307,7 +354,7 @@ const styles = {
   subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px' },
 
   toolbarRow: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' },
-  toolbarRowMobile: { flexDirection: 'column', alignItems: 'stretch', gap: '12px' },
+  toolbarRowMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch', gap: '12px' },
 
   searchWrap: { position: 'relative', flex: 1 },
   searchIcon: { position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' },
@@ -367,14 +414,32 @@ const styles = {
   tableCard: { backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden' },
   scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0' },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
-  table: { width: '100%', borderCollapse: 'collapse' },
+  // tableLayout 'fixed' with the colgroup below: without it the browser
+  // sizes every column from its longest cell, so one wordy Details entry
+  // widened that column and squeezed the rest — the whole table shifting
+  // shape because of a single row.
+  table: { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' },
   tableMinWidth: { minWidth: '860px' },
   th: {
     textAlign: 'left', padding: '13px 20px', fontSize: '13px', fontWeight: 600, color: '#8a968d',
     borderBottom: '1px solid #eceee7', whiteSpace: 'nowrap',
     backgroundColor: '#fafbf8',
   },
-  td: { padding: '13px 20px', fontSize: '12px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle' },
+  td: { padding: '13px 20px', fontSize: '12px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle',
+        overflowWrap: 'anywhere' },
+  // Details is free text of no fixed length. Clamped to two lines so one
+  // long entry cannot make its row several times the height of its
+  // neighbours; the full text stays in the title attribute, and search
+  // still matches against the whole string, not the visible part.
+  // The date is what the eye scans for; the clock is the detail under it.
+  // nowrap on both: having split the value deliberately, neither half should
+  // be allowed to break again.
+  timeDate: { whiteSpace: 'nowrap' },
+  timeClock: { whiteSpace: 'nowrap', color: '#8b968f', fontSize: '11.5px', marginTop: '2px' },
+  detailsCell: {
+    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+    overflow: 'hidden', lineHeight: 1.45,
+  },
   badge: {
     display: 'inline-block', padding: '4px 11px', borderRadius: '999px',
     fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
@@ -387,7 +452,7 @@ const paginationStyles = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px',
   },
-  wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  wrapMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch' },
   info: { fontSize: '12px', color: '#8a968d', whiteSpace: 'nowrap' },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },

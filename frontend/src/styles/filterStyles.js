@@ -19,9 +19,12 @@ export const filterStyles = {
   filterPanel: {
     position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 40,
     backgroundColor: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px',
-    boxShadow: '0 8px 24px rgba(15,38,22,0.12)', padding: '18px', width: '280px',
+    boxShadow: '0 8px 24px rgba(15,38,22,0.12)', padding: '18px',
+    // The panel hangs from the button's right edge, so its width is what
+    // decides whether its left edge lands on the screen or past it.
+    width: 'min(280px, calc(100vw - 32px))', maxWidth: 'calc(100vw - 32px)', boxSizing: 'border-box',
   },
-  filterPanelMobile: { right: 0, width: '260px' },
+  filterPanelMobile: { right: 0, width: 'min(260px, calc(100vw - 32px))' },
   filterPanelHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' },
   filterPanelTitle: { fontSize: '15px', fontWeight: 800, color: '#16311d' },
   filterPanelClose: { fontSize: '19px', cursor: 'pointer', color: '#8a968d', lineHeight: 1 },

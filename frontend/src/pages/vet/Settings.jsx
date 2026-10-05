@@ -7,6 +7,8 @@ import { isValidPhoneNumber, sanitizePhoneInput, PHONE_VALIDATION_MESSAGE } from
 import PasswordStrengthIndicator from '../../components/PasswordStrengthIndicator'
 import VerifyEmailChangeModal from '../../components/VerifyEmailChangeModal'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import ProfilePhotoEditor from '../../components/ProfilePhotoEditor'
+import { PageLoader, BtnBusy } from '../../components/Loading'
 
 export default function Settings() {
   const [profile, setProfile] = useState(null)
@@ -20,7 +22,8 @@ export default function Settings() {
   const [profileSuccess, setProfileSuccess] = useState('')
   const [profileLoading, setProfileLoading] = useState(false)
   const isMobile = useIsMobile()
-  const fileInputRef = useRef(null)
+  // Crop editor inside the photo modal; exports the positioned circle on save.
+  const photoEditorRef = useRef(null)
 
   const [showPhotoModal, setShowPhotoModal] = useState(false)
   const [photoFile, setPhotoFile] = useState(null)
@@ -142,7 +145,10 @@ export default function Settings() {
       formData.append('first_name', profile.first_name)
       formData.append('last_name', profile.last_name)
       formData.append('mobile_number', profile.mobile_number || '')
-      formData.append('profile_photo', photoFile)
+      // Upload the cropped circle (JPEG) instead of the raw file, through
+      // the same endpoint and validation as before.
+      const cropped = await photoEditorRef.current.exportBlob()
+      formData.append('profile_photo', cropped, 'profile-photo.jpg')
 
       await api.post('/settings/profile', formData, {
         params: { _method: 'PUT' },
@@ -153,7 +159,7 @@ export default function Settings() {
       setPhotoFile(null)
       setProfileSuccess('Profile photo updated successfully.')
     } catch (err) {
-      setPhotoError(err.response?.data?.message || 'Failed to upload photo. Please try again.')
+      setPhotoError(err.response?.data?.message || err.message || 'Failed to upload photo. Please try again.')
     } finally {
       setPhotoSaving(false)
     }
@@ -193,10 +199,9 @@ export default function Settings() {
     }
   }
 
-  if (!profile) return <VetLayout><p>Loading...</p></VetLayout>
+  if (!profile) return <VetLayout><PageLoader /></VetLayout>
 
   const initials = `${profile.first_name?.[0] || ''}${profile.last_name?.[0] || ''}`.toUpperCase()
-  const photoModalPreview = photoFile ? URL.createObjectURL(photoFile) : profile.profile_photo_url
 
   return (
     <VetLayout>
@@ -303,7 +308,7 @@ export default function Settings() {
                 disabled={profileLoading}
                 style={{ ...styles.saveBtn, ...(isMobile ? styles.btnFull : {}) }}
               >
-                {profileLoading ? 'Saving...' : 'Save Changes'}
+                {profileLoading ? <BtnBusy label="Saving…" /> : 'Save Changes'}
               </button>
               <button
                 type="button"
@@ -383,7 +388,7 @@ export default function Settings() {
               cursor: (passwordLoading || !canSubmitPassword) ? 'not-allowed' : 'pointer',
             }}
           >
-            {passwordLoading ? 'Updating...' : 'Update Password'}
+            {passwordLoading ? <BtnBusy label="Updating…" /> : 'Update Password'}
           </button>
         </form>
       </div>
@@ -395,21 +400,12 @@ export default function Settings() {
 
             {photoError && <div style={styles.errorBox}>{photoError}</div>}
 
-            <div style={modalStyles.previewWrap}>
-              {photoModalPreview ? (
-                <img src={photoModalPreview} alt="Preview" style={modalStyles.previewImg} />
-              ) : (
-                <div style={modalStyles.previewPlaceholder}>{initials}</div>
-              )}
-            </div>
-
-            <label style={styles.label}>Choose a new photo</label>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={e => setPhotoFile(e.target.files?.[0] || null)}
-              style={styles.input}
+            <ProfilePhotoEditor
+              ref={photoEditorRef}
+              file={photoFile}
+              initials={initials}
+              disabled={photoSaving}
+              onFileChange={(f, problem) => { setPhotoFile(f); setPhotoError(problem || '') }}
             />
 
             <div style={modalStyles.actions}>
@@ -426,7 +422,7 @@ export default function Settings() {
                   cursor: (photoSaving || !photoFile) ? 'not-allowed' : 'pointer',
                 }}
               >
-                {photoSaving ? 'Saving...' : 'Save Photo'}
+                {photoSaving ? <BtnBusy label="Saving…" /> : 'Save Photo'}
               </button>
             </div>
           </div>
@@ -540,7 +536,7 @@ const styles = {
   },
   photoHint: { fontSize: '11.5px', color: '#9ca3af', marginTop: '8px' },
 
-  row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' },
+  row: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '16px' },
   rowMobile: { gridTemplateColumns: '1fr', gap: '0px' },
   fieldGroup: { display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '14px' },
   label: { fontSize: '13px', fontWeight: '500', color: '#374151' },

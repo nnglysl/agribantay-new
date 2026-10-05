@@ -7,6 +7,7 @@ use App\Models\SensorReading;
 use App\Services\FarmStatusService;
 use App\Services\AlertHistoryService;
 use App\Services\MoistureThresholdService;
+use App\Services\SensorCalibrationService;
 use Illuminate\Http\Request;
 
 class SensorIngestController extends Controller
@@ -41,9 +42,20 @@ class SensorIngestController extends Controller
             return response()->json(['success' => false, 'message' => 'Device is not assigned to a farm.'], 409);
         }
 
-        // NOTE: these conversions are placeholders. Calibrate against a real
-        // reference (ammonia meter, known-wet/dry soil) before trusting the values.
-        $ammonia = round(($request->ammonia_raw / 4095) * 100, 2);
+        $calibration = app(SensorCalibrationService::class);
+
+        // Real ppm once a clean-air baseline exists in config; otherwise the
+        // documented placeholder scale, which the UI labels as uncalibrated.
+        $ammoniaPpm = $calibration->ammoniaPpm((int) $request->ammonia_raw, $sensor->device_name);
+        $ammonia = $ammoniaPpm ?? round(($request->ammonia_raw / 4095) * 100, 2);
+
+        // The cut points must follow the SCALE, not the metric. A calibrated
+        // device reports ppm and is judged against the RRL (15/25); an
+        // uncalibrated one reports the placeholder scale, where those numbers
+        // mean nothing, and keeps its original cuts. Classifying ppm against
+        // the placeholder pair would have called 30 ppm - a level the RRL
+        // calls Critical - merely Warning.
+        $ammoniaCuts = config($ammoniaPpm === null ? 'sensors.ammonia_placeholder' : 'sensors.ammonia_ppm');
 
         // A raw ADC value of exactly 0 means the pin is reading no signal at
         // all — the probe is unplugged, unpowered, or wired to the wrong GPIO.
@@ -74,7 +86,16 @@ class SensorIngestController extends Controller
         // below is only for the decimal(8,2) column / display and must
         // never be what decides Safe/Warning/Critical (thresholds live in
         // config/sensors.php via MoistureThresholdService).
-        $moistureRaw = $soilFaulty ? null : 100 - ($soilRaw / 4095) * 100;
+        //
+        // Calibrated two-point conversion when the probe's own air/water
+        // readings are configured; otherwise the placeholder below, which
+        // assumes raw 4095 is bone dry. That assumption is wrong for every
+        // capacitive probe — they read roughly 2500-3200 in open air — so it
+        // reports ~35-40% for a probe sitting on a table and has been
+        // tripping Critical on a farm with no wet manure at all.
+        $moistureRaw = $soilFaulty
+            ? null
+            : ($calibration->moisturePercent($soilRaw, $sensor->device_name) ?? 100 - ($soilRaw / 4095) * 100);
         $moisture    = $soilFaulty ? null : round($moistureRaw, 2);
 
         if ($soilFaulty) {
@@ -91,11 +112,11 @@ class SensorIngestController extends Controller
             'farm_id'            => $farm->id,
             'sensor_id'          => $sensor->id,
             'ammonia'            => $ammonia,
-            'ammonia_status'     => $this->status($ammonia, 25, 35),
+            'ammonia_status'     => $this->status($ammonia, $ammoniaCuts['warning'], $ammoniaCuts['critical']),
             'temperature'        => $request->temperature,
-            'temperature_status' => $this->status($request->temperature, 32, 35, true),
+            'temperature_status' => $this->twoSidedStatus($request->temperature, 'temperature'),
             'humidity'           => $request->humidity,
-            'humidity_status'    => $this->status($request->humidity, 70, 80),
+            'humidity_status'    => $this->twoSidedStatus($request->humidity, 'humidity'),
             'moisture'           => $moisture,
             'moisture_status'    => $moistureStatus,
             'is_mock'            => false,
@@ -109,16 +130,37 @@ class SensorIngestController extends Controller
         // the running incident history. Separate from the SMS alert
         // pipeline below (or wherever that already lives) — this never
         // notifies anyone, it only ever records.
+        // $sensor->id is passed through so each poultry house keeps its own
+        // running incident — without it, two houses on the same farm shared a
+        // single "Temperature Critical" row and one recovering closed both.
         $alertHistory = app(AlertHistoryService::class);
-        $alertHistory->recordReading($farm->id, 'ammonia', $reading->ammonia_status, $reading->ammonia);
-        $alertHistory->recordReading($farm->id, 'temperature', $reading->temperature_status, $reading->temperature);
-        $alertHistory->recordReading($farm->id, 'humidity', $reading->humidity_status, $reading->humidity);
+        $alerting = config('sensors.alerting_metrics', ['ammonia']);
 
-        // A faulty sensor shouldn't open or close moisture incidents — an
-        // unknown reading is neither an alert nor a recovery, so the running
-        // incident (if any) is left untouched until real data returns.
-        if (!$soilFaulty) {
-            $alertHistory->recordReading($farm->id, 'moisture', $moistureStatus, $moisture);
+        $values = [
+            'ammonia'     => [$reading->ammonia_status, $reading->ammonia],
+            'temperature' => [$reading->temperature_status, $reading->temperature],
+            'humidity'    => [$reading->humidity_status, $reading->humidity],
+            // A faulty probe shouldn't open or close moisture incidents — an
+            // unknown reading is neither an alert nor a recovery, so the
+            // running incident is left untouched until real data returns.
+            'moisture'    => $soilFaulty ? null : [$moistureStatus, $moisture],
+        ];
+
+        foreach ($values as $metric => $pair) {
+            if ($pair === null) {
+                continue;
+            }
+
+            if (in_array($metric, $alerting, true)) {
+                $alertHistory->recordReading($farm->id, $metric, $pair[0], $pair[1], null, $sensor->id);
+                continue;
+            }
+
+            // Demoted to advisory. Any incident this metric opened while it
+            // still raised alerts would otherwise sit "ongoing" forever,
+            // because nothing is left to record its recovery. Closing it on
+            // the next reading retires it honestly instead of deleting it.
+            $alertHistory->closeOpenIncidents($farm->id, $metric, $sensor->id);
         }
 
         app(FarmStatusService::class)->syncStatus($farm);
@@ -126,14 +168,37 @@ class SensorIngestController extends Controller
         return response()->json(['success' => true, 'data' => $reading]);
     }
 
-    private function status(float $value, float $warningAt, float $criticalAt, bool $isTemperature = false): string
+    /**
+     * Temperature and humidity are harmful at both extremes, so each is
+     * classified against four cut points from config/sensors.php rather than
+     * a single warning/critical pair. See that file for the RRL sources.
+     *
+     * The bands are contiguous — every value lands in exactly one — and a
+     * value sitting on a critical cut reads Critical, matching the >=
+     * convention MoistureThresholdService already uses.
+     */
+    private function twoSidedStatus(float $value, string $metric): string
     {
-        if ($isTemperature) {
-            if ($value > $criticalAt || $value < 18) return 'Critical';
-            if ($value > $warningAt || $value < 22) return 'Warning';
-            return 'Safe';
+        $t = config("sensors.$metric");
+
+        if ($value < $t['low_critical'] || $value >= $t['high_critical']) {
+            return 'Critical';
         }
 
+        if ($value < $t['low_safe'] || $value > $t['high_safe']) {
+            return 'Warning';
+        }
+
+        return 'Safe';
+    }
+
+    /**
+     * Single-sided classification: higher is worse, no low-end risk.
+     * Still used for the placeholder ammonia scale — see the ammonia note in
+     * config/sensors.php for why that one is not on research thresholds yet.
+     */
+    private function status(float $value, float $warningAt, float $criticalAt): string
+    {
         if ($value >= $criticalAt) return 'Critical';
         if ($value >= $warningAt) return 'Warning';
         return 'Safe';

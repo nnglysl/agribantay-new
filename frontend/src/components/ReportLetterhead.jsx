@@ -10,16 +10,17 @@ import agribantayName from '../assets/agribantay_name.png'
 export default function ReportLetterhead({ officeLine = 'Municipal Agriculture Office' }) {
   return (
     <div
+      className="rl-head"
       style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px',
         borderBottom: '2px solid #000', paddingBottom: '12px', marginBottom: '4px',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+      <div className="rl-brand" style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
         <img src={agribantayLogo} alt="AgriBantay logo" style={{ width: '64px', height: '64px', objectFit: 'contain' }} />
         <img src={agribantayName} alt="AgriBantay" style={{ height: '32px', width: 'auto', objectFit: 'contain' }} />
       </div>
-      <div style={{ textAlign: 'right' }}>
+      <div className="rl-office" style={{ textAlign: 'right' }}>
         <div style={{ fontSize: '11px' }}>Republic of the Philippines</div>
         <div style={{ fontSize: '11px' }}>Province of Batangas</div>
         <div style={{ fontSize: '13px', fontWeight: 'bold' }}>Municipality of San Jose</div>

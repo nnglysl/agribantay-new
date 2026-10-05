@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use App\Models\AiRecommendation;
 
@@ -23,6 +24,13 @@ use App\Models\AiRecommendation;
  */
 class RecommendationExplanationService
 {
+    /**
+     * Seconds to wait before trying Gemini again for the same farm after a
+     * failed or skipped call. Long enough for a free-tier rate window to
+     * reset, short enough that a farm still catches up within the hour.
+     */
+    private const RETRY_COOLDOWN = 600;
+
     private string $apiKey;
     private string $model;
 
@@ -55,7 +63,33 @@ class RecommendationExplanationService
                 'explanation_fil' => $record->explanation_fil,
                 'main_action_fil' => $record->main_action_fil,
                 'tips_fil'        => $record->tips_fil,
+                // When this text was actually written. A stored explanation
+                // describes the farm as it was at generation time, and the
+                // reader has no way to tell that from the wording alone —
+                // "conditions are normal" reads identically whether it was
+                // produced a minute ago or nine hours ago. Surfacing the
+                // timestamp lets the screen say so instead of implying the
+                // text is current.
+                'generated_at'    => $record->updated_at?->toIso8601String(),
             ];
+        }
+
+        // One attempt per farm per RETRY_COOLDOWN, however many requests
+        // arrive in between.
+        //
+        // force_refresh stays set until a call SUCCEEDS, so a farm flagged
+        // for regeneration used to hit Gemini on every single request — the
+        // farmer dashboard polls each minute, the Admin farm panel polls
+        // alongside it, and each 429 left the flag up for the next one. The
+        // retries were spending the very quota they were waiting on, so the
+        // flag could never clear. Backing off lets the quota window recover.
+        if (!Cache::add("gemini-attempt-{$farmId}", true, self::RETRY_COOLDOWN)) {
+            return $record->exists ? [
+                'explanation_en'  => $record->explanation_en,
+                'explanation_fil' => $record->explanation_fil,
+                'main_action_fil' => $record->main_action_fil,
+                'tips_fil'        => $record->tips_fil,
+            ] : null;
         }
 
         $result = $this->callGemini($facts);

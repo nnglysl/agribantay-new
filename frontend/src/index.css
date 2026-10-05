@@ -16,3 +16,16 @@ select,
 textarea {
   font-family: inherit;
 }
+
+/* Loading kit (components/Loading.jsx) */
+@keyframes agb-spin { to { transform: rotate(360deg); } }
+@keyframes agb-skeleton-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@keyframes agb-appear { to { opacity: 1; } }
+.agb-spin { animation: agb-spin 0.8s linear infinite; }
+.agb-skeleton { animation: agb-skeleton-pulse 1.4s ease-in-out infinite; }
+/* Placeholders stay invisible for the first 150 ms so fast responses never flash them. */
+.agb-delayed { opacity: 0; animation: agb-appear 0.2s ease-out 0.15s forwards; }
+@media (prefers-reduced-motion: reduce) {
+  .agb-spin { animation-duration: 1.6s; }
+  .agb-skeleton { animation: none; }
+}

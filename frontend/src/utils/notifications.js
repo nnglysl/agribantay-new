@@ -1,6 +1,8 @@
 // Notification categorisation + click destinations, derived from the
 // existing notification rows (type / title / message) — no new fields.
 
+import { DISPLAY_TIME_ZONE } from './formatDate'
+
 export const NOTIFICATION_CATEGORIES = [
   { key: 'all', label: 'All', empty: 'No notifications yet.' },
   { key: 'inspections', label: 'Inspections', empty: 'No inspection notifications.' },
@@ -84,5 +86,6 @@ export function timeAgo(value) {
   if (h < 24) return `${h}h ago`
   const d = Math.floor(h / 24)
   if (d < 7) return `${d}d ago`
-  return new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  // Same reasoning as DashboardLayout: the dated fallback is Manila time.
+  return new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: DISPLAY_TIME_ZONE })
 }

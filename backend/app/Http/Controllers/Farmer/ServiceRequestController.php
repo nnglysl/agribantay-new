@@ -12,18 +12,21 @@ use App\Services\SuperAdminNotifier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use App\Support\ServiceTypes;
+use App\Http\Controllers\Vet\VaccinationRequestController;
+use Illuminate\Validation\Rule;
 
 class ServiceRequestController extends Controller
 {
     use ResolvesFarm;
 
-    private const VET_ONLY_TYPES = ['Vaccine Request', 'Blood Test Request'];
+    private const VET_ONLY_TYPES = ServiceTypes::VET;
 
     public function index(Request $request)
     {
         $farm = $this->resolveFarmOrFail($request);
 
-        $requests = ServiceRequest::with('acceptedBy')
+        $requests = ServiceRequest::with(['acceptedBy', 'attachments.uploader'])
             ->where('farm_id', $farm->id)
             ->latest()
             ->get()
@@ -33,6 +36,7 @@ class ServiceRequestController extends Controller
                 'service_type'   => $r->service_type,
                 'notes'          => $r->notes,
                 'completion_notes' => $r->completion_notes,
+                ...VaccinationRequestController::attachmentPayload($r),
                 'status'         => $r->status,
                 'priority'       => $r->priority,
                 'accepted_by'    => $r->acceptedBy ? $r->acceptedBy->first_name . ' ' . $r->acceptedBy->last_name : null,
@@ -59,7 +63,7 @@ class ServiceRequestController extends Controller
         // "Request a Service" dropdown — Blood Test and Fly Control were
         // missing here, which is why selecting either failed validation.
         $request->validate([
-            'service_type' => 'required|in:Vaccine Request,Blood Test Request,Odor Control Request,Fly Control Request',
+            'service_type' => ['required', Rule::in(ServiceTypes::REQUESTABLE)],
             'notes'        => 'nullable|string',
         ]);
 

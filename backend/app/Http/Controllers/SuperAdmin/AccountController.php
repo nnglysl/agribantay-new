@@ -7,10 +7,14 @@ use App\Models\User;
 use App\Models\ActivityLog;
 use App\Services\SmsService;
 use App\Mail\TempPasswordMail;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Validation\ValidationException;
 
 class AccountController extends Controller
 {
@@ -88,11 +92,18 @@ class AccountController extends Controller
     }
 
     /**
-     * Accepts a single 'contact' field — either an email or a mobile
-     * number — same pattern as Login and Farm Owner registration.
-     * Super Admin no longer types a password directly; a temporary
-     * password is generated and delivered via email or SMS depending
-     * on the detected contact type.
+     * Takes 'email' and/or 'contact_number' — the two fields the Register
+     * Account form shows — and keeps BOTH on the account when both are given,
+     * which is what the form's own hint promises ("Enter at least one email or
+     * mobile number. If both are provided, the temporary password will be sent
+     * to the email address"). Email is only the delivery preference; it was
+     * never meant to discard the number the Super Admin typed.
+     *
+     * The older single 'contact' field is still accepted so any caller using
+     * that shape keeps working; it is sorted into the right field below.
+     *
+     * Super Admin never types a password. A temporary one is generated and
+     * delivered by email when there is an address, otherwise by SMS.
      */
     public function store(Request $request)
     {
@@ -100,60 +111,119 @@ class AccountController extends Controller
 
         $request->validate([
             'full_name' => 'required|string|max:255',
-            'contact'   => 'required|string',
             'role'      => 'required|in:admin,vet',
         ]);
 
         // Spaces are cosmetic on a phone number (e.g. "0917 123 4567") and
-        // never valid in an email, so stripping them here is safe either
-        // way — it only affects the phone-number branch below.
-        $request->merge(['contact' => preg_replace('/\s+/', '', (string) $request->contact)]);
+        // never valid in an email, so stripping them is safe for both.
+        $email  = preg_replace('/\s+/', '', (string) $request->input('email', ''));
+        $mobile = preg_replace('/\s+/', '', (string) $request->input('contact_number', ''));
 
-        $isEmail = filter_var($request->contact, FILTER_VALIDATE_EMAIL);
+        // Legacy shape: one 'contact' field holding either kind of value.
+        // Only consulted when neither named field was sent, so a caller using
+        // the current shape is never second-guessed.
+        if ($email === '' && $mobile === '' && $request->filled('contact')) {
+            $legacy = preg_replace('/\s+/', '', (string) $request->input('contact'));
 
-        // Phone branch only: dashes etc. are cosmetic too, so compare and
-        // store the canonical digits-only form (see User::normalizeMobileNumber).
-        if (!$isEmail) {
-            $request->merge(['contact' => User::normalizeMobileNumber($request->contact)]);
+            if (filter_var($legacy, FILTER_VALIDATE_EMAIL)) {
+                $email = $legacy;
+            } else {
+                $mobile = $legacy;
+            }
         }
 
-        if (!$isEmail && !preg_match('/^09\d{9}$/', (string) $request->contact)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Please enter a valid Philippine mobile number (e.g. 09171234567).',
-            ], 422);
+        // Dashes etc. are cosmetic too, so compare and store the canonical
+        // digits-only form (see User::normalizeMobileNumber).
+        if ($mobile !== '') {
+            $mobile = User::normalizeMobileNumber($mobile);
         }
 
-        $exists = $isEmail
-            ? User::where('email', $request->contact)->exists()
-            : User::where('mobile_number', $request->contact)->exists();
+        // Collected as a field => message map and thrown together, so the form
+        // can mark every bad field at once instead of one per round trip. This
+        // produces a 422 with Laravel's standard `errors` object.
+        $errors = [];
 
-        if ($exists) {
-            return response()->json([
-                'success' => false,
-                'message' => $isEmail
-                    ? 'An account with this email already exists.'
-                    : 'The mobile number has already been taken.',
-            ], 422);
+        if ($email === '' && $mobile === '') {
+            $errors['email'][] = 'Enter at least an email address or a mobile number.';
+        }
+
+        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $errors['email'][] = 'Please enter a valid email address.';
+        }
+
+        if ($mobile !== '' && !preg_match('/^09\d{9}$/', $mobile)) {
+            $errors['contact_number'][] = 'Please enter a valid mobile number.';
+        }
+
+        // Both columns carry a UNIQUE index. Checked here so a clash is a
+        // readable 422 naming the offending field rather than a 500 raised
+        // from the driver.
+        if ($email !== '' && !isset($errors['email']) && User::where('email', $email)->exists()) {
+            $errors['email'][] = 'This email address is already registered.';
+        }
+
+        if ($mobile !== '' && !isset($errors['contact_number']) && User::where('mobile_number', $mobile)->exists()) {
+            $errors['contact_number'][] = 'This mobile number is already registered.';
+        }
+
+        if ($errors !== []) {
+            throw ValidationException::withMessages($errors);
         }
 
         [$firstName, $lastName] = $this->splitFullName($request->full_name);
         $tempPassword = Str::random(10);
 
-        $account = User::create([
-            'first_name'           => $firstName,
-            'last_name'            => $lastName,
-            'email'                => $isEmail ? $request->contact : null,
-            'mobile_number'        => $isEmail ? null : $request->contact,
-            'password'             => bcrypt($tempPassword),
-            'role'                 => $request->role,
-            'status'               => 'active',
-            'must_change_password' => true,
-        ]);
+        // The account row and its log entry go in together: a failure part way
+        // through must not leave a half-made account that the Super Admin
+        // cannot see in the list but which still holds the email or number,
+        // blocking a retry on the UNIQUE index.
+        //
+        // Delivery is deliberately OUTSIDE the transaction — it reaches a
+        // third party, so it cannot be rolled back, and holding a database
+        // transaction open across an SMTP or HTTP call is a long lock for no
+        // benefit.
+        try {
+            $account = DB::transaction(function () use ($firstName, $lastName, $email, $mobile, $tempPassword, $request) {
+                $account = User::create([
+                    'first_name'           => $firstName,
+                    'last_name'            => $lastName,
+                    'email'                => $email !== '' ? $email : null,
+                    'mobile_number'        => $mobile !== '' ? $mobile : null,
+                    'password'             => bcrypt($tempPassword),
+                    'role'                 => $request->role,
+                    'status'               => 'active',
+                    'must_change_password' => true,
+                ]);
+
+                ActivityLog::create([
+                    'user_id' => Auth::id(),
+                    'role'    => 'super_admin',
+                    'action'  => 'Created ' . ucfirst($request->role) . ' Account',
+                    'details' => "Created {$request->role} account for {$account->first_name} {$account->last_name}",
+                    'type'    => 'Account',
+                ]);
+
+                return $account;
+            });
+        } catch (QueryException $e) {
+            // The driver's message names columns and constraints, which is
+            // useless to the Super Admin and more than they should be shown.
+            // It goes to the log; the screen gets something actionable.
+            Log::error('Account creation failed', [
+                'role'      => $request->role,
+                'has_email' => $email !== '',
+                'exception' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'The account could not be saved. Please try again, or contact support if this keeps happening.',
+            ], 500);
+        }
 
         $delivered = false;
 
-        if ($isEmail) {
+        if ($email !== '') {
             try {
                 Mail::to($account->email)->send(new TempPasswordMail($account, $tempPassword, 'welcome'));
                 $delivered = true;
@@ -164,20 +234,12 @@ class AccountController extends Controller
             $smsMessage = "Welcome to AgriBantay, {$firstName}! Your {$request->role} account is ready. Temporary password: {$tempPassword}. You will be asked to set a new password on your first login.";
 
             $delivered = app(SmsService::class)->send(
-                $request->contact,
+                $mobile,
                 $smsMessage,
                 'Account Creation',
                 $account->id
             );
         }
-
-        ActivityLog::create([
-            'user_id' => Auth::id(),
-            'role'    => 'super_admin',
-            'action'  => 'Created ' . ucfirst($request->role) . ' Account',
-            'details' => "Created {$request->role} account for {$account->first_name} {$account->last_name}",
-            'type'    => 'Account',
-        ]);
 
         return response()->json([
             'success'   => true,
@@ -213,7 +275,7 @@ class AccountController extends Controller
         if (!preg_match('/^09\d{9}$/', (string) $request->contact_number)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Please enter a valid Philippine mobile number (e.g. 09171234567).',
+                'message' => 'Please enter a valid mobile number.',
             ], 422);
         }
 
@@ -385,6 +447,11 @@ class AccountController extends Controller
         $account = User::whereIn('role', self::MANAGEABLE_ROLES)->findOrFail($id);
         $account->update(['status' => 'inactive']);
 
+        // Drop any live session: the 'active' middleware would reject this
+        // account's next request anyway, but revoking here means a signed-in
+        // admin or vet is logged out rather than left holding a dead token.
+        $account->tokens()->delete();
+
         ActivityLog::create([
             'user_id' => Auth::id(),
             'role'    => 'super_admin',
@@ -406,30 +473,103 @@ class AccountController extends Controller
         return response()->json(['success' => true, 'message' => 'Account activated.']);
     }
 
+    /**
+     * Issues a new temporary password and delivers it to the account holder.
+     *
+     * The temporary password is never returned to the caller. It used to be,
+     * and the Super Admin screen printed it in a modal — which was the only
+     * way the account holder ever learned it, because this endpoint sent
+     * nothing at all. It now goes out over the account's own registered
+     * channel, so the credential never passes through the browser of someone
+     * who is not the account holder.
+     *
+     * Channel preference is EMAIL first, matching store() and
+     * AuthController@forgotPassword ("email is the primary channel when both
+     * exist"), falling back to SMS.
+     *
+     * The contact check runs BEFORE the password is replaced. Checking
+     * afterwards — as a literal reading of the flow would have it — would
+     * invalidate the old password and then discover there is no way to
+     * deliver the new one, locking the account out with no path back.
+     */
     public function resetPassword(int $id)
     {
         if ($blocked = $this->guardSuperAdmin()) return $blocked;
 
         $account = User::whereIn('role', self::MANAGEABLE_ROLES)->findOrFail($id);
 
+        $email  = trim((string) $account->email);
+        $mobile = trim((string) $account->mobile_number);
+
+        $useEmail = $email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL);
+        $useSms   = ! $useEmail && preg_match('/^09\d{9}$/', $mobile) === 1;
+
+        if (! $useEmail && ! $useSms) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No valid contact information is available for this account. Add an email address or mobile number before resetting the password.',
+            ], 422);
+        }
+
         $newPassword = Str::random(10);
+
         $account->update([
             'password'             => bcrypt($newPassword),
             'must_change_password' => true,
         ]);
 
+        $delivered = false;
+
+        if ($useEmail) {
+            try {
+                Mail::to($account->email)->send(new TempPasswordMail($account, $newPassword, 'reset'));
+                $delivered = true;
+            } catch (\Throwable $e) {
+                // report() records the transport failure. The exception does
+                // not carry the password, so nothing sensitive reaches the log.
+                report($e);
+            }
+        } else {
+            $delivered = app(SmsService::class)->send(
+                $mobile,
+                "AgriBantay password reset. Your temporary password: {$newPassword}. You will be asked to set a new password on your next login.",
+                'Password Reset',
+                $account->id,
+                null,
+                // sms_logs is readable from the admin views, so the stored copy
+                // of this message must not carry the live password.
+                'AgriBantay password reset — temporary password sent (not stored).'
+            );
+        }
+
+        // Logged either way: a reset that could not be delivered is exactly the
+        // kind of event the Activity Log exists to show. The password itself is
+        // never written here.
         ActivityLog::create([
             'user_id' => Auth::id(),
             'role'    => 'super_admin',
             'action'  => 'Reset ' . ucfirst($account->role) . ' Password',
-            'details' => "Reset password for {$account->first_name} {$account->last_name}",
+            'details' => "Reset password for {$account->first_name} {$account->last_name} — "
+                . ($useEmail ? 'email' : 'SMS')
+                . ($delivered ? ' sent' : ' FAILED to send'),
             'type'    => 'Account',
         ]);
 
+        if (! $delivered) {
+            // Reported honestly rather than as a success: the old password is
+            // already gone, so the Super Admin needs to know the holder did not
+            // receive the new one. Retrying issues and sends another one.
+            return response()->json([
+                'success' => false,
+                'message' => 'The temporary password could not be sent to this account\'s registered '
+                    . ($useEmail ? 'email address' : 'mobile number')
+                    . '. The previous password no longer works — please try the reset again.',
+            ], 502);
+        }
+
         return response()->json([
-            'success'       => true,
-            'message'       => 'Password reset successfully.',
-            'temp_password' => $newPassword,
+            'success' => true,
+            'message' => 'Password reset successfully. The temporary password has been sent to the user\'s registered contact information.',
         ]);
     }
 

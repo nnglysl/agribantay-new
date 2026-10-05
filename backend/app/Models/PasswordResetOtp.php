@@ -18,10 +18,10 @@ class PasswordResetOtp extends Model
     ];
 
     protected $casts = [
-        'expires_at'             => 'datetime',
-        'verified_at'            => 'datetime',
+        'expires_at' => 'datetime',
+        'verified_at' => 'datetime',
         'reset_token_expires_at' => 'datetime',
-        'consumed_at'            => 'datetime',
+        'consumed_at' => 'datetime',
     ];
 
     public function user()

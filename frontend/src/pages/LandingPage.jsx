@@ -562,7 +562,7 @@ const styles = {
     fontSize: '17px', lineHeight: 1.62, color: 'rgba(255,255,255,0.85)', maxWidth: '540px', margin: '0 0 32px',
   },
   heroActions: { display: 'flex', gap: '13px', flexWrap: 'wrap' },
-  heroActionsMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  heroActionsMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch' },
   btnFullMobile: { width: '100%', boxSizing: 'border-box', justifyContent: 'center' },
   ctaPrimary: {
     display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '14px 28px', borderRadius: '10px',

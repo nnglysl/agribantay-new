@@ -33,9 +33,14 @@ class AuthController extends Controller
             ], 401);
         }
 
-        if ($user->status === 'inactive') {
+        // Checked after the password so a wrong password on a deactivated
+        // account still returns the generic 401 and this response can't be
+        // used to probe which accounts have been deactivated. Compared against
+        // 'active' rather than 'inactive' so anything other than an explicitly
+        // active account fails closed. No token is created on this path.
+        if ($user->status !== 'active') {
             return response()->json([
-                'message' => 'Your account is inactive. Contact the administrator.',
+                'message' => 'Your account has been deactivated. Please contact the administrator for assistance.',
             ], 403);
         }
 

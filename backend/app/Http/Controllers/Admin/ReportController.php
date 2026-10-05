@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Inspection;
+use Illuminate\Http\Request;
 use App\Models\SensorReading;
 use App\Models\ServiceRequest;
 use App\Models\Farm;
@@ -16,24 +17,90 @@ class ReportController extends Controller
 {
     private const ADMIN_SERVICE_TYPES = ['Odor Control Request', 'Fly Control Request'];
 
-    public function index()
+    /**
+     * `from` / `to` are optional Philippine calendar dates. When they are
+     * absent every figure is all-time, exactly as before — so nothing that
+     * calls this without a range changes behaviour.
+     *
+     * When they are present the ACTIVITY counts are scoped to the period.
+     * Previously the Reports page filtered its tables client-side while the
+     * stat cards above them stayed all-time: picking September showed
+     * September in the table and the whole database in the headline number.
+     * Scoping has to happen here rather than in the browser because the
+     * detail lists this page receives are capped at 300 rows — counting them
+     * would quietly go wrong past that.
+     *
+     * Farm totals and pending request counts stay unscoped on purpose: they
+     * describe the situation right now, not activity within a period.
+     */
+    public function index(Request $request)
     {
-        // ---------------------------------------------------- unchanged
-        $totalInspections     = Inspection::count();
-        $completedInspections = Inspection::where('status', 'Completed')->count();
-        $scheduledInspections = Inspection::where('status', 'Scheduled')->count();
-        $generalInspections   = Inspection::where('inspection_type', 'General Inspection')->count();
-        $followUpInspections  = Inspection::where('inspection_type', 'Follow-up')->count();
+        $from = $request->filled('from') ? LocalTime::startOfLocalDay($request->input('from'))->utc() : null;
+        $to   = $request->filled('to') ? LocalTime::endOfLocalDay($request->input('to'))->utc() : null;
+        $ranged = $from || $to;
+
+        // Applies the window to a query on $column, or leaves it alone when
+        // no range was asked for.
+        $scope = function ($query, string $column) use ($from, $to) {
+            if ($from) $query->where($column, '>=', $from);
+            if ($to) $query->where($column, '<=', $to);
+            return $query;
+        };
+
+        // Counted on scheduled_at: an inspection belongs to the period it was
+        // due in, which is the date the table and the calendar both show.
+        $insp = fn () => $scope(Inspection::query(), 'scheduled_at');
+
+        $totalInspections     = $insp()->count();
+        $completedInspections = $insp()->where('status', 'Completed')->count();
+        $scheduledInspections = $insp()->where('status', 'Scheduled')->count();
+        $generalInspections   = $insp()->where('inspection_type', 'General Inspection')->count();
+        $followUpInspections  = $insp()->where('inspection_type', 'Follow-up')->count();
 
         $totalAlerts       = SensorReading::count();
         $ammoniaBreaches   = SensorReading::where('ammonia_status', 'Critical')->count();
         $tempAnomalies     = SensorReading::where('temperature_status', '!=', 'Safe')->count();
         $humidityAnomalies = SensorReading::where('humidity_status', '!=', 'Safe')->count();
+        // Raw READING count — how many individual readings carried a Critical
+        // status. The generated-report tables label it exactly that way
+        // ("Readings with any critical status"), so it stays a reading count.
+        // moisture_status was missing here, which under-reported every farm
+        // whose only Critical metric was manure moisture.
         $criticalAlerts    = SensorReading::where(function ($q) {
             $q->where('ammonia_status', 'Critical')
               ->orWhere('temperature_status', 'Critical')
-              ->orWhere('humidity_status', 'Critical');
+              ->orWhere('humidity_status', 'Critical')
+              ->orWhere('moisture_status', 'Critical');
         })->count();
+
+        // INCIDENT count — what the Overview "Critical Alerts" stat card is
+        // actually asking for. A farm sitting at Critical for one day emits a
+        // reading every few minutes, so the raw count above reached the
+        // hundreds while Alert History (correctly) showed a handful of
+        // incidents. Two numbers, same label, on the same screen. This is the
+        // same AlertHistory source the Alerts tab and Alert History page use.
+        $criticalIncidents = $scope(AlertHistory::query(), 'triggered_at')->where('status', 'Critical')->count();
+
+        // Same correction for the Total card, which was left on the raw
+        // reading count: it read 14,304 while Alert History showed 87, for a
+        // label that says "Total Alerts". Beside it sat Critical Alerts
+        // counting incidents — two different units, side by side.
+        $totalIncidents = $scope(AlertHistory::query(), 'triggered_at')->count();
+
+        // Per-metric INCIDENT counts, for the Alerts tab cards.
+        //
+        // Those cards used to sit on $tempAnomalies / $humidityAnomalies, which
+        // are raw reading counts over every reading ever stored — hence
+        // "Temperature Anomalies 14,272" next to "Total Alerts 87" on one row.
+        // Temperature and humidity are advisory metrics anyway
+        // (config/sensors.php alerting_metrics), so they never raise an alert
+        // and there was nothing real for those two cards to count. Ammonia and
+        // moisture are what the system actually alerts on, so they are what
+        // the cards report, in the same unit as every other card beside them.
+        $ammoniaIncidents  = $scope(AlertHistory::query(), 'triggered_at')->where('sensor_type', 'ammonia')->count();
+        $moistureIncidents = $scope(AlertHistory::query(), 'triggered_at')->where('sensor_type', 'moisture')->count();
+        $ongoingIncidents  = $scope(AlertHistory::query(), 'triggered_at')->whereNull('resolved_at')->count();
+        $resolvedIncidents = $totalIncidents - $ongoingIncidents;
 
         $completedInspectionsList = Inspection::with('farm')
             ->where('status', 'Completed')
@@ -170,7 +237,7 @@ class ReportController extends Controller
         // untouched — this is purely additive for the new detail table
         // and trend chart, which need real incident-level data that
         // alert_summary was never designed to provide.
-        $alertRecords = AlertHistory::with('farm')
+        $alertRecords = AlertHistory::with(['farm', 'sensor'])
             ->latest('triggered_at')
             ->limit(300)
             ->get()
@@ -178,6 +245,9 @@ class ReportController extends Controller
                 'id'               => $a->id,
                 'farm_name'        => $a->farm->farm_name ?? '—',
                 'owner_name'       => $a->farm->owner_name ?? '—',
+                // Which poultry house the incident happened in — null for
+                // rows recorded before per-device alert tracking.
+                'device_name'      => $a->sensor?->device_name,
                 'sensor_type'      => $a->sensor_type,
                 'status'           => $a->status,
                 'triggered_at'     => LocalTime::dateTime($a->triggered_at),
@@ -214,6 +284,17 @@ class ReportController extends Controller
                     'temp_anomalies'     => $tempAnomalies,
                     'humidity_anomalies' => $humidityAnomalies,
                     'critical_alerts'    => $criticalAlerts,
+                    // Separate key, not a replacement: the generated-report
+                    // tables print 'critical_alerts' under the honest label
+                    // "Readings with any critical status", while the Reports
+                    // stat card wants discrete incidents. Both are correct —
+                    // they answer different questions.
+                    'critical_incidents' => $criticalIncidents,
+                    'total_incidents'    => $totalIncidents,
+                    'ammonia_incidents'  => $ammoniaIncidents,
+                    'moisture_incidents' => $moistureIncidents,
+                    'ongoing_incidents'  => $ongoingIncidents,
+                    'resolved_incidents' => $resolvedIncidents,
                 ],
                 'service_summary' => [
                     'total'     => $totalServiceRequests,
@@ -231,7 +312,7 @@ class ReportController extends Controller
                     'total_farms'               => $totalFarms,
                     'total_inspections'         => $totalInspections,
                     'total_alerts'              => $totalAlerts,
-                    'critical_alerts'           => $criticalAlerts,
+                    'critical_alerts'           => $criticalIncidents,
                     'pending_service_requests'  => $pendingServiceRequests,
                     'farm_status_breakdown'     => $farmStatusBreakdown,
                 ],

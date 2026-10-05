@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Models\Farm;
 use App\Models\ServiceRequest;
 use Illuminate\Http\Request;
+use App\Services\ReadingHistoryService;
 use App\Support\LocalTime;
+use App\Support\ServiceTypes;
 
 /**
  * Read-only farm directory for the Vet role. Deliberately scoped to
@@ -92,16 +94,81 @@ class FarmController extends Controller
      * data, no edit/deactivate capability. Powers the Vet's read-only Farm
      * Details page.
      */
+    /**
+     * Time-series readings for the trend chart. Scoped to Active farms the
+     * same way show() is, so a vet cannot pull history for a deactivated farm
+     * they can no longer open. Read-only — vets never write readings.
+     */
+    public function readingsHistory(Request $request, int $id)
+    {
+        Farm::where('status', 'Active')->findOrFail($id);
+
+        $hours = (int) $request->input('hours', ReadingHistoryService::DEFAULT_HOURS);
+        $hours = max(1, min($hours, 24 * 7));
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'hours'   => $hours,
+                'devices' => app(ReadingHistoryService::class)->forFarm($id, $hours),
+            ],
+        ]);
+    }
+
     public function show(int $id)
     {
-        $farm = Farm::with('user')->where('status', 'Active')->findOrFail($id);
+        $farm = Farm::with(['user', 'latestReading'])->where('status', 'Active')->findOrFail($id);
+
+        $reading = $farm->latestReading;
 
         return response()->json([
             'success' => true,
             'data' => [
+                // Supporting environmental context for a veterinary assessment.
+                // The *_status values are the ones already computed at ingest
+                // against config/sensors.php — no thresholds are evaluated here,
+                // so the Vet can never see a different verdict from Admin.
+                // Null when the farm has never reported, which the UI shows as
+                // an empty state rather than inventing a value.
+                'latest_reading' => $reading ? [
+                    'ammonia'            => $reading->ammonia,
+                    'ammonia_status'     => $reading->ammonia_status,
+                    'temperature'        => $reading->temperature,
+                    'temperature_status' => $reading->temperature_status,
+                    'humidity'           => $reading->humidity,
+                    'humidity_status'    => $reading->humidity_status,
+                    'moisture'           => $reading->moisture,
+                    'moisture_status'    => $reading->moisture_status,
+                    'recorded_at'        => LocalTime::dateTime($reading->created_at),
+                    'recorded_at_raw'    => $reading->created_at?->toIso8601String(),
+                ] : null,
+                // Which metrics may carry a Safe/Warning/Critical badge.
+                // Temperature and humidity are advisory, so the Vet screen must
+                // not badge them as though they had raised an alert.
+                'alerting_metrics' => array_values(config('sensors.alerting_metrics', ['ammonia'])),
+                // The normal band for each advisory metric, so the screen can
+                // say WHICH WAY a reading is off and what it is being judged
+                // against. "Outside range" alone gave a vet a verdict with no
+                // scale behind it. Read from config so these can never drift
+                // from the thresholds ingest actually classifies with.
+                'metric_bands' => [
+                    'temperature' => [
+                        'low'  => config('sensors.temperature.low_safe'),
+                        'high' => config('sensors.temperature.high_safe'),
+                    ],
+                    'humidity' => [
+                        'low'  => config('sensors.humidity.low_safe'),
+                        'high' => config('sensors.humidity.high_safe'),
+                    ],
+                ],
                 'id'                      => $farm->id,
                 'farm_name'               => $farm->farm_name,
                 'owner_name'              => $farm->owner_name,
+                // The stored columns, not a split of the joined copy above.
+                // "Maria Luisa Santos" has no space that marks where the
+                // first name ends, so splitting it in the UI gets it wrong.
+                'owner_first_name'        => $farm->user?->first_name,
+                'owner_last_name'         => $farm->user?->last_name,
                 'mobile_number'           => $farm->mobile_number,
                 'email'                   => $farm->user?->email,
                 'barangay'                => $farm->barangay,
@@ -127,8 +194,8 @@ class FarmController extends Controller
         $perPage = min((int) $request->input('per_page', 10), 50);
 
         $requests = ServiceRequest::where('farm_id', $id)
-            ->whereIn('service_type', ['Vaccine Request', 'Blood Test Request'])
-            ->with('acceptedBy')
+            ->whereIn('service_type', ServiceTypes::VET)
+            ->with(['acceptedBy', 'attachments.uploader'])
             ->orderByDesc('created_at')
             ->paginate($perPage);
 
@@ -143,6 +210,8 @@ class FarmController extends Controller
                     'created_at'       => $r->created_at,
                     'scheduled_at'     => $r->scheduled_at,
                     'notes'            => $r->notes,
+                    'completion_notes' => $r->completion_notes,
+                    ...VaccinationRequestController::attachmentPayload($r),
                     'status'           => $r->status,
                     'accepted_by'      => $r->acceptedBy ? $r->acceptedBy->first_name . ' ' . $r->acceptedBy->last_name : null,
                     'completed_at'     => LocalTime::date($r->completed_at),

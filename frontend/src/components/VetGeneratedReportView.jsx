@@ -39,7 +39,7 @@ export default function VetGeneratedReportView({ report }) {
       <div className="print-headblock">
         <ReportLetterhead />
         <h1 style={styles.printHead}>{report.report_name}</h1>
-        <p style={styles.printSub}>Vaccination and blood test history and records</p>
+        <p style={styles.printSub}>Farm biosecurity and blood test history and records</p>
         <p style={styles.printSub}>Reporting period: {report.period_label}</p>
         <p style={styles.printMeta}>Generated {report.date_generated}</p>
       </div>
@@ -51,7 +51,7 @@ export default function VetGeneratedReportView({ report }) {
           </div>
           <table className="print-table print-kv">
             <tbody>
-              <tr><th>Vaccinations and blood tests completed</th><td>{orCount(activity.vet_services_completed)}</td></tr>
+              <tr><th>Veterinary services completed</th><td>{orCount(activity.vet_services_completed)}</td></tr>
               <tr><th>Farms covered this period</th><td>{orCount(activity.vet_farms_covered)}</td></tr>
             </tbody>
           </table>
@@ -76,7 +76,7 @@ export default function VetGeneratedReportView({ report }) {
       )}
 
       <div className="print-section-title">
-        Completed vaccinations and blood tests — {report.period_label}{' '}
+        Completed veterinary services — {report.period_label}{' '}
         <span className="print-scope">(all veterinarians)</span>
       </div>
       {vetServices.length === 0 ? (
@@ -106,7 +106,7 @@ export default function VetGeneratedReportView({ report }) {
         </table>
       )}
 
-      <Signatures right="Municipal Veterinarian" />
+      <Signatures signatures={s.signatures} fallbackTitle="Municipal Veterinarian" />
     </div>
   )
 }

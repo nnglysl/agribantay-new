@@ -8,6 +8,8 @@ use App\Models\User;
 use App\Models\ServiceRequest;
 use App\Models\Inspection;
 use App\Models\SensorReading;
+use App\Models\Sensor;
+use App\Services\FarmStatusService;
 
 class DashboardController extends Controller
 {
@@ -61,19 +63,61 @@ class DashboardController extends Controller
         // only ever appear here if it's ACTUALLY Critical right now, and
         // it appears exactly once, using its single latest reading for
         // the per-sensor breakdown.
+        // Which metrics may be called Critical. The same list farms.current_status
+        // is derived from (FarmStatusService::computeStatus), so this panel can
+        // never disagree with the status that put the farm in it.
+        $statusService = app(FarmStatusService::class);
+        $alertingMetrics = config('sensors.alerting_metrics', ['ammonia']);
+        $rank = ['Safe' => 0, 'Warning' => 1, 'Critical' => 2];
+
         $criticalFarms = Farm::where('current_status', 'Critical')
             ->get()
-            ->map(function ($farm) {
-                $r = SensorReading::where('farm_id', $farm->id)->latest()->first();
+            ->map(function ($farm) use ($statusService, $alertingMetrics, $rank) {
+                // The reading shown has to be the one that made the farm
+                // Critical. Taking the farm's single newest row instead meant
+                // that on a multi-house farm the panel could describe a quiet
+                // house while a different house was the one breaching — the
+                // same per-device rule FarmStatusService uses, so the two
+                // always point at the same reading.
+                $r = Sensor::where('farm_id', $farm->id)
+                    ->where('status', 'Active')
+                    ->get()
+                    ->map(fn (Sensor $sensor) => SensorReading::where('sensor_id', $sensor->id)
+                        ->orderByDesc('created_at')
+                        ->orderByDesc('id')
+                        ->first())
+                    ->filter()
+                    ->sortByDesc(fn (SensorReading $reading) => $rank[$statusService->computeStatus($reading)] ?? 0)
+                    ->first()
+                    ?? SensorReading::where('farm_id', $farm->id)->latest()->first();
 
                 if (!$r) return null;
 
-                $allSensors = [
-                    ['type' => 'Ammonia',     'value' => $r->ammonia,     'unit' => 'ppm', 'critical' => $r->ammonia_status === 'Critical'],
-                    ['type' => 'Temperature', 'value' => $r->temperature, 'unit' => '°C',  'critical' => $r->temperature_status === 'Critical'],
-                    ['type' => 'Humidity',    'value' => $r->humidity,    'unit' => '%',   'critical' => $r->humidity_status === 'Critical'],
-                    ['type' => 'Moisture',    'value' => $r->moisture,    'unit' => '%',   'critical' => $r->moisture_status === 'Critical'],
+                // All four values are still reported — temperature and humidity
+                // are the conditions that drive ammonia, so they are useful
+                // context next to it. What changed is that only an ALERTING
+                // metric may be flagged critical. Humidity was being painted red
+                // and counted, so a farm breaching ammonia and moisture reported
+                // "3 Critical" and the panel contradicted the rule the rest of
+                // the system follows.
+                $metrics = [
+                    ['type' => 'Ammonia',     'key' => 'ammonia',     'unit' => 'ppm'],
+                    ['type' => 'Temperature', 'key' => 'temperature', 'unit' => '°C'],
+                    ['type' => 'Humidity',    'key' => 'humidity',    'unit' => '%'],
+                    ['type' => 'Moisture',    'key' => 'moisture',    'unit' => '%'],
                 ];
+
+                $allSensors = array_map(function ($m) use ($r, $alertingMetrics) {
+                    $alerting = in_array($m['key'], $alertingMetrics, true);
+
+                    return [
+                        'type'     => $m['type'],
+                        'value'    => $r->{$m['key']},
+                        'unit'     => $m['unit'],
+                        'advisory' => !$alerting,
+                        'critical' => $alerting && $r->{$m['key'].'_status'} === 'Critical',
+                    ];
+                }, $metrics);
 
                 $criticalCount = count(array_filter($allSensors, fn($s) => $s['critical']));
 

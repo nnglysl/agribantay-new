@@ -10,7 +10,7 @@ class MaintenanceNotification extends Model
 
     protected $casts = [
         'anchor_date' => 'date',
-        'sent_at'     => 'datetime',
+        'sent_at' => 'datetime',
     ];
 
     public function farm()

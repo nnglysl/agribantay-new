@@ -47,3 +47,38 @@ export function isWithinLocalDateRange(dateValue, from, to) {
   if (to && dOnly > parseLocalDate(to)) return false
   return true
 }
+
+// How long ago an instant was, in words — "just now", "12 minutes ago",
+// "3 hours ago", "2 days ago".
+//
+// Written for the device-connectivity line, where the exact clock time is not
+// the question. A farmer reading "Offline" next to a temperature of 31.1 C has
+// no way to tell whether that number is a minute old or from yesterday, and
+// the number itself looks identical either way. The elapsed time is what says
+// whether the reading still describes the house.
+//
+// Deliberately coarse: past a day it stops counting hours, because nothing a
+// farmer decides depends on whether a dead device went quiet 26 or 34 hours
+// ago — only on the fact that it has been out for days.
+export function timeAgo(dateInput) {
+  if (!dateInput) return null
+
+  const then = new Date(dateInput).getTime()
+  if (Number.isNaN(then)) return null
+
+  // A clock skew between the device, the server and this browser can put a
+  // fresh timestamp slightly in the future; that is still "just now", not a
+  // negative age.
+  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000))
+
+  if (seconds < 60) return 'just now'
+
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`
+
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`
+
+  const days = Math.round(hours / 24)
+  return `${days} day${days === 1 ? '' : 's'} ago`
+}

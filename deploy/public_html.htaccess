@@ -1,0 +1,108 @@
+# ============================================================================
+#  AgriBantay — combined React (BrowserRouter) + Laravel .htaccess
+#  Location: public_html/.htaccess
+#
+#  public_html/ holds BOTH apps:
+#     index.html  -> React SPA entry
+#     index.php   -> Laravel front controller (app lives in ../backend)
+#
+#  Laravel owns exactly these URL prefixes (verified with `php artisan route:list`):
+#     /api/*              all REST endpoints
+#     /sanctum/*          sanctum/csrf-cookie
+#     /storage/*          storage.local file-serving route
+#     /up                 health check
+#  Everything else belongs to the React router.
+# ============================================================================
+
+<IfModule mod_negotiation.c>
+    # -MultiViews is essential: with it on, Apache content-negotiation can
+    # match an extensionless SPA path (/superadmin/farms) against a real file
+    # and bypass the rewrites below.
+    Options -MultiViews -Indexes
+</IfModule>
+
+<IfModule mod_dir.c>
+    # Laravel also defines GET "/" (the welcome view). Listing index.html first
+    # makes a bare "/" serve the React app instead. This matches the behaviour
+    # the deployed site already has today.
+    DirectoryIndex index.html index.php
+</IfModule>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # ---- Headers: unchanged from Laravel's stock public/.htaccess ----------
+    # CGI/FastCGI strips these; Laravel needs them for Bearer-token auth
+    # (Sanctum) and for CSRF when cookie-based auth is used.
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    RewriteCond %{HTTP:x-xsrf-token} .
+    RewriteRule .* - [E=HTTP_X_XSRF_TOKEN:%{HTTP:X-XSRF-Token}]
+
+    # ---- Trailing slash: unchanged from Laravel's stock public/.htaccess ----
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_URI} (.+)/$
+    RewriteRule ^ %1 [L,R=301]
+
+    # ---- 1. Anything that physically exists is served as-is ----------------
+    # Covers /assets/*.js|css, /favicon.svg, /index.html, and any real file
+    # under the /storage symlink. Must come first so hashed build assets are
+    # never rewritten into HTML.
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # ---- 2. Laravel-owned paths -> front controller ------------------------
+    # The (/|$) boundary means only a real path segment matches: /storage/x
+    # and /api go to Laravel, but /storageroom or /apidocs stay React routes.
+    # Sending ALL /api/* here (not just known routes) keeps genuine backend
+    # 404s and 401s as Laravel JSON responses instead of masking them with
+    # the SPA's index.html.
+    RewriteRule ^(api|sanctum|storage)(/|$) index.php [L]
+    RewriteRule ^up/?$ index.php [L]
+
+    # ---- 3. Everything else is a client-side route -------------------------
+    # /superadmin/farms, /superadmin/accounts/12, /login, ... all boot the SPA
+    # and let React Router resolve the path.
+    RewriteRule ^ index.html [L]
+</IfModule>
+
+# ---- Caching -----------------------------------------------------------
+# Vite emits content-hashed asset filenames, so they are safe to cache hard.
+# index.html must NEVER be cached, or returning users keep booting an old
+# bundle that references asset files the last deploy deleted.
+#
+# `always` rather than a bare `set`: without it the header is only applied on
+# a 2xx served straight from Apache, and is dropped the moment anything sits
+# in front. Hostinger serves this site through its own CDN (Server: hcdn),
+# which was answering with max-age=604800 for BOTH index.html and the hashed
+# assets — its own default, not what is written here. The symptom was a
+# returning browser booting a week-old index.html that asked for asset files
+# the last deploy had already replaced, so a fresh upload looked like it had
+# changed nothing at all.
+#
+# NOTE: the CDN can still override these. If a deploy still appears to do
+# nothing, purge the CDN cache in hPanel — .htaccess alone cannot evict an
+# entry the edge is already holding.
+<IfModule mod_headers.c>
+    <FilesMatch "\.(js|css|woff2?|ttf|eot|svg|png|jpg|jpeg|gif|webp|ico)$">
+        Header always set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
+
+    # The entry document names every hashed asset, so caching it is what
+    # pins a browser to an old build. It must always be revalidated.
+    <FilesMatch "^index\.html$">
+        Header always set Cache-Control "no-cache, no-store, must-revalidate"
+        Header always set Pragma "no-cache"
+        Header always set Expires "0"
+    </FilesMatch>
+</IfModule>
+
+# Fallback for hosts without mod_headers: mod_expires reaches the same
+# outcome for the entry document through a different directive.
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/html "access plus 0 seconds"
+</IfModule>

@@ -83,7 +83,7 @@ function criticalSensorLabel(sensor) {
 export default function FarmMap({
   farms = [], alerts = [], inspections = [], serviceRequests = [],
   onSeeAllAlerts, onSeeAllInspections, onSeeAllServiceRequests,
-  variant = 'tabs', pendingRequestBreakdown = [],
+  variant = 'tabs',
 }) {
   const mapRef = useRef(null)
   const containerRef = useRef(null)
@@ -322,14 +322,23 @@ export default function FarmMap({
                 <span style={styles.naSectionLabel}>Critical Alerts</span>
                 <div style={styles.naHeadRight}>
                   <span style={{ ...styles.naCount, ...styles.naCountRed }}>{alertItems.length}</span>
-                  {alertItems.length > 3 && (
+                  {/* Was `> 3`, which meant a farm with one or two critical
+                      alerts showed the problem with nowhere to go — the most
+                      common case, and a dead end exactly when someone wants
+                      to act. Any alert at all now has a way through. */}
+                  {alertItems.length > 0 && (
                     <button type="button" style={styles.naViewAll} onClick={() => onSeeAllAlerts?.()}>View all →</button>
                   )}
                 </div>
               </div>
+              {/* Six, not three. Critical Alerts used to share this panel with a
+                  second card and could only afford three rows; alone now, it has
+                  the height for six without overflowing the 520px map beside it.
+                  View all still carries the reader to the complete list, so this
+                  is how many fit, not how many there are. */}
               {alertItems.length === 0 ? (
                 <div style={styles.empty}>No critical alerts right now.</div>
-              ) : alertItems.slice(0, 3).map((f, idx, arr) => {
+              ) : alertItems.slice(0, 6).map((f, idx, arr) => {
                 const critical = (f.all_sensors || []).find(s => s.critical)
                 return (
                   <div
@@ -345,28 +354,6 @@ export default function FarmMap({
                   </div>
                 )
               })}
-            </div>
-
-            <div style={styles.naSection}>
-              <div style={styles.naSectionHead}>
-                <span style={styles.naSectionLabel}>Pending Service Requests</span>
-                <div style={styles.naHeadRight}>
-                  <span style={styles.naCount}>
-                    {pendingRequestBreakdown.reduce((sum, g) => sum + (g.count || 0), 0)}
-                  </span>
-                  {pendingRequestBreakdown.length > 3 && (
-                    <button type="button" style={styles.naViewAll} onClick={() => onSeeAllServiceRequests?.()}>View all →</button>
-                  )}
-                </div>
-              </div>
-              {pendingRequestBreakdown.length === 0 ? (
-                <div style={styles.empty}>No pending service requests.</div>
-              ) : pendingRequestBreakdown.slice(0, 3).map((g, idx, arr) => (
-                <div key={g.label} style={{ ...styles.naItem, ...(idx === arr.length - 1 ? styles.naItemLast : {}) }}>
-                  <span style={styles.naItemTitle}>{g.label}</span>
-                  <span style={styles.naGroupCount}>{g.count}</span>
-                </div>
-              ))}
             </div>
           </div>
         ) : (
@@ -564,7 +551,7 @@ const styles = {
   itemSub: { fontSize: '11px', color: '#8a968d', marginTop: '1px' },
   itemStatus: { fontSize: '10.5px', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 },
 
-  sensorTableRow: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px', marginTop: '6px' },
+  sensorTableRow: { display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '6px', marginTop: '6px' },
   sensorCell: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start' },
   sensorCellLabel: { fontSize: '9px', fontWeight: 700, color: '#9aa79d', textTransform: 'uppercase', letterSpacing: '0.02em' },
   sensorCellValue: { fontSize: '11px', fontWeight: 700, color: '#4b5a50', marginTop: '1px' },
@@ -577,7 +564,8 @@ const styles = {
   naTitle: { fontSize: '19px', fontWeight: 800, color: '#16311d' },
   naSubtitle: { fontSize: '12.5px', color: '#8a968d', marginTop: '4px', marginBottom: '18px' },
 
-  naSection: { border: '1px solid #eceee7', borderRadius: '12px', padding: '16px 20px', marginBottom: '16px' },
+  // Sole card in the Summary panel — no trailing margin to separate it from.
+  naSection: { border: '1px solid #eceee7', borderRadius: '12px', padding: '16px 20px' },
   naSectionHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #eceee7', paddingBottom: '10px', marginBottom: '4px' },
   naSectionLabel: { fontSize: '13.5px', fontWeight: 700, color: '#16311d' },
   naHeadRight: { display: 'flex', alignItems: 'center', gap: '12px' },
@@ -591,7 +579,6 @@ const styles = {
   naItemTitle: { fontSize: '13px', fontWeight: 500, color: '#16311d', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   naItemSub: { fontSize: '11.5px', color: '#8a968d', marginTop: '2px' },
   naTimeAgo: { fontSize: '11.5px', color: '#8a968d', whiteSpace: 'nowrap', flexShrink: 0 },
-  naGroupCount: { fontSize: '13px', fontWeight: 700, color: '#16311d' },
 
   legend: { position: 'absolute', left: '14px', bottom: '14px', zIndex: 1001, background: '#fff', border: '1px solid #e7e8e0', borderRadius: '12px', padding: '11px 13px', boxShadow: '0 4px 14px rgba(20,48,28,0.14)', minWidth: '150px' },
   legendMobile: { padding: '9px 11px', minWidth: '120px' },

@@ -27,10 +27,18 @@ class SmsService
      * @param string $type 'Account Creation' or 'Farm Status'
      * @param int|null $userId
      * @param int|null $farmId
+     * @param string|null $logMessage What to write into sms_logs INSTEAD of
+     *        $message. Credential sends pass a redacted line here: the real
+     *        message carries a temporary password, and sms_logs is readable
+     *        from the Activity/SMS views, so storing it verbatim would keep a
+     *        live password in plain text long after it was issued. Defaults to
+     *        $message, so every existing caller logs exactly as before.
      * @return bool true if sent/queued successfully, false otherwise
      */
-    public function send(string $phoneNumber, string $message, string $type, ?int $userId = null, ?int $farmId = null): bool
+    public function send(string $phoneNumber, string $message, string $type, ?int $userId = null, ?int $farmId = null, ?string $logMessage = null): bool
     {
+        $logMessage = $logMessage ?? $message;
+
         try {
             $response = Http::withBasicAuth($this->secretKey, '')
                 ->asJson()
@@ -52,7 +60,7 @@ class SmsService
                     'user_id'      => $userId,
                     'farm_id'      => $farmId,
                     'phone_number' => $phoneNumber,
-                    'message'      => $message,
+                    'message'      => $logMessage,
                     'type'         => $type,
                     'status'       => 'Sent',
                     'message_id'   => $data['message']['reference_id'] ?? null,
@@ -65,7 +73,7 @@ class SmsService
                 'user_id'        => $userId,
                 'farm_id'        => $farmId,
                 'phone_number'   => $phoneNumber,
-                'message'        => $message,
+                'message'        => $logMessage,
                 'type'           => $type,
                 'status'         => 'Failed',
                 'failure_reason' => $this->stringifyReason(
@@ -82,7 +90,7 @@ class SmsService
                 'user_id'        => $userId,
                 'farm_id'        => $farmId,
                 'phone_number'   => $phoneNumber,
-                'message'        => $message,
+                'message'        => $logMessage,
                 'type'           => $type,
                 'status'         => 'Failed',
                 'failure_reason' => $e->getMessage(),

@@ -59,3 +59,15 @@ export const clearAuth = () => {
 }
 
 export const isAuthenticated = () => !!getToken()
+
+// Where each role's signed-in session belongs. Lives here rather than in
+// Login.jsx because the router needs the same answer: an already-signed-in
+// browser that lands back on /login (by pressing Back, or by reopening a
+// tab) has to be sent to its own dashboard, not shown the form again.
+export const dashboardPathForRole = (role) => {
+  if (role === 'super_admin') return '/superadmin/dashboard'
+  if (role === 'admin') return '/admin/dashboard'
+  if (role === 'farm_owner') return '/farmowner/dashboard'
+  if (role === 'vet') return '/vet/dashboard'
+  return '/'
+}

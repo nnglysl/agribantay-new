@@ -9,7 +9,7 @@ class EmailVerificationOtp extends Model
     protected $fillable = ['user_id', 'pending_email', 'code_hash', 'expires_at', 'consumed_at'];
 
     protected $casts = [
-        'expires_at'  => 'datetime',
+        'expires_at' => 'datetime',
         'consumed_at' => 'datetime',
     ];
 

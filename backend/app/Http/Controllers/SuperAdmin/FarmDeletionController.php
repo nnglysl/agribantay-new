@@ -12,8 +12,6 @@ use App\Models\Inspection;
 use App\Models\MaintenanceLog;
 use App\Models\MaintenanceNotification;
 use App\Models\ManureDisposalRecord;
-use App\Models\PoultryHouse;
-use App\Models\Recommendation;
 use App\Models\Sensor;
 use App\Models\SensorReading;
 use App\Models\ServiceRequest;
@@ -64,7 +62,7 @@ class FarmDeletionController extends Controller
         $farm = $this->deletableFarm($id);
         $user = Auth::user();
 
-        if (!$user->email) {
+        if (! $user->email) {
             return response()->json([
                 'success' => false,
                 'message' => 'Your account has no registered email address, so a verification code cannot be sent.',
@@ -110,18 +108,18 @@ class FarmDeletionController extends Controller
 
         $farm = $this->deletableFarm($id);
         $user = Auth::user();
-        $key  = self::otpKey($user->id, $farm->id);
+        $key = self::otpKey($user->id, $farm->id);
 
         $otp = Cache::get($key);
 
-        if (!$otp) {
+        if (! $otp) {
             return response()->json([
                 'success' => false,
                 'message' => 'Verification code has expired. Please request a new code.',
             ], 422);
         }
 
-        if (!Hash::check($request->code, $otp['hash'])) {
+        if (! Hash::check($request->code, $otp['hash'])) {
             return response()->json([
                 'success' => false,
                 'message' => 'Invalid verification code.',
@@ -132,33 +130,58 @@ class FarmDeletionController extends Controller
         // code after a failure has to request a new one.
         Cache::forget($key);
 
-        $farmName  = $farm->farm_name;
+        $farmName = $farm->farm_name;
         $ownerName = $farm->owner_name;
+        $ownerDeleted = false;
 
         try {
-            DB::transaction(function () use ($farm) {
+            DB::transaction(function () use ($farm, &$ownerDeleted) {
                 // Records that belong to the farm and go with it.
                 MaintenanceNotification::where('farm_id', $farm->id)->delete();
                 MaintenanceLog::where('farm_id', $farm->id)->delete();
                 ManureDisposalRecord::where('farm_id', $farm->id)->delete();
                 AlertHistory::where('farm_id', $farm->id)->delete();
                 AiRecommendation::where('farm_id', $farm->id)->delete();
-                Recommendation::where('farm_id', $farm->id)->delete();
                 Inspection::where('farm_id', $farm->id)->delete();
                 ServiceRequest::where('farm_id', $farm->id)->delete();
                 SensorReading::where('farm_id', $farm->id)->delete();
-                PoultryHouse::where('farm_id', $farm->id)->delete();
 
                 // Physical devices outlive the farm: detach rather than delete
                 // (same as the existing unassign action), so the unit can be
                 // registered to another farm later.
-                Sensor::where('farm_id', $farm->id)->update(['farm_id' => null, 'poultry_house_id' => null]);
+                Sensor::where('farm_id', $farm->id)->update(['farm_id' => null]);
 
                 // SMS history is an audit trail of messages actually sent;
                 // keep it, just drop the pointer to the farm.
                 SmsLog::where('farm_id', $farm->id)->update(['farm_id' => null]);
 
+                $owner = $farm->user;
+
                 $farm->delete();
+
+                // The owner account lives exactly as long as the owner has at
+                // least one farm. Counted AFTER the delete above and inside the
+                // same transaction, so the number is the real remaining count
+                // and cannot be raced by a farm being added or removed in
+                // between.
+                //
+                // Any status a farm happens to hold is irrelevant here — a
+                // Deactivated farm is still a farm, so an owner holding one is
+                // never deleted.
+                if ($owner && $owner->role === 'farm_owner') {
+                    $remaining = Farm::where('user_id', $owner->id)->count();
+
+                    if ($remaining === 0) {
+                        // Sanctum's personal_access_tokens has no foreign key
+                        // to users, so deleting the row would leave the tokens
+                        // behind. They are dropped first: the guard would fail
+                        // to resolve a deleted owner anyway, but an orphaned
+                        // credential row should not outlive the account.
+                        $owner->tokens()->delete();
+                        $owner->delete();
+                        $ownerDeleted = true;
+                    }
+                }
             });
         } catch (\Throwable $e) {
             report($e);
@@ -171,15 +194,21 @@ class FarmDeletionController extends Controller
 
         ActivityLog::create([
             'user_id' => $user->id,
-            'role'    => $user->role,
-            'action'  => 'Deleted Farm',
-            'details' => "Permanently deleted farm: {$farmName} — {$ownerName} (by {$user->full_name}, " . now()->format('M j, Y g:i A') . ')',
-            'type'    => 'Farm',
+            'role' => $user->role,
+            'action' => 'Deleted Farm',
+            'details' => "Permanently deleted farm: {$farmName} — {$ownerName} (by {$user->full_name}, ".now()->format('M j, Y g:i A').')'
+                .($ownerDeleted
+                    ? " — this was the owner's last farm, so the owner account was deleted"
+                    : ' — the owner keeps their account and remaining farms'),
+            'type' => 'Farm',
         ]);
 
         return response()->json([
             'success' => true,
-            'message' => "{$farmName} has been permanently deleted.",
+            'owner_deleted' => $ownerDeleted,
+            'message' => $ownerDeleted
+                ? "{$farmName} has been permanently deleted. It was {$ownerName}'s last farm, so their Farm Owner account was deleted as well."
+                : "{$farmName} has been permanently deleted. {$ownerName} keeps their account and remaining farms.",
         ]);
     }
 }

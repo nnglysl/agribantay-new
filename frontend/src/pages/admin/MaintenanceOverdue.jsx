@@ -3,10 +3,12 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
 import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { LIVE_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useOverflowX } from '../../hooks/useOverflowX'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { BARANGAYS } from '../../constants/barangays'
+import { SkeletonTable } from '../../components/Loading'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 const FARM_SIZES = ['Small', 'Medium', 'Large']
@@ -38,7 +40,7 @@ export default function MaintenanceOverdue() {
   const debouncedSearch = useDebouncedValue(search)
   if (debouncedSearch) params.search = debouncedSearch
 
-  const { data: farms, loading, error } = useCachedFetch('/admin/maintenance/overdue', params, { pollMs: 45000 })
+  const { data: farms, loading, error } = useCachedFetch('/admin/maintenance/overdue', params, { pollMs: LIVE_POLL_MS })
 
   const overdueFarms = farms || []
 
@@ -175,7 +177,7 @@ export default function MaintenanceOverdue() {
         {totalItems} farm{totalItems === 1 ? '' : 's'} requiring attention
       </p>
 
-      {loading && <p style={styles.stateText}>Loading...</p>}
+      {loading && <SkeletonTable rows={6} columns={5} />}
       {error && <p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p>}
 
       {!loading && !error && (
@@ -293,7 +295,7 @@ const styles = {
   subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px', maxWidth: '640px', lineHeight: 1.5 },
 
   toolbar: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' },
-  toolbarMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  toolbarMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch' },
 
   searchWrap: { position: 'relative', flex: 1 },
   searchIcon: { position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' },
@@ -380,7 +382,7 @@ const paginationStyles = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px',
   },
-  wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  wrapMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch' },
   info: { fontSize: '12px', color: '#8a968d', whiteSpace: 'nowrap' },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },

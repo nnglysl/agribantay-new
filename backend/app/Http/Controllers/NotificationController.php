@@ -15,19 +15,32 @@ class NotificationController extends Controller
      * the compliance system (and any future notification source) already
      * creates them.
      */
-    public function index()
+    public function index(Request $request)
     {
-        $notifications = Notification::where('user_id', Auth::id())
+        // `limit` backs the bell's "See More": the panel opens with a short
+        // list and asks for a larger one each time it is pressed, rather than
+        // paging — so the rows already on screen keep their position, their
+        // read state and their date grouping, and nothing can arrive twice.
+        // Capped so a crafted request cannot ask for the whole table.
+        $limit = min(max((int) $request->input('limit', 10), 1), 100);
+
+        $base = Notification::where('user_id', Auth::id());
+
+        $total = (clone $base)->count();
+
+        $notifications = (clone $base)
             ->latest()
-            ->limit(30)
+            ->limit($limit)
             ->get();
 
         return response()->json([
             'success' => true,
             'data'    => $notifications,
-            'unread_count' => Notification::where('user_id', Auth::id())
-                ->where('is_read', false)
-                ->count(),
+            'unread_count' => (clone $base)->where('is_read', false)->count(),
+            // Lets the panel hide "See More" at the end instead of offering a
+            // press that would return the same rows again.
+            'total_count' => $total,
+            'has_more'    => $total > $notifications->count(),
         ]);
     }
 

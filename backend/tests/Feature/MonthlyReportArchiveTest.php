@@ -10,6 +10,7 @@ use App\Models\MaintenanceLog;
 use App\Models\User;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
@@ -36,6 +37,32 @@ class MonthlyReportArchiveTest extends TestCase
         }
 
         $this->admin = User::where('role', 'admin')->firstOrFail();
+    }
+
+    private function makeFarm(): Farm
+    {
+        $owner = User::create([
+            'first_name'    => 'Archive',
+            'last_name'     => Str::random(6),
+            'email'         => Str::lower(Str::random(10)) . '@agribantay.test',
+            'mobile_number' => '09' . random_int(100000000, 999999999),
+            'password'      => bcrypt('password'),
+            'role'          => 'farm_owner',
+            'status'        => 'active',
+        ]);
+
+        return Farm::create([
+            'user_id'       => $owner->id,
+            'farm_name'     => 'Archive Test Farm',
+            'owner_name'    => 'Archive Owner',
+            'mobile_number' => $owner->mobile_number,
+            'barangay'      => 'Calansayan',
+            'municipality'  => 'San Jose',
+            'province'      => 'Batangas',
+            'address'       => 'Calansayan, San Jose, Batangas',
+            'farm_size'     => 'Small',
+            'status'        => 'Active',
+        ]);
     }
 
     protected function tearDown(): void
@@ -151,7 +178,12 @@ class MonthlyReportArchiveTest extends TestCase
     }
 
     /** The manual endpoint refuses a period that is still running. */
-    public function test_manual_generation_rejects_an_unfinished_period(): void
+    /**
+     * Reports are generated on demand now, so a period that is still running
+     * is allowed — but the stored period is clamped to today, so the document
+     * can never be headed a range wider than the figures it actually covers.
+     */
+    public function test_manual_generation_clamps_a_period_that_has_not_ended(): void
     {
         $today = Carbon::now(\App\Support\LocalTime::timezone());
 
@@ -160,14 +192,33 @@ class MonthlyReportArchiveTest extends TestCase
                 'report_name' => 'Unfinished Period Report',
                 'period_start' => $today->copy()->startOfMonth()->toDateString(),
                 'period_end' => $today->copy()->addMonth()->endOfMonth()->toDateString(),
+                'report_type' => 'Monthly',
             ])
-            ->assertStatus(422)
-            ->assertJsonPath('success', false);
+            ->assertStatus(201);
 
-        $this->assertFalse(
-            GeneratedReport::where('report_name', 'Unfinished Period Report')->exists(),
-            'nothing should be archived for a period that has not ended'
+        $created = GeneratedReport::where('report_name', 'Unfinished Period Report')->firstOrFail();
+
+        $this->assertSame(
+            $today->toDateString(),
+            $created->period_end->toDateString(),
+            'the period must be clamped to today, not left in the future'
         );
+    }
+
+    public function test_a_period_that_has_not_started_is_refused(): void
+    {
+        $today = Carbon::now(\App\Support\LocalTime::timezone());
+
+        $this->actingAs($this->admin)
+            ->postJson('/api/admin/generated-reports', [
+                'report_name' => 'Future Period Report',
+                'period_start' => $today->copy()->addMonths(2)->startOfMonth()->toDateString(),
+                'period_end' => $today->copy()->addMonths(2)->endOfMonth()->toDateString(),
+                'report_type' => 'Monthly',
+            ])
+            ->assertStatus(422);
+
+        $this->assertFalse(GeneratedReport::where('report_name', 'Future Period Report')->exists());
     }
 
     /** The manual endpoint refuses to duplicate a period that is already archived. */
@@ -190,6 +241,7 @@ class MonthlyReportArchiveTest extends TestCase
                 'report_name' => 'Duplicate Attempt',
                 'period_start' => $existing->period_start->toDateString(),
                 'period_end' => $existing->period_end->toDateString(),
+                'report_type' => 'Monthly',
             ])
             ->assertStatus(409)
             ->assertJsonPath('data.id', $existing->id);
@@ -218,6 +270,7 @@ class MonthlyReportArchiveTest extends TestCase
                 'report_name' => $start->format('F Y').' Report',
                 'period_start' => $start->toDateString(),
                 'period_end' => $end->toDateString(),
+                'report_type' => 'Monthly',
             ])
             ->assertStatus(201);
 
@@ -226,6 +279,7 @@ class MonthlyReportArchiveTest extends TestCase
         $this->assertNotNull($created);
         $this->assertSame('2025-03-01', $created->period_start->toDateString());
         $this->assertSame('2025-03-31', $created->period_end->toDateString());
+        $this->assertSame('Monthly', $created->report_type, 'the chosen period kind must be stored');
     }
 
     /**
@@ -269,7 +323,11 @@ class MonthlyReportArchiveTest extends TestCase
             $this->markTestSkipped('Fixture already has a July 2026 archive.');
         }
 
-        $farm = Farm::where('status', 'Active')->firstOrFail();
+        // Created, not borrowed — this test needs *a* farm to hang records on,
+        // not whichever one the database happens to hold. Reaching for an
+        // existing row made it fail outright once the pre-launch cleanup left
+        // none, even though the archive logic under test was unchanged.
+        $farm = $this->makeFarm();
 
         // A clean-out on the last calendar day, and an inspection completed late
         // that same evening — the case a midnight-truncated end bound would drop.

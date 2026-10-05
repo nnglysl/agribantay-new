@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api/axios'
-import { setAuth } from '../utils/auth'
+import { setAuth, clearAuth, isAuthenticated, getRole, getUser, getToken, isRemembered, dashboardPathForRole } from '../utils/auth'
 import AuthLayout, { authFormStyles as styles } from '../components/AuthLayout'
 import LegalAcknowledgmentModal from '../components/LegalAcknowledgmentModal'
 
@@ -10,30 +10,99 @@ function detectLoginType(value) {
   return EMAIL_RE.test(value.trim()) ? 'email' : 'phone'
 }
 
-function getDashboardPath(role) {
-  if (role === 'super_admin') return '/superadmin/dashboard'
-  if (role === 'admin') return '/admin/dashboard'
-  if (role === 'farm_owner') return '/farmowner/dashboard'
-  if (role === 'vet') return '/vet/dashboard'
-  return '/'
+const getDashboardPath = dashboardPathForRole
+
+/**
+ * The session this browser already holds, if it is one this page should act
+ * on. Read once, at mount, so pressing Back into /login resumes where the
+ * person left off instead of showing them a form they do not need.
+ *
+ * ?expired=1 means the axios 401 handler has just dropped the token on
+ * purpose, so nothing is resumed and the explanation it set stays on screen.
+ */
+function resumedSession() {
+  const params = new URLSearchParams(window.location.search)
+  if (params.has('expired') || !isAuthenticated()) return null
+  return { ...getUser(), role: getRole() }
 }
+
+// Signed in, past the temporary password, but never agreed to the terms.
+// Nothing on the API enforces this — only this page does — so the shortcut
+// has to re-ask rather than hand out a dashboard.
+const needsLegal = (user) => !!user && !user.must_change_password && !user.legal_acknowledged_at
 
 export default function Login() {
   const [login, setLogin] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
-  const [remember, setRemember] = useState(false)
-  const [error, setError] = useState('')
+  // Checked by default: the session is meant to outlive closing the tab or
+  // the browser, so coming back later (or pressing Back into the app) lands
+  // on the dashboard instead of this form. Unchecking still confines the
+  // session to sessionStorage, which ends when the tab closes.
+  const [remember, setRemember] = useState(true)
+  // ?expired=1 is set by the axios 401 handler when it drops a token the
+  // server no longer accepts. Saying so up front explains why the person
+  // was thrown back here, instead of leaving them to wonder whether they
+  // clicked something wrong.
+  const [error, setError] = useState(() => {
+    const params = new URLSearchParams(window.location.search)
+
+    if (!params.has('expired')) return ''
+
+    // reason=deactivated means the account was switched off mid-session, so
+    // signing in again cannot work until an administrator restores it. Same
+    // wording the login endpoint returns, so the explanation reads the same
+    // whether the account was already inactive or became inactive just now.
+    return params.get('reason') === 'deactivated'
+      ? 'Your account has been deactivated. Please contact the administrator for assistance.'
+      : 'Your session has ended. Please sign in again.'
+  })
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
-  const [showLegalModal, setShowLegalModal] = useState(false)
-  const [pendingUser, setPendingUser] = useState(null)
+  const [resumed] = useState(resumedSession)
+  const [showLegalModal, setShowLegalModal] = useState(() => needsLegal(resumed))
+  const [pendingUser, setPendingUser] = useState(() => (needsLegal(resumed) ? resumed : null))
   const [acknowledging, setAcknowledging] = useState(false)
+
+  // Back-navigating far enough used to land here and look like being signed
+  // out, because /login renders whatever the browser has in its history and
+  // the token in storage was never consulted. Each exit below replaces this
+  // entry, so Back does not bounce between the two.
+  useEffect(() => {
+    if (!resumed) return
+
+    // A temporary password still has to be changed first.
+    if (resumed.must_change_password) {
+      navigate('/change-password', { replace: true })
+      return
+    }
+
+    // The terms modal is already open from the initial state above; leaving
+    // it to answer is the whole point, so no redirect here.
+    if (needsLegal(resumed)) return
+
+    navigate(getDashboardPath(resumed.role), { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleLogin = async (e) => {
     e.preventDefault()
     setError('')
+
+    // Caught here rather than sent to the API so an empty field never comes
+    // back as Laravel's "The password field is required." — that reads like
+    // the credentials were rejected, when nothing was actually submitted.
+    if (!login.trim()) {
+      setError('Enter your email address or mobile number.')
+      return
+    }
+
+    if (!password) {
+      setError('Enter your password.')
+      return
+    }
+
     setLoading(true)
     try {
       const res = await api.post('/login', {
@@ -46,7 +115,7 @@ export default function Login() {
       setAuth(token, user, remember)
 
       if (user.must_change_password) {
-        navigate('/change-password')
+        navigate('/change-password', { replace: true })
         return
       }
 
@@ -56,9 +125,25 @@ export default function Login() {
         return
       }
 
-      navigate(getDashboardPath(user.role))
+      // replace, not push: leaving /login in the history stack is what made
+      // repeated Back presses end up on the login form.
+      navigate(getDashboardPath(user.role), { replace: true })
     } catch (err) {
-      setError(err.response?.data?.message || 'We couldn\'t log you in. Please check your details and try again.')
+      const status = err.response?.status
+
+      // 401 is the only case the server deliberately keeps vague, so that a
+      // wrong password and an unknown account look identical and the form
+      // cannot be used to discover which accounts exist. Its wording is
+      // replaced here with something that tells the person what to do next.
+      // Other statuses (403 inactive, 429 throttled) carry a message written
+      // for the reader already, so those are passed through.
+      if (status === 401) {
+        setError('Incorrect email, mobile number, or password.')
+      } else if (err.response?.data?.message) {
+        setError(err.response.data.message)
+      } else {
+        setError('We couldn\'t reach the server. Check your connection and try again.')
+      }
     } finally {
       setLoading(false)
     }
@@ -69,8 +154,16 @@ export default function Login() {
     setAcknowledging(true)
     try {
       await api.post('/acknowledge-legal')
+      // The server has stamped legal_acknowledged_at, but the copy in
+      // storage still says null. Without this the gate above would show
+      // this modal again on every later visit to /login.
+      setAuth(
+        getToken(),
+        { ...pendingUser, legal_acknowledged_at: new Date().toISOString() },
+        isRemembered(),
+      )
       setShowLegalModal(false)
-      navigate(getDashboardPath(pendingUser.role))
+      navigate(getDashboardPath(pendingUser.role), { replace: true })
     } catch (err) {
       setError('Something went wrong while saving your acknowledgment. Please try again.')
       setShowLegalModal(false)
@@ -81,19 +174,18 @@ export default function Login() {
 
   // User has a valid token by the time this modal shows (login already
   // succeeded), so Cancel must log them out — otherwise they'd have an
-  // active session without ever having agreed. Adjust the storage-clearing
-  // lines below if utils/auth.js exposes a dedicated clearAuth()/logout()
-  // helper instead of raw localStorage/sessionStorage keys.
+  // active session without ever having agreed.
   const handleCancel = async () => {
     try {
       await api.post('/logout')
     } catch (err) {
       // ignore — token may already be invalid; we're clearing it locally anyway
     }
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
-    sessionStorage.removeItem('token')
-    sessionStorage.removeItem('user')
+    // clearAuth() rather than removing keys by hand: the hand-written
+    // version left 'role' behind in storage and never dropped the cached
+    // API responses, so the next person to sign in on this browser could
+    // be served data fetched for the account that just cancelled.
+    clearAuth()
 
     setShowLegalModal(false)
     setPendingUser(null)

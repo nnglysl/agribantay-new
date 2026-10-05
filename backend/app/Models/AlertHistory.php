@@ -10,6 +10,7 @@ class AlertHistory extends Model
 
     protected $fillable = [
         'farm_id',
+        'sensor_id',
         'sensor_type',
         'status',
         'value',
@@ -19,14 +20,21 @@ class AlertHistory extends Model
     ];
 
     protected $casts = [
-        'triggered_at'        => 'datetime',
-        'resolved_at'         => 'datetime',
-        'value'               => 'float',
+        'triggered_at' => 'datetime',
+        'resolved_at' => 'datetime',
+        'value' => 'float',
         'safe_readings_count' => 'integer',
     ];
 
     public function farm()
     {
         return $this->belongsTo(Farm::class);
+    }
+
+    // Nullable: incidents recorded before per-device tracking existed, and any
+    // whose unit was later deleted, have no sensor attached.
+    public function sensor()
+    {
+        return $this->belongsTo(Sensor::class);
     }
 }

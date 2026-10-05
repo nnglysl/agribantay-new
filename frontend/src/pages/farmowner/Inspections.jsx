@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import FarmerLayout from '../../components/FarmerLayout'
+import TableScroll from '../../components/TableScroll'
 import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { LIVE_POLL_MS } from '../../constants/polling'
 import { useSelectedFarm } from '../../hooks/useSelectedFarm'
 import { viewModalStyles as v } from '../../styles/viewModalStyles'
 import { formatDate as formatDateFull, isWithinLocalDateRange, DISPLAY_TIME_ZONE } from '../../utils/formatDate'
@@ -9,6 +11,7 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 import FilterPopover from '../../components/FilterPopover'
 import { filterStyles } from '../../styles/filterStyles'
 import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
+import { SkeletonTable } from '../../components/Loading'
 
 const responsiveCss = `
   .insp-tabs {
@@ -77,7 +80,7 @@ function formatDateTime(value) {
 
 export default function Inspections() {
   const { selectedFarmId, farmsLoading } = useSelectedFarm()
-  const { data, loading } = useCachedFetch(selectedFarmId ? '/farmer/inspections' : null, { farm_id: selectedFarmId }, { pollMs: 45000 })
+  const { data, loading } = useCachedFetch(selectedFarmId ? '/farmer/inspections' : null, { farm_id: selectedFarmId }, { pollMs: LIVE_POLL_MS })
   const [activeTab, setActiveTab] = useState('upcoming') // 'upcoming' | 'past'
   const [viewInspection, setViewInspection] = useState(null)
   const isMobile = useIsMobile()
@@ -101,7 +104,7 @@ export default function Inspections() {
   const hasDate = !!(draftFrom || draftTo || fromDate || toDate)
   const activeFilterCount = (fromDate || toDate ? 1 : 0) + (typeFilter ? 1 : 0)
 
-  if (farmsLoading || loading || !data) return <FarmerLayout><p style={styles.stateText}>Loading...</p></FarmerLayout>
+  if (farmsLoading || loading || !data) return <FarmerLayout><SkeletonTable rows={6} columns={5} /></FarmerLayout>
 
   const matches = (i) =>
     isWithinLocalDateRange(i.scheduled_at, fromDate, toDate) &&
@@ -159,7 +162,7 @@ export default function Inspections() {
       <section style={styles.card}>
         {list.length > 0 ? (
           <>
-            <div className="insp-table-wrap">
+            <TableScroll className="insp-table-wrap">
               <table className="insp-table" style={styles.table}>
                 <thead>
                   <tr>
@@ -186,7 +189,7 @@ export default function Inspections() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableScroll>
             <div className="insp-pagination">
               <span style={styles.paginationText}>
                 Showing 1–{list.length} of {list.length}

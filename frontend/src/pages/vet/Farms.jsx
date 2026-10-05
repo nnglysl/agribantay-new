@@ -3,10 +3,12 @@ import { useNavigate } from 'react-router-dom'
 import VetLayout from '../../components/VetLayout'
 import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { BACKGROUND_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useOverflowX } from '../../hooks/useOverflowX'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { BARANGAYS } from '../../constants/barangays'
+import { SkeletonTable } from '../../components/Loading'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 const FARM_SIZES = ['Small', 'Medium', 'Large']
@@ -43,7 +45,7 @@ export default function VetFarms() {
   params.per_page = pageSize
   params.page = currentPage
 
-  const { data: farms, loading, error } = useCachedFetch('/vet/farms', params, { pollMs: 60000 })
+  const { data: farms, loading, error } = useCachedFetch('/vet/farms', params, { pollMs: BACKGROUND_POLL_MS })
   const pageData = farms && !Array.isArray(farms)
     ? farms
     : { items: farms || [], total: (farms || []).length, page: 1, last_page: 1 }
@@ -158,7 +160,7 @@ export default function VetFarms() {
         </div>
       </div>
 
-      {loading && <p style={styles.stateText}>Loading...</p>}
+      {loading && <SkeletonTable rows={6} columns={5} />}
       {error && <p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p>}
 
       {!loading && !error && (
@@ -184,7 +186,7 @@ export default function VetFarms() {
                   <tr key={f.id} style={styles.tr}>
                     <td style={styles.td}>
                       {f.owner_profile_photo_url ? (
-                        <img src={f.owner_profile_photo_url} alt="" style={styles.avatarImg} />
+                        <img src={f.owner_profile_photo_url} alt="" loading="lazy" decoding="async" style={styles.avatarImg} />
                       ) : (
                         <span style={styles.avatar}>{getInitials(f.owner_name)}</span>
                       )}
@@ -265,7 +267,7 @@ const styles = {
   subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px', marginBottom: '20px' },
 
   toolbar: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' },
-  toolbarMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  toolbarMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch' },
 
   searchWrap: { position: 'relative', flex: 1 },
   searchIcon: { position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' },
@@ -354,7 +356,7 @@ const paginationStyles = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px',
   },
-  wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  wrapMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch' },
   info: { fontSize: '12px', color: '#8a968d', whiteSpace: 'nowrap' },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },

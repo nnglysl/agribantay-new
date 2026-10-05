@@ -4,6 +4,7 @@ import { useSelectedFarm } from '../hooks/useSelectedFarm'
 
 const navItems = [
   { label: 'Dashboard', path: '/farmowner/dashboard', icon: 'dashboard', section: 'Overview' },
+  { label: 'Farm Readings', path: '/farmowner/readings', icon: 'dashboard', section: 'Overview' },
   { label: 'Inspections', path: '/farmowner/inspections', icon: 'inspections', section: 'Management' },
   { label: 'Manure Records', path: '/farmowner/manure-records', icon: 'requests', section: 'Management' },
   { label: 'Service requests', path: '/farmowner/service-requests', icon: 'requests', section: 'Management' },
@@ -21,7 +22,7 @@ function FarmerContent({ children, title }) {
   if (!farmsLoading && farms.length === 0) {
     return (
       <div style={styles.emptyState}>
-        No farms are registered to your account yet. Please contact the LGU Administrator.
+        No farms are registered to your account yet. Please contact LGU Staff.
       </div>
     )
   }

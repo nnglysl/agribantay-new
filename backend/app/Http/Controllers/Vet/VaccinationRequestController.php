@@ -4,14 +4,71 @@ namespace App\Http\Controllers\Vet;
 
 use App\Http\Controllers\Controller;
 use App\Models\ServiceRequest;
+use App\Models\ServiceRequestAttachment;
 use App\Models\ActivityLog;
 use App\Models\Notification;
 use App\Services\SuperAdminNotifier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rules\File;
+use App\Support\LocalTime;
+use App\Support\ServiceTypes;
+use App\Support\HandledByFilter;
 
 class VaccinationRequestController extends Controller
 {
+    // Farm Biosecurity, Blood Test, and the legacy Vaccine value kept for history.
+    private const VET_TYPES = ServiceTypes::VET;
+
+    // Same ceiling as the system's other uploads (profile/maintenance photos).
+    public const ATTACHMENT_MAX_KB = 5120;
+    public const ATTACHMENT_MIMES  = ['application/pdf', 'image/jpeg', 'image/png'];
+    // Enough for the 3-page form plus two supporting photos.
+    public const ATTACHMENT_MAX_FILES = 5;
+
+    private function isSuperAdmin(): bool
+    {
+        return Auth::user()?->role === 'super_admin';
+    }
+
+    /**
+     * Ownership rule: the Vet who accepted a request is responsible for it,
+     * and only they may complete, reschedule or undo it.
+     *
+     * Super Admin override: the route group is 'role:vet,super_admin', so the
+     * Super Admin can already reach every Vet endpoint; that role is allowed
+     * past this check too, for consistency with the Staff module. The Super
+     * Admin UI stays view-only; the override is API-level.
+     */
+    private function guardOwnership(ServiceRequest $sr): ?\Illuminate\Http\JsonResponse
+    {
+        if ($this->isSuperAdmin() || (int) $sr->accepted_by === (int) Auth::id()) {
+            return null;
+        }
+
+        $owner = $sr->acceptedBy ? trim($sr->acceptedBy->first_name.' '.$sr->acceptedBy->last_name) : 'another Veterinarian';
+
+        return response()->json([
+            'success' => false,
+            'message' => "This request is handled by {$owner}. Only the Veterinarian who accepted it can act on it.",
+        ], 403);
+    }
+
+    /**
+     * The modals submit a Philippine wall-clock time with no timezone. Parsed
+     * on the application clock (UTC) it was stored as-is, so "09:00" came back
+     * as 5:00 PM. Interpreted in the office timezone and stored as the UTC
+     * instant. Eloquent does not convert a zoned Carbon on save, hence ->utc().
+     */
+    private function localToUtc(string $value): Carbon
+    {
+        return Carbon::parse($value, LocalTime::timezone())->utc();
+    }
+
     private function notifyRequester(ServiceRequest $sr, string $title, string $message): void
     {
         // Super Admin gets the same update for system-wide oversight.
@@ -32,22 +89,22 @@ class VaccinationRequestController extends Controller
     }
 
 
-    public function index()
+    public function index(Request $request)
     {
-        $vetId = Auth::id();
+        // Shared list: every Veterinarian sees every Vaccine and Blood Test
+        // request, whoever accepted it. Ownership is carried on each row
+        // (accepted_by / accepted_by_id) and enforced by the action endpoints,
+        // not by hiding rows — a colleague's accepted visit must be visible so
+        // the office can see who is handling what. Previously the list was
+        // filtered to "mine or unassigned", which hid other Vets' work.
+        // Ordered oldest-first so requests are worked in submission order.
+        // Optional handled_by=all|mine|unassigned|others (see HandledByFilter)
+        // narrows the shared list without changing who may see what.
+        $query = ServiceRequest::with(['farm', 'acceptedBy', 'attachments.uploader'])
+            ->whereIn('service_type', self::VET_TYPES);
+        HandledByFilter::apply($query, $request->handled_by, (int) Auth::id());
 
-        // Requests assigned to this vet OR unassigned pending requests they
-        // could accept — now covers both Vaccine and Blood Test requests,
-        // since both route to the vet role. Ordered oldest-first (was
-        // ->latest()) so requests are naturally worked in the order they
-        // were submitted; the frontend also re-sorts by id defensively, but
-        // fixing it here too keeps the two in agreement.
-        $requests = ServiceRequest::with(['farm', 'acceptedBy'])
-            ->whereIn('service_type', ['Vaccine Request', 'Blood Test Request'])
-            ->where(function ($q) use ($vetId) {
-                $q->where('accepted_by', $vetId)
-                  ->orWhereNull('accepted_by');
-            })
+        $requests = $query
             ->oldest()
             ->get()
             ->map(fn($r) => [
@@ -61,8 +118,10 @@ class VaccinationRequestController extends Controller
                     'farm_size'      => $r->farm->farm_size,
                     'notes'          => $r->notes,
                     'completion_notes' => $r->completion_notes,
+                    ...self::attachmentPayload($r),
                     'status'         => $r->status,
                     'accepted_by'    => $r->acceptedBy ? $r->acceptedBy->first_name . ' ' . $r->acceptedBy->last_name : null,
+                    'accepted_by_id' => $r->accepted_by,
                     'scheduled_at'   => $r->scheduled_at,
                     'previous_scheduled_at' => $r->previous_scheduled_at,
                     'reschedule_reason'     => $r->reschedule_reason,
@@ -89,19 +148,56 @@ class VaccinationRequestController extends Controller
             'scheduled_at' => 'required|date',
         ]);
 
-        $sr = ServiceRequest::findOrFail($id);
-        $sr->update([
-            'accepted_by'  => Auth::id(),
-            'status'       => 'Scheduled',
-            'scheduled_at' => $request->scheduled_at,
-        ]);
+        $scheduledAtUtc = $this->localToUtc($request->scheduled_at);
+
+        // Acceptance is first-come, first-served and must be decided atomically.
+        // The row is read under an exclusive lock, so two Vets pressing Accept at
+        // the same instant are serialised: the second one sees the status the
+        // first one just wrote. A locking read always returns the latest
+        // committed row, so this does not depend on isolation level.
+        $result = DB::transaction(function () use ($id, $scheduledAtUtc) {
+            $sr = ServiceRequest::with('acceptedBy')->lockForUpdate()->findOrFail($id);
+
+            if (! in_array($sr->service_type, self::VET_TYPES, true)) {
+                return ['blocked' => response()->json([
+                    'success' => false,
+                    'message' => 'This request type is not handled by the Veterinarian.',
+                ], 403)];
+            }
+
+            if ($sr->status !== 'Pending') {
+                return ['conflict' => $sr];
+            }
+
+            $sr->update([
+                'accepted_by'  => Auth::id(),
+                'status'       => 'Scheduled',
+                'scheduled_at' => $scheduledAtUtc,
+            ]);
+
+            return ['sr' => $sr];
+        });
+
+        if (isset($result['blocked'])) return $result['blocked'];
+
+        if (isset($result['conflict'])) {
+            $sr = $result['conflict'];
+            $owner = $sr->acceptedBy ? trim($sr->acceptedBy->first_name.' '.$sr->acceptedBy->last_name) : null;
+            $why = $sr->status === 'Scheduled' && $owner
+                ? "This request has already been accepted by {$owner}."
+                : "This request is no longer pending (it is {$sr->status}).";
+
+            return response()->json(['success' => false, 'message' => $why], 409);
+        }
+
+        $sr = $result['sr'];
 
         ActivityLog::create([
             'user_id' => Auth::id(),
             'role'    => Auth::user()->role,
             'action'  => 'Scheduled ' . strtolower($sr->service_type),
             'details' => "{$sr->request_number} — {$sr->farm->farm_name}",
-            'type'    => $sr->service_type === 'Blood Test Request' ? 'Blood Test' : 'Vaccination',
+            'type'    => ServiceTypes::activityType($sr->service_type),
         ]);
 
         $this->notifyRequester(
@@ -124,6 +220,16 @@ class VaccinationRequestController extends Controller
         ]);
 
         $sr = ServiceRequest::findOrFail($id);
+
+        // Declining is a response to a Pending request. Once another Vet has
+        // accepted it, it is their visit.
+        if ($sr->status !== 'Pending') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only a pending request can be declined.',
+            ], 422);
+        }
+
         $sr->update(['status' => 'Cancelled', 'decline_reason' => $request->decline_reason]);
 
         ActivityLog::create([
@@ -155,9 +261,33 @@ class VaccinationRequestController extends Controller
      */
     public function complete(Request $request, int $id)
     {
+        // The accomplished form is uploaded with the notes as one multipart
+        // body: up to ATTACHMENT_MAX_FILES files under attachments[] (the
+        // original single-file field "attachment" is still accepted). PHP
+        // only parses multipart on POST, so the route exists as both PATCH
+        // (JSON, as before) and POST. Every file is checked here regardless
+        // of what the browser claimed.
+        $fileRule = [
+            File::types(['pdf', 'jpg', 'jpeg', 'png'])->max(self::ATTACHMENT_MAX_KB),
+            'mimetypes:' . implode(',', self::ATTACHMENT_MIMES),
+            'extensions:pdf,jpg,jpeg,png',
+        ];
+        $fileMessages = [
+            'mimetypes'  => 'Each attached file must be a PDF, JPG or PNG.',
+            'extensions' => 'Each attached file must be a PDF, JPG or PNG.',
+            'mimes'      => 'Each attached file must be a PDF, JPG or PNG.',
+            'max'        => 'Each attached file must not be larger than 5 MB.',
+        ];
         $request->validate([
             'completion_notes' => 'required|string',
-        ]);
+            'attachments'      => ['nullable', 'array', 'max:' . self::ATTACHMENT_MAX_FILES],
+            'attachments.*'    => array_merge(['file'], $fileRule),
+            'attachment'       => array_merge(['nullable'], $fileRule),
+        ], array_merge(
+            ['attachments.max' => 'You can attach up to ' . self::ATTACHMENT_MAX_FILES . ' files per request.'],
+            collect($fileMessages)->mapWithKeys(fn ($m, $rule) => ["attachments.*.{$rule}" => $m])->all(),
+            collect($fileMessages)->mapWithKeys(fn ($m, $rule) => ["attachment.{$rule}" => $m])->all(),
+        ));
 
         $sr = ServiceRequest::findOrFail($id);
 
@@ -170,20 +300,136 @@ class VaccinationRequestController extends Controller
             ], 422);
         }
 
-        // completion_notes is its own column so the farmer's original
-        // request text in `notes` is never overwritten.
-        $sr->update([
-            'status'           => 'Completed',
-            'completed_at'     => now(),
-            'completion_notes' => $request->completion_notes,
-        ]);
+        if ($blocked = $this->guardOwnership($sr)) return $blocked;
+
+        /** @var \Illuminate\Http\UploadedFile[] $files */
+        $files = array_values(array_filter(array_merge(
+            (array) $request->file('attachments', []),
+            $request->hasFile('attachment') ? [$request->file('attachment')] : [],
+        )));
+
+        // Attachments already on file (from a completion that was undone) are
+        // kept and count toward the limit; nothing is replaced silently.
+        $existingCount = $sr->attachments()->count();
+        if ($existingCount + count($files) > self::ATTACHMENT_MAX_FILES) {
+            $room = max(0, self::ATTACHMENT_MAX_FILES - $existingCount);
+            return response()->json([
+                'success' => false,
+                'message' => "A request can have at most " . self::ATTACHMENT_MAX_FILES . " attachments. "
+                    . ($existingCount > 0
+                        ? "{$existingCount} already on file, so you can add {$room} more."
+                        : "Please remove some files and try again."),
+                'errors'  => ['attachments' => ['Maximum of ' . self::ATTACHMENT_MAX_FILES . ' attachments per request.']],
+            ], 422);
+        }
+
+        // A Farm Biosecurity visit is only complete once the accomplished form
+        // is on file (at least one file, new or already attached). Other Vet
+        // services may attach files but need not; rows completed before this
+        // rule existed are left as they are.
+        if ($existingCount + count($files) === 0 && $sr->service_type === ServiceTypes::FARM_BIOSECURITY) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Please attach the accomplished Farm Biosecurity form before completing this request.',
+                'errors'  => ['attachments' => ['The accomplished Farm Biosecurity form is required (at least one file).']],
+            ], 422);
+        }
+
+        // The rules above accept any allowed content with any allowed name;
+        // additionally each name's extension must agree with the sniffed bytes
+        // (a PNG called "form.pdf" is refused), and the stored name always
+        // takes the extension implied by the bytes.
+        $byMime = ['application/pdf' => ['pdf'], 'image/jpeg' => ['jpg', 'jpeg'], 'image/png' => ['png']];
+        $plan = [];
+        foreach ($files as $i => $file) {
+            $sniffed = $file->getMimeType();
+            $ext     = strtolower($file->getClientOriginalExtension());
+            if (! isset($byMime[$sniffed]) || ! in_array($ext, $byMime[$sniffed], true)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "\"{$file->getClientOriginalName()}\" is not a valid PDF, JPG or PNG file.",
+                    'errors'  => ["attachments.{$i}" => ['The file\'s content does not match its extension.']],
+                ], 422);
+            }
+            $plan[] = ['file' => $file, 'mime' => $sniffed, 'ext' => $byMime[$sniffed][0]];
+        }
+
+        // Write the files first, then the rows in one transaction, so the
+        // request is never Completed without its form and a failed DB write
+        // leaves no stray files behind. Re-checking the status and the count
+        // under a row lock makes a double submission a no-op instead of a
+        // second completion or a sixth file.
+        $storedPaths = [];
+        $disk = Storage::disk(ServiceRequestAttachment::DISK);
+        $discard = function () use (&$storedPaths, $disk) {
+            foreach ($storedPaths as $path) $disk->delete($path);
+        };
+        try {
+            foreach ($plan as $k => $item) {
+                $path = $item['file']->storeAs(
+                    'service-request-attachments/' . $sr->id,
+                    Str::uuid() . '.' . $item['ext'],
+                    ServiceRequestAttachment::DISK
+                );
+                if ($path === false) {
+                    throw new \RuntimeException('An attached file could not be saved.');
+                }
+                $storedPaths[$k] = $path;
+            }
+
+            $outcome = DB::transaction(function () use ($sr, $request, $plan, $storedPaths) {
+                $locked = ServiceRequest::lockForUpdate()->findOrFail($sr->id);
+                if ($locked->status !== 'Scheduled') {
+                    return 'already';
+                }
+                if ($locked->attachments()->count() + count($plan) > self::ATTACHMENT_MAX_FILES) {
+                    return 'too-many';
+                }
+
+                foreach ($plan as $k => $item) {
+                    ServiceRequestAttachment::create([
+                        'service_request_id' => $locked->id,
+                        'uploaded_by'        => Auth::id(),
+                        'original_name'      => Str::limit($item['file']->getClientOriginalName(), 200, ''),
+                        'file_path'          => $storedPaths[$k],
+                        'mime_type'          => $item['mime'],
+                        'file_size'          => $item['file']->getSize(),
+                    ]);
+                }
+
+                // completion_notes is its own column so the farmer's original
+                // request text in `notes` is never overwritten.
+                $locked->update([
+                    'status'           => 'Completed',
+                    'completed_at'     => now(),
+                    'completion_notes' => $request->completion_notes,
+                ]);
+
+                return 'done';
+            });
+        } catch (\Throwable $e) {
+            $discard();
+            throw $e;
+        }
+
+        if ($outcome !== 'done') {
+            $discard();
+            return response()->json([
+                'success' => false,
+                'message' => $outcome === 'too-many'
+                    ? 'A request can have at most ' . self::ATTACHMENT_MAX_FILES . ' attachments.'
+                    : 'Only a scheduled request can be marked as completed.',
+            ], 422);
+        }
+
+        $sr->refresh()->load('attachments.uploader');
 
         ActivityLog::create([
             'user_id' => Auth::id(),
             'role'    => Auth::user()->role,
             'action'  => 'Completed ' . strtolower($sr->service_type),
             'details' => "{$sr->request_number} — {$sr->farm->farm_name}",
-            'type'    => $sr->service_type === 'Blood Test Request' ? 'Blood Test' : 'Vaccination',
+            'type'    => ServiceTypes::activityType($sr->service_type),
         ]);
 
         $this->notifyRequester(
@@ -195,8 +441,73 @@ class VaccinationRequestController extends Controller
         return response()->json([
             'success' => true,
             'message' => ucfirst($sr->service_type) . ' marked as completed.',
-            'data'    => $sr,
+            'data'    => array_merge($sr->toArray(), self::attachmentPayload($sr)),
         ]);
+    }
+
+    /**
+     * Remove one attachment from a request that has been reopened (Undo
+     * Completion). Only while the request is Scheduled — a completed
+     * record's files are never editable — and only by the Vet who owns it
+     * (or the Super Admin), the same rule as completing it. The row and the
+     * private file go together, so nothing is orphaned.
+     */
+    public function removeAttachment(int $id, int $attachmentId)
+    {
+        $sr = ServiceRequest::findOrFail($id);
+
+        if ($sr->status !== 'Scheduled') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Attachments can only be removed while the request is scheduled. Undo the completion first.',
+            ], 422);
+        }
+
+        if ($blocked = $this->guardOwnership($sr)) return $blocked;
+
+        $attachment = $sr->attachments()->whereKey($attachmentId)->first();
+        if (! $attachment) {
+            return response()->json(['success' => false, 'message' => 'Attachment not found on this request.'], 404);
+        }
+
+        DB::transaction(function () use ($attachment) {
+            $path = $attachment->file_path;
+            $attachment->delete();
+            Storage::disk(ServiceRequestAttachment::DISK)->delete($path);
+        });
+
+        ActivityLog::create([
+            'user_id' => Auth::id(),
+            'role'    => Auth::user()->role,
+            'action'  => 'Removed attachment from ' . strtolower($sr->service_type),
+            'details' => "{$sr->request_number} — {$attachment->original_name}",
+            'type'    => ServiceTypes::activityType($sr->service_type),
+        ]);
+
+        $sr->load('attachments.uploader');
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Attachment removed.',
+            'data'    => self::attachmentPayload($sr),
+        ]);
+    }
+
+    /**
+     * Attachment fields shared by every list/detail payload: the full list
+     * plus the legacy single `attachment` (most recent) kept for callers
+     * written against the one-file version.
+     */
+    public static function attachmentPayload(ServiceRequest $sr): array
+    {
+        $list = $sr->attachments->map(fn ($a) => $a->toSummary())->values()->all();
+
+        return [
+            'attachments'      => $list,
+            'attachment'       => $list ? end($list) : null,
+            'attachment_count' => count($list),
+            'attachment_max'   => self::ATTACHMENT_MAX_FILES,
+        ];
     }
 
     /**
@@ -215,6 +526,8 @@ class VaccinationRequestController extends Controller
                 'message' => 'Only a completed request can have its completion undone.',
             ], 422);
         }
+
+        if ($blocked = $this->guardOwnership($sr)) return $blocked;
 
         // Reopening must not sidestep the farmer's one-active-request-per-
         // service rule: if they've since submitted another request for the
@@ -242,7 +555,7 @@ class VaccinationRequestController extends Controller
             'role'    => Auth::user()->role,
             'action'  => 'Undid completion of ' . strtolower($sr->service_type),
             'details' => "{$sr->request_number} — {$sr->farm->farm_name}",
-            'type'    => $sr->service_type === 'Blood Test Request' ? 'Blood Test' : 'Vaccination',
+            'type'    => ServiceTypes::activityType($sr->service_type),
         ]);
 
         $this->notifyRequester(
@@ -274,9 +587,19 @@ class VaccinationRequestController extends Controller
         ]);
 
         $sr = ServiceRequest::findOrFail($id);
+
+        if ($sr->status !== 'Scheduled') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only a scheduled request can be rescheduled.',
+            ], 422);
+        }
+
+        if ($blocked = $this->guardOwnership($sr)) return $blocked;
+
         $sr->update([
             'previous_scheduled_at' => $sr->scheduled_at,
-            'scheduled_at'          => $request->scheduled_at,
+            'scheduled_at'          => $this->localToUtc($request->scheduled_at),
             'reschedule_reason'     => $request->reason,
         ]);
 
@@ -285,7 +608,7 @@ class VaccinationRequestController extends Controller
             'role'    => Auth::user()->role,
             'action'  => 'Rescheduled ' . strtolower($sr->service_type),
             'details' => "{$sr->request_number} — {$sr->farm->farm_name}",
-            'type'    => $sr->service_type === 'Blood Test Request' ? 'Blood Test' : 'Vaccination',
+            'type'    => ServiceTypes::activityType($sr->service_type),
         ]);
 
         return response()->json([

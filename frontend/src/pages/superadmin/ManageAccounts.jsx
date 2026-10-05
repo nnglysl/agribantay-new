@@ -4,15 +4,18 @@ import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import SharedPagination from '../../components/Pagination'
 import { useCachedFetch, invalidateCache } from '../../hooks/useCachedFetch'
+import { LIVE_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useOverflowX } from '../../hooks/useOverflowX'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { roleBadgeStyle } from '../../utils/roleBadgeStyle'
 import { sanitizePhoneInput } from '../../utils/phoneValidation'
+import { SkeletonTable, BtnBusy } from '../../components/Loading'
+import { useBusyAction } from '../../hooks/useBusyAction'
 
 const ROLE_OPTIONS = [
   { value: 'all', label: 'All' },
-  { value: 'admin', label: 'Admins' },
+  { value: 'admin', label: 'Staff' },
   { value: 'vet', label: 'Veterinarians' },
 ]
 
@@ -40,6 +43,7 @@ export default function ManageAccounts() {
 
   const [showRegisterModal, setShowRegisterModal] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
+  const [actionBusy, runAction] = useBusyAction()
   const [filterOpen, setFilterOpen] = useState(false)
   const [draftRole, setDraftRole] = useState('all')
   const filterRef = useRef(null)
@@ -83,7 +87,7 @@ export default function ManageAccounts() {
   const debouncedSearch = useDebouncedValue(current.search)
   if (debouncedSearch) params.search = debouncedSearch
 
-  const { data, loading, error, refetch } = useCachedFetch('/superadmin/accounts', params)
+  const { data, loading, error, refetch } = useCachedFetch('/superadmin/accounts', params, { pollMs: LIVE_POLL_MS })
   const accounts = data || []
 
   const totalItems = accounts.length
@@ -135,7 +139,7 @@ export default function ManageAccounts() {
       <div style={{ ...styles.header, ...(isMobile ? styles.headerMobile : {}) }}>
         <div>
           <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Manage Accounts</h1>
-          <p style={styles.subtitle}>Create and manage Admin and Veterinarian accounts</p>
+          <p style={styles.subtitle}>Create and manage Staff and Veterinarian accounts</p>
         </div>
         <button
           style={{ ...styles.newBtn, ...(isMobile ? styles.btnFull : {}) }}
@@ -215,7 +219,7 @@ export default function ManageAccounts() {
         </div>
       </div>
 
-      {loading && <p style={styles.stateText}>Loading...</p>}
+      {loading && <SkeletonTable rows={6} columns={5} />}
       {error && <p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p>}
 
       {!loading && !error && (
@@ -240,7 +244,7 @@ export default function ManageAccounts() {
                   <tr key={acc.id} style={styles.tr}>
                     <td style={styles.td}>
                       {acc.profile_photo_url ? (
-                        <img src={acc.profile_photo_url} alt="" style={styles.tableAvatarImg} />
+                        <img src={acc.profile_photo_url} alt="" loading="lazy" decoding="async" style={styles.tableAvatarImg} />
                       ) : (
                         <div style={styles.tableAvatarFallback}>
                           {(acc.first_name?.[0] || '') + (acc.last_name?.[0] || '')}
@@ -250,7 +254,7 @@ export default function ManageAccounts() {
                     <td style={styles.td}>{acc.first_name} {acc.last_name}</td>
                     <td style={styles.td}>
                       <span style={{ ...styles.roleBadge, ...roleBadgeStyle(acc.role) }}>
-                        {acc.role === 'admin' ? 'Admin' : 'Veterinarian'}
+                        {acc.role === 'admin' ? 'Staff' : 'Veterinarian'}
                       </span>
                     </td>
                     <td style={styles.td}>{acc.email || '—'}</td>
@@ -308,10 +312,11 @@ export default function ManageAccounts() {
             <div style={modalStyles.actions}>
               <button onClick={() => setConfirmAction(null)} style={modalStyles.cancelBtn}>Cancel</button>
               <button
-                onClick={confirmAction.onConfirm}
+                onClick={() => runAction(confirmAction.onConfirm)}
+                disabled={actionBusy}
                 style={{ ...modalStyles.submitBtn, backgroundColor: confirmAction.danger ? '#b91c1c' : '#2c8047' }}
               >
-                {confirmAction.confirmLabel}
+                {actionBusy ? <BtnBusy label="Please wait…" /> : confirmAction.confirmLabel}
               </button>
             </div>
           </div>
@@ -355,31 +360,61 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
     full_name: '', email: '', contact_number: '',
   })
   const [error, setError] = useState('')
+  // Per-field messages from the API's 422 `errors` object, so a bad email and
+  // a bad number are both marked on the fields they belong to instead of one
+  // being summarised at the top and the other hidden until the next attempt.
+  const [fieldErrors, setFieldErrors] = useState({})
   const [loading, setLoading] = useState(false)
 
-  const update = (key) => (e) => setForm({ ...form, [key]: e.target.value })
+  const update = (key) => (e) => {
+    setForm({ ...form, [key]: e.target.value })
+    // Stale once the field is edited; leaving it would mark a value the
+    // server never saw.
+    setFieldErrors(prev => (prev[key] ? { ...prev, [key]: undefined } : prev))
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
+    setFieldErrors({})
 
     if (!form.email.trim() && !form.contact_number.trim()) {
-      setError('Please provide at least an email address or a mobile number.')
+      setFieldErrors({ email: 'Enter at least an email address or a mobile number.' })
       return
     }
 
     setLoading(true)
     try {
-      const contact = form.email.trim() || form.contact_number.trim()
-
+      // Both channels are sent. The server keeps whichever are present and
+      // picks email as the delivery route when there is one — matching the
+      // hint under these fields. Previously only one value was sent, so a
+      // number typed alongside an email was silently dropped.
       await api.post('/superadmin/accounts', {
         role: form.role,
         full_name: form.full_name,
-        contact,
+        email: form.email.trim(),
+        contact_number: form.contact_number.trim(),
       })
       onSuccess()
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to create account.')
+      const data = err.response?.data
+
+      // Laravel's 422 shape: { message, errors: { field: [msg, ...] } }.
+      // Shown against the fields; the banner is left for everything else.
+      if (data?.errors) {
+        setFieldErrors(
+          Object.fromEntries(
+            Object.entries(data.errors).map(([key, messages]) => [
+              key,
+              Array.isArray(messages) ? messages[0] : String(messages),
+            ])
+          )
+        )
+      } else if (data?.message) {
+        setError(data.message)
+      } else {
+        setError('Could not reach the server. Check your connection and try again.')
+      }
     } finally {
       setLoading(false)
     }
@@ -398,15 +433,29 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
 
           <label style={modalStyles.label}>Account Type *</label>
           <select value={form.role} onChange={update('role')} style={modalStyles.inputFull} required>
-            <option value="admin">Admin</option>
+            <option value="admin">Staff</option>
             <option value="vet">Veterinarian</option>
           </select>
 
           <label style={modalStyles.label}>Full Name *</label>
-          <input placeholder="Full Name" value={form.full_name} onChange={update('full_name')} style={modalStyles.inputFull} required />
+          <input
+            placeholder="Full Name"
+            value={form.full_name}
+            onChange={update('full_name')}
+            style={{ ...modalStyles.inputFull, ...(fieldErrors.full_name ? modalStyles.inputInvalid : {}) }}
+            required
+          />
+          {fieldErrors.full_name && <div style={modalStyles.fieldError}>{fieldErrors.full_name}</div>}
 
           <label style={modalStyles.label}>Email</label>
-          <input type="email" placeholder="Email address" value={form.email} onChange={update('email')} style={modalStyles.inputFull} />
+          <input
+            type="email"
+            placeholder="Email address"
+            value={form.email}
+            onChange={update('email')}
+            style={{ ...modalStyles.inputFull, ...(fieldErrors.email ? modalStyles.inputInvalid : {}) }}
+          />
+          {fieldErrors.email && <div style={modalStyles.fieldError}>{fieldErrors.email}</div>}
 
           <label style={modalStyles.label}>Contact Number</label>
           <input
@@ -415,9 +464,13 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
             maxLength={11}
             placeholder="09171234567"
             value={form.contact_number}
-            onChange={e => setForm({ ...form, contact_number: sanitizePhoneInput(e.target.value) })}
-            style={modalStyles.inputFull}
+            onChange={e => {
+              setForm({ ...form, contact_number: sanitizePhoneInput(e.target.value) })
+              setFieldErrors(prev => (prev.contact_number ? { ...prev, contact_number: undefined } : prev))
+            }}
+            style={{ ...modalStyles.inputFull, ...(fieldErrors.contact_number ? modalStyles.inputInvalid : {}) }}
           />
+          {fieldErrors.contact_number && <div style={modalStyles.fieldError}>{fieldErrors.contact_number}</div>}
 
           <p style={modalStyles.hint}>
             Enter at least one email or mobile number. If both are provided, the temporary password will be sent to the email address. The user must change it on their first login.
@@ -428,7 +481,7 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
               Cancel
             </button>
             <button type="submit" disabled={loading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
-              {loading ? 'Creating...' : 'Create Account'}
+              {loading ? <BtnBusy label="Creating…" /> : 'Create Account'}
             </button>
           </div>
         </form>
@@ -457,9 +510,9 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     gap: '14px', marginBottom: '18px', borderBottom: '1px solid #e7e8e0', flexWrap: 'wrap',
   },
-  toolbarMobile: { flexDirection: 'column', alignItems: 'stretch', gap: '12px' },
+  toolbarMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch', gap: '12px' },
 
-  statusTabs: { display: 'flex', gap: '4px', overflowX: 'auto' },
+  statusTabs: { display: 'flex', gap: '4px', overflowX: 'auto', minWidth: 0, maxWidth: '100%', flexWrap: 'nowrap', WebkitOverflowScrolling: 'touch' },
   statusTab: {
     padding: '10px 18px', fontSize: '14px', fontWeight: 700, color: '#6b7770',
     cursor: 'pointer', borderBottom: '2px solid transparent', fontFamily: SANS, whiteSpace: 'nowrap',
@@ -557,7 +610,7 @@ const paginationStyles = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px',
   },
-  wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  wrapMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch' },
   info: { fontSize: '12px', color: '#8a968d', whiteSpace: 'nowrap', fontFamily: SANS },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },
@@ -592,6 +645,10 @@ const modalStyles = {
   label: { display: 'block', fontSize: '12.5px', fontWeight: 600, color: '#33413a', marginBottom: '5px', marginTop: '12px' },
   input: { padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', width: '100%' },
   inputFull: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', marginTop: '2px' },
+  // Red border + message under the field the server rejected. Same red as
+  // errorBox so a field-level and a banner-level error read as one system.
+  inputInvalid: { borderColor: '#d98a8a', backgroundColor: '#fdf7f7' },
+  fieldError: { color: '#b91c1c', fontSize: '12px', marginTop: '5px' },
   hint: { fontSize: '12px', color: '#6b7770', marginTop: '14px', lineHeight: '1.5' },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '22px' },
   actionsMobile: { flexDirection: 'column-reverse' },
@@ -601,7 +658,7 @@ const modalStyles = {
 }
 
 const confirmStyles = {
-  modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '400px', maxWidth: '90%', fontFamily: SANS },
+  modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '400px', maxWidth: '90%', fontFamily: SANS, maxHeight: '90vh', overflowY: 'auto' },
   title: { fontSize: '17px', fontWeight: 800, color: '#16311d', marginTop: 0, marginBottom: '10px' },
   message: { fontSize: '14px', color: '#6b7770', lineHeight: '1.5', marginBottom: '14px' },
 }

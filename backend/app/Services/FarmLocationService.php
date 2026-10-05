@@ -185,7 +185,8 @@ class FarmLocationService
                     self::STATUS_UNVERIFIED,
                     true,
                     "The pin is just outside the mapped boundary of Brgy. {$barangay}. Please double-check its position.",
-                    $barangay
+                    $barangay,
+                    'outside_mapped_edge'
                 );
             }
 
@@ -220,11 +221,23 @@ class FarmLocationService
             return $this->result(self::STATUS_MISMATCH, false, self::MISMATCH_MESSAGE, $nearestOther);
         }
 
+        // Reaching here means the pin PASSED every check available for this
+        // barangay: inside San Jose, within barangay_max_distance_meters of the
+        // reference point, and not far closer to a neighbouring barangay. Only
+        // the exact boundary could not be confirmed, because OSM maps one for
+        // just 5 of the 33 barangays.
+        //
+        // The old wording ("no official boundary ... could not be fully
+        // verified") led with the failure and never mentioned what had
+        // succeeded, so the normal outcome for 28 barangays read as though
+        // something were wrong with the entry. It says what held, then what
+        // could not be checked, then what to do.
         return $this->result(
             self::STATUS_UNVERIFIED,
             true,
-            "Brgy. {$barangay} has no official boundary in the map data, so the pin could not be fully verified. Please double-check its position.",
-            null
+            "Location checked against Brgy. {$barangay}. Its exact boundary is not in the map data, so this is a close match rather than an exact one.",
+            null,
+            'no_boundary_data'
         );
     }
 
@@ -349,13 +362,20 @@ class FarmLocationService
         return $best;
     }
 
-    private function result(string $status, bool $ok, string $message, ?string $detectedBarangay = null): array
+    private function result(string $status, bool $ok, string $message, ?string $detectedBarangay = null, ?string $reason = null): array
     {
         return [
             'status'            => $status,
             'ok'                => $ok,
             'message'           => $message,
             'detected_barangay' => $detectedBarangay,
+            // Why a check came out "unverified". Two very different things
+            // share that status: a pin sitting just outside a boundary we DO
+            // have (worth a second look), and a barangay with no boundary in
+            // the map data at all (the normal case for 28 of 33, and nothing
+            // the user can act on). The UI needs to tell them apart to know
+            // which deserves a warning and which is just a note.
+            'reason'            => $reason,
         ];
     }
 }

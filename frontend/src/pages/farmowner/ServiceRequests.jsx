@@ -2,8 +2,10 @@ import { useState, useEffect, useMemo } from 'react'
 import { useLocation } from 'react-router-dom'
 import api from '../../api/axios'
 import FarmerLayout from '../../components/FarmerLayout'
+import TableScroll from '../../components/TableScroll'
 import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { LIVE_POLL_MS } from '../../constants/polling'
 import { useSelectedFarm } from '../../hooks/useSelectedFarm'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { formatDate as formatDateFull, isWithinLocalDateRange } from '../../utils/formatDate'
@@ -12,6 +14,9 @@ import FilterPopover from '../../components/FilterPopover'
 import { filterStyles } from '../../styles/filterStyles'
 import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 import { BADGE_SHAPE, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../../utils/serviceBadgeStyle'
+import { ALL_TYPES as ALL_SERVICE_TYPES, REQUESTABLE_TYPES } from '../../constants/serviceTypes'
+import AttachmentSummary from '../../components/AttachmentSummary'
+import { SkeletonTable, BtnBusy } from '../../components/Loading'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
@@ -70,7 +75,7 @@ export default function ServiceRequests() {
   const { data, loading, error, refetch } = useCachedFetch(
     selectedFarmId ? '/farmer/service-requests' : null,
     { farm_id: selectedFarmId },
-    { pollMs: 45000 }
+    { pollMs: LIVE_POLL_MS }
   )
   const requestData = data || { active: [], past: [] }
 
@@ -145,7 +150,7 @@ export default function ServiceRequests() {
           <label style={filterStyles.filterLabel}>Request Type</label>
           <select value={draftType} onChange={e => setDraftType(e.target.value)} style={filterStyles.filterSelect}>
             <option value="">All Types</option>
-            {['Vaccine Request', 'Blood Test Request', 'Odor Control Request', 'Fly Control Request'].map(t => (
+            {ALL_SERVICE_TYPES.map(t => (
               <option key={t} value={t}>{serviceTypeLabel(t)}</option>
             ))}
           </select>
@@ -158,7 +163,7 @@ export default function ServiceRequests() {
         </FilterPopover>
       </div>
 
-      {(farmsLoading || loading) && <p style={styles.stateText}>Loading...</p>}
+      {(farmsLoading || loading) && <SkeletonTable rows={6} columns={6} />}
       {error && <p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p>}
 
       {!farmsLoading && !loading && !error && (
@@ -204,8 +209,8 @@ export default function ServiceRequests() {
             </div>
           ) : (
             // Desktop: proper table, matching the Vet/Admin table conversions.
-            <div style={styles.tableWrap}>
-              <table style={styles.table}>
+            <TableScroll style={styles.tableWrap}>
+              <table style={{ ...styles.table, minWidth: '640px' }}>
                 <thead>
                   <tr>
                     <th style={styles.th}>Request Type</th>
@@ -237,7 +242,7 @@ export default function ServiceRequests() {
                   })}
                 </tbody>
               </table>
-            </div>
+            </TableScroll>
           )}
 
           {list.length > 0 && (
@@ -327,11 +332,13 @@ function RequestDetailModal({ request, onClose }) {
         {request.completion_notes && (
           <>
             <span style={v.sectionLabel}>Visit Notes</span>
-            <div style={v.notesBox}>
+            <div style={{ ...v.notesBox, ...(request.attachments?.length || request.attachment ? { marginBottom: '12px' } : {}) }}>
               <p style={v.notes}>{request.completion_notes}</p>
             </div>
           </>
         )}
+
+        <AttachmentSummary requestId={request.id} attachments={request.attachments} attachment={request.attachment} />
 
         <div style={v.actions}>
           <button onClick={onClose} style={v.closeBtn}>Close</button>
@@ -414,10 +421,7 @@ function RequestModal({ onClose, onSuccess, isMobile, initialServiceType, farmId
             style={modalStyles.input}
           >
             <option value="">-- Select service type --</option>
-            <option value="Vaccine Request">Vaccine Request</option>
-            <option value="Blood Test Request">Blood Test Request</option>
-            <option value="Odor Control Request">Odor Control Request</option>
-            <option value="Fly Control Request">Fly Control Request</option>
+            {REQUESTABLE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
 
           <label style={modalStyles.label}>Notes (optional)</label>
@@ -429,7 +433,7 @@ function RequestModal({ onClose, onSuccess, isMobile, initialServiceType, farmId
           />
 
           <p style={modalStyles.hint}>
-            Vaccine and blood test requests will be forwarded to the Municipal Veterinarian. Odor control and fly control requests will be reviewed by the Administrator.
+            Farm biosecurity and blood test requests will be forwarded to the Municipal Veterinarian. Odor control and fly control requests will be reviewed by LGU Staff.
           </p>
 
           <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
@@ -445,7 +449,7 @@ function RequestModal({ onClose, onSuccess, isMobile, initialServiceType, farmId
               disabled={loading}
               style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}), ...(loading ? modalStyles.btnDisabled : {}) }}
             >
-              {loading ? 'Submitting...' : 'Submit Request'}
+              {loading ? <BtnBusy label="Submitting…" /> : 'Submit Request'}
             </button>
           </div>
         </form>
@@ -471,8 +475,11 @@ const styles = {
   newBtnMobile: { width: '100%', boxSizing: 'border-box' },
 
   tabsRow: { display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '12px', marginBottom: '18px', borderBottom: '1px solid #e7e8e0', flexWrap: 'wrap' },
-  tabs: { display: 'flex', gap: '4px', marginBottom: '18px', borderBottom: '1px solid #e7e8e0' },
-  tab: { padding: '10px 16px', fontSize: '14px', fontWeight: 600, color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent' },
+  // minWidth 0 is what lets overflowX work: without it a flex item refuses
+  // to be narrower than its contents, so the row pushed the whole page
+  // sideways instead of scrolling inside itself.
+  tabs: { display: 'flex', gap: '4px', marginBottom: '18px', borderBottom: '1px solid #e7e8e0', overflowX: 'auto', minWidth: 0, flexWrap: 'nowrap', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', },
+  tab: { padding: '10px 16px', fontSize: '14px', fontWeight: 600, color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap', flexShrink: 0, },
   tabActive: { color: '#2c8047', fontWeight: 700, borderBottom: '2px solid #2c8047' },
 
   empty: { padding: '40px', textAlign: 'center', color: '#9aa79d', fontSize: '14px' },
@@ -501,7 +508,7 @@ const styles = {
   cardMobile: { padding: '14px 16px', borderBottom: '1px solid #f2f3ed' },
   cardMobileTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' },
   cardMobileGrid: {
-    display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px',
+    display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '10px',
     marginTop: '12px', padding: '10px 12px', backgroundColor: '#fafaf7', borderRadius: '9px',
   },
   cardMobileLabel: { fontSize: '13px', fontWeight: 600, color: '#9aa79d' },
@@ -520,7 +527,7 @@ const paginationStyles = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     padding: '14px 16px', borderTop: '1px solid #f2f3ed', flexWrap: 'wrap', gap: '10px',
   },
-  wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  wrapMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch' },
   info: { fontSize: '12px', color: '#9aa79d', whiteSpace: 'nowrap' },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },

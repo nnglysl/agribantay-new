@@ -18,6 +18,7 @@ class Inspection extends Model
         'scheduled_at',
         'previous_scheduled_at',
         'reschedule_reason',
+        'cancellation_reason',
         'completed_at',
     ];
 

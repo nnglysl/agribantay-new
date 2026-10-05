@@ -39,11 +39,6 @@ class Farm extends Model
         return $this->belongsTo(User::class);
     }
 
-    public function poultryHouses()
-    {
-        return $this->hasMany(PoultryHouse::class);
-    }
-
     public function sensorReadings()
     {
         return $this->hasMany(SensorReading::class);
@@ -90,11 +85,6 @@ class Farm extends Model
             ['performed_at' => 'max', 'id' => 'max'],
             fn ($q) => $q->where('maintenance_type', 'Full Manure Clean-out')
         );
-    }
-
-    public function recommendations()
-    {
-        return $this->hasMany(Recommendation::class);
     }
 
     public function aiRecommendations()

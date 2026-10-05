@@ -15,5 +15,5 @@ export function sanitizePhoneInput(value) {
   return (value || '').replace(/\D/g, '').slice(0, PH_MOBILE_MAX_LENGTH)
 }
 
-export const PHONE_VALIDATION_MESSAGE = 'Please enter a valid Philippine mobile number (e.g. 09171234567).'
-export const PHONE_INCOMPLETE_MESSAGE = 'Mobile number is incomplete. It must be 11 digits (e.g. 09171234567).'
+export const PHONE_VALIDATION_MESSAGE = 'Please enter a valid mobile number.'
+export const PHONE_INCOMPLETE_MESSAGE = 'Mobile number must be 11 digits.'

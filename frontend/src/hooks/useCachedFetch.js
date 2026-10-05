@@ -3,6 +3,33 @@ import api from '../api/axios'
 
 const cache = new Map()
 
+// Every mounted useCachedFetch registers itself here as cacheKey -> Set of
+// "re-run your fetch" callbacks.
+//
+// Without this, invalidateCache() only emptied the Map. A hook that was
+// already mounted kept rendering the copy it had put in React state, so after
+// a successful mutation the screen stayed stale until the component remounted
+// — which is exactly why a manual browser reload appeared to be required. The
+// component that performed the mutation could call its own refetch(), but no
+// OTHER mounted view sharing that data ever heard about it.
+//
+// Invalidation now also wakes those views. Nothing polls and nothing reloads
+// the page: a refetch happens only when a caller explicitly invalidates after
+// the backend confirmed a change.
+const subscribers = new Map()
+
+function subscribe(cacheKey, notify) {
+  if (!subscribers.has(cacheKey)) subscribers.set(cacheKey, new Set())
+  subscribers.get(cacheKey).add(notify)
+
+  return () => {
+    const set = subscribers.get(cacheKey)
+    if (!set) return
+    set.delete(notify)
+    if (set.size === 0) subscribers.delete(cacheKey)
+  }
+}
+
 // In-flight GETs keyed the same way as `cache`, so two components mounting
 // with the same url+params at the same time (e.g. the dashboard's map and
 // the Farms table both wanting /admin/farms-map) share ONE request instead
@@ -118,6 +145,16 @@ export function useCachedFetch(url, params = {}, options = {}) {
     return () => { cancelled = true }
   }, [cacheKey, refetchTrigger, url])
 
+  // Re-fetch when someone invalidates this key after a successful mutation.
+  // Bumping the same trigger the manual refetch() uses means there is only one
+  // code path that re-runs a fetch, and concurrent hooks on the same key still
+  // collapse into a single request via fetchShared().
+  useEffect(() => {
+    if (!cacheKey) return undefined
+
+    return subscribe(cacheKey, () => setRefetchTrigger(prev => prev + 1))
+  }, [cacheKey])
+
   // Background polling — see the header comment.
   useEffect(() => {
     if (!url || !pollMs) return undefined
@@ -173,10 +210,20 @@ export function useCachedFetch(url, params = {}, options = {}) {
 // Keys are stored as `${role}::${url}${params}` (see currentRoleKey above),
 // so the role prefix has to be stripped before matching against `prefix`.
 export function invalidateCache(prefix) {
+  const urlOf = key => (key.includes('::') ? key.slice(key.indexOf('::') + 2) : key)
+
   for (const key of cache.keys()) {
-    const url = key.includes('::') ? key.slice(key.indexOf('::') + 2) : key
-    if (url.startsWith(prefix)) cache.delete(key)
+    if (urlOf(key).startsWith(prefix)) cache.delete(key)
   }
+
+  // Then wake any view currently showing this data so it reloads itself.
+  // Collected before notifying because a notified hook may unsubscribe while
+  // we iterate.
+  const toNotify = []
+  for (const [key, set] of subscribers) {
+    if (urlOf(key).startsWith(prefix)) toNotify.push(...set)
+  }
+  toNotify.forEach(notify => notify())
 }
 
 // Wipes the entire cache — call this on login/logout. Many endpoints (e.g.

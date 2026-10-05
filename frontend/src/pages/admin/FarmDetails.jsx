@@ -1,9 +1,13 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
+import { AMMONIA_UNIT } from '../../utils/ammonia'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
+import TableScroll from '../../components/TableScroll'
 import SharedPagination from '../../components/Pagination'
 import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 import { useCachedFetch, invalidateCache } from '../../hooks/useCachedFetch'
+import { LIVE_POLL_MS } from '../../constants/polling'
+import DeviceKeyField from '../../components/DeviceKeyField'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import api from '../../api/axios'
 import { parseLocalDate, DISPLAY_TIME_ZONE } from '../../utils/formatDate'
@@ -14,9 +18,13 @@ import { serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from
 import VerifyEmailChangeModal from '../../components/VerifyEmailChangeModal'
 import FarmLocationMap from '../../components/FarmLocationMap'
 import { LOCATION_CONFLICT_MESSAGE, LOCATION_OUTSIDE_MESSAGE, isInsideSanJose } from '../../utils/farmLocation'
+import { SectionLoader, BtnBusy } from '../../components/Loading'
 
 const FARM_SIZES = ['Small', 'Medium', 'Large']
-const PAGE_SIZE_OPTIONS = [10, 25, 50]
+// 5 is here because the Monitoring tables default to it — a select that
+// cannot show its own current value reads as a bug even when the table is
+// paging correctly.
+const PAGE_SIZE_OPTIONS = [5, 10, 25, 50]
 
 const INSPECTION_TYPES = ['General Inspection', 'Follow-up']
 // Regular Admin only ever sees Odor/Fly Control here (Vaccine/Blood Test
@@ -46,20 +54,16 @@ function formatRegistrationDate(value) {
   if (!value) return '—'
   const d = new Date(value)
   if (isNaN(d.getTime())) return '—'
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  // Pinned to Manila. Without it this renders in the VIEWER'S timezone, so a
+  // record created at 3am Manila (7pm UTC the day before) showed the previous
+  // day on any machine not set to PH time.
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: DISPLAY_TIME_ZONE })
 }
 
 function maintBadgeColor(status) {
   if (status === 'Non-Compliant') return '#b91c1c'
   if (status === 'Overdue') return '#b45309'
   return '#2c8047'
-}
-
-function getExplanationText(insight) {
-  const exp = insight?.explanation
-  if (typeof exp === 'string') return exp
-  if (exp && typeof exp === 'object') return exp.explanation_en || null
-  return null
 }
 
 const STATUS = {
@@ -70,16 +74,11 @@ const STATUS = {
   Offline:  { color: '#6b7280', bg: '#eef1ea', border: '#e0e3da' },
 }
 
-const OVERALL_HERO = {
-  Safe:     { fill: '#2c8047', iconName: 'health_and_safety', title: 'Safe' },
-  Warning:  { fill: '#b45309', iconName: 'warning', title: 'Warning' },
-  Critical: { fill: '#b91c1c', iconName: 'e911_emergency', title: 'Critical' },
-  'Pending Setup': { fill: '#6b7280', iconName: 'settings', title: 'Pending Setup' },
-  Offline:  { fill: '#6b7280', iconName: 'sensors_off', title: 'Offline' },
-}
-
 const TABS = [
   { key: 'info', label: 'Farm Information' },
+  // Condition-right-now, kept out of 'Farm Information' — that tab answers
+  // who and where the farm is, which does not change minute to minute.
+  { key: 'monitoring', label: 'Monitoring' },
   { key: 'cleanout', label: 'Manure Clean-out' },
   { key: 'disposal', label: 'Manure Disposal' },
   { key: 'inspections', label: 'Inspections' },
@@ -87,15 +86,7 @@ const TABS = [
   { key: 'devices', label: 'Devices' },
 ]
 
-const ICON_COLOR = '#2c8047'
-const iconBase = { fill: 'none', stroke: ICON_COLOR, strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' }
 
-function WindIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" {...iconBase}><path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2" /><path d="M9.6 4.6A2 2 0 1 1 11 8H2" /><path d="M12.6 19.4A2 2 0 1 0 14 16H2" /></svg> }
-function ThermometerIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" {...iconBase}><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z" /></svg> }
-function DropletIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" {...iconBase}><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5S5 13 5 15a7 7 0 0 0 7 7z" /></svg> }
-function LeafIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" {...iconBase}><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" /><path d="M2 21c0-3 1.85-5.36 5.08-6" /></svg> }
-
-const SENSOR_ICON = { ammonia: WindIcon, temperature: ThermometerIcon, humidity: DropletIcon, moisture: LeafIcon }
 
 function PhotoIcon() {
   return (
@@ -134,11 +125,14 @@ export default function FarmDetails() {
   const [searchParams, setSearchParams] = useSearchParams()
   const isMobile = useIsMobile()
 
-  const { data: farm, loading, error, refetch } = useCachedFetch(`/admin/farms/${farmId}`)
+  const { data: farm, loading, error, refetch } = useCachedFetch(`/admin/farms/${farmId}`, {}, { pollMs: LIVE_POLL_MS })
   const [activeTab, setActiveTab] = useState('info')
 
   const [isEditingAccount, setIsEditingAccount] = useState(false)
-  const [editFullName, setEditFullName] = useState('')
+  // Held apart, because that is how they are stored. Merging them into one
+  // box meant the save had to guess where the first name ended.
+  const [editFirstName, setEditFirstName] = useState('')
+  const [editLastName, setEditLastName] = useState('')
   const [editMobileNumber, setEditMobileNumber] = useState('')
   const [editEmail, setEditEmail] = useState('')
   const [editPhoto, setEditPhoto] = useState(null)
@@ -158,6 +152,8 @@ export default function FarmDetails() {
   const [accountEditSuccess, setAccountEditSuccess] = useState('')
   const [accountSaving, setAccountSaving] = useState(false)
   const [pendingOwnerEmail, setPendingOwnerEmail] = useState(null)
+  const [resending, setResending] = useState(false)
+  const [resendResult, setResendResult] = useState(null)
 
   const [cleanoutPage, setCleanoutPage] = useState(1)
   const [disposalPage, setDisposalPage] = useState(1)
@@ -277,33 +273,79 @@ export default function FarmDetails() {
   const handleDisposalPageSizeChange = (size) => { setDisposalPageSize(size); setDisposalPage(1) }
   const handleInspectionPageSizeChange = (size) => { setInspectionPageSize(size); setInspectionPage(1) }
   const handleServiceRequestPageSizeChange = (size) => { setServiceRequestPageSize(size); setServiceRequestPage(1) }
-  // NOTE: this endpoint is a guess based on your existing URL pattern — confirm
-  // the real one (or add it) if it doesn't exist yet on the backend.
+  // Reuses the Alert History endpoint filtered to this farm. An earlier
+  // /admin/farms/{id}/alerts was assumed here and never existed, so this
+  // panel answered "No recent alerts" for every farm, including ones with
+  // open incidents sitting in the Alert History page.
   const { data: alertsData, loading: alertsLoading } = useCachedFetch(
-    activeTab === 'info' ? `/admin/farms/${farmId}/alerts` : null
+    activeTab === 'monitoring' ? '/admin/alert-history' : null,
+    { farm_id: farmId },
+    { pollMs: LIVE_POLL_MS }
   )
 
-  const reading = farm?.sensor_readings?.[0] ?? farm?.sensorReadings?.[0] ?? null
+  // Newest first, keyed on the ISO instant rather than the display string
+  // or on whatever order the rows happened to arrive in — so an alert that
+  // appears on the next poll lands in the right row, not at the bottom.
+  const sortedAlerts = useMemo(() => {
+    const at = row => {
+      const ms = Date.parse(row.triggered_at_raw)
+      return Number.isNaN(ms) ? 0 : ms
+    }
+    return [...(alertsData || [])].sort((a, b) => at(b) - at(a))
+  }, [alertsData])
+
+  // Both Monitoring tables page at five rows. A farm can hold ten houses
+  // and the alert list is unbounded, and neither is worth a page-length
+  // scroll to reach whatever sits under it.
+  const [devicePage, setDevicePage] = useState(1)
+  const [devicePageSize, setDevicePageSize] = useState(5)
+  const [alertPage, setAlertPage] = useState(1)
+  const [alertPageSize, setAlertPageSize] = useState(5)
+
   const initials = farm ? getInitials(farm.owner_name) : ''
   const isActive = farm?.status === 'Active'
-  // Online/Offline comes from the backend (sensors.last_seen_at vs the
-  // configured timeout) instead of "has this farm ever had a reading".
-  const isSensorOnline = farm?.connectivity === 'Online'
-  // The registered device (from the Devices tab) is the single source of
-  // truth for Device Name — shown here even before the device has ever
-  // sent a reading. Online/Offline and Last Synchronization stay tied to
-  // actual reading data (unchanged monitoring logic) since those reflect
-  // real communication, not just registration.
-  const registeredSensor = farm?.sensors?.[0] ?? null
-  const hasRegisteredDevice = !!registeredSensor
-  const deviceSensor = reading?.sensor ?? registeredSensor
-  const riskLevel = farm?.display_status || farm?.current_status || (reading ? 'Safe' : null)
-  const overall = STATUS[riskLevel] || STATUS.Offline
-  const overallHero = OVERALL_HERO[riskLevel] || OVERALL_HERO.Offline
 
-  const { data: insight, loading: insightLoading } = useCachedFetch(
-    reading && activeTab === 'info' ? `/admin/farms/${farmId}/root-cause` : null
-  )
+  // Two different things used to both read "Active" on this page: the pill
+  // beside the farm name (farms.status) and a field LABELLED "Account Status"
+  // that was also showing farms.status. The owner's real login state
+  // (users.status) was never displayed at all, so a farm owner locked out of
+  // the system still looked Active here. The pill now says which one it is,
+  // and this field reports the account.
+  // Shown only when it is NOT the normal state. As a permanent field reading
+  // "Can sign in" it was noise on every farm, and a field that always says the
+  // same thing stops being read — including on the one farm where it would
+  // have said "Sign-in disabled".
+  const ownerActive = farm?.user?.status === 'active'
+  const ownerSignInProblem = !farm?.user
+    ? 'This farm has no owner account, so nobody can sign in to it.'
+    : !ownerActive
+      ? 'This owner is deactivated and cannot sign in, even with a new password.'
+      : null
+
+  // A farm runs one device per poultry house, so this panel lists every
+  // registered unit with its OWN status. It used to be one comma-joined line
+  // sharing a single farm-level Online/Offline pill, which could not say
+  // which house had gone quiet. `device_list` is built by the backend;
+  // falling back to `sensors` keeps this readable if the API is older than
+  // the deployed frontend.
+  // Which metrics this page may badge. The server owns the list, so Admin
+  // and the farm owner always agree on whether a house is Critical.
+  const alertingMetrics = Array.isArray(farm?.alerting_metrics) && farm.alerting_metrics.length
+    ? farm.alerting_metrics
+    : ['ammonia']
+
+  const deviceList = farm?.device_list ?? (farm?.sensors ?? []).map(s => ({
+    id: s.id,
+    device_name: s.label || s.sensor_code,
+    status: s.status,
+    connectivity: farm?.connectivity === 'Online' ? 'Online' : 'Offline',
+    last_seen_at: s.last_seen_at,
+    installed_at: s.installed_at,
+  }))
+
+  // Only houses that have actually reported appear in the monitoring
+  // table, and the paging maths has to count the same list the rows do.
+  const reportingDevices = deviceList.filter(d => d.has_reading)
 
   const sortedCleanoutLogs = useMemo(() => {
     const list = cleanoutData?.logs || []
@@ -314,7 +356,14 @@ export default function FarmDetails() {
     })
   }, [cleanoutData, cleanoutSort])
 
+  // Served by the API from the canonical list plus anything this farm has
+  // actually stored, so every valid method is offered no matter which
+  // records landed on the current page. The old version read only the
+  // loaded page, so a method with no row on that page vanished from the
+  // filter. Falls back to deriving from the page if an older API build
+  // does not send the list.
   const disposalMethods = useMemo(() => {
+    if (disposalData?.disposal_methods?.length) return disposalData.disposal_methods
     const list = disposalData?.records || []
     return [...new Set(list.map(r => r.disposal_method).filter(Boolean))]
   }, [disposalData])
@@ -374,7 +423,9 @@ export default function FarmDetails() {
   }, [serviceRequestData, serviceRequestTypeFilter, serviceRequestFromDate, serviceRequestToDate])
 
   const startEditAccount = () => {
-    setEditFullName(farm.owner_name || '')
+    // From the stored columns, not by re-splitting the joined copy.
+    setEditFirstName(farm.user?.first_name || '')
+    setEditLastName(farm.user?.last_name || '')
     setEditMobileNumber(farm.mobile_number || '')
     setEditEmail(farm.user?.email || '')
     setEditPhoto(null)
@@ -396,6 +447,30 @@ export default function FarmDetails() {
     setIsEditingAccount(false)
     setEditPhoto(null)
     setAccountEditError('')
+  }
+
+  // Issues a fresh temporary password and texts it to the owner. The old
+  // password stops working immediately, so when the SMS fails the API hands
+  // the new one back for the Admin to relay by hand — otherwise the owner
+  // would be locked out with no way in short of editing the database.
+  const handleResendSms = async () => {
+    const ownerId = farm?.user?.id
+    if (!ownerId || resending) return
+
+    setResending(true)
+    setResendResult(null)
+
+    try {
+      const res = await api.post(`/admin/farms/${ownerId}/resend-sms`)
+      setResendResult(res.data)
+    } catch (err) {
+      setResendResult({
+        success: false,
+        message: err.response?.data?.message || 'Could not reach the server. Try again.',
+      })
+    } finally {
+      setResending(false)
+    }
   }
 
   const handleSaveAccount = async (e) => {
@@ -436,13 +511,10 @@ export default function FarmDetails() {
         await api.post(`/admin/farms/${farm.id}/email/otp/request`, { email: newEmail })
       }
 
-      const [firstName, ...rest] = editFullName.trim().split(' ')
-      const lastName = rest.join(' ')
-
       const formData = new FormData()
       formData.append('_method', 'PUT')
-      formData.append('first_name', firstName || '')
-      formData.append('last_name', lastName)
+      formData.append('first_name', editFirstName.trim())
+      formData.append('last_name', editLastName.trim())
       formData.append('mobile_number', editMobileNumber)
       // Clearing the email to blank isn't a "claim" of anything, so it's
       // still allowed to go straight through — only a NEW address is gated.
@@ -459,9 +531,16 @@ export default function FarmDetails() {
         formData.append('longitude', editPin.lng)
       }
 
-      await api.post(`/admin/farms/${farm.id}`, formData, {
+      const res = await api.post(`/admin/farms/${farm.id}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
+
+      // A 2xx that still reports success: false means the write did not
+      // land. Treated as a failure so the form can never claim a save the
+      // database did not make.
+      if (res.data?.success === false) {
+        throw new Error(res.data?.message || 'Unable to update the farm information. Please try again.')
+      }
       invalidateCache('/admin/farms')
       await refetch()
       setIsEditingAccount(false)
@@ -470,10 +549,12 @@ export default function FarmDetails() {
       if (emailChanged && newEmail) {
         setPendingOwnerEmail(newEmail)
       } else {
-        setAccountEditSuccess('Account updated successfully.')
+        // The server's own wording, so the confirmation comes from the
+        // response that proved the update rather than from a constant.
+        setAccountEditSuccess(res.data?.message || 'Farm information updated successfully.')
       }
     } catch (err) {
-      setAccountEditError(err.response?.data?.message || 'Failed to update account information.')
+      setAccountEditError(err.response?.data?.message || err.message || 'Unable to update the farm information. Please try again.')
     } finally {
       setAccountSaving(false)
     }
@@ -533,8 +614,14 @@ export default function FarmDetails() {
                 backgroundColor: isActive ? '#eaf3ec' : '#f0f1ec',
               }}>
                 <span style={{ ...styles.pillDot, backgroundColor: isActive ? '#2c8047' : '#6b7280' }} />
-                {farm.status}
+                Farm {farm.status}
               </span>
+              {farm.user && !ownerActive && (
+                <span style={{ ...styles.statusPill, color: "#b45309", backgroundColor: "#fbf1e2" }}>
+                  <span style={{ ...styles.pillDot, backgroundColor: "#b45309" }} />
+                  Owner sign-in disabled
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -575,7 +662,11 @@ export default function FarmDetails() {
                 />
 
                 <div style={{ ...acctStyles.row, ...(isMobile ? acctStyles.rowMobile : {}) }}>
-                  <FarmField label="Full Name" value={editFullName} onChange={setEditFullName} editing={isEditingAccount} display={farm.owner_name} />
+                  <FarmField label="First Name" value={editFirstName} onChange={setEditFirstName} editing={isEditingAccount} display={farm.user?.first_name} />
+                  <FarmField label="Last Name" value={editLastName} onChange={setEditLastName} editing={isEditingAccount} display={farm.user?.last_name} />
+                </div>
+
+                <div style={{ ...acctStyles.row, ...(isMobile ? acctStyles.rowMobile : {}) }}>
                   <FarmField
                     label="Mobile Number"
                     value={editMobileNumber}
@@ -586,12 +677,42 @@ export default function FarmDetails() {
                     inputMode="numeric"
                     maxLength={11}
                   />
+                  <FarmField label="Email Address" value={editEmail} onChange={setEditEmail} editing={isEditingAccount} display={farm.user?.email} type="email" />
                 </div>
 
-                <div style={{ ...acctStyles.row, ...(isMobile ? acctStyles.rowMobile : {}) }}>
-                  <FarmField label="Email Address" value={editEmail} onChange={setEditEmail} editing={isEditingAccount} display={farm.user?.email} type="email" />
-                  <FarmField label="Account Status" value={farm.status} onChange={() => {}} editing={false} display={farm.status} />
-                </div>
+                {!isEditingAccount && (
+                  <div style={styles.loginAccess}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={styles.loginAccessTitle}>Login access</div>
+                      <div style={styles.loginAccessHint}>
+                        Send the owner a new temporary password by SMS. Their current password stops working right away.
+                      </div>
+                      {/* Resending to a deactivated owner succeeds and still
+                          leaves them unable to log in, so the state is said
+                          here, next to the button that would be used. */}
+                      {ownerSignInProblem && (
+                        <div style={styles.loginAccessWarn}>{ownerSignInProblem}</div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleResendSms}
+                      disabled={resending}
+                      style={{ ...styles.loginAccessBtn, ...(resending ? styles.loginAccessBtnBusy : {}) }}
+                    >
+                      {resending ? 'Sending…' : 'Resend Password'}
+                    </button>
+                  </div>
+                )}
+
+                {resendResult && (
+                  <div style={resendResult.success ? styles.resendOk : styles.resendWarn}>
+                    <div>{resendResult.message}</div>
+                    {resendResult.temp_password && (
+                      <div style={styles.resendKey}>{resendResult.temp_password}</div>
+                    )}
+                  </div>
+                )}
 
                 <div style={styles.sectionDivider}>
                   <span style={styles.sectionDividerLabel}>Farm Details</span>
@@ -645,7 +766,7 @@ export default function FarmDetails() {
                       disabled={accountSaving}
                       style={{ ...acctStyles.saveBtn, ...(isMobile ? acctStyles.btnFull : {}) }}
                     >
-                      {accountSaving ? 'Saving...' : 'Save Changes'}
+                      {accountSaving ? <BtnBusy label="Saving…" /> : 'Save Changes'}
                     </button>
                     <button
                       type="button"
@@ -662,50 +783,79 @@ export default function FarmDetails() {
 
           <div style={styles.infoColumn}>
             <Card title="Sensor & Monitoring">
-              <div style={styles.infoGrid}>
-                <InfoCell label="Device Name" value={deviceSensor?.label || deviceSensor?.sensor_code} />
-                <div>
-                  <div style={styles.infoLabel}>Sensor Status</div>
-                  {hasRegisteredDevice ? (
-                    <span style={{
-                      ...styles.miniPill,
-                      color: isSensorOnline ? '#2c8047' : '#9ca3af',
-                      backgroundColor: isSensorOnline ? '#eaf3ec' : '#f0f1ec',
-                    }}>
-                      <span style={{ ...styles.pillDot, backgroundColor: isSensorOnline ? '#2c8047' : '#9ca3af' }} />
-                      {isSensorOnline ? 'Online' : 'Offline'}
-                    </span>
-                  ) : (
-                    <span style={{ ...styles.miniPill, color: '#9ca3af', backgroundColor: '#f0f1ec' }}>
-                      <span style={{ ...styles.pillDot, backgroundColor: '#9ca3af' }} />
-                      Not Registered
-                    </span>
-                  )}
-                </div>
-                <InfoCell label="Last Synchronization" value={farm?.last_seen_at ? new Date(farm.last_seen_at).toLocaleString(undefined, { timeZone: DISPLAY_TIME_ZONE }) : null} />
-              </div>
+              <DeviceList devices={deviceList} />
             </Card>
+          </div>
+        </div>
+      )}
 
-            {reading && riskLevel ? (
+      {activeTab === 'monitoring' && (
+        <div style={styles.cardStack}>
+            {/* One block per poultry house. The farm-level `reading` used to
+                drive this panel is whichever house reported most recently, so
+                on a multi-house farm it showed one house's numbers under the
+                farm's name — and swapped between houses as they took turns
+                reporting. Each house now carries its own row. */}
+            {reportingDevices.length > 0 ? (
               <Card title="Current Monitoring Status">
-                <div style={{ ...styles.monitoringRow, ...(isMobile ? styles.monitoringRowMobile : {}) }}>
-                  <div style={{ ...styles.heroCard, backgroundColor: overallHero.fill }}>
-                    <span
-                      className="material-symbols-outlined"
-                      style={{ fontSize: '64px', color: '#fff', lineHeight: 1 }}
-                    >
-                      {overallHero.iconName}
-                    </span>
-                    <div style={styles.heroTitle}>{overallHero.title}</div>
-                  </div>
+                {/* A table, not one block per house. A farm runs one device
+                    per poultry house and the fleet rotates, so this panel has
+                    to stay readable at ten houses as well as two — a coloured
+                    hero card each made two houses fill the screen. */}
+                <TableScroll style={tableStyles.wrap}>
+                  <table style={{ ...tableStyles.table, minWidth: '826px' }}>
+                    <thead>
+                      <tr>
+                        <th style={tableStyles.th}>House / Device</th>
+                        <th style={tableStyles.th}>Ammonia</th>
+                        <th style={tableStyles.th}>Temperature</th>
+                        <th style={tableStyles.th}>Humidity</th>
+                        <th style={tableStyles.th}>Moisture</th>
+                        <th style={tableStyles.th}>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reportingDevices.slice((devicePage - 1) * devicePageSize, devicePage * devicePageSize).map(d => {
+                        const worst = worstOfDevice(d, alertingMetrics)
+                        const tone = STATUS[worst] || STATUS.Offline
+                        return (
+                          <tr key={d.id}>
+                            <td style={tableStyles.td}>
+                              <div style={monitorStyles.houseName}>{d.device_name}</div>
+                              <div style={monitorStyles.houseSub}>{d.connectivity}</div>
+                            </td>
+                            <MonitorCell device={d} metric="ammonia" unit={AMMONIA_UNIT} alerting={alertingMetrics} />
+                            <MonitorCell device={d} metric="temperature" unit="°C" alerting={alertingMetrics} />
+                            <MonitorCell device={d} metric="humidity" unit="%" alerting={alertingMetrics} />
+                            <MonitorCell device={d} metric="moisture" unit="%" alerting={alertingMetrics} />
+                            <td style={tableStyles.td}>
+                              <span style={{
+                                ...styles.miniPill,
+                                color: tone.color,
+                                backgroundColor: tone.bg || '#f0f1ec',
+                              }}>
+                                {worst}
+                              </span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </TableScroll>
 
-                  <div style={styles.metricGrid}>
-                    <MetricBox type="ammonia" label="Ammonia" value={reading.ammonia} unit="ppm" status={reading.ammonia_status} />
-                    <MetricBox type="temperature" label="Temperature" value={reading.temperature} unit="°C" status={reading.temperature_status} />
-                    <MetricBox type="humidity" label="Humidity" value={reading.humidity} unit="%" status={reading.humidity_status} />
-                    <MetricBox type="moisture" label="Moisture" value={reading.moisture} unit="%" status={reading.moisture_status} />
-                  </div>
-                </div>
+                {/* The same control every other tab on this page uses, shown
+                    unconditionally — a footer that appears only past five rows
+                    makes the page look different from one farm to the next. */}
+                <Pagination
+                  currentPage={devicePage}
+                  lastPage={Math.max(1, Math.ceil(reportingDevices.length / devicePageSize))}
+                  pageSize={devicePageSize}
+                  total={reportingDevices.length}
+                  onPageChange={setDevicePage}
+                  onPageSizeChange={(size) => { setDevicePageSize(size); setDevicePage(1) }}
+                  isMobile={isMobile}
+                />
               </Card>
             ) : (
               <Card title="Current Monitoring Status">
@@ -713,63 +863,56 @@ export default function FarmDetails() {
               </Card>
             )}
 
-            {reading && (
-              <Card title="AI Insight">
-                {insightLoading && <div style={styles.empty}>Analyzing sensor data…</div>}
-                {!insightLoading && insight && (
-                  <div style={styles.insightCard}>
-                    <div style={styles.insightHeader}>
-                      <span style={styles.insightRootCause}>{insight.diagnosis.root_cause}</span>
-                      <span style={{ ...styles.confidenceTag, color: overall.color, backgroundColor: overall.bg }}>
-                        {insight.diagnosis.confidence}% confidence
-                      </span>
-                    </div>
-                    {getExplanationText(insight) ? (
-                      <p style={styles.insightExplanation}>{getExplanationText(insight)}</p>
-                    ) : (
-                      <p style={styles.insightExplanationUnavailable}>Explanation unavailable right now — the diagnosis above is still accurate.</p>
-                    )}
-                  </div>
-                )}
-                {!insightLoading && !insight && <div style={styles.empty}>Insight unavailable for this farm right now.</div>}
-              </Card>
-            )}
-
             <Card title="Recent Alerts">
-              {alertsLoading && <div style={styles.empty}>Loading…</div>}
+              {alertsLoading && <SectionLoader />}
               {!alertsLoading && (alertsData?.length ?? 0) === 0 && (
                 <div style={styles.empty}>No recent alerts for this farm.</div>
               )}
               {!alertsLoading && alertsData?.length > 0 && (
-                <div style={tableStyles.wrap}>
-                  <table style={tableStyles.table}>
+                <TableScroll style={tableStyles.wrap}>
+                  <table style={{ ...tableStyles.table, minWidth: '826px' }}>
                     <thead>
                       <tr>
-                        <th style={tableStyles.th}>Date & Time</th>
-                        <th style={tableStyles.th}>Type</th>
+                        <th style={tableStyles.th}>Triggered</th>
+                        <th style={tableStyles.th}>House</th>
+                        <th style={tableStyles.th}>Sensor</th>
                         <th style={tableStyles.th}>Reading</th>
-                        <th style={tableStyles.th}>Status</th>
-                        <th style={tableStyles.th}>Message</th>
+                        <th style={tableStyles.th}>Severity</th>
+                        <th style={tableStyles.th}>Duration</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {alertsData.map(a => (
+                      {sortedAlerts.slice((alertPage - 1) * alertPageSize, alertPage * alertPageSize).map(a => (
                         <tr key={a.id}>
-                          <td style={tableStyles.td}>{new Date(a.created_at).toLocaleString(undefined, { timeZone: DISPLAY_TIME_ZONE })}</td>
-                          <td style={tableStyles.td}>{a.type}</td>
-                          <td style={tableStyles.td}>{a.reading}</td>
+                          <td style={tableStyles.td}>{a.triggered_at}</td>
+                          <td style={tableStyles.td}>{a.device_name || '—'}</td>
+                          <td style={tableStyles.td}>{a.sensor_type}</td>
+                          <td style={tableStyles.td}>{a.value}</td>
                           <td style={tableStyles.td}>
                             <span style={{ color: (STATUS[a.status] || STATUS.Offline).color, fontWeight: 700 }}>{a.status}</span>
                           </td>
-                          <td style={tableStyles.td}>{a.message}</td>
+                          <td style={tableStyles.td}>
+                            {a.duration}{a.is_ongoing ? ' · ongoing' : ''}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                </div>
+                </TableScroll>
+              )}
+
+              {!alertsLoading && (
+                <Pagination
+                  currentPage={alertPage}
+                  lastPage={Math.max(1, Math.ceil((alertsData?.length ?? 0) / alertPageSize))}
+                  pageSize={alertPageSize}
+                  total={alertsData?.length ?? 0}
+                  onPageChange={setAlertPage}
+                  onPageSizeChange={(size) => { setAlertPageSize(size); setAlertPage(1) }}
+                  isMobile={isMobile}
+                />
               )}
             </Card>
-          </div>
         </div>
       )}
 
@@ -780,14 +923,14 @@ export default function FarmDetails() {
             <InfoCell label="Days Since" value={farm.maintenance_status ? `${farm.maintenance_status.days_since} of ~${farm.maintenance_status.expected_interval_days} expected` : null} />
           </div>
 
-          {cleanoutLoading && <div style={styles.empty}>Loading…</div>}
+          {cleanoutLoading && <SectionLoader />}
           {!cleanoutLoading && (cleanoutData?.logs?.length ?? 0) === 0 && (
             <div style={styles.empty}>No clean-out records logged for this farm yet.</div>
           )}
           {!cleanoutLoading && cleanoutData?.logs?.length > 0 && (
             <>
-              <div style={tableStyles.wrap}>
-                <table style={tableStyles.table}>
+              <TableScroll style={tableStyles.wrap}>
+                <table style={{ ...tableStyles.table, minWidth: '520px' }}>
                   <thead>
                     <tr>
                       <th style={{ ...tableStyles.th, ...tableStyles.thSortable }} onClick={() => setCleanoutSort(s => (s === 'asc' ? 'desc' : 'asc'))}>
@@ -809,7 +952,7 @@ export default function FarmDetails() {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </TableScroll>
               <Pagination
                 currentPage={cleanoutData.current_page}
                 lastPage={cleanoutData.last_page}
@@ -826,7 +969,7 @@ export default function FarmDetails() {
 
       {activeTab === 'disposal' && (
         <Card title="Manure Disposal Records">
-          {disposalLoading && <div style={styles.empty}>Loading…</div>}
+          {disposalLoading && <SectionLoader />}
           {!disposalLoading && (disposalData?.records?.length ?? 0) === 0 && (
             <div style={styles.empty}>No disposal records logged for this farm yet.</div>
           )}
@@ -866,8 +1009,8 @@ export default function FarmDetails() {
                 </div>
               </div>
 
-              <div style={tableStyles.wrap}>
-                <table style={tableStyles.table}>
+              <TableScroll style={tableStyles.wrap}>
+                <table style={{ ...tableStyles.table, minWidth: '708px' }}>
                   <thead>
                     <tr>
                       <th style={{ ...tableStyles.th, ...tableStyles.thSortable }} onClick={() => toggleDisposalSort('disposal_date')}>
@@ -895,7 +1038,7 @@ export default function FarmDetails() {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </TableScroll>
               <Pagination
                 currentPage={disposalData.current_page}
                 lastPage={disposalData.last_page}
@@ -912,7 +1055,7 @@ export default function FarmDetails() {
 
       {activeTab === 'inspections' && (
         <Card title="Inspection Summary">
-          {inspectionLoading && <div style={styles.empty}>Loading…</div>}
+          {inspectionLoading && <SectionLoader />}
           {!inspectionLoading && (inspectionData?.inspections?.length ?? 0) === 0 && (
             <div style={styles.empty}>No inspections recorded for this farm yet.</div>
           )}
@@ -952,8 +1095,8 @@ export default function FarmDetails() {
                 </div>
               </div>
 
-              <div style={tableStyles.wrap}>
-                <table style={tableStyles.table}>
+              <TableScroll style={tableStyles.wrap}>
+                <table style={{ ...tableStyles.table, minWidth: '708px' }}>
                   <thead>
                     <tr>
                       <th style={{ ...tableStyles.th, ...tableStyles.thSortable }} onClick={() => toggleInspectionSort('type')}>
@@ -963,6 +1106,7 @@ export default function FarmDetails() {
                       <th style={{ ...tableStyles.th, ...tableStyles.thSortable }} onClick={() => toggleInspectionSort('date')}>
                         Date {inspectionSort.field === 'date' && (inspectionSort.dir === 'asc' ? '▲' : '▼')}
                       </th>
+                      <th style={tableStyles.th}>Scheduled By</th>
                       <th style={{ ...tableStyles.th, textAlign: 'right' }}>Action</th>
                     </tr>
                   </thead>
@@ -980,6 +1124,9 @@ export default function FarmDetails() {
                             }}>{i.status}</span>
                           </td>
                           <td style={tableStyles.td}>{done ? i.completed_at : i.scheduled_at}</td>
+                          {/* The Staff account stored on the record. Dash for rows
+                              created before scheduled_by existed. */}
+                          <td style={tableStyles.td}>{i.scheduled_by_name || '—'}</td>
                           <td style={{ ...tableStyles.td, textAlign: 'right' }}>
                             <span style={tableStyles.viewLink} onClick={() => setInspectionViewRecord(i)}>View</span>
                           </td>
@@ -988,7 +1135,7 @@ export default function FarmDetails() {
                     })}
                   </tbody>
                 </table>
-              </div>
+              </TableScroll>
               <Pagination
                 currentPage={inspectionData.current_page}
                 lastPage={inspectionData.last_page}
@@ -1005,7 +1152,7 @@ export default function FarmDetails() {
 
       {activeTab === 'servicerequests' && (
         <Card title="Service Requests">
-          {serviceRequestLoading && <div style={styles.empty}>Loading…</div>}
+          {serviceRequestLoading && <SectionLoader />}
           {!serviceRequestLoading && (serviceRequestData?.requests?.length ?? 0) === 0 && (
             <div style={styles.empty}>No service requests recorded for this farm yet.</div>
           )}
@@ -1045,8 +1192,8 @@ export default function FarmDetails() {
                 </div>
               </div>
 
-              <div style={tableStyles.wrap}>
-                <table style={tableStyles.table}>
+              <TableScroll style={tableStyles.wrap}>
+                <table style={{ ...tableStyles.table, minWidth: '826px' }}>
                   <thead>
                     <tr>
                       <th style={tableStyles.th}>Request Type</th>
@@ -1080,7 +1227,7 @@ export default function FarmDetails() {
                     })}
                   </tbody>
                 </table>
-              </div>
+              </TableScroll>
               <Pagination
                 currentPage={serviceRequestData.current_page}
                 lastPage={serviceRequestData.last_page}
@@ -1157,6 +1304,7 @@ export default function FarmDetails() {
               label: inspectionViewRecord.status === 'Completed' ? 'Completed' : 'Scheduled',
               value: inspectionViewRecord.status === 'Completed' ? inspectionViewRecord.completed_at : inspectionViewRecord.scheduled_at,
             },
+            { label: 'Scheduled By', value: inspectionViewRecord.scheduled_by_name || '—' },
           ]}
         />
       )}
@@ -1203,6 +1351,136 @@ function Card({ title, children, badge, badgeColor, action }) {
   )
 }
 
+
+// Per-device rows instead of one comma-joined "Device Names" cell. A farm
+// runs one unit per poultry house, so the question an Admin actually has is
+// "which house stopped reporting" — a shared farm-level pill cannot answer
+// that, and the joined line got unreadable past two devices.
+const DEVICE_TONE = {
+  Online: { fg: '#2c8047', bg: '#eaf3ec' },
+  Offline: { fg: '#b45309', bg: '#fbf1e2' },
+  Unassigned: { fg: '#9ca3af', bg: '#f0f1ec' },
+}
+
+
+// Worst of a house's four metrics — the same "worst wins" rule the reading
+// truth table uses, so a house summarised as Safe never hides a Critical.
+const DEVICE_SEVERITY = { Safe: 0, Warning: 1, Critical: 2 }
+
+/**
+ * Worst status across a house's ALERTING metrics.
+ *
+ * Temperature and humidity are advisory — measured and shown, but they no
+ * longer set a level. Scoring them here would have this page call a farm
+ * Critical on a 31 C reading while the owner's own dashboard, which already
+ * honours the same config, shows Safe.
+ */
+function worstOfDevice(device, alerting = ['ammonia']) {
+  return ['ammonia', 'temperature', 'humidity', 'moisture'].filter(m => alerting.includes(m)).reduce((acc, metric) => {
+    const status = device[`${metric}_status`]
+    if (!status || !(status in DEVICE_SEVERITY)) return acc
+    return DEVICE_SEVERITY[status] > DEVICE_SEVERITY[acc] ? status : acc
+  }, 'Safe')
+}
+
+const monitorStyles = {
+  houseName: { fontSize: '13.5px', fontWeight: 800, color: '#16311d', lineHeight: 1.3 },
+  houseSub: { fontSize: '11.5px', color: '#9aa79d', marginTop: '4px', lineHeight: 1.3 },
+  cellValue: { fontSize: '13px', fontWeight: 700, color: '#16311d', lineHeight: 1.3 },
+  // The reading is the figure; the status is a note about it. They were
+  // the same weight 2px apart, which read as one glued block rather than
+  // a value with a label under it. Lighter and further down, so the eye
+  // lands on the number first.
+  cellStatus: { fontSize: '11px', fontWeight: 600, marginTop: '5px', lineHeight: 1.3, letterSpacing: '0.01em' },
+}
+
+/**
+ * One reading in the monitoring table.
+ *
+ * An advisory metric renders the number alone. A badge is a judgement, and
+ * these carry none any more — showing one next to a reading the system will
+ * not act on teaches the reader to discount the colour, which then costs
+ * something when ammonia really is badged.
+ */
+function MonitorCell({ device, metric, unit, alerting }) {
+  const value = device[metric]
+  const status = device[`${metric}_status`]
+
+  if (value === null || value === undefined) {
+    return <td style={tableStyles.td}><span style={styles.muted}>&mdash;</span></td>
+  }
+
+  const shown = `${value}${unit ? ` ${unit}` : ''}`
+
+  if (!alerting.includes(metric) || !status) {
+    return <td style={tableStyles.td}><span style={monitorStyles.cellValue}>{shown}</span></td>
+  }
+
+  const tone = STATUS[status] || STATUS.Offline
+  return (
+    <td style={tableStyles.td}>
+      <div style={monitorStyles.cellValue}>{shown}</div>
+      <div style={{ ...monitorStyles.cellStatus, color: tone.color }}>{status}</div>
+    </td>
+  )
+}
+function DeviceList({ devices }) {
+  if (!devices.length) {
+    return (
+      <div style={devicePanel.empty}>
+        No device is registered to this farm yet. Register the unit under Devices, then assign it here.
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <p style={devicePanel.caption}>
+        {devices.length} device{devices.length === 1 ? '' : 's'} installed &mdash; one per poultry house.
+      </p>
+      <ul style={devicePanel.list}>
+        {devices.map(d => {
+          const tone = DEVICE_TONE[d.connectivity] || DEVICE_TONE.Unassigned
+          return (
+            <li key={d.id} style={devicePanel.item}>
+              <div style={devicePanel.itemMain}>
+                <span style={devicePanel.name}>{d.device_name}</span>
+                {d.status !== 'Active' && <span style={devicePanel.inactive}>Inactive</span>}
+              </div>
+              <div style={devicePanel.itemSide}>
+                <span style={{ ...styles.miniPill, color: tone.fg, backgroundColor: tone.bg }}>
+                  <span style={{ ...styles.pillDot, backgroundColor: tone.fg }} />
+                  {d.connectivity}
+                </span>
+                <span style={devicePanel.seen}>
+                  {d.last_seen_at
+                    ? `Last sync ${new Date(d.last_seen_at).toLocaleString(undefined, { timeZone: DISPLAY_TIME_ZONE })}`
+                    : 'No readings yet'}
+                </span>
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </>
+  )
+}
+
+const devicePanel = {
+  caption: { fontSize: '11.5px', color: '#9aa79d', margin: '0 0 10px' },
+  empty: { fontSize: '13px', color: '#8a968d', lineHeight: 1.55 },
+  list: { listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '8px' },
+  item: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
+    flexWrap: 'wrap', padding: '11px 14px', borderRadius: '10px',
+    border: '1px solid #eceee7', backgroundColor: '#fafbf8',
+  },
+  itemMain: { display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 },
+  itemSide: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginLeft: 'auto' },
+  name: { fontSize: '13.5px', fontWeight: 700, color: '#16311d' },
+  inactive: { padding: '2px 8px', borderRadius: '999px', fontSize: '11px', fontWeight: 700, backgroundColor: '#f1f2ed', color: '#6b7770' },
+  seen: { fontSize: '11.5px', color: '#9aa79d', whiteSpace: 'nowrap' },
+}
 function InfoCell({ label, value }) {
   return (
     <div>
@@ -1280,27 +1558,6 @@ function EditIcon() {
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
     </svg>
-  )
-}
-
-function MetricBox({ type, label, value, unit, status }) {
-  const s = STATUS[status] || STATUS.Offline
-  const Icon = SENSOR_ICON[type]
-  return (
-    <div style={styles.metricBox}>
-      <div style={styles.metricBoxHead}>
-        {Icon && <Icon />}
-        <span style={styles.metricBoxLabel}>{label}</span>
-      </div>
-      <div style={styles.metricValueRow}>
-        <span style={styles.metricBoxValue}>
-          {value !== null && value !== undefined ? `${value} ${unit}` : '—'}
-        </span>
-      </div>
-      {status && (
-        <span style={{ ...styles.metricStatusWord, color: s.color }}>{status}</span>
-      )}
-    </div>
   )
 }
 
@@ -1416,26 +1673,38 @@ function RecordDetailModal({ title, rows, photoUrl, onPhotoClick, onClose }) {
   )
 }
 
-// The physical devices rotate between farms, so this tab manages the
-// device's CURRENT assignment only. Device Name and Device Key never change
-// here, and reassigning never touches historical readings — the backend
-// stamps farm_id on each reading at ingestion time.
+// Each farm owner owns the device installed on their farm, so a farm runs
+// one Active device and there is no move-between-farms action here. Unassign
+// covers the real cases: damaged, under repair, retired, or being replaced.
+// Unassigning never touches historical readings — the backend stamps farm_id
+// and sensor_id on each reading at ingestion time, so a replaced device's
+// old readings keep pointing at it and at this farm.
 function DevicesSection({ farmId, farmName, onDeviceChange }) {
-  const { data: sensors, loading, error, refetch } = useCachedFetch(`/admin/farms/${farmId}/sensors`)
-  // Devices that are between farms (farm_id = null). Listed here so a unit
-  // that was unassigned from another farm can be picked up by this one
-  // without a separate Devices module.
+  const { data: sensors, loading, error, refetch } = useCachedFetch(`/admin/farms/${farmId}/sensors`, {}, { pollMs: LIVE_POLL_MS })
+  // Devices with no current farm (farm_id = null) — a unit that was
+  // unassigned for repair/replacement, listed here so it can be put back on
+  // a farm without a separate Devices module.
   const { data: allSensors, refetch: refetchAll } = useCachedFetch('/admin/sensors')
   const [showRegister, setShowRegister] = useState(false)
   const [editSensor, setEditSensor] = useState(null)
-  const [reassignSensor, setReassignSensor] = useState(null)
   const [unassignSensor, setUnassignSensor] = useState(null)
   const [assignSensor, setAssignSensor] = useState(null)
   const list = sensors || []
-  const unassigned = (allSensors || []).filter(s => !s.farm_id)
+
+  // After turnover the LGU has the sticker in hand, so the Device Key printed
+  // on it is the natural way to find the right unit. Matches the Device Name
+  // too, and is a plain client-side filter over the already-loaded list.
+  const [deviceSearch, setDeviceSearch] = useState('')
+  const pool = (allSensors || []).filter(s => !s.farm_id)
+  const needle = deviceSearch.trim().toUpperCase()
+  const unassigned = needle
+    ? pool.filter(s =>
+        (s.device_key || '').toUpperCase().includes(needle) ||
+        (s.device_name || '').toUpperCase().includes(needle))
+    : pool
 
   const handleChanged = () => {
-    // A move affects the other farm's Devices tab and the Farms list too.
+    // An assignment change affects the Farms list and the unassigned pool too.
     invalidateCache('/admin/farms')
     invalidateCache('/admin/sensors')
     refetch()
@@ -1474,15 +1743,12 @@ function DevicesSection({ farmId, farmName, onDeviceChange }) {
                   <span style={{ fontSize: '14px', fontWeight: 700, color: '#16311d' }}>{s.device_name}</span>
                   {statusPill(s)}
                 </div>
-                <div style={{ fontSize: '12px', color: '#6b7770', marginTop: '3px', fontFamily: 'monospace' }}>
-                  {s.device_key}
-                </div>
+                <DeviceKeyField deviceKey={s.device_key} />
                 <div style={{ fontSize: '11.5px', color: '#9aa79d', marginTop: '3px' }}>
                   Installed {s.installed_at}{s.last_seen_at && ` · Last seen ${s.last_seen_at}`}
                 </div>
               </div>
               <div style={deviceStyles.rowActions}>
-                <button type="button" style={deviceStyles.editBtn} onClick={() => setReassignSensor(s)}>Reassign</button>
                 <button type="button" style={deviceStyles.editBtn} onClick={() => setUnassignSensor(s)}>Unassign</button>
                 <button type="button" style={deviceStyles.editBtn} onClick={() => setEditSensor(s)}>Edit</button>
               </div>
@@ -1491,9 +1757,18 @@ function DevicesSection({ farmId, farmName, onDeviceChange }) {
         </div>
       )}
 
-      {unassigned.length > 0 && (
+      {pool.length > 0 && (
         <div style={{ marginTop: '22px' }}>
           <div style={deviceStyles.subheading}>Unassigned Devices</div>
+          <input
+            value={deviceSearch}
+            onChange={e => setDeviceSearch(e.target.value)}
+            placeholder="Search by Device Key or Device Name (from the sticker)"
+            style={deviceStyles.searchInput}
+          />
+          {unassigned.length === 0 && (
+            <div style={styles.empty}>No unassigned device matches that key.</div>
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {unassigned.map(s => (
               <div key={s.id} style={deviceStyles.row}>
@@ -1502,16 +1777,22 @@ function DevicesSection({ farmId, farmName, onDeviceChange }) {
                     <span style={{ fontSize: '14px', fontWeight: 700, color: '#16311d' }}>{s.device_name}</span>
                     {statusPill(s)}
                   </div>
-                  <div style={{ fontSize: '12px', color: '#6b7770', marginTop: '3px', fontFamily: 'monospace' }}>
-                    {s.device_key}
-                  </div>
+                  <DeviceKeyField deviceKey={s.device_key} />
                   <div style={{ fontSize: '11.5px', color: '#9aa79d', marginTop: '3px' }}>
                     Farm: <strong style={{ color: '#6b7770' }}>Unassigned</strong>
                     {s.last_seen_at && ` · Last seen ${s.last_seen_at}`}
                   </div>
                 </div>
                 <div style={deviceStyles.rowActions}>
-                  <button type="button" style={deviceStyles.editBtn} onClick={() => setAssignSensor(s)}>Assign to this farm</button>
+                  {/* A farm can hold several devices — one per poultry house —
+                      so this stays available no matter what is already here. */}
+                  <button
+                    type="button"
+                    style={deviceStyles.editBtn}
+                    onClick={() => setAssignSensor(s)}
+                  >
+                    Assign to this farm
+                  </button>
                 </div>
               </div>
             ))}
@@ -1521,7 +1802,6 @@ function DevicesSection({ farmId, farmName, onDeviceChange }) {
 
       {showRegister && (
         <RegisterDeviceModal
-          farmId={farmId}
           onClose={() => setShowRegister(false)}
           onSuccess={() => { setShowRegister(false); handleChanged() }}
         />
@@ -1532,16 +1812,6 @@ function DevicesSection({ farmId, farmName, onDeviceChange }) {
           sensor={editSensor}
           onClose={() => setEditSensor(null)}
           onSuccess={() => { setEditSensor(null); handleChanged() }}
-        />
-      )}
-
-      {reassignSensor && (
-        <ReassignDeviceModal
-          sensor={reassignSensor}
-          currentFarmId={farmId}
-          currentFarmName={farmName}
-          onClose={() => setReassignSensor(null)}
-          onSuccess={() => { setReassignSensor(null); handleChanged() }}
         />
       )}
 
@@ -1578,81 +1848,9 @@ function DeviceIdentity({ sensor, children }) {
       </div>
       <div style={deviceStyles.identityRow}>
         <span style={deviceStyles.identityLabel}>Device Key</span>
-        <span style={{ ...deviceStyles.identityValue, fontFamily: 'monospace' }}>{sensor.device_key}</span>
+        <DeviceKeyField deviceKey={sensor.device_key} label="" style={{ marginTop: 0, justifyContent: 'flex-end' }} />
       </div>
       {children}
-    </div>
-  )
-}
-
-function ReassignDeviceModal({ sensor, currentFarmId, currentFarmName, onClose, onSuccess }) {
-  const { data: farms, loading: farmsLoading } = useCachedFetch('/admin/farms')
-  const [targetFarmId, setTargetFarmId] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-
-  // The current farm is never a valid destination.
-  const options = (farms || []).filter(f => f.id !== currentFarmId)
-
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    if (!targetFarmId) return
-    setError('')
-    setLoading(true)
-    try {
-      await api.patch(`/admin/sensors/${sensor.id}/assign`, { farm_id: Number(targetFarmId) })
-      onSuccess()
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to reassign device.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <div style={deviceStyles.overlay} onClick={onClose}>
-      <div style={deviceStyles.modal} onClick={e => e.stopPropagation()}>
-        <div style={deviceStyles.header}>
-          <h3 style={deviceStyles.title}>Reassign Device</h3>
-          <span style={deviceStyles.close} onClick={onClose}>×</span>
-        </div>
-
-        <form onSubmit={handleSubmit}>
-          {error && <div style={deviceStyles.errorBox}>{error}</div>}
-
-          <DeviceIdentity sensor={sensor}>
-            <div style={deviceStyles.identityRow}>
-              <span style={deviceStyles.identityLabel}>Current Farm</span>
-              <span style={deviceStyles.identityValue}>{currentFarmName}</span>
-            </div>
-          </DeviceIdentity>
-
-          <label style={deviceStyles.label}>Assign to Farm *</label>
-          <select
-            value={targetFarmId}
-            onChange={e => setTargetFarmId(e.target.value)}
-            style={deviceStyles.inputFull}
-            required
-            autoFocus
-            disabled={farmsLoading}
-          >
-            <option value="">{farmsLoading ? 'Loading farms...' : 'Select another farm'}</option>
-            {options.map(f => (
-              <option key={f.id} value={f.id}>{f.farm_name} — {f.owner_name}</option>
-            ))}
-          </select>
-          <p style={deviceStyles.hint}>
-            Only the current farm assignment changes. Readings already collected here stay with {currentFarmName}.
-          </p>
-
-          <div style={deviceStyles.actions}>
-            <button type="button" onClick={onClose} style={deviceStyles.cancelBtn}>Cancel</button>
-            <button type="submit" disabled={loading || !targetFarmId} style={deviceStyles.submitBtn}>
-              {loading ? 'Reassigning...' : 'Reassign'}
-            </button>
-          </div>
-        </form>
-      </div>
     </div>
   )
 }
@@ -1688,13 +1886,13 @@ function UnassignDeviceModal({ sensor, onClose, onSuccess }) {
           Are you sure you want to unassign <strong>{sensor.device_name}</strong> from this farm?
         </p>
         <p style={deviceStyles.hint}>
-          The device stays registered and can be assigned to another farm later. This farm will show as Pending Setup until a device is assigned again.
+          Use this when the device is temporarily removed from the farm for repair, maintenance, replacement, or reassignment. The device will remain registered, and its previous readings will be preserved. New readings from an unassigned device will not be accepted until it is assigned to a farm again. This farm will show as Pending Setup while it has no active assigned device.
         </p>
 
         <div style={deviceStyles.actions}>
           <button type="button" onClick={onClose} style={deviceStyles.cancelBtn}>Cancel</button>
           <button type="button" onClick={handleConfirm} disabled={loading} style={deviceStyles.submitBtn}>
-            {loading ? 'Unassigning...' : 'Unassign'}
+            {loading ? <BtnBusy label="Unassigning…" /> : 'Unassign'}
           </button>
         </div>
       </div>
@@ -1739,7 +1937,7 @@ function AssignDeviceModal({ sensor, farmId, farmName, onClose, onSuccess }) {
         <div style={deviceStyles.actions}>
           <button type="button" onClick={onClose} style={deviceStyles.cancelBtn}>Cancel</button>
           <button type="button" onClick={handleConfirm} disabled={loading} style={deviceStyles.submitBtn}>
-            {loading ? 'Assigning...' : 'Assign'}
+            {loading ? <BtnBusy label="Assigning…" /> : 'Assign'}
           </button>
         </div>
       </div>
@@ -1747,7 +1945,12 @@ function AssignDeviceModal({ sensor, farmId, farmName, onClose, onSuccess }) {
   )
 }
 
-function RegisterDeviceModal({ farmId, onClose, onSuccess }) {
+// The Device Key is pre-provisioned: it is minted by the developer with the
+// artisan command, printed on the unit's sticker and flashed into its
+// firmware before turnover. Registration is where an Admin types that
+// existing key in, so the success screen only confirms what was stored — it
+// never echoes the key back, since whoever typed it already has it.
+function RegisterDeviceModal({ onClose, onSuccess }) {
   const [deviceName, setDeviceName] = useState('')
   const [deviceKey, setDeviceKey] = useState('')
   const [installedAt, setInstalledAt] = useState(() => new Date().toISOString().slice(0, 10))
@@ -1761,9 +1964,8 @@ function RegisterDeviceModal({ farmId, onClose, onSuccess }) {
     setLoading(true)
     try {
       const res = await api.post('/admin/sensors', {
-        farm_id: farmId,
         label: deviceName,
-        device_key: deviceKey,
+        device_key: deviceKey.trim(),
         installed_at: installedAt,
       })
       setRegistered(res.data.data)
@@ -1797,19 +1999,19 @@ function RegisterDeviceModal({ farmId, onClose, onSuccess }) {
                 autoFocus
               />
               <p style={deviceStyles.hint}>
-                Permanent name of the physical unit. It stays the same when the device is moved to another farm.
+                This is the name used to identify the device in the system. You can change it later.
               </p>
 
               <label style={deviceStyles.label}>Device Key *</label>
               <input
                 value={deviceKey}
-                onChange={e => setDeviceKey(e.target.value)}
-                placeholder="e.g. AGB-D01-X7K92"
+                onChange={e => setDeviceKey(e.target.value.toUpperCase())}
+                placeholder="AGB-XXXXXXXX"
                 style={deviceStyles.inputFull}
                 required
               />
               <p style={deviceStyles.hint}>
-                Enter the device_key printed/labeled on the physical sensor unit.
+                This key is already set in the device. Enter it correctly to connect the device to AgriBantay.
               </p>
 
               <label style={deviceStyles.label}>Installation Date *</label>
@@ -1821,30 +2023,52 @@ function RegisterDeviceModal({ farmId, onClose, onSuccess }) {
                 required
               />
               <p style={deviceStyles.hint}>
+                Select the date the device was installed.
+              </p>
+              <p style={deviceStyles.hint}>
                 Date the unit was first installed. Used only for record-keeping.
+              </p>
+
+              <p style={deviceStyles.hint}>
+                The device starts Unassigned — assign it to a farm after turnover.
               </p>
 
               <div style={deviceStyles.actions}>
                 <button type="button" onClick={onClose} style={deviceStyles.cancelBtn}>Cancel</button>
                 <button type="submit" disabled={loading} style={deviceStyles.submitBtn}>
-                  {loading ? 'Registering...' : 'Register Device'}
+                  {loading ? <BtnBusy label="Registering…" /> : 'Register Device'}
                 </button>
               </div>
             </form>
           </>
         ) : (
           <>
-            <div style={deviceStyles.header}>
-              <h3 style={deviceStyles.title}>Device Registered Successfully</h3>
+            <div style={deviceStyles.successTop}>
+              <div style={deviceStyles.successMark}>&#10003;</div>
+              <div>
+                <div style={deviceStyles.successHeadline}>Device registered</div>
+                <div style={deviceStyles.successSubline}>The system now recognises this unit.</div>
+              </div>
             </div>
 
-            <div style={deviceStyles.successBox}>
-              <div style={deviceStyles.successLabel}>Device Name</div>
-              <div style={deviceStyles.successCode}>{registered.device_name}</div>
-              <p style={deviceStyles.successHint}>
-                {registered.device_name} (<code>{registered.device_key}</code>) has been registered successfully and is ready for farm assignment.
-              </p>
+            <div style={deviceStyles.detailCard}>
+              <div style={deviceStyles.detailRow}>
+                <span style={deviceStyles.detailLabel}>Device Name</span>
+                <span style={deviceStyles.detailValue}>{registered.device_name}</span>
+              </div>
+              <div style={deviceStyles.detailRow}>
+                <span style={deviceStyles.detailLabel}>Device Key</span>
+                <span style={deviceStyles.detailMuted}>Stored &middot; hidden</span>
+              </div>
+              <div style={deviceStyles.detailRowLast}>
+                <span style={deviceStyles.detailLabel}>Assignment</span>
+                <span style={deviceStyles.detailMuted}>Unassigned</span>
+              </div>
             </div>
+
+            <p style={deviceStyles.successNote}>
+              Assign it to a farm so it can start recording readings. The key stays masked in the device list &mdash; use Show if you need to check it against the sticker.
+            </p>
 
             <div style={deviceStyles.actions}>
               <button type="button" onClick={onSuccess} style={deviceStyles.submitBtn}>Done</button>
@@ -1897,7 +2121,7 @@ function EditDeviceModal({ sensor, onClose, onSuccess }) {
           <div style={deviceStyles.actions}>
             <button type="button" onClick={onClose} style={deviceStyles.cancelBtn}>Cancel</button>
             <button type="submit" disabled={loading} style={deviceStyles.submitBtn}>
-              {loading ? 'Saving...' : 'Save Changes'}
+              {loading ? <BtnBusy label="Saving…" /> : 'Save Changes'}
             </button>
           </div>
         </form>
@@ -1936,16 +2160,47 @@ const styles = {
 
   headerActions: { display: 'flex', gap: '10px' },
 
-  tabsRow: { display: 'flex', gap: '26px', borderBottom: '1px solid #e7e8e0', marginBottom: '20px', overflowX: 'auto' },
-  tab: { border: 'none', background: 'none', padding: '12px 0', fontFamily: SANS, fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', color: '#8a968d', borderBottom: '2px solid transparent', marginBottom: '-1px' },
+  // minWidth 0 is what lets overflowX work: without it a flex item refuses
+  // to be narrower than its contents, so the row pushed the whole page
+  // sideways instead of scrolling inside itself.
+  tabsRow: { display: 'flex', gap: '26px', borderBottom: '1px solid #e7e8e0', marginBottom: '20px', overflowX: 'auto', minWidth: 0, flexWrap: 'nowrap', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', },
+  tab: { border: 'none', background: 'none', padding: '12px 0', fontFamily: SANS, fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', color: '#8a968d', borderBottom: '2px solid transparent', marginBottom: '-1px', flexShrink: 0, },
   tabActive: { color: '#2c8047', borderBottom: '2px solid #2c8047' },
 
-  infoColumns: { display: 'flex', gap: '16px', alignItems: 'flex-start' },
+  // Stacked, not side by side. Account Information runs long and the device
+  // list is three lines, so two columns left a column-height blank beside the
+  // form. Full width also gives the account fields room to pair up.
+  infoColumns: { display: 'flex', flexDirection: 'column', gap: '16px' },
   infoColumnsMobile: { flexDirection: 'column' },
   infoColumn: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '16px' },
 
   sectionDivider: { borderTop: '1px solid #eceee7', marginTop: '4px', marginBottom: '18px', paddingTop: '14px' },
   sectionDividerLabel: { fontSize: '11px', fontWeight: 700, color: '#8a968d', textTransform: 'uppercase', letterSpacing: '0.05em' },
+  loginAccess: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap',
+    backgroundColor: '#f7f8f4', border: '1px solid #e3e6dd', borderRadius: '12px',
+    padding: '13px 16px', marginTop: '14px',
+  },
+  loginAccessWarn: { fontSize: '12px', color: '#b45309', marginTop: '6px', lineHeight: 1.5 },
+  loginAccessTitle: { fontSize: '13px', fontWeight: 700, color: '#16311d' },
+  loginAccessHint: { fontSize: '12px', color: '#8a968d', marginTop: '3px', lineHeight: 1.5 },
+  loginAccessBtn: {
+    flexShrink: 0, padding: '8px 15px', borderRadius: '10px', fontSize: '12.5px', fontWeight: 700,
+    cursor: 'pointer', border: '1px solid #2c8047', backgroundColor: '#fff', color: '#2c8047',
+  },
+  loginAccessBtnBusy: { cursor: 'wait', borderColor: '#cfe0d3', color: '#8a968d' },
+  resendOk: {
+    backgroundColor: '#eaf3ec', border: '1px solid #cfe0d3', color: '#1f5a34',
+    borderRadius: '10px', padding: '11px 14px', fontSize: '12.5px', marginTop: '10px', lineHeight: 1.5,
+  },
+  resendWarn: {
+    backgroundColor: '#fdf4e7', border: '1px solid #f0dcc0', color: '#8a5a12',
+    borderRadius: '10px', padding: '11px 14px', fontSize: '12.5px', marginTop: '10px', lineHeight: 1.5,
+  },
+  resendKey: {
+    fontFamily: 'monospace', fontSize: '16px', fontWeight: 700, letterSpacing: '0.06em',
+    color: '#16311d', marginTop: '7px', wordBreak: 'break-all',
+  },
 
   monitoringRow: { display: 'grid', gridTemplateColumns: '200px 1fr', gap: '16px', alignItems: 'stretch' },
   monitoringRowMobile: { gridTemplateColumns: '1fr' },
@@ -1957,7 +2212,15 @@ const styles = {
   },
   heroTitle: { fontSize: '18px', fontWeight: 800, color: '#fff', marginTop: '12px' },
 
-  card: { backgroundColor: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px', padding: '20px 22px', fontFamily: SANS, height: '100%', boxSizing: 'border-box' },
+  // No height: 100% — it made a card stretch to whatever its container was
+  // tall, which on the Monitoring tab left a two-row table sitting in a card
+  // the height of the screen.
+  card: { backgroundColor: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px', padding: '20px 22px', fontFamily: SANS, boxSizing: 'border-box' },
+  // Stacked cards carry no margin of their own, so two in a row sat almost
+  // edge to edge and read as one panel with a line through it. The gap lives
+  // on the container rather than on the card, so a card used inside an
+  // already-spaced column does not get a second helping.
+  cardStack: { display: 'flex', flexDirection: 'column', gap: '18px' },
   cardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
   cardTitle: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 800, color: '#16311d' },
   sectionBadge: { padding: '3px 10px', borderRadius: '999px', fontSize: '10.5px', fontWeight: 700 },
@@ -1968,13 +2231,14 @@ const styles = {
 
   miniPill: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '3px 11px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap' },
 
-  metricGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' },
+  metricGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '12px' },
   metricBox: { border: '1px solid #eceee7', borderRadius: '14px', padding: '16px 18px', backgroundColor: '#fff' },
   metricBoxHead: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' },
   metricBoxLabel: { fontSize: '13.5px', fontWeight: 700, color: '#16311d' },
   metricValueRow: { display: 'flex', alignItems: 'center', gap: '7px' },
   metricBoxValue: { fontSize: '18px', fontWeight: 700, color: '#16311d' },
   metricStatusWord: { display: 'block', fontSize: '12px', fontWeight: 700, marginTop: '6px' },
+  metricNote: { display: 'block', fontSize: '10px', color: '#9aa79d', fontStyle: 'italic', marginTop: '3px' },
 
   empty: { fontSize: '13px', color: '#9aa79d' },
 
@@ -1984,6 +2248,7 @@ const styles = {
   confidenceTag: { fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '999px' },
   insightExplanation: { fontSize: '12.5px', color: '#5c6b60', lineHeight: 1.6, marginTop: '8px', marginBottom: 0 },
   insightExplanationUnavailable: { fontSize: '12px', color: '#9aa79d', fontStyle: 'italic', marginTop: '8px', marginBottom: 0 },
+  insightGenerated: { fontSize: '10.5px', color: '#9aa79d', margin: '8px 0 0', fontStyle: 'italic' },
 
   recordModalPhoto: { width: '100%', borderRadius: '10px', marginBottom: '14px', cursor: 'zoom-in', display: 'block' },
 }
@@ -1993,7 +2258,7 @@ const paginationStyles = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     marginTop: '16px', paddingTop: '14px', borderTop: '1px solid #f0efe8', flexWrap: 'wrap', gap: '10px',
   },
-  wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  wrapMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch' },
   info: { fontSize: '12px', color: '#8a968d', whiteSpace: 'nowrap', fontFamily: SANS },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },
@@ -2039,14 +2304,18 @@ const filterStyles = {
     marginTop: '4px', marginBottom: '18px', padding: '14px 16px',
     backgroundColor: '#fafbf8', border: '1px solid #eceee7', borderRadius: '12px',
   },
-  filterField: { display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '160px' },
+  // Grows to share the bar evenly instead of sitting at its minimum and
+  // leaving a stripe of empty space to the right of the last input.
+  filterField: { display: 'flex', flexDirection: 'column', gap: '6px', flex: '1 1 160px', minWidth: '160px' },
   filterLabel: { fontSize: '11.5px', fontWeight: 700, color: '#4b5a50', textTransform: 'uppercase', letterSpacing: '0.03em' },
   filterSelect: {
     padding: '9px 12px', borderRadius: '10px', border: '1px solid #dcdfd6',
     fontSize: '13px', color: '#33413a', backgroundColor: '#fff', cursor: 'pointer',
-    fontFamily: SANS, boxSizing: 'border-box', minWidth: '160px',
+    fontFamily: SANS, boxSizing: 'border-box', width: '100%', minWidth: 0,
   },
-  filterActions: { display: 'flex', gap: '10px', marginLeft: 'auto' },
+  // Sits on the baseline with the inputs rather than being pushed to the
+  // far edge by margin, so the bar reads as one row of controls.
+  filterActions: { display: 'flex', gap: '10px', marginLeft: 'auto', flex: '0 0 auto' },
   filterResetBtn: {
     padding: '9px 18px', borderRadius: '10px', border: '1px solid #dcdfd6',
     backgroundColor: '#fff', color: '#33413a', fontSize: '13.5px', fontWeight: 600, cursor: 'pointer', fontFamily: SANS, whiteSpace: 'nowrap',
@@ -2071,7 +2340,7 @@ const cleanoutModalStyles = {
   headerTitle: { fontSize: '16px', fontWeight: 800, color: '#16311d' },
   close: { fontSize: '22px', cursor: 'pointer', color: '#8a968d', lineHeight: 1 },
 
-  body: { flex: 1, overflowY: 'auto', padding: '20px 22px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '22px' },
+  body: { flex: 1, overflowY: 'auto', padding: '20px 22px', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '22px' },
 
   leftCol: { display: 'flex', flexDirection: 'column', minWidth: 0 },
   photo: { width: '100%', height: '220px', borderRadius: '10px', objectFit: 'cover', display: 'block', cursor: 'zoom-in', border: '1px solid #eceee7' },
@@ -2117,6 +2386,29 @@ const deviceStyles = {
     flexShrink: 0, padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer',
     border: '1px solid #e3e6dd', backgroundColor: '#fff', color: '#4b5a50', fontFamily: SANS,
   },
+  editBtnDisabled: {
+    flexShrink: 0, padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600, cursor: 'not-allowed',
+    border: '1px solid #ecefe7', backgroundColor: '#f7f8f4', color: '#9aa79d', fontFamily: SANS,
+  },
+  successTop: { display: 'flex', alignItems: 'center', gap: '12px', margin: '4px 0 14px' },
+  successMark: {
+    width: '34px', height: '34px', borderRadius: '50%', flexShrink: 0,
+    backgroundColor: '#e7f2ea', color: '#2c8047', display: 'flex',
+    alignItems: 'center', justifyContent: 'center', fontSize: '17px', fontWeight: 700,
+  },
+  successHeadline: { fontSize: '14.5px', fontWeight: 700, color: '#16311d' },
+  successSubline: { fontSize: '12.5px', color: '#8a968d', marginTop: '2px' },
+  successNote: { fontSize: '12px', color: '#8a968d', lineHeight: 1.55, margin: '12px 2px 0' },
+  detailCard: { backgroundColor: '#f7f8f4', border: '1px solid #e3e6dd', borderRadius: '12px', padding: '4px 14px' },
+  detailRow: { display: 'flex', justifyContent: 'space-between', gap: '12px', padding: '9px 0', fontSize: '13px', borderBottom: '1px solid #ecefe7' },
+  detailRowLast: { display: 'flex', justifyContent: 'space-between', gap: '12px', padding: '9px 0', fontSize: '13px' },
+  detailLabel: { color: '#8a968d', fontWeight: 600, flexShrink: 0 },
+  detailValue: { color: '#16311d', fontWeight: 700, textAlign: 'right', wordBreak: 'break-all' },
+  detailMuted: { color: '#8a968d', fontWeight: 600, textAlign: 'right' },
+  searchInput: {
+    width: '100%', padding: '8px 12px', borderRadius: '10px', border: '1px solid #dcdfd6',
+    fontSize: '13px', boxSizing: 'border-box', fontFamily: SANS, marginBottom: '10px',
+  },
   row: { display: 'flex', justifyContent: 'space-between', gap: '12px', padding: '13px 0', borderBottom: '1px solid #f2f3ed' },
   rowActions: { display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'flex-start', flexShrink: 0 },
   subheading: { fontSize: '12px', fontWeight: 700, color: '#5c8a6b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' },
@@ -2153,7 +2445,7 @@ const acctStyles = {
     borderRadius: '8px', padding: '6px 14px', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
     display: 'inline-flex', alignItems: 'center', gap: '6px',
   },
-  row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' },
+  row: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '16px' },
   rowMobile: { gridTemplateColumns: '1fr', gap: '0px' },
   fieldGroup: { display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '14px' },
   label: { fontSize: '13px', fontWeight: '500', color: '#374151' },

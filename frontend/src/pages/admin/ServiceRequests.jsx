@@ -4,18 +4,24 @@ import AdminLayout from '../../components/AdminLayout'
 import ServiceRequestDetailsModal from '../../components/ServiceRequestDetailsModal'
 import SharedPagination from '../../components/Pagination'
 import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
-import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { useCachedFetch, invalidateCache } from '../../hooks/useCachedFetch'
+import { LIVE_POLL_MS } from '../../constants/polling'
+import { matchesHandledBy } from '../../utils/handledBy'
+import HandledByFilter from '../../components/HandledByFilter'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useOverflowX } from '../../hooks/useOverflowX'
 import { getUser } from '../../utils/auth'
 import { formatDate, formatDateTime, isWithinLocalDateRange } from '../../utils/formatDate'
 import { BADGE_SHAPE, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../../utils/serviceBadgeStyle'
 import { isRequestOverdue, requestDisplayStatus } from '../../utils/serviceRequestStatus'
+import { VET_TYPES } from '../../constants/serviceTypes'
+import { SkeletonTable, BtnBusy } from '../../components/Loading'
+import { useBusyAction } from '../../hooks/useBusyAction'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
 const ADMIN_TYPES = ['Odor Control Request', 'Fly Control Request']
-const SUPER_ADMIN_ONLY_TYPES = ['Vaccine Request', 'Blood Test Request']
+const SUPER_ADMIN_ONLY_TYPES = VET_TYPES
 
 const BIRD_ESTIMATES = {
   Small: 'Below 10,000 layers',
@@ -44,8 +50,16 @@ export default function ServiceRequests() {
   const user = getUser()
   const isSuperAdmin = user?.role === 'super_admin'
 
+  // Ownership: the Staff member who accepted a request is the only one who
+  // can complete, reschedule or undo it. The backend enforces this (403); the
+  // buttons are hidden here so nobody is offered an action that will fail.
+  const isOwnedByMe = (r) => r.accepted_by_id != null && r.accepted_by_id === user?.id
+
   const [tab, setTab] = useState('pending')
   const [search, setSearch] = useState('')
+  // Separate from the status tabs: all | mine | unassigned | others (by user id).
+  const [handledBy, setHandledBy] = useState('all')
+  const [actionBusy, runAction] = useBusyAction()
   const [typeFilter, setTypeFilter] = useState('')
   const [sortMode, setSortMode] = useState('oldest')
   const [currentPage, setCurrentPage] = useState(1)
@@ -122,8 +136,24 @@ export default function ServiceRequests() {
 
   const params = { sort: sortMode }
   if (typeFilter) params.service_type = typeFilter
+  if (handledBy !== 'all') params.handled_by = handledBy
 
-  const { data, loading, error, refetch } = useCachedFetch('/admin/service-requests', params, { pollMs: 45000 })
+  const { data, loading, error, refetch } = useCachedFetch('/admin/service-requests', params, { pollMs: LIVE_POLL_MS })
+
+  // refetch() only reloads THIS hook's own cache key, and the key includes
+  // the active filters — so Super Admin's list, the farm profile's Service
+  // Requests tab and this page under a different tab all have their own
+  // keys and kept serving stale rows after a change here. Invalidating by
+  // prefix clears every variant and wakes any of those views that are open.
+  //
+  // Called only after the request succeeded, never before.
+  const refreshRequestViews = () => {
+    invalidateCache('/admin/service-requests')
+    // A farm's own Service Requests tab reads a different endpoint.
+    invalidateCache('/admin/farms')
+    invalidateCache('/farmer/service-requests')
+    refetch()
+  }
   const allRequests = data || []
 
   const availableTypes = isSuperAdmin ? [...ADMIN_TYPES, ...SUPER_ADMIN_ONLY_TYPES] : ADMIN_TYPES
@@ -135,6 +165,10 @@ export default function ServiceRequests() {
     if (tab === 'overdue' && !isRequestOverdue(r)) return false
     if (tab === 'completed' && r.status !== 'Completed') return false
     if (tab === 'history' && r.status !== 'Completed' && r.status !== 'Cancelled') return false
+
+    // The server already applied handled_by; re-checked here so a cached
+    // response from a previous selection never shows the wrong rows.
+    if (!matchesHandledBy(r, handledBy, user?.id)) return false
 
     // From/To filter on the REQUEST date (created_at) — the date the farmer
     // submitted it — as inclusive local calendar dates. Same helper as Vet.
@@ -151,7 +185,7 @@ export default function ServiceRequests() {
     return true
   })
 
-  useEffect(() => { setCurrentPage(1) }, [tab, pageSize, typeFilter, sortMode, search, fromDate, toDate])
+  useEffect(() => { setCurrentPage(1) }, [tab, pageSize, typeFilter, sortMode, search, fromDate, toDate, handledBy])
 
   const totalItems = filtered.length
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
@@ -177,7 +211,7 @@ export default function ServiceRequests() {
     setConfirmDecline(null)
     setDeclineReason('')
     setDeclineError('')
-    refetch()
+    refreshRequestViews()
   }
 
   const handleCompleteAction = async () => {
@@ -186,7 +220,7 @@ export default function ServiceRequests() {
     })
     setConfirmComplete(null)
     setCompleteNotes('')
-    refetch()
+    refreshRequestViews()
   }
 
   const handleReopenAction = async () => {
@@ -194,7 +228,7 @@ export default function ServiceRequests() {
     try {
       await api.patch(`/admin/service-requests/${confirmReopen.id}/reopen`)
       setConfirmReopen(null)
-      refetch()
+      refreshRequestViews()
     } catch (err) {
       setReopenError(err.response?.data?.message || 'Failed to undo completion.')
     }
@@ -254,6 +288,8 @@ export default function ServiceRequests() {
             )}
           </div>
 
+          <HandledByFilter value={handledBy} onChange={setHandledBy} isMobile={isMobile} />
+
           <div style={styles.filterAnchor} ref={filterRef}>
             <button
               type="button"
@@ -274,42 +310,53 @@ export default function ServiceRequests() {
                   <span style={styles.filterPanelClose} onClick={() => setFilterOpen(false)}>×</span>
                 </div>
 
-                <DateRangeHeader>
+                {/* Two columns on desktop: four stacked fields in a 280px
+                    strip made the panel taller than the table it filters.
+                    The dates belong side by side anyway, and so do Type and
+                    Sort. Falls back to one column on mobile. */}
+                <div style={{ ...styles.filterGrid, ...(isMobile ? styles.filterGridMobile : {}) }}>
+                  <div>
+                    <DateRangeHeader>
+                      <label style={styles.filterLabel}>From Date</label>
+                      <ClearDateButton visible={hasDate} onClick={clearDates} />
+                    </DateRangeHeader>
+                    <input
+                      type="date"
+                      value={draftFromDate}
+                      onChange={e => setDraftFromDate(e.target.value)}
+                      style={styles.filterSelect}
+                    />
+                  </div>
 
-                  <label style={styles.filterLabel}>From Date</label>
+                  <div>
+                    <label style={styles.filterLabel}>To Date</label>
+                    <input
+                      type="date"
+                      value={draftToDate}
+                      onChange={e => setDraftToDate(e.target.value)}
+                      style={styles.filterSelect}
+                    />
+                  </div>
 
-                  <ClearDateButton visible={hasDate} onClick={clearDates} />
+                  <div>
+                    <label style={styles.filterLabel}>Request Type</label>
+                    <select value={draftType} onChange={e => setDraftType(e.target.value)} style={styles.filterSelect}>
+                      <option value="">All Types</option>
+                      {availableTypes.map(t => (
+                        <option key={t} value={t}>{t.replace(' Request', '')}</option>
+                      ))}
+                    </select>
+                  </div>
 
-                </DateRangeHeader>
-                <input
-                  type="date"
-                  value={draftFromDate}
-                  onChange={e => setDraftFromDate(e.target.value)}
-                  style={styles.filterSelect}
-                />
-
-                <label style={styles.filterLabel}>To Date</label>
-                <input
-                  type="date"
-                  value={draftToDate}
-                  onChange={e => setDraftToDate(e.target.value)}
-                  style={styles.filterSelect}
-                />
-
-                <label style={styles.filterLabel}>Request Type</label>
-                <select value={draftType} onChange={e => setDraftType(e.target.value)} style={styles.filterSelect}>
-                  <option value="">All Types</option>
-                  {availableTypes.map(t => (
-                    <option key={t} value={t}>{t.replace(' Request', '')}</option>
-                  ))}
-                </select>
-
-                <label style={styles.filterLabel}>Sort By</label>
-                <select value={draftSort} onChange={e => setDraftSort(e.target.value)} style={styles.filterSelect}>
-                  {SORT_OPTIONS.map(opt => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
+                  <div>
+                    <label style={styles.filterLabel}>Sort By</label>
+                    <select value={draftSort} onChange={e => setDraftSort(e.target.value)} style={styles.filterSelect}>
+                      {SORT_OPTIONS.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
 
                 <div style={styles.filterActions}>
                   <button type="button" onClick={resetFilter} style={styles.filterResetBtn}>Reset</button>
@@ -321,7 +368,7 @@ export default function ServiceRequests() {
         </div>
       </div>
 
-      {loading && <p style={styles.stateText}>Loading...</p>}
+      {loading && <SkeletonTable rows={6} columns={7} />}
       {error && <p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p>}
 
       {!loading && !error && (
@@ -340,6 +387,11 @@ export default function ServiceRequests() {
                   <th style={styles.th}>Farm Owner</th>
                   <th style={styles.th}>{dateColumn.header}</th>
                   <th style={styles.th}>Status</th>
+                  {/* Its own column rather than a second line under Status:
+                      who is responsible is a fact about the request, not a
+                      detail of its state, and it could not be scanned down
+                      the page while it was buried in another cell. */}
+                  <th style={styles.th}>Handled By</th>
                   <th style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
@@ -367,9 +419,11 @@ export default function ServiceRequests() {
                         <span style={{ ...BADGE_SHAPE, ...requestStatusBadgeStyle(requestDisplayStatus(r)) }}>
                           {requestDisplayStatus(r)}
                         </span>
-                        {r.status === 'Cancelled' && r.decline_reason && (
-                          <div style={styles.farmMeta} title={r.decline_reason}>Reason: {r.decline_reason}</div>
-                        )}
+                      </td>
+                      <td style={styles.td}>
+                        {r.accepted_by && r.status !== 'Cancelled'
+                          ? r.accepted_by
+                          : <span style={styles.unassignedCell}>&mdash;</span>}
                       </td>
                       <td style={styles.td}>
                         <div style={styles.actionGroup}>
@@ -383,7 +437,7 @@ export default function ServiceRequests() {
                               </span>
                             </>
                           )}
-                          {!isSuperAdmin && r.status === 'Scheduled' && (
+                          {!isSuperAdmin && r.status === 'Scheduled' && isOwnedByMe(r) && (
                             <>
                               <span
                                 style={{ ...styles.actionBtn, ...styles.completeBtn }}
@@ -396,12 +450,12 @@ export default function ServiceRequests() {
                               </span>
                             </>
                           )}
-                          {(isSuperAdmin || r.status === 'Completed' || r.status === 'Cancelled') && (
+                          {(isSuperAdmin || r.status === 'Completed' || r.status === 'Cancelled' || (r.status === 'Scheduled' && !isOwnedByMe(r))) && (
                             <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => setViewRequest(r)}>
                               View
                             </span>
                           )}
-                          {!isSuperAdmin && r.status === 'Completed' && (
+                          {!isSuperAdmin && r.status === 'Completed' && isOwnedByMe(r) && (
                             <span style={{ ...styles.actionBtn, ...styles.rescheduleBtn }} onClick={() => { setConfirmReopen(r); setReopenError('') }}>
                               Undo Completion
                             </span>
@@ -417,7 +471,7 @@ export default function ServiceRequests() {
 
           {list.length === 0 && (
             <div style={styles.empty}>
-              {search || typeFilter || (fromDate || toDate) ? 'No requests match your search or filter.' : 'No requests here yet.'}
+              {search || typeFilter || handledBy !== 'all' || (fromDate || toDate) ? 'No requests match your search or filter.' : 'No requests here yet.'}
             </div>
           )}
 
@@ -442,7 +496,7 @@ export default function ServiceRequests() {
           request={acceptTarget}
           isMobile={isMobile}
           onClose={() => setAcceptTarget(null)}
-          onSuccess={() => { setAcceptTarget(null); refetch() }}
+          onSuccess={() => { setAcceptTarget(null); refreshRequestViews() }}
         />
       )}
 
@@ -472,8 +526,8 @@ export default function ServiceRequests() {
 
             <div style={modalStyles.actions}>
               <button onClick={() => { setConfirmDecline(null); setDeclineReason(''); setDeclineError('') }} style={modalStyles.cancelBtn}>Cancel</button>
-              <button onClick={handleDeclineAction} style={{ ...modalStyles.submitBtn, backgroundColor: '#b91c1c' }}>
-                Decline Request
+              <button onClick={() => runAction(handleDeclineAction)} disabled={actionBusy} style={{ ...modalStyles.submitBtn, backgroundColor: '#b91c1c', ...(actionBusy ? { opacity: 0.7, cursor: 'wait' } : {}) }}>
+                {actionBusy ? <BtnBusy label="Declining…" /> : 'Decline Request'}
               </button>
             </div>
           </div>
@@ -498,8 +552,8 @@ export default function ServiceRequests() {
 
             <div style={modalStyles.actions}>
               <button onClick={() => setConfirmComplete(null)} style={modalStyles.cancelBtn}>Cancel</button>
-              <button onClick={handleCompleteAction} style={{ ...modalStyles.submitBtn, backgroundColor: '#2c8047' }}>
-                Mark Completed
+              <button onClick={() => runAction(handleCompleteAction)} disabled={actionBusy} style={{ ...modalStyles.submitBtn, backgroundColor: '#2c8047', ...(actionBusy ? { opacity: 0.7, cursor: 'wait' } : {}) }}>
+                {actionBusy ? <BtnBusy label="Completing…" /> : 'Mark Completed'}
               </button>
             </div>
           </div>
@@ -519,8 +573,8 @@ export default function ServiceRequests() {
 
             <div style={modalStyles.actions}>
               <button onClick={() => setConfirmReopen(null)} style={modalStyles.cancelBtn}>Cancel</button>
-              <button onClick={handleReopenAction} style={{ ...modalStyles.submitBtn, backgroundColor: '#2c8047' }}>
-                Undo Completion
+              <button onClick={() => runAction(handleReopenAction)} disabled={actionBusy} style={{ ...modalStyles.submitBtn, backgroundColor: '#2c8047', ...(actionBusy ? { opacity: 0.7, cursor: 'wait' } : {}) }}>
+                {actionBusy ? <BtnBusy label="Undoing…" /> : 'Undo Completion'}
               </button>
             </div>
           </div>
@@ -540,7 +594,7 @@ export default function ServiceRequests() {
           request={rescheduleTarget}
           isMobile={isMobile}
           onClose={() => setRescheduleTarget(null)}
-          onSuccess={() => { setRescheduleTarget(null); refetch() }}
+          onSuccess={() => { setRescheduleTarget(null); refreshRequestViews() }}
         />
       )}
     </AdminLayout>
@@ -638,7 +692,7 @@ function AcceptModal({ request, onClose, onSuccess, isMobile }) {
               Cancel
             </button>
             <button type="submit" disabled={loading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
-              {loading ? 'Scheduling...' : 'Confirm Schedule'}
+              {loading ? <BtnBusy label="Scheduling…" /> : 'Confirm Schedule'}
             </button>
           </div>
         </form>
@@ -744,7 +798,7 @@ function RescheduleModal({ request, onClose, onSuccess, isMobile }) {
               Cancel
             </button>
             <button type="submit" disabled={loading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
-              {loading ? 'Saving...' : 'Reschedule Request'}
+              {loading ? <BtnBusy label="Saving…" /> : 'Reschedule Request'}
             </button>
           </div>
         </form>
@@ -765,14 +819,17 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     gap: '14px', marginBottom: '18px', borderBottom: '1px solid #e7e8e0', flexWrap: 'wrap',
   },
-  toolbarMobile: { flexDirection: 'column', alignItems: 'stretch', gap: '12px' },
+  toolbarMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch', gap: '12px' },
 
-  tabs: { display: 'flex', gap: '4px', overflowX: 'auto' },
-  tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap' },
+  // minWidth 0 is what lets overflowX work: without it a flex item refuses
+  // to be narrower than its contents, so the row pushed the whole page
+  // sideways instead of scrolling inside itself.
+  tabs: { display: 'flex', gap: '4px', overflowX: 'auto', minWidth: 0, maxWidth: '100%', flexWrap: 'nowrap', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', },
+  tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap', flexShrink: 0, },
   tabActive: { color: '#2c8047', fontWeight: 700, borderBottom: '2px solid #2c8047' },
 
   toolbarRight: { display: 'flex', alignItems: 'center', gap: '10px', paddingBottom: '10px' },
-  toolbarRightMobile: { paddingBottom: '2px' },
+  toolbarRightMobile: { paddingBottom: '2px', flexWrap: 'wrap' },
 
   searchWrap: { position: 'relative', width: '240px', maxWidth: '100%' },
   searchIcon: { position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' },
@@ -804,9 +861,11 @@ const styles = {
   filterPanel: {
     position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 40,
     backgroundColor: '#fff', border: '1px solid #e7e8e0', borderRadius: '14px',
-    boxShadow: '0 8px 24px rgba(15,38,22,0.12)', padding: '18px', width: '280px',
+    boxShadow: '0 8px 24px rgba(15,38,22,0.12)', padding: '18px', width: '440px',
   },
   filterPanelMobile: { right: 0, width: '260px' },
+  filterGrid: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', columnGap: '14px' },
+  filterGridMobile: { gridTemplateColumns: '1fr' },
   filterPanelHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' },
   filterPanelTitle: { fontSize: '15px', fontWeight: 800, color: '#16311d' },
   filterPanelClose: { fontSize: '19px', cursor: 'pointer', color: '#8a968d', lineHeight: 1 },
@@ -830,7 +889,7 @@ const styles = {
   scrollHint: { fontSize: '11px', color: '#9aa79d', margin: '12px 20px 0' },
   tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  tableMinWidth: { minWidth: '960px' },
+  tableMinWidth: { minWidth: '1080px' },
   th: {
     textAlign: 'left', padding: '13px 20px', fontSize: '13px', fontWeight: 600, color: '#8a968d',
     borderBottom: '1px solid #eceee7', whiteSpace: 'nowrap',
@@ -838,8 +897,11 @@ const styles = {
   },
   td: { padding: '13px 20px', fontSize: '12px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top' },
   reqNumberCell: { fontSize: '12px', color: '#4b5a50' },
-  farmName: { fontSize: '14px', fontWeight: 700, color: '#16311d' },
-  farmMeta: { fontSize: '12px', color: '#8a968d', marginTop: '2px' },
+  // nowrap on both: the column widens to fit instead of breaking the farm
+  // name and the barangay line into four short lines each.
+  farmName: { fontSize: '14px', fontWeight: 700, color: '#16311d', whiteSpace: 'nowrap' },
+  farmMeta: { fontSize: '12px', color: '#8a968d', marginTop: '2px', whiteSpace: 'nowrap' },
+  unassignedCell: { color: '#b7bdb4' },
   actionGroup: { display: 'flex', gap: '6px', whiteSpace: 'nowrap', justifyContent: 'flex-end' },
   actionBtn: {
     padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600,
@@ -858,7 +920,7 @@ const paginationStyles = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px',
   },
-  wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  wrapMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch' },
   info: { fontSize: '12px', color: '#8a968d', whiteSpace: 'nowrap' },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },
@@ -882,7 +944,7 @@ const modalStyles = {
   helperText: { fontSize: '12px', color: '#8a968d', marginTop: '0', marginBottom: '8px', lineHeight: '1.4' },
   contextNote: { fontSize: '12px', color: '#6b7770', backgroundColor: '#fafbf8', border: '1px solid #eceee7', borderRadius: '9px', padding: '9px 12px', marginTop: '12px', lineHeight: '1.4' },
   input: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', fontFamily: 'inherit' },
-  row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' },
+  row: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '12px' },
   rowMobile: { gridTemplateColumns: '1fr' },
   errorBox: { backgroundColor: '#fbeaea', border: '1px solid #f0c9c9', color: '#b91c1c', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '14px' },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' },
@@ -893,7 +955,7 @@ const modalStyles = {
 }
 
 const confirmStyles = {
-  modal: { backgroundColor: '#fff', borderRadius: '16px', padding: '24px', width: '420px', maxWidth: '90%' },
+  modal: { backgroundColor: '#fff', borderRadius: '16px', padding: '24px', width: '420px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto' },
   summaryBox: { borderRadius: '10px', padding: '12px 14px', margin: '14px 0' },
   summaryType: { fontSize: '15px', fontWeight: 800, color: '#16311d', marginTop: '2px' },
   summaryFarm: { fontSize: '12.5px', color: '#6b7770', marginTop: '2px' },

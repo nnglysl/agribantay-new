@@ -17,8 +17,8 @@ class GeneratedReport extends Model
 
     protected $casts = [
         'period_start' => 'date',
-        'period_end'   => 'date',
-        'snapshot'     => 'array',
+        'period_end' => 'date',
+        'snapshot' => 'array',
     ];
 
     public function generatedBy()

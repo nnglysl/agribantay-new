@@ -38,14 +38,37 @@ class AlertHistoryService
      * AlertHistoryBackfillSeeder), so backfilled incidents get their
      * actual date instead of the moment the seeder happened to run.
      */
-    public function recordReading(int $farmId, string $sensorType, string $status, float $value, ?\Carbon\Carbon $timestamp = null): void
+    public function recordReading(int $farmId, string $sensorType, string $status, float $value, ?\Carbon\Carbon $timestamp = null, ?int $sensorId = null): void
     {
         $timestamp = $timestamp ?? now();
 
+        // Scoped to the DEVICE, not just the farm. One incident per house per
+        // metric: two poultry houses both running hot are two separate
+        // problems to walk to, and one of them recovering must not close the
+        // other's row. $sensorId is nullable so the backfill seeder — which
+        // replays readings that predate per-device tracking — still works;
+        // those fall back to the old farm-wide behaviour.
         $openIncident = AlertHistory::where('farm_id', $farmId)
             ->where('sensor_type', $sensorType)
+            ->when($sensorId !== null, fn($q) => $q->where('sensor_id', $sensorId))
             ->whereNull('resolved_at')
             ->first();
+
+        // Legacy incidents opened before per-device tracking have no sensor_id,
+        // so the scoped lookup above can never find them again — they would sit
+        // "ongoing" forever, their duration growing indefinitely, describing a
+        // farm-wide condition that per-device rows now track properly.
+        //
+        // Closing them here is the honest reading: the incident as recorded
+        // ended when the tracking model changed. If the condition is genuinely
+        // still bad, a per-device row opens for it below, so nothing is lost.
+        if ($sensorId !== null) {
+            AlertHistory::where('farm_id', $farmId)
+                ->where('sensor_type', $sensorType)
+                ->whereNull('sensor_id')
+                ->whereNull('resolved_at')
+                ->update(['resolved_at' => $timestamp]);
+        }
 
         $isAbnormal = in_array($status, ['Warning', 'Critical'], true);
 
@@ -68,6 +91,7 @@ class AlertHistoryService
             } else {
                 AlertHistory::create([
                     'farm_id'              => $farmId,
+                    'sensor_id'            => $sensorId,
                     'sensor_type'          => $sensorType,
                     'status'               => $status,
                     'value'                => $value,
@@ -91,5 +115,27 @@ class AlertHistoryService
                 }
             }
         }
+    }
+
+    /**
+     * Resolve any still-open incident for a metric that no longer raises
+     * alerts.
+     *
+     * When a metric is dropped from config('sensors.alerting_metrics'),
+     * recordReading() stops being called for it - and an incident it had
+     * already opened would stay "ongoing" for good, because the only thing
+     * that ever closes one is a later safe reading of that same metric. The
+     * row is closed rather than deleted: it really did happen, and the
+     * farm's history should still show it.
+     */
+    public function closeOpenIncidents(int $farmId, string $sensorType, ?int $sensorId = null, ?\Carbon\Carbon $timestamp = null): void
+    {
+        AlertHistory::where('farm_id', $farmId)
+            ->where('sensor_type', $sensorType)
+            ->whereNull('resolved_at')
+            ->when($sensorId !== null, fn ($q) => $q->where(
+                fn ($w) => $w->where('sensor_id', $sensorId)->orWhereNull('sensor_id')
+            ))
+            ->update(['resolved_at' => $timestamp ?? now()]);
     }
 }

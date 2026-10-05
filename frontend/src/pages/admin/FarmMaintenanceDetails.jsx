@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useIsMobile } from '../../hooks/useIsMobile'
+import { PageLoader } from '../../components/Loading'
+import { formatDate } from '../../utils/formatDate'
 
 const STATUS_COLOR = { Overdue: '#b45309', 'Non-Compliant': '#b91c1c' }
 const STATUS_BG = { Overdue: '#fbf1e2', 'Non-Compliant': '#fbeaea' }
@@ -28,7 +30,7 @@ export default function FarmMaintenanceDetails() {
         ← Back
       </button>
 
-      {loading && <p style={styles.stateText}>Loading...</p>}
+      {loading && <PageLoader minHeight="40vh" />}
       {error && <p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p>}
 
       {farm && m && (
@@ -60,16 +62,14 @@ export default function FarmMaintenanceDetails() {
                 </div>
 
                 <div style={{ ...acctStyles.row, ...(isMobile ? acctStyles.rowMobile : {}) }}>
-                  <InfoField label="Farm ID" value={farm.id} />
                   <InfoField label="Farm Name" value={farm.farm_name} />
-                </div>
-                <div style={{ ...acctStyles.row, ...(isMobile ? acctStyles.rowMobile : {}) }}>
-                  <InfoField label="Farm Type" value={farm.farm_type} />
                   <InfoField label="Location" value={farm.barangay} />
                 </div>
                 <div style={{ ...acctStyles.row, ...(isMobile ? acctStyles.rowMobile : {}) }}>
                   <InfoField label="Farm Size" value={farm.farm_size} />
-                  <InfoField label="Registration Date" value={farm.created_at} />
+                  {/* farm.created_at arrives as a raw ISO instant, so it has to be
+                      formatted — rendering it directly printed the UTC string. */}
+                  <InfoField label="Registration Date" value={formatDate(farm.created_at)} />
                 </div>
               </Card>
             </div>
@@ -217,7 +217,7 @@ const styles = {
 }
 
 const acctStyles = {
-  row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' },
+  row: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '16px' },
   rowMobile: { gridTemplateColumns: '1fr', gap: '0px' },
   fieldGroup: { display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '14px' },
   label: { fontSize: '13px', fontWeight: '500', color: '#374151' },

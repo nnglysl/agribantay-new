@@ -1,10 +1,13 @@
 import { useState } from 'react'
 import FarmerLayout from '../../components/FarmerLayout'
+import TableScroll from '../../components/TableScroll'
 import SharedPagination from '../../components/Pagination'
 import api from '../../api/axios'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { BACKGROUND_POLL_MS } from '../../constants/polling'
 import { useSelectedFarm } from '../../hooks/useSelectedFarm'
 import { viewModalStyles as v } from '../../styles/viewModalStyles'
+import { SkeletonTable, BtnBusy } from '../../components/Loading'
 
 const responsiveCss = `
   .mr-tabs {
@@ -33,7 +36,7 @@ const responsiveCss = `
 
   .mr-stats-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 12px;
     margin-bottom: 18px;
   }
@@ -101,8 +104,8 @@ const RECENT_LIMIT = 5
 export default function ManureRecords() {
   const { selectedFarmId, farmsLoading } = useSelectedFarm()
   const farmParams = { farm_id: selectedFarmId }
-  const { data: maintenance, loading: maintenanceLoading, refetch: refetchMaintenance } = useCachedFetch(selectedFarmId ? '/farmer/maintenance' : null, farmParams)
-  const { data: disposalRecords, loading: disposalLoading, refetch: refetchDisposal } = useCachedFetch(selectedFarmId ? '/farmer/disposal-records' : null, farmParams)
+  const { data: maintenance, loading: maintenanceLoading, refetch: refetchMaintenance } = useCachedFetch(selectedFarmId ? '/farmer/maintenance' : null, farmParams, { pollMs: BACKGROUND_POLL_MS })
+  const { data: disposalRecords, loading: disposalLoading, refetch: refetchDisposal } = useCachedFetch(selectedFarmId ? '/farmer/disposal-records' : null, farmParams, { pollMs: BACKGROUND_POLL_MS })
 
   const [activeTab, setActiveTab] = useState('cleanout') // 'cleanout' | 'disposal'
 
@@ -199,7 +202,7 @@ export default function ManureRecords() {
   }
 
   if (farmsLoading || (maintenanceLoading && disposalLoading)) {
-    return <FarmerLayout><p style={styles.stateText}>Loading...</p></FarmerLayout>
+    return <FarmerLayout><SkeletonTable rows={6} columns={5} /></FarmerLayout>
   }
 
   const recentMaintLogs = (maintenance?.recent_logs || []).slice(0, RECENT_LIMIT)
@@ -267,7 +270,7 @@ export default function ManureRecords() {
             <div style={styles.historyLabel}>Recent Clean-outs</div>
             {recentMaintLogs.length > 0 ? (
               <>
-                <div className="mr-table-wrap">
+                <TableScroll className="mr-table-wrap">
                   <table className="mr-table" style={styles.table}>
                     <thead>
                       <tr>
@@ -290,7 +293,7 @@ export default function ManureRecords() {
                       ))}
                     </tbody>
                   </table>
-                </div>
+                </TableScroll>
                 <div className="mr-pagination">
                   <span style={styles.paginationText}>
                     Showing 1–{recentMaintLogs.length} of {recentMaintLogs.length}
@@ -323,7 +326,7 @@ export default function ManureRecords() {
           <div style={styles.historyLabel}>Recent Records</div>
           {recentDisposalRecords.length > 0 ? (
             <>
-              <div className="mr-table-wrap">
+              <TableScroll className="mr-table-wrap">
                 <table className="mr-table" style={styles.table}>
                   <thead>
                     <tr>
@@ -350,7 +353,7 @@ export default function ManureRecords() {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </TableScroll>
               <div className="mr-pagination">
                 <span style={styles.paginationText}>
                   Showing 1–{recentDisposalRecords.length} of {recentDisposalRecords.length}
@@ -421,7 +424,7 @@ export default function ManureRecords() {
                   cursor: (maintenanceSubmitting || !maintenanceDate || !maintenancePhoto) ? 'not-allowed' : 'pointer',
                 }}
               >
-                {maintenanceSubmitting ? 'Saving...' : 'Save log'}
+                {maintenanceSubmitting ? <BtnBusy label="Saving…" /> : 'Save log'}
               </button>
             </div>
           </form>
@@ -524,7 +527,7 @@ export default function ManureRecords() {
                   cursor: (disposalSubmitting || !disposalQuantity || !disposalDate || (disposalMethod === 'Other' && !disposalCustomMethod.trim())) ? 'not-allowed' : 'pointer',
                 }}
               >
-                {disposalSubmitting ? 'Saving...' : 'Save record'}
+                {disposalSubmitting ? <BtnBusy label="Saving…" /> : 'Save record'}
               </button>
             </div>
           </form>

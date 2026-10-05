@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import api from '../api/axios'
+import { BtnBusy } from '../components/Loading'
+import OtpInput from './OtpInput'
 
 const SANS = "'Inter', sans-serif"
 const SUCCESS_DISPLAY_MS = 1800
@@ -97,25 +99,16 @@ export default function VerifyEmailChangeModal({ email, requestUrl, verifyUrl, o
           {!error && info && <p style={styles.info}>{info}</p>}
 
           <label style={styles.label}>Verification code</label>
-          <input
-            type="text"
-            inputMode="numeric"
-            maxLength={6}
-            value={code}
-            onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
-            placeholder="6-digit code"
-            style={styles.input}
-            autoFocus
-          />
+          <OtpInput value={code} onChange={setCode} disabled={verifying} />
 
           <button type="button" onClick={handleResend} disabled={resending} style={styles.resendBtn}>
-            {resending ? 'Resending...' : 'Resend Code'}
+            {resending ? <BtnBusy label="Resending…" /> : 'Resend Code'}
           </button>
 
           <div style={styles.actions}>
             <button type="button" onClick={onCancel} style={styles.cancelBtn}>Cancel</button>
             <button type="submit" disabled={verifying} style={{ ...styles.verifyBtn, opacity: verifying ? 0.6 : 1, cursor: verifying ? 'not-allowed' : 'pointer' }}>
-              {verifying ? 'Verifying...' : 'Verify'}
+              {verifying ? <BtnBusy label="Verifying…" /> : 'Verify'}
             </button>
           </div>
         </form>
@@ -139,15 +132,10 @@ const styles = {
   subtitle: { fontSize: '13px', color: '#4b5a50', lineHeight: 1.55, margin: '0 0 18px' },
   errorBox: { backgroundColor: '#fbeaea', border: '1px solid #f0c9c9', color: '#b91c1c', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '12px' },
   info: { fontSize: '12.5px', color: '#4b5a50', margin: '0 0 12px' },
-  label: { display: 'block', fontSize: '12.5px', fontWeight: 600, color: '#33413a', marginBottom: '6px' },
-  input: {
-    width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6',
-    fontSize: '18px', letterSpacing: '4px', textAlign: 'center', boxSizing: 'border-box',
-    fontFamily: SANS, color: '#16311d', fontWeight: 700,
-  },
+  label: { display: 'block', fontSize: '12.5px', fontWeight: 600, color: '#33413a', marginBottom: '8px', textAlign: 'center' },
   resendBtn: {
     background: 'none', border: 'none', color: '#2c8047', fontSize: '12.5px', fontWeight: 600,
-    cursor: 'pointer', padding: '10px 0 0', fontFamily: SANS,
+    cursor: 'pointer', padding: '12px 0 0', fontFamily: SANS, display: 'block', margin: '0 auto',
   },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '18px' },
   cancelBtn: { padding: '9px 16px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff', fontSize: '13.5px', fontWeight: 600, color: '#33413a', cursor: 'pointer', fontFamily: SANS },

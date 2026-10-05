@@ -3,12 +3,19 @@ import { useSearchParams } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
 import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { LIVE_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useOverflowX } from '../../hooks/useOverflowX'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
+import { SkeletonTable } from '../../components/Loading'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
-const SENSOR_TYPES = ['Ammonia', 'Temperature', 'Humidity', 'Moisture']
+// Only the metrics that actually raise alerts. Temperature and humidity are
+// advisory — config/sensors.php 'alerting_metrics' is the source of truth and
+// lists ammonia and moisture, so no alert_history row can ever carry the other
+// two and offering them only produced filters that always came back empty.
+// Their READINGS are untouched; this is the filter list, not the data.
+const SENSOR_TYPES = ['Ammonia', 'Moisture']
 const SORT_OPTIONS = [
   { value: 'newest', label: 'Newest Triggered First' },
   { value: 'oldest', label: 'Oldest Triggered First' },
@@ -17,6 +24,9 @@ const SORT_OPTIONS = [
 export default function AlertHistory() {
   const [severityFilter, setSeverityFilter] = useState('') // '' | 'Warning' | 'Critical'
   const [sensorFilter, setSensorFilter] = useState('')
+  const [houseFilter, setHouseFilter] = useState('')
+  const [farmFilter, setFarmFilter] = useState('')
+  const [barangayFilter, setBarangayFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('') // '' | 'Ongoing' | 'Resolved'
   const [sortMode, setSortMode] = useState('newest')
   // Deep links (e.g. from a Super Admin dashboard notification) can preset
@@ -31,6 +41,11 @@ export default function AlertHistory() {
   const [filterOpen, setFilterOpen] = useState(false)
   const [draftSeverity, setDraftSeverity] = useState(severityFilter)
   const [draftSensor, setDraftSensor] = useState(sensorFilter)
+  const [draftHouse, setDraftHouse] = useState('')
+  const [draftFarm, setDraftFarm] = useState('')
+  const [draftBarangay, setDraftBarangay] = useState('')
+  // Typed text for the searchable Farm picker, kept apart from the chosen id.
+  const [farmQuery, setFarmQuery] = useState('')
   const [draftStatus, setDraftStatus] = useState(statusFilter)
   const [draftSort, setDraftSort] = useState(sortMode)
   const filterRef = useRef(null)
@@ -47,6 +62,10 @@ export default function AlertHistory() {
   const openFilter = () => {
     setDraftSeverity(severityFilter)
     setDraftSensor(sensorFilter)
+    setDraftHouse(houseFilter)
+    setDraftFarm(farmFilter)
+    setDraftBarangay(barangayFilter)
+    setFarmQuery('')
     setDraftStatus(statusFilter)
     setDraftSort(sortMode)
     setFilterOpen(true)
@@ -55,6 +74,9 @@ export default function AlertHistory() {
   const applyFilter = () => {
     setSeverityFilter(draftSeverity)
     setSensorFilter(draftSensor)
+    setHouseFilter(draftHouse)
+    setFarmFilter(draftFarm)
+    setBarangayFilter(draftBarangay)
     setStatusFilter(draftStatus)
     setSortMode(draftSort)
     setFilterOpen(false)
@@ -63,15 +85,22 @@ export default function AlertHistory() {
   const resetFilter = () => {
     setDraftSeverity('')
     setDraftSensor('')
+    setDraftHouse('')
+    setDraftFarm('')
+    setDraftBarangay('')
+    setFarmQuery('')
     setDraftStatus('')
     setDraftSort('newest')
   }
 
-  const activeFilterCount = (severityFilter ? 1 : 0) + (sensorFilter ? 1 : 0) + (statusFilter ? 1 : 0) + (sortMode !== 'newest' ? 1 : 0)
+  const activeFilterCount = (severityFilter ? 1 : 0) + (sensorFilter ? 1 : 0) + (houseFilter ? 1 : 0) + (farmFilter ? 1 : 0) + (barangayFilter ? 1 : 0) + (statusFilter ? 1 : 0) + (sortMode !== 'newest' ? 1 : 0)
 
   const params = {}
   if (severityFilter) params.status = severityFilter
   if (sensorFilter) params.sensor_type = sensorFilter
+  if (houseFilter) params.sensor_id = houseFilter
+  if (farmFilter) params.farm_id = farmFilter
+  if (barangayFilter) params.barangay = barangayFilter
   // Ongoing / Resolved — distinct from `status`, which the backend already
   // uses for severity (Warning / Critical).
   if (statusFilter) params.alert_status = statusFilter
@@ -79,25 +108,73 @@ export default function AlertHistory() {
   const debouncedSearch = useDebouncedValue(search)
   if (debouncedSearch) params.search = debouncedSearch
 
-  const { data: history, loading, error } = useCachedFetch('/admin/alert-history', params, { pollMs: 45000 })
+  const { data: history, loading, error } = useCachedFetch('/admin/alert-history', params, { pollMs: LIVE_POLL_MS })
+
+  // Populates the House filter. Every registered unit, not just the ones that
+  // happen to appear in the current page of results — filtering to a quiet
+  // house (no alerts at all) is a legitimate way to confirm it is fine.
+  const { data: allSensors } = useCachedFetch('/admin/sensors')
+  const houseOptions = allSensors || []
+
+  // Populates the Farm filter. This endpoint is paginated for some roles and
+  // a plain array for others, so accept either shape rather than guessing.
+  const { data: allFarms } = useCachedFetch('/admin/farms')
+  // Memoised so the derived lists below do not see a brand-new array on every
+  // render and recompute for nothing.
+  const farmOptions = useMemo(
+    () => (Array.isArray(allFarms) ? allFarms : (allFarms?.data ?? [])),
+    [allFarms]
+  )
+
+  // Barangays come from the farm records themselves — never a fixed list.
+  // Taken from every registered farm rather than only those with alerts, for
+  // the same reason the House filter lists quiet units: narrowing to a
+  // barangay and seeing nothing is a legitimate way to confirm it is clear.
+  const barangayOptions = useMemo(
+    () => [...new Set(farmOptions.map(f => f.barangay).filter(Boolean))].sort(),
+    [farmOptions]
+  )
+
+  // Suggestions for the typeable Farm picker. Filtered locally; the farm list
+  // is already loaded, so typing costs no request.
+  //
+  // Empty box means no list. This sits inside a narrow filter popover with
+  // five other controls, and opening with every farm already listed pushed
+  // the rest of them out of view for a filter the user may not even want.
+  // The list is an answer to what was typed, not a permanent menu.
+  const farmSuggestions = useMemo(() => {
+    const q = farmQuery.trim().toLowerCase()
+    if (!q) return []
+    return farmOptions.filter(f =>
+      (f.farm_name || '').toLowerCase().includes(q) ||
+      (f.owner_name || '').toLowerCase().includes(q)
+    )
+  }, [farmOptions, farmQuery])
+
+  const selectedFarm = farmOptions.find(f => String(f.id) === String(draftFarm)) || null
 
   const severityColor = { Warning: '#b45309', Critical: '#b91c1c' }
   const severityBg = { Warning: '#fbf1e2', Critical: '#fbeaea' }
 
   const rawHistory = history || []
 
-  // The backend already returns rows ordered by triggered_at DESC (newest
-  // first), but `triggered_at` here is a pre-formatted display string
-  // (e.g. "Jul 21, 2026 8:23 AM"), not a raw timestamp — re-parsing that
-  // with `new Date()` is unreliable across browsers and can silently
-  // produce NaN, which makes Array.sort() a no-op. Since the backend
-  // ordering is already correct for "newest first", "oldest first" is
-  // just that same list reversed — no date parsing needed at all.
+  // Sorted on triggered_at_raw, the ISO instant the API now sends alongside
+  // the display string. The display string ("Jul 21, 2026 8:23 AM") must
+  // never be parsed for this: `new Date()` handles that shape
+  // inconsistently across browsers and can yield NaN, which turns a sort
+  // into a silent no-op. Reversing the list used to stand in for sorting;
+  // that only held while the backend order was the single source of
+  // truth, and broke as soon as anything else reordered the rows.
   const allHistory = useMemo(() => {
-    return sortMode === 'oldest' ? [...rawHistory].reverse() : rawHistory
+    const at = row => {
+      const ms = Date.parse(row.triggered_at_raw)
+      return Number.isNaN(ms) ? 0 : ms
+    }
+    const dir = sortMode === 'oldest' ? 1 : -1
+    return [...rawHistory].sort((a, b) => (at(a) - at(b)) * dir)
   }, [rawHistory, sortMode])
 
-  useEffect(() => { setCurrentPage(1) }, [severityFilter, sensorFilter, statusFilter, sortMode, search, pageSize])
+  useEffect(() => { setCurrentPage(1) }, [severityFilter, sensorFilter, houseFilter, farmFilter, barangayFilter, statusFilter, sortMode, search, pageSize])
 
   const totalItems = allHistory.length
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
@@ -165,6 +242,56 @@ export default function AlertHistory() {
                 ))}
               </select>
 
+              {/* Narrowing to one farm used to mean typing its name into the
+                  search box — and farm names are not unique, so two farms
+                  sharing a name came back mixed together. This filters on
+                  the farm's id, which is exact. */}
+              {barangayOptions.length > 1 && (
+                <>
+                  <label style={styles.filterLabel}>Barangay</label>
+                  <select value={draftBarangay} onChange={e => setDraftBarangay(e.target.value)} style={styles.filterSelect}>
+                    <option value="">All Barangays</option>
+                    {barangayOptions.map(b => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                </>
+              )}
+
+              {farmOptions.length > 1 && (
+                <>
+                  <label style={styles.filterLabel}>Farm</label>
+                  {selectedFarm ? (
+                    <div style={styles.pickedFarm}>
+                      <span style={styles.pickedFarmName}>{selectedFarm.farm_name}</span>
+                      <span style={styles.clearFarmLink} onClick={() => { setDraftFarm(''); setFarmQuery('') }}>Clear</span>
+                    </div>
+                  ) : (
+                    <>
+                      <input
+                        value={farmQuery}
+                        onChange={e => setFarmQuery(e.target.value)}
+                        placeholder="Type a farm name…"
+                        style={styles.filterSelect}
+                      />
+                      {farmSuggestions.length > 0 && (
+                        <div style={styles.farmResultsList}>
+                          {farmSuggestions.map(f => (
+                            <div key={f.id} style={styles.farmResultItem} onClick={() => setDraftFarm(String(f.id))}>
+                              <div style={styles.farmResultName}>{f.farm_name}</div>
+                              <div style={styles.farmResultMeta}>
+                                {f.owner_name || 'No owner on record'}{f.barangay ? ` · ${f.barangay}` : ''}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {farmQuery.trim() !== '' && farmSuggestions.length === 0 && (
+                        <div style={styles.farmEmptyResult}>No farm matches “{farmQuery.trim()}”.</div>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+
               <label style={styles.filterLabel}>Severity</label>
               <select value={draftSeverity} onChange={e => setDraftSeverity(e.target.value)} style={styles.filterSelect}>
                 <option value="">All Severity</option>
@@ -177,6 +304,23 @@ export default function AlertHistory() {
                 <option value="">All Sensors</option>
                 {SENSOR_TYPES.map(s => <option key={s} value={s.toLowerCase()}>{s}</option>)}
               </select>
+
+              {/* A farm runs one device per poultry house, so "which house"
+                  is usually the next question after seeing an alert. Only
+                  worth showing once more than one unit exists. */}
+              {houseOptions.length > 1 && (
+                <>
+                  <label style={styles.filterLabel}>House</label>
+                  <select value={draftHouse} onChange={e => setDraftHouse(e.target.value)} style={styles.filterSelect}>
+                    <option value="">All Houses</option>
+                    {houseOptions.map(d => (
+                      <option key={d.id} value={d.id}>
+                        {d.device_name}{d.farm_name ? ` — ${d.farm_name}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
 
               <label style={styles.filterLabel}>Status</label>
               <select value={draftStatus} onChange={e => setDraftStatus(e.target.value)} style={styles.filterSelect}>
@@ -194,7 +338,7 @@ export default function AlertHistory() {
         </div>
       </div>
 
-      {loading && <p style={styles.stateText}>Loading...</p>}
+      {loading && <SkeletonTable rows={6} columns={6} />}
       {error && <p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p>}
 
       {!loading && !error && (
@@ -208,6 +352,11 @@ export default function AlertHistory() {
                 <tr>
                   <th style={styles.th}>Farm</th>
                   <th style={styles.th}>Farm Owner</th>
+                  {/* Which poultry house. A farm runs one device per house, so
+                      without this an alert said a farm was hot but not where
+                      to walk. Dash for incidents recorded before per-device
+                      tracking existed. */}
+                  <th style={styles.th}>House</th>
                   <th style={styles.th}>Sensor</th>
                   <th style={styles.th}>Severity</th>
                   <th style={styles.th}>Triggered</th>
@@ -221,7 +370,14 @@ export default function AlertHistory() {
                   return (
                     <tr key={h.id}>
                       <td style={{ ...styles.td, fontWeight: 600, color: '#16311d' }}>{h.farm_name}</td>
+                      {/* Name only. The mobile number used to sit under it as
+                          a tie-breaker, since two owners can both call a farm
+                          "Gly's Farm" — but this is a monitoring log, not a
+                          contact list, and it made every row two lines tall.
+                          The number is still on the farm profile and in the
+                          API response if it is ever needed back here. */}
                       <td style={styles.td}>{h.farm_owner_name || '—'}</td>
+                      <td style={styles.td}>{h.device_name || '—'}</td>
                       <td style={styles.td}>{h.sensor_type}</td>
                       <td style={styles.td}>
                         <span style={{ ...styles.badge, color: c, backgroundColor: severityBg[h.status] || '#eef1ea' }}>
@@ -245,7 +401,7 @@ export default function AlertHistory() {
           </div>
           {allHistory.length === 0 && (
             <div style={styles.empty}>
-              {search || severityFilter || sensorFilter || statusFilter
+              {search || severityFilter || sensorFilter || houseFilter || farmFilter || statusFilter
                 ? 'No alerts match your search or filter.'
                 : 'No alert history recorded yet.'}
             </div>
@@ -277,7 +433,7 @@ function Pagination({
   return (
     <div className="no-print" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
       <div style={paginationStyles.info}>
-        {totalItems === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${totalItems} results`}
+        {totalItems === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
       </div>
 
       <div style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
@@ -302,7 +458,7 @@ const styles = {
   subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px', marginBottom: '20px' },
 
   toolbar: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' },
-  toolbarMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  toolbarMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch' },
 
   searchWrap: { position: 'relative', flex: 1 },
   searchIcon: { position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' },
@@ -346,6 +502,20 @@ const styles = {
     fontSize: '13px', color: '#33413a', backgroundColor: '#fff', cursor: 'pointer',
     fontFamily: SANS, boxSizing: 'border-box',
   },
+  // Searchable Farm picker — same shape as the Assign Device and
+  // "Add Farm to Existing Owner" pickers, so all three read as one pattern.
+  farmResultsList: { border: '1px solid #dcdfd6', borderRadius: '10px', marginTop: '6px', maxHeight: '180px', overflowY: 'auto' },
+  farmResultItem: { padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f2f3ed' },
+  farmResultName: { fontSize: '13px', fontWeight: 700, color: '#16311d', fontFamily: SANS },
+  farmResultMeta: { fontSize: '11.5px', color: '#6b7770', marginTop: '2px', fontFamily: SANS },
+  farmEmptyResult: { fontSize: '12px', color: '#9aa79d', padding: '8px 2px', fontFamily: SANS },
+  pickedFarm: {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px',
+    border: '1px solid #cfe0d3', backgroundColor: '#f6faf7', borderRadius: '10px', padding: '9px 12px',
+  },
+  pickedFarmName: { fontSize: '13px', fontWeight: 700, color: '#16311d', fontFamily: SANS },
+  clearFarmLink: { color: '#2c8047', fontWeight: 700, fontSize: '12px', cursor: 'pointer', textDecoration: 'underline', flexShrink: 0, fontFamily: SANS },
+
   filterActions: { display: 'flex', gap: '10px', marginTop: '20px' },
   filterResetBtn: {
     flex: 1, padding: '9px 0', borderRadius: '10px', border: '1px solid #dcdfd6',
@@ -367,6 +537,7 @@ const styles = {
     backgroundColor: '#fafbf8',
   },
   td: { padding: '13px 20px', fontSize: '12px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle' },
+  subCell: { fontSize: '11px', color: '#9aa79d', marginTop: '2px' },
   badge: {
     display: 'inline-flex', alignItems: 'center', padding: '4px 11px',
     borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap',
@@ -379,7 +550,7 @@ const paginationStyles = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px',
   },
-  wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  wrapMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch' },
   info: { fontSize: '12px', color: '#8a968d', whiteSpace: 'nowrap' },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },

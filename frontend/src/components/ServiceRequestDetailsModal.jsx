@@ -2,6 +2,7 @@ import { formatDate, formatDateTime } from '../utils/formatDate'
 import { viewModalStyles as v } from '../styles/viewModalStyles'
 import { serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../utils/serviceBadgeStyle'
 import { requestDisplayStatus } from '../utils/serviceRequestStatus'
+import AttachmentSummary from './AttachmentSummary'
 
 const BIRD_ESTIMATES = {
   Small: 'Below 10,000 layers',
@@ -103,18 +104,20 @@ export default function ServiceRequestDetailsModal({ request, onClose, isMobile 
               <p style={v.notes}>{request.notes || 'No notes recorded.'}</p>
             </div>
             <span style={v.sectionLabel}>Visit Notes</span>
-            <div style={v.notesBox}>
+            <div style={{ ...v.notesBox, ...(request.attachments?.length || request.attachment ? { marginBottom: '12px' } : {}) }}>
               <p style={v.notes}>{request.completion_notes}</p>
             </div>
           </>
         ) : (
           <>
             <span style={v.sectionLabel}>Visit Notes</span>
-            <div style={v.notesBox}>
+            <div style={{ ...v.notesBox, ...(request.attachments?.length || request.attachment ? { marginBottom: '12px' } : {}) }}>
               <p style={v.notes}>{request.notes || 'No notes recorded.'}</p>
             </div>
           </>
         )}
+
+        <AttachmentSummary requestId={request.id} attachments={request.attachments} attachment={request.attachment} />
 
         <div style={v.actions}>
           <button onClick={onClose} style={v.closeBtn}>Close</button>

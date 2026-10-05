@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api/axios'
-import { getUser, setAuth, getToken, isRemembered } from '../utils/auth'
+import { getUser, setAuth, getToken, isRemembered, dashboardPathForRole } from '../utils/auth'
 import { validatePassword } from '../utils/passwordValidation'
 import PasswordStrengthIndicator from '../components/PasswordStrengthIndicator'
+import { BtnBusy } from '../components/Loading'
 
 export default function ChangePassword() {
   const [newPassword, setNewPassword] = useState('')
@@ -44,9 +45,11 @@ export default function ChangePassword() {
       const updatedUser = { ...user, must_change_password: false }
       setAuth(getToken(), updatedUser, isRemembered())
 
-      if (user.role === 'admin') navigate('/admin/dashboard')
-      else if (user.role === 'farm_owner') navigate('/farmowner/dashboard')
-      else if (user.role === 'vet') navigate('/vet/dashboard')
+      // A super_admin matched none of the three branches this replaces, so
+      // the page simply sat there after a successful change. One shared
+      // mapping covers every role. replace, so Back cannot return to a
+      // forced-change screen that no longer applies.
+      navigate(dashboardPathForRole(user.role), { replace: true })
     } catch (err) {
       setError(err.response?.data?.message || 'Something went wrong.')
     } finally {
@@ -112,7 +115,7 @@ export default function ChangePassword() {
               cursor: (loading || !canSubmit) ? 'not-allowed' : 'pointer',
             }}
           >
-            {loading ? 'Saving...' : 'Save New Password'}
+            {loading ? <BtnBusy label="Saving…" /> : 'Save New Password'}
           </button>
         </form>
       </div>

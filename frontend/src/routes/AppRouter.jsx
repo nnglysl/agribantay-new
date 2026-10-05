@@ -1,7 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { lazy, Suspense } from 'react'
-import { isAuthenticated, getRole } from '../utils/auth'
+import { isAuthenticated, getRole, dashboardPathForRole } from '../utils/auth'
 import FarmProvider from '../context/FarmProvider'
+import { PageLoader } from '../components/Loading'
 
 const LandingPage = lazy(() => import('../pages/LandingPage'))
 const Login = lazy(() => import('../pages/Login'))
@@ -15,6 +16,7 @@ const TermsOfService = lazy(() => import('../pages/TermsOfService'))
 const PrivacyPolicy = lazy(() => import('../pages/DataPolicy'))
 
 const FarmerDashboard = lazy(() => import('../pages/farmowner/Dashboard'))
+const FarmerReadings = lazy(() => import('../pages/farmowner/Readings'))
 const FarmerInspections = lazy(() => import('../pages/farmowner/Inspections'))
 const ServiceRequests = lazy(() => import('../pages/farmowner/ServiceRequests'))
 const ManureRecords = lazy(() => import('../pages/farmowner/ManureRecords'))
@@ -31,6 +33,7 @@ const AlertHistory = lazy(() => import('../pages/admin/AlertHistory'))
 const MaintenanceOverdue = lazy(() => import('../pages/admin/MaintenanceOverdue'))
 const FarmMaintenanceDetails = lazy(() => import('../pages/admin/FarmMaintenanceDetails'))
 const FarmDetails = lazy(() => import('../pages/admin/FarmDetails'))
+const Devices = lazy(() => import('../pages/admin/Devices'))
 
 // Manage Accounts (Admin + Vet) is now exclusive to Super Admin — the old
 // /admin/veterinarians route + regular Admin's access to it is gone.
@@ -57,30 +60,29 @@ const VetSettings = lazy(() => import('../pages/vet/Settings'))
 // from the spec, without duplicating any of those pages. Only genuinely
 // Super-Admin-exclusive pages use role="super_admin" directly.
 function ProtectedRoute({ children, role }) {
-  if (!isAuthenticated()) return <Navigate to="/login" />
+  // Every redirect below replaces the current history entry instead of
+  // pushing a new one, so a bounce never becomes an extra Back step that
+  // leads back to the login page.
+  if (!isAuthenticated()) return <Navigate to="/login" replace />
 
   const userRole = getRole()
   if (role === 'admin' && userRole === 'super_admin') return children
 
-  if (role && userRole !== role) return <Navigate to="/login" />
+  if (role && userRole !== role) return <Navigate to="/login" replace />
   return children
 }
 
-function PageLoader() {
-  return (
-    <div style={{
-      minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      color: '#6b7280', fontSize: '14px',
-    }}>
-      Loading...
-    </div>
-  )
+// Unknown URL: a signed-in browser goes to its own dashboard rather than to
+// the login form, which looked like being signed out.
+function NotFoundRedirect() {
+  return <Navigate to={isAuthenticated() ? dashboardPathForRole(getRole()) : '/login'} replace />
 }
+
 
 export default function AppRouter() {
   return (
     <BrowserRouter>
-      <Suspense fallback={<PageLoader />}>
+      <Suspense fallback={<PageLoader minHeight="100vh" />}>
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<Login />} />
@@ -112,6 +114,11 @@ export default function AppRouter() {
           <Route path="/admin/farms/:farmId" element={
             <ProtectedRoute role="admin">
               <FarmDetails />
+            </ProtectedRoute>
+          } />
+          <Route path="/admin/devices" element={
+            <ProtectedRoute role="admin">
+              <Devices />
             </ProtectedRoute>
           } />
           <Route path="/admin/inspections" element={
@@ -181,6 +188,11 @@ export default function AppRouter() {
               <SuperAdminFarms />
             </ProtectedRoute>
           } />
+          <Route path="/superadmin/devices" element={
+            <ProtectedRoute role="super_admin">
+              <Devices />
+            </ProtectedRoute>
+          } />
           <Route path="/superadmin/farms/:farmId" element={
             <ProtectedRoute role="super_admin">
               <SuperAdminFarmDetails />
@@ -204,6 +216,11 @@ export default function AppRouter() {
           <Route path="/farmowner/dashboard" element={
             <ProtectedRoute role="farm_owner">
               <FarmProvider><FarmerDashboard /></FarmProvider>
+            </ProtectedRoute>
+          } />
+          <Route path="/farmowner/readings" element={
+            <ProtectedRoute role="farm_owner">
+              <FarmProvider><FarmerReadings /></FarmProvider>
             </ProtectedRoute>
           } />
           <Route path="/farmowner/inspections" element={
@@ -259,7 +276,7 @@ export default function AppRouter() {
             </ProtectedRoute>
           } />
 
-          <Route path="*" element={<Navigate to="/login" />} />
+          <Route path="*" element={<NotFoundRedirect />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

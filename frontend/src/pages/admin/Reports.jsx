@@ -15,6 +15,7 @@ import {
 } from '../../components/ReportsLayout'
 import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 import { DISPLAY_TIME_ZONE } from '../../utils/formatDate'
+import { SkeletonStatCards, SkeletonBlock } from '../../components/Loading'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Tooltip)
 
@@ -22,7 +23,30 @@ const TABS = ['Overview', 'Inspections', 'Alerts', 'Maintenance', 'Service Reque
 const MAINTENANCE_VIEWS = ['Overdue and non-compliant farms', 'Completed clean-out log']
 
 export default function AdminReports() {
-  const { data, loading, error, refetch } = useCachedFetch('/admin/reports')
+  const [tab, setTab] = useState('Overview')
+  const [maintView, setMaintView] = useState(MAINTENANCE_VIEWS[0])
+  const now = new Date()
+
+  // From/To date-range filter — drives every record-listing tab (Overview,
+  // Inspections, Alerts, Maintenance, Service Requests).
+  const [draftFrom, setDraftFrom] = useState('')
+  const [draftTo, setDraftTo] = useState('')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+
+  // Sent to the server so the stat cards are scoped to the same period as
+  // the tables. It cannot be done in the browser: the detail lists this
+  // endpoint returns are capped at 300 rows, so counting them would quietly
+  // under-report once a farm passes that. Empty object = all-time, which is
+  // the behaviour every caller had before.
+  const reportParams = useMemo(() => {
+    const p = {}
+    if (fromDate) p.from = fromDate
+    if (toDate) p.to = toDate
+    return p
+  }, [fromDate, toDate])
+
+  const { data, loading, error, refetch } = useCachedFetch('/admin/reports', reportParams)
 
   // Tied to actual data refreshes only (initial load + each 30-minute
   // auto-refetch below) — never recomputed on every render, so it doesn't
@@ -36,16 +60,6 @@ export default function AdminReports() {
     if (data) setGeneratedAt(new Date().toLocaleString('en-PH', { dateStyle: 'long', timeStyle: 'short', timeZone: DISPLAY_TIME_ZONE }))
   }
 
-  const [tab, setTab] = useState('Overview')
-  const [maintView, setMaintView] = useState(MAINTENANCE_VIEWS[0])
-  const now = new Date()
-
-  // From/To date-range filter — drives every record-listing tab (Overview,
-  // Inspections, Alerts, Maintenance, Service Requests).
-  const [draftFrom, setDraftFrom] = useState('')
-  const [draftTo, setDraftTo] = useState('')
-  const [fromDate, setFromDate] = useState('')
-  const [toDate, setToDate] = useState('')
 
   // Separate Month + Year filter — used only by the Files tab, which picks
   // ONE archived monthly report rather than filtering a list of records.
@@ -151,7 +165,7 @@ export default function AdminReports() {
 
   const isFilterActive = tab === 'Files' ? Boolean(filesMonth && filesYear) : isRangeFiltered
 
-  if (loading || !data) return <AdminLayout><p style={styles.stateText}>Loading...</p></AdminLayout>
+  if (loading || !data) return <AdminLayout><SkeletonStatCards count={4} /><SkeletonBlock height={260} style={{ marginBottom: '20px' }} /><SkeletonBlock height={260} /></AdminLayout>
   if (error) return <AdminLayout><p style={{ ...styles.stateText, color: C.red }}>{error}</p></AdminLayout>
 
   const insp = data.inspection_summary ?? {}
@@ -171,8 +185,8 @@ export default function AdminReports() {
     Overview: [
       { value: farms.total, label: 'Total Farms' },
       { value: insp.total, label: 'Total Inspections' },
-      { value: alertSum.total, label: 'Total Alerts' },
-      { value: alertSum.critical_alerts, label: 'Critical Alerts' },
+      { value: alertSum.total_incidents ?? alertSum.total, label: 'Total Alerts' },
+      { value: alertSum.critical_incidents, label: 'Critical Alerts' },
       { value: svc.pending, label: 'Pending Service Requests' },
     ],
     Inspections: [
@@ -182,12 +196,17 @@ export default function AdminReports() {
       { value: insp.general, label: 'General' },
       { value: insp.follow_up, label: 'Follow-up' },
     ],
+    // Every card here counts INCIDENTS, the same unit Alert History shows, so
+    // the five numbers can be read across one row. Temperature and humidity
+    // are advisory metrics the system never alerts on, so their cards counted
+    // raw readings instead and reached five figures beside a Total of 87.
+    // Ammonia and moisture are what actually raise alerts.
     Alerts: [
-      { value: alertSum.total, label: 'Total Alerts' },
-      { value: alertSum.ammonia_breaches, label: 'Ammonia Breaches' },
-      { value: alertSum.temp_anomalies, label: 'Temperature Anomalies' },
-      { value: alertSum.humidity_anomalies, label: 'Humidity Anomalies' },
-      { value: alertSum.critical_alerts, label: 'Critical Alerts' },
+      { value: alertSum.total_incidents ?? alertSum.total, label: 'Total Alerts' },
+      { value: alertSum.ammonia_incidents ?? 0, label: 'Ammonia Alerts' },
+      { value: alertSum.moisture_incidents ?? 0, label: 'Moisture Alerts' },
+      { value: alertSum.critical_incidents ?? 0, label: 'Critical Alerts' },
+      { value: alertSum.resolved_incidents ?? 0, label: 'Resolved' },
     ],
     Maintenance: [
       { value: maint.completed_this_month, label: 'Completed This Month' },
@@ -208,7 +227,7 @@ export default function AdminReports() {
       <div className="screen-view rp">
         <PageHeader
           title="Reports"
-          subtitle="Municipality-wide records and analytics"
+          subtitle="Overall Farm Monitoring Summary"
           hideActions
         />
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 }}>
@@ -359,7 +378,7 @@ export default function AdminReports() {
               <DataTable
                 title="Completed inspections"
                 subtitle={rangeLabel}
-                columns={['ID', 'Farm', 'Owner', 'Type', 'Date', 'Status']}
+                columns={['Inspection No.', 'Farm', 'Owner', 'Type', 'Date', 'Status']}
                 emptyText="No completed inspections in this range."
                 rows={inspections.map(i => [
                   { text: i.inspection_number },

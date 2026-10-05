@@ -1,8 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { AMMONIA_UNIT } from '../../utils/ammonia'
 import { useNavigate } from 'react-router-dom'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch, invalidateCache } from '../../hooks/useCachedFetch'
+import { BACKGROUND_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useOverflowX } from '../../hooks/useOverflowX'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
@@ -13,6 +15,16 @@ import SharedPagination from '../../components/Pagination'
 import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 import FarmLocationMap from '../../components/FarmLocationMap'
 import { DISPLAY_TIME_ZONE } from '../../utils/formatDate'
+import { SkeletonTable, SectionLoader, BtnBusy } from '../../components/Loading'
+
+// A farm runs one device per poultry house, so this can be several names.
+// Past two they are counted rather than listed, to keep the row readable.
+function deviceLabel(farm) {
+  const names = Array.isArray(farm.device_names) ? farm.device_names : []
+  if (names.length === 0) return '—'
+  if (names.length <= 2) return names.join(', ')
+  return `${names.length} devices`
+}
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
@@ -62,7 +74,10 @@ function formatRegistrationDate(value) {
   if (!value) return '—'
   const d = new Date(value)
   if (isNaN(d.getTime())) return '—'
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  // Pinned to Manila. Without it this renders in the VIEWER'S timezone, so a
+  // record created at 3am Manila (7pm UTC the day before) showed the previous
+  // day on any machine not set to PH time.
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: DISPLAY_TIME_ZONE })
 }
 
 function getInitials(name) {
@@ -78,10 +93,19 @@ export default function Farms() {
     deactivated: emptyTabState(),
   })
 
+  // Confirms the part of the action that leaves no trace on screen: a
+  // temporary password went to someone, by some channel. The new row
+  // appearing in the table already confirms the farm itself.
+  const [successBanner, setSuccessBanner] = useState(null)
   const [showRegisterModal, setShowRegisterModal] = useState(false)
   const [showAddFarmModal, setShowAddFarmModal] = useState(false)
   const [viewFarm, setViewFarm] = useState(null)
   const isMobile = useIsMobile()
+  // Same pinned Actions column as the Super Admin Farms table: keeps the row's
+  // View button reachable when the 1000px-wide table overflows its container.
+  // 560px rather than the 768px isMobile breakpoint, because browser zoom
+  // shrinks the CSS viewport into that range on ordinary laptops.
+  const pinActions = !useIsMobile(560)
   const [tableScrollRef, tableOverflows] = useOverflowX()
 
   const current = tabState[statusTab]
@@ -160,7 +184,7 @@ export default function Farms() {
   params.per_page = current.pageSize
   params.page = current.currentPage
 
-  const { data: farms, loading, error, refetch } = useCachedFetch('/admin/farms', params, { pollMs: 60000 })
+  const { data: farms, loading, error, refetch } = useCachedFetch('/admin/farms', params, { pollMs: BACKGROUND_POLL_MS })
   // Other pages' edits (activate/deactivate/register) must not leave a stale
   // cached page behind, so mutations invalidate every /admin/farms key.
   const reloadFarms = () => { invalidateCache('/admin/farms'); refetch() }
@@ -212,6 +236,21 @@ export default function Farms() {
           </button>
         </div>
       </div>
+
+      {successBanner && (
+        <div className="no-print" style={styles.successBanner}>
+          <span style={styles.successCheck} aria-hidden="true">✓</span>
+          <span>{successBanner}</span>
+          <button
+            type="button"
+            onClick={() => setSuccessBanner(null)}
+            style={styles.successClose}
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <div className="no-print" style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
         <div style={styles.statusTabs}>
@@ -309,7 +348,7 @@ export default function Farms() {
         </div>
       </div>
 
-      {loading && <p>Loading...</p>}
+      {loading && <SkeletonTable rows={6} columns={7} />}
       {error && <p style={{ color: '#b91c1c' }}>{error}</p>}
 
       {!loading && !error && (
@@ -332,7 +371,7 @@ export default function Farms() {
                     {current.sortField === 'created_at' && <span style={styles.sortArrow}>{current.sortDirection === 'asc' ? ' ▲' : ' ▼'}</span>}
                   </th>
                   <th style={styles.th}>Monitoring Status</th>
-                  <th style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
+                  <th style={{ ...styles.th, ...(pinActions ? styles.thActions : styles.thActionsStatic) }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -340,7 +379,7 @@ export default function Farms() {
                   <tr key={f.id} style={styles.tr}>
                     <td style={styles.td}>
                       {f.owner_profile_photo_url ? (
-                        <img src={f.owner_profile_photo_url} alt="" style={styles.ownerAvatarImg} />
+                        <img src={f.owner_profile_photo_url} alt="" loading="lazy" decoding="async" style={styles.ownerAvatarImg} />
                       ) : (
                         <span style={styles.avatar}>{getInitials(f.owner_name)}</span>
                       )}
@@ -354,7 +393,7 @@ export default function Farms() {
                     <td style={styles.td}>{f.mobile_number || f.email || '—'}</td>
                     <td style={styles.td}>{f.barangay}</td>
                     <td style={styles.td}>{f.farm_size}</td>
-                    <td style={styles.td}>{f.device_name || '—'}</td>
+                    <td style={styles.td}>{deviceLabel(f)}</td>
                     <td style={styles.td}>{formatRegistrationDate(f.created_at)}</td>
                     <td style={styles.td}>
                       <span style={{ ...styles.badge, color: monitoringColor[f.current_status] || '#6b7280', backgroundColor: monitoringBg[f.current_status] || '#eef1ea' }}>
@@ -362,7 +401,7 @@ export default function Farms() {
                         {f.current_status || 'Offline'}
                       </span>
                     </td>
-                    <td style={styles.td}>
+                    <td style={{ ...styles.td, ...(pinActions ? styles.tdActions : null) }}>
                       <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
                         <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => navigate(`/admin/farms/${f.id}`)}>View</span>
                       </div>
@@ -393,11 +432,11 @@ export default function Farms() {
       {viewFarm && <ViewFarmModal farmId={viewFarm.id} isMobile={isMobile} onClose={() => setViewFarm(null)} />}
 
       {showRegisterModal && (
-        <RegisterModal isMobile={isMobile} onClose={() => setShowRegisterModal(false)} onSuccess={() => { setShowRegisterModal(false); reloadFarms() }} />
+        <RegisterModal isMobile={isMobile} onClose={() => setShowRegisterModal(false)} onSuccess={(msg) => { setShowRegisterModal(false); reloadFarms(); setSuccessBanner(msg) }} />
       )}
 
       {showAddFarmModal && (
-        <AddFarmModal isMobile={isMobile} onClose={() => setShowAddFarmModal(false)} onSuccess={() => { setShowAddFarmModal(false); reloadFarms() }} />
+        <AddFarmModal isMobile={isMobile} onClose={() => setShowAddFarmModal(false)} onSuccess={(msg) => { setShowAddFarmModal(false); reloadFarms(); setSuccessBanner(msg) }} />
       )}
 
     </AdminLayout>
@@ -478,6 +517,11 @@ function FieldError({ errors, field }) {
   return <div style={modalStyles.fieldErrorText}>{msg}</div>
 }
 
+/** "1 farm" / "3 farms" — the count is shown, so it must read correctly at 1. */
+function farmCountLabel(n) {
+  return `${n} farm${n === 1 ? '' : 's'}`
+}
+
 function RegisterModal({ onClose, onSuccess, isMobile }) {
   const [step, setStep] = useState('owner')
 
@@ -490,10 +534,30 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
   const [ownerFieldErrors, setOwnerFieldErrors] = useState({})
   const [ownerLoading, setOwnerLoading] = useState(false)
   const [smsWarning, setSmsWarning] = useState('')
+  const [delivery, setDelivery] = useState(null)
 
   const [farmsList, setFarmsList] = useState([emptyFarm()])
   const [farmsError, setFarmsError] = useState('')
   const [farmsLoading, setFarmsLoading] = useState(false)
+  const [confirmClose, setConfirmClose] = useState(false)
+
+  // The modal is unmounted by the parent on close, which is what resets it.
+  // Closing therefore discards whatever is typed, so X/Cancel first ask when
+  // any field holds a value. The backdrop never closes this modal.
+  const farmHasInput = (f) =>
+    [f.farm_name, f.farm_size, f.barangay, f.lot_number, f.street, f.landmark].some(v => String(v ?? '').trim() !== '')
+    || f.latitude != null || f.longitude != null
+  const isDirty = step === 'owner'
+    ? profilePhoto != null || Object.values(ownerForm).some(v => String(v ?? '').trim() !== '')
+    : farmsList.some(farmHasInput)
+  const requestClose = () => {
+    if (isDirty) setConfirmClose(true)
+    else onClose()
+  }
+  const discardAndClose = () => {
+    setConfirmClose(false)
+    onClose()
+  }
 
   const updateOwner = (key) => (e) => setOwnerForm({ ...ownerForm, [key]: e.target.value })
 
@@ -515,8 +579,16 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
       setOwnerId(res.data.id)
+      // Kept for the confirmation after the farms are saved. The backend
+      // sends email when the owner has one and SMS otherwise, so the
+      // channel cannot be assumed — it has to be reported.
+      setDelivery({ method: res.data.contact_method, ok: res.data.delivered !== false })
       if (res.data.delivered === false) {
-        setSmsWarning('Owner account created, but the SMS with the temporary password failed to send.')
+        // Named for the channel that was actually used — telling someone to
+        // check for a text when the password went to email sends them
+        // hunting for a message that was never sent.
+        const how = res.data.contact_method === 'email' ? 'email' : 'SMS'
+        setSmsWarning(`Owner account created, but the ${how} with the temporary password failed to send.`)
       }
       setStep('farms')
     } catch (err) {
@@ -583,7 +655,16 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
           })
         )
       )
-      onSuccess()
+      // Names the owner, the farm count, and how the temporary password went
+      // out — the last of which leaves no trace anywhere on screen.
+      const owner = `${ownerForm.first_name} ${ownerForm.last_name}`.trim()
+      const where = delivery?.method === 'email' ? ownerForm.email : ownerForm.mobile_number
+      const how = delivery?.method === 'email' ? 'email' : 'SMS'
+      const sent = delivery?.ok === false
+        ? `The temporary password could NOT be sent by ${how}.`
+        : `The temporary password was sent by ${how} to ${where}.`
+
+      onSuccess(`${owner} registered with ${farmCountLabel(farmsList.length)}. ${sent}`)
     } catch (err) {
       setFarmsError(err.response?.data?.message || 'Failed to save one or more farms.')
     } finally {
@@ -592,11 +673,11 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
   }
 
   return (
-    <div style={modalStyles.overlay} onClick={onClose}>
+    <div style={modalStyles.overlay}>
       <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}), ...modalStyles.modalWide }} onClick={e => e.stopPropagation()}>
         <div style={modalStyles.header}>
           <h3 style={modalStyles.title}>Register Farm Owner & Farm</h3>
-          <span style={modalStyles.close} onClick={onClose}>×</span>
+          <button type="button" aria-label="Close" onClick={requestClose} style={{ ...modalStyles.close, ...modalStyles.closeBtnReset }}>×</button>
         </div>
 
         <p style={modalStyles.instruction}>
@@ -681,13 +762,13 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
             <FieldError errors={ownerFieldErrors} field="address" />
 
             <p style={modalStyles.hint}>
-              A temporary password will be generated and sent to the owner's mobile number via SMS. The owner must change it on their first login, and can log in afterward using either their mobile number or email (if provided). The owner is registered once — you'll add their farm(s) in the next step.
+              A temporary password will be sent to the owner's mobile number or email address. The owner must change it on their first login. After that, they can log in using their mobile number or email address, if provided. Register the owner once, then add their farm details in the next step.
             </p>
 
             <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
-              <button type="button" onClick={onClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>Cancel</button>
+              <button type="button" onClick={requestClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>Cancel</button>
               <button type="submit" disabled={ownerLoading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
-                {ownerLoading ? 'Creating Owner...' : 'Next: Add Farm(s) →'}
+                {ownerLoading ? <BtnBusy label="Creating Owner…" /> : 'Next: Add Farm(s) →'}
               </button>
             </div>
           </form>
@@ -717,7 +798,7 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
             <button type="button" onClick={addFarm} style={modalStyles.addFarmBtn}>+ Add Another Farm</button>
 
             <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
-              <button type="button" onClick={onClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>Cancel</button>
+              <button type="button" onClick={requestClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>Cancel</button>
               <button type="submit" disabled={farmsLoading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
                 {farmsLoading ? 'Saving Farm(s)...' : `Save ${farmsList.length > 1 ? `${farmsList.length} Farms` : 'Farm'}`}
               </button>
@@ -725,6 +806,21 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
           </form>
         )}
       </div>
+
+      {confirmClose && (
+        <div style={modalStyles.confirmOverlay} role="alertdialog" aria-modal="true">
+          <div style={modalStyles.confirmBox}>
+            <div style={modalStyles.confirmTitle}>Unsaved changes</div>
+            <p style={modalStyles.confirmText}>
+              You have unsaved changes. Are you sure you want to close? Your entered information will be lost.
+            </p>
+            <div style={{ ...modalStyles.actions, marginTop: '16px', ...(isMobile ? modalStyles.actionsMobile : {}) }}>
+              <button type="button" onClick={() => setConfirmClose(false)} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>Stay</button>
+              <button type="button" onClick={discardAndClose} style={{ ...modalStyles.discardBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>Discard</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -811,7 +907,9 @@ function AddFarmModal({ onClose, onSuccess, isMobile }) {
           })
         )
       )
-      onSuccess()
+      // No new account here, so no password to report — just what was added
+      // and to whom.
+      onSuccess(`${farmCountLabel(farmsList.length)} added for ${selectedOwner.first_name} ${selectedOwner.last_name}.`)
     } catch (err) {
       setFarmsError(err.response?.data?.message || 'Failed to save one or more farms.')
     } finally {
@@ -1336,7 +1434,7 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                     {reading ? (
                       <>
                         <div style={profileStyles.sensorList}>
-                          <SensorStat label="Ammonia" value={reading.ammonia} unit="ppm" status={reading.ammonia_status} STATUS={STATUS} />
+                          <SensorStat label="Ammonia" value={reading.ammonia} unit={AMMONIA_UNIT} status={reading.ammonia_status} STATUS={STATUS} />
                           <SensorStat label="Temperature" value={reading.temperature} unit="°C" status={reading.temperature_status} STATUS={STATUS} />
                           <SensorStat label="Humidity" value={reading.humidity} unit="%" status={reading.humidity_status} STATUS={STATUS} />
                           <SensorStat label="Moisture" value={reading.moisture} unit="%" status={reading.moisture_status} STATUS={STATUS} last />
@@ -1387,7 +1485,7 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                     <InfoCell label="Days Since" value={farm.maintenance_status ? `${farm.maintenance_status.days_since} of ~${farm.maintenance_status.expected_interval_days} expected` : null} />
                   </div>
 
-                  {cleanoutLoading && <div style={profileStyles.empty}>Loading…</div>}
+                  {cleanoutLoading && <SectionLoader />}
                   {!cleanoutLoading && (cleanoutData?.logs?.length ?? 0) === 0 && (
                     <div style={profileStyles.empty}>No clean-out records logged for this farm yet.</div>
                   )}
@@ -1430,7 +1528,7 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
 
               {activeTab === 'disposal' && (
                 <Section title="Manure Disposal Records">
-                  {disposalLoading && <div style={profileStyles.empty}>Loading…</div>}
+                  {disposalLoading && <SectionLoader />}
                   {!disposalLoading && (disposalData?.records?.length ?? 0) === 0 && (
                     <div style={profileStyles.empty}>No disposal records logged for this farm yet.</div>
                   )}
@@ -1500,7 +1598,7 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
 
               {activeTab === 'inspections' && (
                 <Section title="Inspection Summary">
-                  {inspectionLoading && <div style={profileStyles.empty}>Loading…</div>}
+                  {inspectionLoading && <SectionLoader />}
                   {!inspectionLoading && (inspectionData?.inspections?.length ?? 0) === 0 && (
                     <div style={profileStyles.empty}>No inspections recorded for this farm yet.</div>
                   )}
@@ -1687,7 +1785,6 @@ function DevicesTab({ farmId }) {
 
       {showRegister && (
         <RegisterDeviceModal
-          farmId={farmId}
           onClose={() => setShowRegister(false)}
           onSuccess={() => { setShowRegister(false); refetch() }}
         />
@@ -1704,18 +1801,22 @@ function DevicesTab({ farmId }) {
   )
 }
 
-function RegisterDeviceModal({ farmId, onClose, onSuccess }) {
+// The Device Key is generated by the backend at registration and shown once
+// here so it can be copied into the firmware and onto the sticker. New
+// devices start Unassigned and are assigned to a farm after turnover.
+function RegisterDeviceModal({ onClose, onSuccess }) {
+  const [deviceName, setDeviceName] = useState('')
   const [deviceKey, setDeviceKey] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [registered, setRegistered] = useState(null) // holds { sensor_code, device_key, ... } after success
+  const [registered, setRegistered] = useState(null) // holds { device_name, device_key, ... } after success
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
     setLoading(true)
     try {
-      const res = await api.post('/admin/sensors', { farm_id: farmId, device_key: deviceKey })
+      const res = await api.post('/admin/sensors', { label: deviceName, device_key: deviceKey.trim() })
       setRegistered(res.data.data)
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to register device.')
@@ -1741,23 +1842,35 @@ function RegisterDeviceModal({ farmId, onClose, onSuccess }) {
             <form onSubmit={handleSubmit}>
               {error && <div style={modalStyles.errorBox}>{error}</div>}
 
-              <label style={modalStyles.label}>Device Key *</label>
+              <label style={modalStyles.label}>Device Name *</label>
               <input
-                value={deviceKey}
-                onChange={e => setDeviceKey(e.target.value)}
-                placeholder="e.g. AGB-AVL0FQW2ZEOP4INCQC17OWGQUR1U7ZAY"
+                value={deviceName}
+                onChange={e => setDeviceName(e.target.value)}
+                placeholder="e.g. Device 1"
                 style={modalStyles.inputFull}
                 required
                 autoFocus
               />
               <p style={devicesStyles.hint}>
-                Enter the device_key printed/labeled on the physical sensor unit.
+                This is the name used to identify the device in the system. You can change it later.
+              </p>
+
+              <label style={modalStyles.label}>Device Key *</label>
+              <input
+                value={deviceKey}
+                onChange={e => setDeviceKey(e.target.value.toUpperCase())}
+                placeholder="AGB-XXXXXXXX"
+                style={modalStyles.inputFull}
+                required
+              />
+              <p style={devicesStyles.hint}>
+                This key is already set in the device. Enter it correctly to connect the device to AgriBantay.
               </p>
 
               <div style={modalStyles.actions}>
                 <button type="button" onClick={onClose} style={modalStyles.cancelBtn}>Cancel</button>
                 <button type="submit" disabled={loading} style={modalStyles.submitBtn}>
-                  {loading ? 'Registering...' : 'Register Device'}
+                  {loading ? <BtnBusy label="Registering…" /> : 'Register Device'}
                 </button>
               </div>
             </form>
@@ -1768,13 +1881,32 @@ function RegisterDeviceModal({ farmId, onClose, onSuccess }) {
               <h3 style={modalStyles.title}>Device Registered Successfully</h3>
             </div>
 
-            <div style={devicesStyles.successBox}>
-              <div style={devicesStyles.successLabel}>Sensor Code</div>
-              <div style={devicesStyles.successCode}>{registered.sensor_code}</div>
-              <p style={devicesStyles.successHint}>
-                {registered.device_name || registered.sensor_code} (<code>{registered.device_key}</code>) has been registered successfully and is ready for farm assignment.
-              </p>
+            <div style={devicesStyles.successTop}>
+              <div style={devicesStyles.successMark}>&#10003;</div>
+              <div>
+                <div style={devicesStyles.successHeadline}>Device registered</div>
+                <div style={devicesStyles.successSubline}>The system now recognises this unit.</div>
+              </div>
             </div>
+
+            <div style={devicesStyles.detailCard}>
+              <div style={devicesStyles.detailRow}>
+                <span style={devicesStyles.detailLabel}>Device Name</span>
+                <span style={devicesStyles.detailValue}>{registered.device_name || registered.sensor_code}</span>
+              </div>
+              <div style={devicesStyles.detailRow}>
+                <span style={devicesStyles.detailLabel}>Device Key</span>
+                <span style={devicesStyles.detailMuted}>Stored &middot; hidden</span>
+              </div>
+              <div style={devicesStyles.detailRowLast}>
+                <span style={devicesStyles.detailLabel}>Assignment</span>
+                <span style={devicesStyles.detailMuted}>Unassigned</span>
+              </div>
+            </div>
+
+            <p style={devicesStyles.successNote}>
+              Assign it to a farm so it can start recording readings. The key stays masked in the device list &mdash; use Show if you need to check it against the sticker.
+            </p>
 
             <div style={modalStyles.actions}>
               <button type="button" onClick={handleDone} style={modalStyles.submitBtn}>Done</button>
@@ -1827,7 +1959,7 @@ function EditDeviceModal({ sensor, onClose, onSuccess }) {
           <div style={modalStyles.actions}>
             <button type="button" onClick={onClose} style={modalStyles.cancelBtn}>Cancel</button>
             <button type="submit" disabled={loading} style={modalStyles.submitBtn}>
-              {loading ? 'Saving...' : 'Save Changes'}
+              {loading ? <BtnBusy label="Saving…" /> : 'Save Changes'}
             </button>
           </div>
         </form>
@@ -1896,13 +2028,24 @@ const styles = {
   secondaryBtn: { display: 'inline-flex', alignItems: 'center', gap: '7px', backgroundColor: '#fff', color: '#2c8047', border: '1px solid #cfe0d3', borderRadius: '10px', padding: '10px 16px', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer' },
   btnFull: { width: '100%', boxSizing: 'border-box', justifyContent: 'center' },
 
+  successBanner: {
+    display: 'flex', alignItems: 'flex-start', gap: '10px',
+    backgroundColor: '#eaf3ec', border: '1px solid #cfe0d3', color: '#1f5a34',
+    borderRadius: '10px', padding: '11px 14px', fontSize: '13px',
+    marginBottom: '14px', lineHeight: 1.55, fontFamily: 'inherit',
+  },
+  successCheck: { fontWeight: 800, flexShrink: 0 },
+  successClose: {
+    marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer',
+    color: '#1f5a34', fontSize: '17px', lineHeight: 1, padding: 0, flexShrink: 0,
+  },
   toolbar: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     gap: '14px', marginBottom: '18px', borderBottom: '1px solid #e7e8e0', flexWrap: 'wrap',
   },
-  toolbarMobile: { flexDirection: 'column', alignItems: 'stretch', gap: '12px' },
+  toolbarMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch', gap: '12px' },
 
-  statusTabs: { display: 'flex', gap: '4px', overflowX: 'auto' },
+  statusTabs: { display: 'flex', gap: '4px', overflowX: 'auto', minWidth: 0, maxWidth: '100%', flexWrap: 'nowrap', WebkitOverflowScrolling: 'touch' },
   statusTab: { padding: '10px 18px', fontSize: '14px', fontWeight: 700, color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap' },
   statusTabActive: { color: '#2c8047', borderBottom: '2px solid #2c8047' },
 
@@ -1976,6 +2119,11 @@ const styles = {
   ownerAvatarImg: { width: '38px', height: '38px', borderRadius: '10px', objectFit: 'cover', display: 'block' },
   badge: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 11px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap' },
   badgeDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
+  // Pinned Actions column (see pinActions above); thActionsStatic is the
+  // plain right-aligned header used at phone widths.
+  thActions: { position: 'sticky', right: 0, zIndex: 2, textAlign: 'right', boxShadow: '-6px 0 6px -6px rgba(22,49,29,0.18)' },
+  thActionsStatic: { textAlign: 'right' },
+  tdActions: { position: 'sticky', right: 0, zIndex: 1, backgroundColor: '#fff', boxShadow: '-6px 0 6px -6px rgba(22,49,29,0.18)' },
   actionBtn: { padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer', border: '1px solid #e3e6dd', backgroundColor: '#fff', whiteSpace: 'nowrap' },
   viewBtn: { color: '#4b5a50' },
   empty: { padding: '32px', textAlign: 'center', color: '#9aa79d', fontSize: '14px' },
@@ -1983,7 +2131,7 @@ const styles = {
 
 const paginationStyles = {
   wrap: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px' },
-  wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  wrapMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch' },
   info: { fontSize: '12px', color: '#8a968d', whiteSpace: 'nowrap' },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },
@@ -2022,6 +2170,12 @@ const modalStyles = {
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' },
   title: { fontSize: '17px', fontWeight: 800, color: '#16311d', margin: 0 },
   close: { fontSize: '22px', cursor: 'pointer', color: '#8a968d' },
+  closeBtnReset: { background: 'none', border: 'none', padding: 0, lineHeight: 1, fontFamily: 'inherit' },
+  confirmOverlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(15,38,22,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: '16px', boxSizing: 'border-box' },
+  confirmBox: { backgroundColor: 'white', borderRadius: '14px', padding: '22px 24px', width: '420px', maxWidth: '100%', boxShadow: '0 20px 50px rgba(0,0,0,0.25)' },
+  confirmTitle: { fontSize: '16px', fontWeight: 700, color: '#0f2616', marginBottom: '8px' },
+  confirmText: { fontSize: '13.5px', color: '#33413a', lineHeight: 1.55, margin: 0 },
+  discardBtn: { padding: '10px 18px', borderRadius: '10px', border: 'none', backgroundColor: '#b91c1c', color: 'white', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
   instruction: { fontSize: '12.5px', color: '#6b7770', marginBottom: '16px', lineHeight: '1.5' },
   requiredMark: { color: '#b91c1c', fontWeight: 700 },
 
@@ -2036,12 +2190,16 @@ const modalStyles = {
   ownerBanner: { backgroundColor: '#eaf3ec', border: '1px solid #cfe0d3', color: '#1f5a34', padding: '8px 12px', borderRadius: '10px', fontSize: '12.5px', marginBottom: '16px' },
 
   sectionLabel: { fontSize: '11px', fontWeight: 700, color: '#9aa79d', marginTop: '16px', marginBottom: '8px', letterSpacing: '0.5px' },
-  row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' },
+  row: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '10px', marginBottom: '10px' },
   rowMobile: { gridTemplateColumns: '1fr' },
   input: { padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', width: '100%' },
   inputFull: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', marginBottom: '10px' },
   inputError: { borderColor: '#e8a3a3', backgroundColor: '#fffaf9' },
-  fieldErrorText: { fontSize: '11.5px', color: '#b91c1c', marginTop: '-6px', marginBottom: '10px' },
+  // Sits BELOW the input, never over it. The old -6px was written for the
+  // full-width fields, whose input carries a 10px bottom margin to absorb it;
+  // the fields inside a two-column row have no such margin, so the same rule
+  // pulled the message up across the input's bottom border.
+  fieldErrorText: { fontSize: '11.5px', lineHeight: 1.45, color: '#b91c1c', marginTop: '5px', marginBottom: '2px' },
   label: { display: 'block', fontSize: '12.5px', fontWeight: 600, color: '#33413a', marginBottom: '5px' },
   errorBox: { backgroundColor: '#fbeaea', border: '1px solid #f0c9c9', color: '#b91c1c', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '14px' },
   warnBox: { backgroundColor: '#fdf8f0', border: '1px solid #f0e2cf', color: '#92400e', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '14px' },
@@ -2102,8 +2260,11 @@ const profileStyles = {
   pillDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
   closeBtn: { width: '30px', height: '30px', borderRadius: '8px', border: '1px solid #eceee7', backgroundColor: '#fff', color: '#8a968d', fontSize: '17px', lineHeight: 1, cursor: 'pointer', flexShrink: 0 },
 
-  tabsRow: { display: 'flex', gap: '26px', padding: '0 28px', borderBottom: '1px solid #f0efe8', overflowX: 'auto', flexShrink: 0 },
-  tab: { border: 'none', background: 'none', padding: '14px 0 12px', fontFamily: 'inherit', fontSize: '13px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', color: '#8a968d', borderBottom: '2px solid transparent', marginBottom: '-1px' },
+  // minWidth 0 is what lets overflowX work: without it a flex item refuses
+  // to be narrower than its contents, so the row pushed the whole page
+  // sideways instead of scrolling inside itself.
+  tabsRow: { display: 'flex', gap: '26px', padding: '0 28px', borderBottom: '1px solid #f0efe8', overflowX: 'auto', flexShrink: 0, minWidth: 0, flexWrap: 'nowrap', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', },
+  tab: { border: 'none', background: 'none', padding: '14px 0 12px', fontFamily: 'inherit', fontSize: '13px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', color: '#8a968d', borderBottom: '2px solid transparent', marginBottom: '-1px', flexShrink: 0, },
   tabActive: { color: '#2c8047', borderBottom: '2px solid #2c8047' },
 
   body: { padding: '4px 28px 8px', flex: 1, overflowY: 'auto' },
@@ -2114,7 +2275,7 @@ const profileStyles = {
   sectionBadge: { padding: '3px 10px', borderRadius: '999px', fontSize: '10.5px', fontWeight: 700 },
 
   infoGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px 40px' },
-  infoRow: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 20px', padding: '14px 0', borderBottom: '1px solid #f0efe8' },
+  infoRow: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '14px 20px', padding: '14px 0', borderBottom: '1px solid #f0efe8' },
   infoRowLast: { borderBottom: 'none', paddingBottom: '18px' },
   infoCell: {},
   infoLabel: { fontSize: '10.5px', color: '#9aa79d', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '5px' },
@@ -2175,6 +2336,21 @@ const devicesStyles = {
   successLabel: { fontSize: '11px', fontWeight: 700, color: '#5c8a6b', textTransform: 'uppercase', letterSpacing: '0.05em' },
   successCode: { fontSize: '24px', fontWeight: 800, color: '#1f5a34', fontFamily: 'monospace', margin: '8px 0', letterSpacing: '0.03em' },
   successHint: { fontSize: '12px', color: '#4b5a50', lineHeight: 1.5, margin: 0 },
+  successTop: { display: 'flex', alignItems: 'center', gap: '12px', margin: '4px 0 14px' },
+  successMark: {
+    width: '34px', height: '34px', borderRadius: '50%', flexShrink: 0,
+    backgroundColor: '#e7f2ea', color: '#2c8047', display: 'flex',
+    alignItems: 'center', justifyContent: 'center', fontSize: '17px', fontWeight: 700,
+  },
+  successHeadline: { fontSize: '14.5px', fontWeight: 700, color: '#16311d' },
+  successSubline: { fontSize: '12.5px', color: '#8a968d', marginTop: '2px' },
+  successNote: { fontSize: '12px', color: '#8a968d', lineHeight: 1.55, margin: '12px 2px 0' },
+  detailCard: { backgroundColor: '#f7f8f4', border: '1px solid #e3e6dd', borderRadius: '12px', padding: '4px 14px' },
+  detailRow: { display: 'flex', justifyContent: 'space-between', gap: '12px', padding: '9px 0', fontSize: '13px', borderBottom: '1px solid #ecefe7' },
+  detailRowLast: { display: 'flex', justifyContent: 'space-between', gap: '12px', padding: '9px 0', fontSize: '13px' },
+  detailLabel: { color: '#8a968d', fontWeight: 600, flexShrink: 0 },
+  detailValue: { color: '#16311d', fontWeight: 700, textAlign: 'right', wordBreak: 'break-all' },
+  detailMuted: { color: '#8a968d', fontWeight: 600, textAlign: 'right' },
 }
 
 const lightboxStyles = {

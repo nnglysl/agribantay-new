@@ -1,19 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
 import FarmMap from '../../components/FarmMap'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { BACKGROUND_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useMonthFilter, filterByMonth } from '../../hooks/useMonthFilter'
 import { DISPLAY_TIME_ZONE } from '../../utils/formatDate'
+import { SkeletonStatCards, SkeletonBlock } from '../../components/Loading'
 
 export default function SuperAdminDashboard() {
-  const { data, loading, error, refetch: refetchDashboard } = useCachedFetch('/admin/dashboard')
-  const { data: mapFarms, refetch: refetchMap } = useCachedFetch('/admin/farms-map')
-  const { data: inspectionsData, refetch: refetchInspections } = useCachedFetch('/admin/inspections')
+  const { data, loading, error, refetch: refetchDashboard } = useCachedFetch('/admin/dashboard', {}, { pollMs: BACKGROUND_POLL_MS })
+  const { data: mapFarms, refetch: refetchMap } = useCachedFetch('/admin/farms-map', {}, { pollMs: BACKGROUND_POLL_MS })
+  const { data: inspectionsData, refetch: refetchInspections } = useCachedFetch('/admin/inspections', {}, { pollMs: BACKGROUND_POLL_MS })
 
-  const { data: accounts, refetch: refetchAccounts } = useCachedFetch('/superadmin/accounts')
-  const { data: adminReportData, refetch: refetchAdminReports } = useCachedFetch('/admin/reports')
-  const { data: vetReportData, refetch: refetchVetReports } = useCachedFetch('/vet/reports')
+  const { data: accounts, refetch: refetchAccounts } = useCachedFetch('/superadmin/accounts', {}, { pollMs: BACKGROUND_POLL_MS })
 
   // Background sync. If the numbers came from the in-memory cache (revisiting
   // the dashboard after e.g. reactivating a Vet elsewhere), refresh them right
@@ -25,7 +26,7 @@ export default function SuperAdminDashboard() {
   useEffect(() => {
     const sync = () => {
       refetchDashboard(); refetchMap(); refetchInspections()
-      refetchAccounts(); refetchAdminReports(); refetchVetReports()
+      refetchAccounts()
     }
     if (servedFromCache.current) sync()
     const id = setInterval(sync, 60000)
@@ -34,6 +35,7 @@ export default function SuperAdminDashboard() {
   }, [])
 
   const isMobile = useIsMobile()
+  const navigate = useNavigate()
   const [modalOpen, setModalOpen] = useState(null)
 
   const { month, prevMonth, nextMonth, label: monthLabel } = useMonthFilter()
@@ -46,10 +48,8 @@ export default function SuperAdminDashboard() {
 
   const totalAdmins = (accounts || []).filter(a => a.role === 'admin' && a.status === 'active').length
   const totalVets = (accounts || []).filter(a => a.role === 'vet' && a.status === 'active').length
-  const pendingAdminServices = adminReportData?.service_summary?.pending ?? 0
-  const pendingVetServices = vetReportData?.total_pending ?? 0
 
-  if (loading) return <AdminLayout><p style={{ fontSize: '14px', color: '#6b7770' }}>Loading...</p></AdminLayout>
+  if (loading) return <AdminLayout><SkeletonStatCards count={4} minWidth={180} /><SkeletonBlock height={320} /></AdminLayout>
   if (error) return <AdminLayout><p style={{ color: '#dc2626' }}>{error}</p></AdminLayout>
 
   return (
@@ -58,12 +58,16 @@ export default function SuperAdminDashboard() {
       <p style={styles.subtitle}>Welcome back, Super Administrator</p>
 
       <div style={{ ...styles.statsGrid, ...(isMobile ? styles.statsGridMobile : {}) }}>
-        {/* Order matters: Total Farms → Admin Accounts → Vet Accounts. Each
-            card is bound to its own value (farm count from /admin/dashboard;
-            active admin/vet counts from /superadmin/accounts). */}
+        {/* Order matters: Total Farms → Staff → Veterinarian. Each card is
+            bound to its own value (farm count from /admin/dashboard; active
+            staff/vet counts from /superadmin/accounts).
+
+            Named the way Manage Accounts names them — the role dropdown there
+            reads "Staff" and "Veterinarian", so "Admin Accounts" was a third
+            word for a role the rest of the system calls Staff. */}
         <StatCard value={data.total_farms} label="Total Farms" isMobile={isMobile} />
-        <StatCard value={totalAdmins} label="Admin Accounts" isMobile={isMobile} />
-        <StatCard value={totalVets} label="Vet Accounts" isMobile={isMobile} />
+        <StatCard value={totalAdmins} label="Staff" isMobile={isMobile} />
+        <StatCard value={totalVets} label="Veterinarian" isMobile={isMobile} />
       </div>
 
       <h3 style={styles.mapTitle}>Farm monitoring map</h3>
@@ -78,10 +82,6 @@ export default function SuperAdminDashboard() {
           onPrevMonth={prevMonth}
           onNextMonth={nextMonth}
           variant="needsAttention"
-          pendingRequestBreakdown={[
-            { label: 'Vet Assistance requests', count: pendingVetServices },
-            { label: 'Odor Control requests', count: pendingAdminServices },
-          ]}
         />
       </div>
 
@@ -106,7 +106,15 @@ export default function SuperAdminDashboard() {
                   {(f.all_sensors || []).map(s => (
                     <div key={s.type} style={styles.sensorCell}>
                       <span style={styles.sensorCellLabel}>{s.type}</span>
-                      <span style={{ ...styles.sensorCellValue, ...(s.critical ? styles.sensorCellValueCritical : {}) }}>
+                      {/* Advisory metrics are shown for context — they are what
+                          drives ammonia — but they can never be red here, so
+                          they sit back a shade and let the two that can be
+                          critical take the eye. */}
+                      <span style={{
+                        ...styles.sensorCellValue,
+                        ...(s.advisory ? styles.sensorCellValueAdvisory : {}),
+                        ...(s.critical ? styles.sensorCellValueCritical : {}),
+                      }}>
                         {s.value ?? '—'}{s.unit}
                       </span>
                     </div>
@@ -115,6 +123,18 @@ export default function SuperAdminDashboard() {
               </div>
             </div>
           ))}
+
+          {/* This modal summarises which FARMS are critical right now. The
+              per-incident record — when each one started, which poultry
+              house, how long it has been running — lives on Alert History,
+              so the trail continues there instead of stopping here. */}
+          <button
+            type="button"
+            style={styles.modalFooterLink}
+            onClick={() => { setModalOpen(null); navigate('/admin/alert-history') }}
+          >
+            Open Alert History →
+          </button>
         </ListModal>
       )}
 
@@ -186,7 +206,7 @@ const styles = {
 
   statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '28px' },
   // Matches Admin dashboard: 3 cards across in a single row, even on mobile.
-  statsGridMobile: { gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '20px' },
+  statsGridMobile: { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '8px', marginBottom: '20px' },
 
   statCard: {
     background: '#234A35', border: '1px solid #1b3a29', borderRadius: '14px', padding: '20px 22px',
@@ -203,6 +223,7 @@ const styles = {
   mapWrap: { border: '1px solid #e7e8e0', borderRadius: '14px', overflow: 'hidden' },
 
   emptyText: { fontSize: '13px', color: '#9aa79d' },
+  modalFooterLink: { display: 'block', width: '100%', marginTop: '14px', padding: '10px 0', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#2c8047', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: "'Inter', sans-serif" },
   alertRow: {
     display: 'flex', alignItems: 'flex-start', gap: '12px',
     padding: '13px 0', borderBottom: '1px solid #f0efe8',
@@ -214,10 +235,11 @@ const styles = {
   critBadge: { padding: '4px 10px', borderRadius: '999px', color: '#dc2626', backgroundColor: '#fbeaea', fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 },
   softBadge: { padding: '4px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 },
 
-  sensorTableRow: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginTop: '8px' },
+  sensorTableRow: { display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '10px', marginTop: '8px' },
   sensorCell: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start' },
   sensorCellLabel: { fontSize: '9.5px', fontWeight: 700, color: '#9aa79d', textTransform: 'uppercase', letterSpacing: '0.02em' },
   sensorCellValue: { fontSize: '12px', fontWeight: 700, color: '#4b5a50', marginTop: '2px' },
+  sensorCellValueAdvisory: { color: '#8a968d', fontWeight: 600 },
   sensorCellValueCritical: { color: '#dc2626' },
 }
 

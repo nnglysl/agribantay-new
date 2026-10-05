@@ -1,46 +1,50 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\AuthController;
+use App\Http\Controllers\Admin\ActivityLogController;
+use App\Http\Controllers\Admin\AlertHistoryController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\FarmController;
 use App\Http\Controllers\Admin\FarmOwnerController;
+use App\Http\Controllers\Admin\GeneratedReportController;
 use App\Http\Controllers\Admin\InspectionController;
-use App\Http\Controllers\Admin\ServiceRequestController;
-use App\Http\Controllers\Admin\ActivityLogController;
-use App\Http\Controllers\Admin\AlertHistoryController;
 use App\Http\Controllers\Admin\MaintenanceController as AdminMaintenanceController;
 use App\Http\Controllers\Admin\ReportController;
-use App\Http\Controllers\Admin\GeneratedReportController;
 use App\Http\Controllers\Admin\SensorController;
+use App\Http\Controllers\Admin\ServiceRequestController;
+use App\Http\Controllers\AuthController;
 use App\Http\Controllers\Farmer\DashboardController as FarmerDashboardController;
-use App\Http\Controllers\Farmer\ServiceRequestController as FarmerServiceRequestController;
-use App\Http\Controllers\Farmer\RecommendationController as FarmerRecommendationController;
-use App\Http\Controllers\Farmer\InsightController as FarmerInsightController;
-use App\Http\Controllers\Farmer\MaintenanceController as FarmerMaintenanceController;
 use App\Http\Controllers\Farmer\DisposalController as FarmerDisposalController;
-use App\Http\Controllers\Farmer\InspectionController as FarmerInspectionController;
 use App\Http\Controllers\Farmer\FarmController as FarmerFarmController;
-use App\Http\Controllers\SettingsController;
-use App\Http\Controllers\Vet\DashboardController as VetDashboardController;
-use App\Http\Controllers\Vet\VaccinationRequestController;
-use App\Http\Controllers\Vet\ReportController as VetReportController;
-use App\Http\Controllers\Vet\GeneratedReportController as VetGeneratedReportController;
-use App\Http\Controllers\SensorIngestController;
-use App\Http\Controllers\SuperAdmin\AccountController;
-use App\Http\Controllers\SuperAdmin\FarmDeletionController;
+use App\Http\Controllers\Farmer\InsightController as FarmerInsightController;
+use App\Http\Controllers\Farmer\InspectionController as FarmerInspectionController;
+use App\Http\Controllers\Farmer\MaintenanceController as FarmerMaintenanceController;
+use App\Http\Controllers\Farmer\ReadingHistoryController as FarmerReadingHistoryController;
+use App\Http\Controllers\Farmer\ServiceRequestController as FarmerServiceRequestController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PasswordResetController;
+use App\Http\Controllers\SensorIngestController;
+use App\Http\Controllers\ServiceRequestAttachmentController;
+use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\SuperAdmin\AccountController;
+use App\Http\Controllers\SuperAdmin\FarmDeletionController;
+use App\Http\Controllers\Vet\DashboardController as VetDashboardController;
+use App\Http\Controllers\Vet\GeneratedReportController as VetGeneratedReportController;
+use App\Http\Controllers\Vet\ReportController as VetReportController;
+use App\Http\Controllers\Vet\VaccinationRequestController;
+use Illuminate\Support\Facades\Route;
 
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/sensor-readings', [SensorIngestController::class, 'store']);
-Route::post('/forgot-password', [App\Http\Controllers\AuthController::class, 'forgotPassword']);
+Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
 
 Route::post('/password/otp/request', [PasswordResetController::class, 'requestOtp']);
 Route::post('/password/otp/verify', [PasswordResetController::class, 'verifyOtp']);
 Route::post('/password/reset', [PasswordResetController::class, 'resetPassword']);
 
-Route::middleware('auth:sanctum')->group(function () {
+// 'active' re-reads users.status from the database on every authenticated
+// request, so an account deactivated mid-session loses access immediately
+// instead of staying usable until its token expires.
+Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
     Route::post('/change-password', [AuthController::class, 'changePassword']);
@@ -56,6 +60,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/notifications/{id}/read', [NotificationController::class, 'markRead']);
     Route::patch('/notifications/read-all', [NotificationController::class, 'markAllRead']);
 
+    // Accomplished form attached to a completed service request (private
+    // disk). Role/ownership check is inside the controller.
+    Route::get('/service-requests/{id}/attachment', [ServiceRequestAttachmentController::class, 'show']);
+    Route::get('/service-requests/{id}/attachments/{attachmentId}', [ServiceRequestAttachmentController::class, 'show'])->whereNumber('attachmentId');
+
     /*
     |--------------------------------------------------------------------------
     | Veterinarian routes (role: vet)
@@ -67,14 +76,21 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/vaccination-requests/{id}/accept', [VaccinationRequestController::class, 'accept']);
         Route::patch('/vaccination-requests/{id}/decline', [VaccinationRequestController::class, 'decline']);
         Route::patch('/vaccination-requests/{id}/complete', [VaccinationRequestController::class, 'complete']);
+        // POST twin of the line above: multipart (form + notes) only reaches PHP on POST.
+        Route::post('/vaccination-requests/{id}/complete', [VaccinationRequestController::class, 'complete']);
+        // Remove one attachment from a reopened (Scheduled) request — owner only.
+        Route::delete('/vaccination-requests/{id}/attachments/{attachmentId}', [VaccinationRequestController::class, 'removeAttachment'])->whereNumber('attachmentId');
         Route::patch('/vaccination-requests/{id}/reschedule', [VaccinationRequestController::class, 'reschedule']);
         Route::patch('/vaccination-requests/{id}/reopen', [VaccinationRequestController::class, 'reopen']);
         Route::get('/reports', [VetReportController::class, 'index']);
         Route::get('/generated-reports', [VetGeneratedReportController::class, 'index']);
+        Route::post('/generated-reports', [VetGeneratedReportController::class, 'store']);
         Route::get('/generated-reports/{generatedReport}', [VetGeneratedReportController::class, 'show']);
-        Route::get('/farms', [\App\Http\Controllers\Vet\FarmController::class, 'index']);
-        Route::get('/farms/{id}', [\App\Http\Controllers\Vet\FarmController::class, 'show']);
-        Route::get('/farms/{id}/service-requests', [\App\Http\Controllers\Vet\FarmController::class, 'serviceRequests']);
+        Route::delete('/generated-reports/{generatedReport}', [VetGeneratedReportController::class, 'destroy']);
+        Route::get('/farms', [App\Http\Controllers\Vet\FarmController::class, 'index']);
+        Route::get('/farms/{id}', [App\Http\Controllers\Vet\FarmController::class, 'show']);
+        Route::get('/farms/{id}/service-requests', [App\Http\Controllers\Vet\FarmController::class, 'serviceRequests']);
+        Route::get('/farms/{id}/readings-history', [App\Http\Controllers\Vet\FarmController::class, 'readingsHistory']);
     });
 
     /*
@@ -88,8 +104,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/inspections', [FarmerInspectionController::class, 'index']);
         Route::get('/service-requests', [FarmerServiceRequestController::class, 'index']);
         Route::post('/service-requests', [FarmerServiceRequestController::class, 'store']);
-        Route::get('/recommendations', [FarmerRecommendationController::class, 'index']);
         Route::get('/insights', [FarmerInsightController::class, 'index']);
+        Route::get('/readings-history', [FarmerReadingHistoryController::class, 'index']);
         Route::get('/maintenance', [FarmerMaintenanceController::class, 'index']);
         Route::post('/maintenance', [FarmerMaintenanceController::class, 'store']);
         Route::get('/disposal-records', [FarmerDisposalController::class, 'index']);
@@ -118,6 +134,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/farms', [FarmController::class, 'store']);
         Route::get('/farms/{id}', [FarmController::class, 'show']);
         Route::get('/farms/{id}/trend', [FarmController::class, 'trend']);
+        Route::get('/farms/{id}/readings-history', [FarmController::class, 'readingsHistory']);
         Route::get('/farms/{id}/root-cause', [FarmController::class, 'rootCause']);
         Route::put('/farms/{id}', [FarmController::class, 'update']);
         Route::post('/farms/{id}/email/otp/request', [FarmController::class, 'requestOwnerEmailOtp']);
@@ -163,6 +180,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/generated-reports', [GeneratedReportController::class, 'index']);
         Route::post('/generated-reports', [GeneratedReportController::class, 'store']);
         Route::get('/generated-reports/{generatedReport}', [GeneratedReportController::class, 'show']);
+        // Deleting is how a period is redone: store() never overwrites an
+        // existing archive, so the old one has to go first. Scoped to the
+        // generator inside the controller.
+        Route::delete('/generated-reports/{generatedReport}', [GeneratedReportController::class, 'destroy']);
 
         Route::get('/alert-history', [AlertHistoryController::class, 'index']);
 

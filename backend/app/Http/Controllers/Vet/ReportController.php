@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ServiceRequest;
 use Illuminate\Support\Facades\Auth;
 use App\Support\LocalTime;
+use App\Support\ServiceTypes;
 
 class ReportController extends Controller
 {
@@ -13,7 +14,7 @@ class ReportController extends Controller
     // ServiceRequestController's VET_ONLY_TYPES on the admin side.
     // Previously this only ever looked at Vaccine Request, silently
     // dropping every Blood Test Request from every report.
-    private const VET_SERVICE_TYPES = ['Vaccine Request', 'Blood Test Request'];
+    private const VET_SERVICE_TYPES = ServiceTypes::VET;
 
     public function index()
     {

@@ -40,7 +40,20 @@ return [
 
         'public' => [
             'driver' => 'local',
-            'root' => storage_path('app/public'),
+
+            // Normally storage_path('app/public'), reached through the
+            // public/storage symlink that `artisan storage:link` creates.
+            // On the Hostinger deployment Laravel lives outside the web root
+            // and there is no shell to run storage:link with, so an uploaded
+            // profile photo saved under storage/app/public was written fine
+            // and then served as a 404 — the URL pointed at a folder the web
+            // server could not see.
+            //
+            // PUBLIC_STORAGE_ROOT lets that deployment write straight into a
+            // real folder inside public_html. Left unset (local dev, tests)
+            // the default keeps the standard Laravel layout, so nothing here
+            // depends on the hosting quirk.
+            'root' => env('PUBLIC_STORAGE_ROOT') ?: storage_path('app/public'),
             'url' => rtrim(env('APP_URL', 'http://localhost'), '/').'/storage',
             'visibility' => 'public',
             'throw' => false,

@@ -4,6 +4,7 @@ import api from '../api/axios'
 import AuthLayout, { authFormStyles as styles } from '../components/AuthLayout'
 import { validatePassword } from '../utils/passwordValidation'
 import PasswordStrengthIndicator from '../components/PasswordStrengthIndicator'
+import { BtnBusy } from '../components/Loading'
 
 function EyeIcon() {
   return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></svg>
@@ -114,7 +115,7 @@ export default function ResetPassword() {
 
         <button type="submit" disabled={loading || !canSubmit} className="agb-btn agb-primary"
           style={{ ...styles.primaryBtn, opacity: (loading || !canSubmit) ? 0.5 : 1, cursor: (loading || !canSubmit) ? 'not-allowed' : 'pointer' }}>
-          {loading ? 'Saving...' : 'Reset Password'}
+          {loading ? <BtnBusy label="Saving…" /> : 'Reset Password'}
         </button>
       </form>
     </AuthLayout>

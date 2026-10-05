@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Farm;
 use App\Models\ServiceRequest;
 use Illuminate\Support\Facades\Auth;
+use App\Support\ServiceTypes;
 
 class DashboardController extends Controller
 {
@@ -19,7 +20,7 @@ class DashboardController extends Controller
         $totalFarms = Farm::count();
 
         $baseQuery = fn() => ServiceRequest::where('accepted_by', $vetId)
-            ->whereIn('service_type', ['Vaccine Request', 'Blood Test Request']);
+            ->whereIn('service_type', ServiceTypes::VET);
 
         $assignedRequests = $baseQuery()->count();
 
@@ -27,7 +28,7 @@ class DashboardController extends Controller
             ->whereDate('scheduled_at', now()->toDateString())
             ->count();
 
-        $pending = ServiceRequest::whereIn('service_type', ['Vaccine Request', 'Blood Test Request'])
+        $pending = ServiceRequest::whereIn('service_type', ServiceTypes::VET)
             ->where('status', 'Pending')
             ->whereNull('accepted_by')
             ->count();
@@ -103,7 +104,7 @@ class DashboardController extends Controller
         // included here since neither scheduledVaccinations nor assignedFarms
         // carry them.
         $mapRequests = ServiceRequest::where('accepted_by', $vetId)
-            ->whereIn('service_type', ['Vaccine Request', 'Blood Test Request'])
+            ->whereIn('service_type', ServiceTypes::VET)
             ->where('status', 'Scheduled')
             ->with('farm')
             ->orderBy('scheduled_at')

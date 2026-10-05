@@ -4,11 +4,13 @@ import AdminLayout from '../../components/AdminLayout'
 import SharedPagination from '../../components/Pagination'
 import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { LIVE_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useOverflowX } from '../../hooks/useOverflowX'
 import { useMonthFilter, filterByMonth } from '../../hooks/useMonthFilter'
 import { formatDate, formatDateTime, parseLocalDate, DISPLAY_TIME_ZONE } from '../../utils/formatDate'
 import { viewModalStyles as v } from '../../styles/viewModalStyles'
+import { SkeletonTable } from '../../components/Loading'
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
@@ -188,7 +190,7 @@ export default function SuperAdminInspections() {
     ? [historyFarm, historyStatus, historyFrom, historyTo].filter(Boolean).length
     : 0
 
-  const { data: inspectionsData, loading, error } = useCachedFetch('/admin/inspections', {}, { pollMs: 45000 })
+  const { data: inspectionsData, loading, error } = useCachedFetch('/admin/inspections', {}, { pollMs: LIVE_POLL_MS })
 
   const inspections = useMemo(() => inspectionsData || [], [inspectionsData])
 
@@ -394,7 +396,7 @@ export default function SuperAdminInspections() {
         )}
       </div>
 
-      {loading && <p style={styles.stateText}>Loading...</p>}
+      {loading && <SkeletonTable rows={6} columns={6} />}
       {error && <p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p>}
 
       {!loading && !error && tab === 'calendar' && (
@@ -471,8 +473,9 @@ export default function SuperAdminInspections() {
         const c = STATUS_COLOR[displayStatus(viewInspection)] || '#6b7280'
         const fields = [
           { label: 'Farm', value: viewInspection.farm_name },
+          ...(viewInspection.owner_name ? [{ label: 'Farm Owner', value: viewInspection.owner_name }] : []),
           { label: 'Type', value: viewInspection.inspection_type },
-          { label: 'Scheduled By', value: viewInspection.scheduled_by_name?.trim() || '—' },
+          { label: 'Staff', value: responsibleStaff(viewInspection) },
           { label: 'Scheduled', value: formatDateTime(viewInspection.scheduled_at) },
           ...(viewInspection.completed_at ? [{ label: 'Completed', value: formatDateTime(viewInspection.completed_at) }] : []),
         ]
@@ -565,28 +568,38 @@ function StatusBadge({ status }) {
   )
 }
 
-const scheduledByOrDash = (i) => i.scheduled_by_name?.trim() || '—'
+// The Staff member who scheduled the inspection is the one who conducts it —
+// there is no separate assignment step — so scheduled_by is the responsible
+// Staff member shown everywhere.
+const responsibleStaff = (i) => i.scheduled_by_name?.trim() || '—'
+
+const renderFarm = (i) => (
+  <>
+    <span style={styles.rowTitle}>{i.farm_name}</span>
+    {i.owner_name && <div style={styles.rowMeta}>{i.owner_name}</div>}
+  </>
+)
 
 const SCHEDULED_COLUMNS = [
-  { header: 'Farm', render: i => <span style={styles.rowTitle}>{i.farm_name}</span> },
+  { header: 'Farm', render: renderFarm },
   { header: 'Inspection Date', render: i => formatDate(i.scheduled_at) },
-  { header: 'Scheduled By', render: scheduledByOrDash },
+  { header: 'Staff', render: responsibleStaff },
   { header: 'Type', render: i => i.inspection_type },
   { header: 'Status', render: i => <StatusBadge status={displayStatus(i)} /> },
 ]
 
 const COMPLETED_COLUMNS = [
-  { header: 'Farm', render: i => <span style={styles.rowTitle}>{i.farm_name}</span> },
+  { header: 'Farm', render: renderFarm },
   { header: 'Inspection Date', render: i => formatDate(i.scheduled_at) },
-  { header: 'Scheduled By', render: scheduledByOrDash },
+  { header: 'Staff', render: responsibleStaff },
   { header: 'Type', render: i => i.inspection_type },
   { header: 'Date Completed', render: i => formatDate(i.completed_at) },
 ]
 
 const HISTORY_COLUMNS = [
-  { header: 'Farm', render: i => <span style={styles.rowTitle}>{i.farm_name}</span> },
+  { header: 'Farm', render: renderFarm },
   { header: 'Inspection Date', render: i => formatDate(i.scheduled_at) },
-  { header: 'Scheduled By', render: scheduledByOrDash },
+  { header: 'Staff', render: responsibleStaff },
   { header: 'Type', render: i => i.inspection_type },
   { header: 'Status', render: i => <StatusBadge status={displayStatus(i)} /> },
   { header: 'Date Completed', render: i => formatDate(i.completed_at) },
@@ -677,9 +690,14 @@ function CalendarView({ inspections, viewDate, setViewDate, onViewEvent, isMobil
   for (let d = 1; d <= daysInMonth; d++) cells.push(d)
   while (cells.length % 7 !== 0) cells.push(null)
 
+  // Cancelled inspections are kept in the record and still appear in
+  // History — but the calendar shows what is actually going to happen, and
+  // a cancelled visit is not. Excluded here rather than at the call site so
+  // the day tiles, the "+N more" count and the day detail panel all agree.
   const getInspectionsForDay = (day) => {
     if (!day) return []
     return inspections.filter(i => {
+      if (i.status === 'Cancelled') return false
       const d = new Date(i.scheduled_at)
       return d.getFullYear() === year && d.getMonth() === month && d.getDate() === day
     })
@@ -701,9 +719,12 @@ function CalendarView({ inspections, viewDate, setViewDate, onViewEvent, isMobil
 
   const selectDay = (date) => setSelectedDate(date)
 
+  // Same exclusion as the day tiles. Filtering only the tiles left the panel
+  // as a second way to reach a cancelled visit: the date read as free on the
+  // grid while the panel beside it still listed the call-off.
   const panelInspections = selectedDate
     ? inspections
-        .filter(i => sameDay(new Date(i.scheduled_at), selectedDate))
+        .filter(i => i.status !== 'Cancelled' && sameDay(new Date(i.scheduled_at), selectedDate))
         .slice()
         .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
     : []
@@ -857,8 +878,8 @@ const styles = {
   titleMobile: { fontSize: '20px' },
   subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px' },
 
-  summaryGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px', marginBottom: '22px' },
-  summaryGridMobile: { gridTemplateColumns: 'repeat(3, 1fr)', gap: '11px' },
+  summaryGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '14px', marginBottom: '22px' },
+  summaryGridMobile: { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '11px' },
   summaryCard: { backgroundColor: '#234A35', border: '1px solid #1b3a29', borderRadius: '14px', padding: '20px 22px' },
   summaryValue: { fontSize: '30px', fontWeight: 800, lineHeight: 1, letterSpacing: '-0.02em', color: '#ffffff' },
   summaryLabel: { fontSize: '12px', fontWeight: 700, marginTop: '8px', textTransform: 'uppercase', letterSpacing: '0.04em', color: '#eaf3ec' },
@@ -876,9 +897,12 @@ const styles = {
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
     marginBottom: '16px', borderBottom: '1px solid #e7e8e0', gap: '10px',
   },
-  tabsRowMobile: { flexDirection: 'column', alignItems: 'stretch', gap: '12px' },
-  tabs: { display: 'flex', gap: '4px', overflowX: 'auto' },
-  tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap' },
+  tabsRowMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch', gap: '12px' },
+  // minWidth 0 is what lets overflowX work: without it a flex item refuses
+  // to be narrower than its contents, so the row pushed the whole page
+  // sideways instead of scrolling inside itself.
+  tabs: { display: 'flex', gap: '4px', overflowX: 'auto', minWidth: 0, maxWidth: '100%', flexWrap: 'nowrap', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', },
+  tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap', flexShrink: 0, },
   tabActive: { color: '#2c8047', fontWeight: 700, borderBottom: '2px solid #2c8047' },
 
   toolbarRight: { display: 'flex', alignItems: 'center', gap: '10px', paddingBottom: '10px' },
@@ -952,6 +976,7 @@ const styles = {
   },
   td: { padding: '13px 20px', fontSize: '12px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle' },
   rowTitle: { fontSize: '14px', fontWeight: 700, color: '#16311d' },
+  rowMeta: { fontSize: '12px', fontWeight: 400, color: '#8a968d', marginTop: '2px' },
 
   badge: {
     display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 11px',
@@ -1038,7 +1063,7 @@ const styles = {
 
 const paginationStyles = {
   wrap: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderTop: '1px solid #eceee7', flexWrap: 'wrap', gap: '10px' },
-  wrapMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  wrapMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch' },
   info: { fontSize: '12px', color: '#8a968d', whiteSpace: 'nowrap' },
   controls: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
   controlsMobile: { justifyContent: 'space-between' },

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Farmer;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Farmer\Concerns\ResolvesFarm;
 use App\Models\ManureDisposalRecord;
+use App\Support\DisposalMethods;
 use Illuminate\Http\Request;
 
 class DisposalController extends Controller
@@ -45,7 +46,9 @@ class DisposalController extends Controller
         }
 
         $request->validate([
-            'disposal_method'      => 'required|in:Sold,Composted on-site,Other',
+            // Sourced from DisposalMethods so the accepted set and the Farm
+            // Profile filter can never drift apart.
+            'disposal_method'      => 'required|' . DisposalMethods::validationRule(),
             'other_method_detail'  => 'required_if:disposal_method,Other|nullable|string|max:255',
             'quantity'             => 'required|numeric|min:0',
             'buyer_name'           => 'nullable|string|max:255',

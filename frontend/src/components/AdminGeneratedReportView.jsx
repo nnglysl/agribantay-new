@@ -1,4 +1,5 @@
 import ReportLetterhead from './ReportLetterhead'
+import ReportPeriodSections from './ReportPeriodSections'
 import { styles, Signatures } from './ReportsLayout'
 import { orDash, orText, orCount, orDays } from '../utils/reportValue'
 
@@ -31,8 +32,18 @@ export default function AdminGeneratedReportView({ report }) {
   const activity = s.period_activity
   const statusAsOf = s.status_as_of
 
+  // A snapshot carrying the period-scoped blocks replaces the all-time
+  // summaries below with figures for its own window. Archives made before
+  // those keys existed have none, and keep printing exactly what they froze.
+  const hasPeriodSections = s.inspection_period !== undefined
+
   const inspections = s.completed_inspections ?? []
   const alerts = s.alert_records ?? []
+  // Reports generated before the summary existed have no alert_farm_summary.
+  // Their snapshots are frozen and must keep rendering, so those fall back
+  // to the per-incident list they were built with.
+  const alertSummaryRows = s.alert_farm_summary ?? null
+  const hasResolution = Boolean(alertSummaryRows?.[0] && alertSummaryRows[0].resolved !== undefined)
   const overdueFarms = s.maintenance_overdue ?? []
   const cleanouts = s.maintenance_completed ?? []
   const services = s.completed_services ?? []
@@ -66,6 +77,14 @@ export default function AdminGeneratedReportView({ report }) {
         </>
       )}
 
+      <ReportPeriodSections
+        snapshot={s}
+        periodLabel={report.period_label}
+        statusAsOf={statusAsOf}
+      />
+
+      {!hasPeriodSections && (
+        <>
       <div className="print-section-title">
         Inspection summary <span className="print-scope">(all-time)</span>
       </div>
@@ -80,11 +99,16 @@ export default function AdminGeneratedReportView({ report }) {
       </table>
 
       {/*
-        These five figures are counts of sensor_readings rows, not of
-        alert_history rows (see GeneratedReportService::buildSnapshot) — the
-        "Alert incidents" table further down is the alert_history log. They are
-        labelled for what they actually count so the two sections cannot be
-        read as contradicting each other.
+        Counts of sensor_readings ROWS, not of alert_history rows (see
+        GeneratedReportService::buildSnapshot) — the alert table further down
+        is the alert_history log. A farm sitting Critical for a day emits a
+        reading every few minutes, so these are always far larger than the
+        incident counts, and the labels say "readings" for that reason.
+
+        Labelling alone was not enough while this also counted temperature
+        and humidity: it put ~13,000 "critical" readings a few lines above an
+        alert table listing a handful, and no label reconciles that. Both
+        sections now cover the same metrics and differ only in unit.
       */}
       <div className="print-section-title">
         Sensor reading summary <span className="print-scope">(all-time)</span>
@@ -93,9 +117,26 @@ export default function AdminGeneratedReportView({ report }) {
         <tbody>
           <tr><th>Total sensor readings recorded</th><td>{orCount(alertSum.total)}</td></tr>
           <tr><th>Readings with critical ammonia</th><td>{orCount(alertSum.ammonia_breaches)}</td></tr>
-          <tr><th>Readings with temperature outside safe range</th><td>{orCount(alertSum.temp_anomalies)}</td></tr>
-          <tr><th>Readings with humidity outside safe range</th><td>{orCount(alertSum.humidity_anomalies)}</td></tr>
-          <tr><th>Readings with any critical status</th><td>{orCount(alertSum.critical_alerts)}</td></tr>
+          {/* Ammonia and manure moisture only — the metrics the system
+              alerts on. Temperature and humidity are measured and shown
+              elsewhere, but their safe bands come from temperate-climate
+              studies, so counting them here put ~98% of all readings
+              "outside safe range" on an official document.
+              Snapshots archived before the correction have no
+              moisture_breaches key and keep printing their original rows —
+              a frozen report is never rewritten. */}
+          {alertSum.moisture_breaches != null ? (
+            <>
+              <tr><th>Readings with critical manure moisture</th><td>{orCount(alertSum.moisture_breaches)}</td></tr>
+              <tr><th>Readings with any critical status</th><td>{orCount(alertSum.critical_alerts)}</td></tr>
+            </>
+          ) : (
+            <>
+              <tr><th>Readings with temperature outside safe range</th><td>{orCount(alertSum.temp_anomalies)}</td></tr>
+              <tr><th>Readings with humidity outside safe range</th><td>{orCount(alertSum.humidity_anomalies)}</td></tr>
+              <tr><th>Readings with any critical status</th><td>{orCount(alertSum.critical_alerts)}</td></tr>
+            </>
+          )}
         </tbody>
       </table>
 
@@ -125,6 +166,8 @@ export default function AdminGeneratedReportView({ report }) {
           <tr><th>Pending</th><td>{orCount(svc.pending)}</td></tr>
         </tbody>
       </table>
+        </>
+      )}
 
       <div className="print-section-title">Completed inspections — {report.period_label}</div>
       {inspections.length === 0 ? (
@@ -171,10 +214,35 @@ export default function AdminGeneratedReportView({ report }) {
         </table>
       )}
 
-      <div className="print-section-title">Alert incidents — {report.period_label}</div>
+      <div className="print-section-title">Alert incidents by farm — {report.period_label}</div>
       {alerts.length === 0 ? (
         <p className="print-empty">No alerts recorded in this period.</p>
       ) : (
+        alertSummaryRows ? (
+          <table className="print-table">
+            {/* Narrower name columns so the six numeric ones keep enough
+                width for their own headings. A column too tight for the word
+                above it breaks that word in half, which is harder to read
+                than a shortened farm name. */}
+            <colgroup>
+              <col style={{ width: hasResolution ? '17%' : '26%' }} />
+              <col style={{ width: hasResolution ? '15%' : '22%' }} />
+              <col style={{ width: '11%' }} /><col style={{ width: '11%' }} />
+              <col style={{ width: '11%' }} /><col style={{ width: '11%' }} />
+              {hasResolution && <><col style={{ width: '12%' }} /><col style={{ width: '12%' }} /></>}
+            </colgroup>
+            <thead><tr><th>Farm</th><th>Owner</th><th>Ammonia</th><th>Moisture</th><th>Critical</th><th>Warning</th>{hasResolution && <><th>Resolved</th><th>Ongoing</th></>}</tr></thead>
+            <tbody>
+              {alertSummaryRows.map((r, idx) => (
+                <tr key={idx}>
+                  <td>{orDash(r.farm_name)}</td><td>{orDash(r.owner_name)}</td><td>{orCount(r.ammonia)}</td>
+                  <td>{orCount(r.moisture)}</td><td>{orCount(r.critical)}</td><td>{orCount(r.warning)}</td>
+                  {hasResolution && <><td>{orCount(r.resolved)}</td><td>{orCount(r.ongoing)}</td></>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
         <table className="print-table">
           <colgroup>
             <col style={{ width: '20%' }} /><col style={{ width: '18%' }} /><col style={{ width: '13%' }} />
@@ -190,6 +258,7 @@ export default function AdminGeneratedReportView({ report }) {
             ))}
           </tbody>
         </table>
+        )
       )}
 
       <div className="print-section-title">Completed clean-out log — {report.period_label}</div>
@@ -234,7 +303,7 @@ export default function AdminGeneratedReportView({ report }) {
         </table>
       )}
 
-      <Signatures right="Noted by, LGU Administrator" />
+      <Signatures signatures={s.signatures} fallbackTitle="LGU Staff" />
     </div>
   )
 }

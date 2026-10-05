@@ -2,9 +2,12 @@ import { useState } from 'react'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { LIVE_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useOverflowX } from '../../hooks/useOverflowX'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
+import { SkeletonTable, BtnBusy } from '../../components/Loading'
+import { useBusyAction } from '../../hooks/useBusyAction'
 
 export default function UserManagement() {
   const [search, setSearch] = useState('')
@@ -12,6 +15,7 @@ export default function UserManagement() {
   const [showRegisterModal, setShowRegisterModal] = useState(false)
   const [editVet, setEditVet] = useState(null)
   const [confirmAction, setConfirmAction] = useState(null)
+  const [actionBusy, runAction] = useBusyAction()
   const [resetPasswordResult, setResetPasswordResult] = useState(null)
   const isMobile = useIsMobile()
   const [tableScrollRef, tableOverflows] = useOverflowX()
@@ -22,7 +26,7 @@ export default function UserManagement() {
   if (debouncedSearch) params.search = debouncedSearch
   if (statusFilter) params.status = statusFilter
 
-  const { data: vets, loading, error, refetch } = useCachedFetch('/admin/veterinarians', params)
+  const { data: vets, loading, error, refetch } = useCachedFetch('/admin/veterinarians', params, { pollMs: LIVE_POLL_MS })
   const allVets = vets || []
 
   const handleSearch = (e) => {
@@ -107,7 +111,7 @@ export default function UserManagement() {
         </select>
       </div>
 
-      {loading && <p>Loading...</p>}
+      {loading && <SkeletonTable rows={6} columns={5} />}
       {error && <p style={{ color: '#dc2626' }}>{error}</p>}
 
       {!loading && !error && (
@@ -195,14 +199,15 @@ export default function UserManagement() {
                 Cancel
               </button>
               <button
-                onClick={confirmAction.onConfirm}
+                onClick={() => runAction(confirmAction.onConfirm)}
+                disabled={actionBusy}
                 style={{
                   ...modalStyles.submitBtn,
                   ...(isMobile ? modalStyles.btnFull : {}),
                   backgroundColor: confirmAction.danger ? '#dc2626' : '#2E7D32',
                 }}
               >
-                {confirmAction.confirmLabel}
+                {actionBusy ? <BtnBusy label="Please wait…" /> : confirmAction.confirmLabel}
               </button>
             </div>
           </div>
@@ -308,7 +313,7 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
               Cancel
             </button>
             <button type="submit" disabled={loading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
-              {loading ? 'Creating...' : 'Create Account'}
+              {loading ? <BtnBusy label="Creating…" /> : 'Create Account'}
             </button>
           </div>
         </form>
@@ -375,7 +380,7 @@ function EditModal({ vet, onClose, onSuccess, isMobile }) {
               Cancel
             </button>
             <button type="submit" disabled={loading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
-              {loading ? 'Saving...' : 'Save Changes'}
+              {loading ? <BtnBusy label="Saving…" /> : 'Save Changes'}
             </button>
           </div>
         </form>
@@ -443,7 +448,7 @@ const modalStyles = {
   close: { fontSize: '22px', cursor: 'pointer', color: '#6b7280' },
   instruction: { fontSize: '12.5px', color: '#6b7280', marginBottom: '16px', lineHeight: '1.5' },
   requiredMark: { color: '#dc2626', fontWeight: '700' },
-  row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' },
+  row: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '10px', marginBottom: '10px' },
   rowMobile: { gridTemplateColumns: '1fr' },
   input: { padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', boxSizing: 'border-box', width: '100%' },
   inputFull: { width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', boxSizing: 'border-box', marginBottom: '10px' },
@@ -458,7 +463,7 @@ const modalStyles = {
 }
 
 const confirmStyles = {
-  modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '400px', maxWidth: '90%' },
+  modal: { backgroundColor: 'white', borderRadius: '16px', padding: '28px', width: '400px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto' },
   title: { fontSize: '17px', fontWeight: '700', color: '#111827', marginTop: 0, marginBottom: '10px' },
   message: { fontSize: '14px', color: '#6b7280', lineHeight: '1.5', marginBottom: '4px' },
 }

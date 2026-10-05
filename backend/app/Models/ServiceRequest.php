@@ -43,4 +43,22 @@ class ServiceRequest extends Model
     {
         return $this->belongsTo(User::class, 'accepted_by');
     }
+
+    /**
+     * The accomplished form(s) attached on completion, oldest first — up to
+     * Vet\VaccinationRequestController::ATTACHMENT_MAX_FILES per request.
+     */
+    public function attachments()
+    {
+        return $this->hasMany(ServiceRequestAttachment::class)->orderBy('id');
+    }
+
+    /**
+     * Most recent attachment. Kept for callers written against the
+     * one-file version; new code reads attachments().
+     */
+    public function attachment()
+    {
+        return $this->hasOne(ServiceRequestAttachment::class)->latestOfMany();
+    }
 }

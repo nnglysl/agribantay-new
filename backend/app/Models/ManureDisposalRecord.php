@@ -20,7 +20,7 @@ class ManureDisposalRecord extends Model
 
     protected $casts = [
         'disposal_date' => 'date',
-        'quantity'      => 'float',
+        'quantity' => 'float',
     ];
 
     public function farm()

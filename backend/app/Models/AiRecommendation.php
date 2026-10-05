@@ -17,9 +17,9 @@ class AiRecommendation extends Model
     ];
 
     protected $casts = [
-        'tips_fil'       => 'array',
+        'tips_fil' => 'array',
         'generated_date' => 'date',
-        'force_refresh'  => 'boolean',
+        'force_refresh' => 'boolean',
     ];
 
     public function farm()

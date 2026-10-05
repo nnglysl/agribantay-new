@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Farm;
 use App\Models\SensorReading;
+use App\Models\Sensor;
 use App\Models\ServiceRequest;
 use App\Models\Inspection;
 use App\Models\Notification;
@@ -25,18 +26,11 @@ class FarmStatusService
      */
     public function syncStatus(Farm $farm): void
     {
-        // List endpoints eager-load latestReading (one query for all farms);
-        // single-farm callers (sensor ingest, farm details) fall through to
-        // the per-farm lookup as before.
-        $latest = $farm->relationLoaded('latestReading')
-            ? $farm->latestReading
-            : SensorReading::where('farm_id', $farm->id)->latest()->first();
+        $newStatus = $this->farmStatus($farm);
 
-        if (!$latest) {
+        if ($newStatus === null) {
             return;
         }
-
-        $newStatus = $this->computeStatus($latest);
 
         if ($newStatus === $farm->current_status) {
             return; // no change — prevent duplicate SMS
@@ -46,10 +40,21 @@ class FarmStatusService
 
         $this->notify($farm, $newStatus);
 
+        // The stored explanation describes the farm's CONDITION, so it is
+        // wrong the moment that condition changes — not only when it worsens.
+        // This used to fire on entry to Critical alone, which left a farm
+        // that had recovered still reading its Critical explanation, and a
+        // farm that had drifted Safe -> Warning still reading "conditions are
+        // normal", until the next calendar day rolled over.
+        //
+        // Reaching this line already means the status genuinely changed
+        // (identical statuses returned above), so this cannot fire on every
+        // reading while a farm simply sits at one level.
+        app(RecommendationExplanationService::class)->markForRefresh($farm->id);
+
         if ($newStatus === 'Critical') {
             $this->notifyAdminsOfCritical($farm);
             $this->notifyVetsOfCritical($farm);
-            app(RecommendationExplanationService::class)->markForRefresh($farm->id);
         }
     }
 
@@ -236,14 +241,68 @@ class FarmStatusService
         return $breakdown;
     }
 
-    private function computeStatus(SensorReading $reading): string
+    /**
+     * The farm is as bad as its WORST house — the same "worst wins" rule the
+     * dashboard, the reading truth table and the alert history all use.
+     *
+     * This used to read the single newest row in sensor_readings, which was
+     * correct only while a farm had one device. With two houses reporting a
+     * minute apart, the farm's status followed whichever unit happened to
+     * report last: house A (Warning) → Warning, house B (Critical) →
+     * Critical, house A again → Warning. Every one of those flips counted as
+     * a change, so the owner was texted Warning/Critical/Warning/Critical
+     * every couple of minutes while nothing at the farm had actually
+     * changed. Taking the worst across all active devices makes the status
+     * stable: it only moves when the farm genuinely gets better or worse.
+     *
+     * Returns null when the farm has no readings at all, so the caller can
+     * leave current_status alone rather than forcing it to Safe.
+     */
+    private function farmStatus(Farm $farm): ?string
     {
-        $statuses = [
-            $reading->ammonia_status,
-            $reading->temperature_status,
-            $reading->humidity_status,
-            $reading->moisture_status,
-        ];
+        $latestPerDevice = Sensor::where('farm_id', $farm->id)
+            ->where('status', 'Active')
+            ->get()
+            // id DESC as the tiebreaker: two readings can land in the same
+            // second, and created_at alone then picks between them
+            // arbitrarily — which made the farm's status depend on row order
+            // rather than on the actual newest reading.
+            ->map(fn(Sensor $sensor) => SensorReading::where('sensor_id', $sensor->id)
+                ->orderByDesc('created_at')
+                ->orderByDesc('id')
+                ->first())
+            ->filter();
+
+        // No active device has ever reported — or the farm's readings predate
+        // per-device tracking, in which case fall back to the newest row.
+        if ($latestPerDevice->isEmpty()) {
+            $fallback = SensorReading::where('farm_id', $farm->id)->latest()->first();
+            return $fallback ? $this->computeStatus($fallback) : null;
+        }
+
+        $rank = ['Safe' => 0, 'Warning' => 1, 'Critical' => 2];
+
+        return $latestPerDevice
+            ->map(fn(SensorReading $r) => $this->computeStatus($r))
+            ->sortByDesc(fn(string $status) => $rank[$status] ?? 0)
+            ->first();
+    }
+
+    /**
+     * A reading's severity, from the alerting metrics only.
+     *
+     * Temperature, humidity and manure moisture are still measured and shown,
+     * but they are conditions that drive ammonia rather than hazards in their
+     * own right, and their published thresholds come from other climates.
+     * config('sensors.alerting_metrics') is the single place that decides
+     * which ones count - see that file for the reasoning.
+     */
+    public function computeStatus(SensorReading $reading): string
+    {
+        $statuses = collect(config('sensors.alerting_metrics', ['ammonia']))
+            ->map(fn (string $metric) => $reading->{$metric . '_status'})
+            ->filter()
+            ->all();
 
         if (in_array('Critical', $statuses)) {
             return 'Critical';

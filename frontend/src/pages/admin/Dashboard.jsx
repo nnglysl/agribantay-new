@@ -2,15 +2,17 @@ import { useState } from 'react'
 import AdminLayout from '../../components/AdminLayout'
 import FarmMap from '../../components/FarmMap'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { BACKGROUND_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { serviceTypeBadgeStyle } from '../../utils/serviceBadgeStyle'
 import { DISPLAY_TIME_ZONE } from '../../utils/formatDate'
+import { SkeletonStatCards, SkeletonBlock } from '../../components/Loading'
 
 export default function AdminDashboard() {
-  const { data, loading, error } = useCachedFetch('/admin/dashboard', {}, { pollMs: 60000 })
-  const { data: mapFarms } = useCachedFetch('/admin/farms-map', {}, { pollMs: 60000 })
-  const { data: inspectionsData } = useCachedFetch('/admin/inspections', {}, { pollMs: 60000 })
-  const { data: serviceRequestsData } = useCachedFetch('/admin/service-requests', {}, { pollMs: 60000 })
+  const { data, loading, error } = useCachedFetch('/admin/dashboard', {}, { pollMs: BACKGROUND_POLL_MS })
+  const { data: mapFarms } = useCachedFetch('/admin/farms-map', {}, { pollMs: BACKGROUND_POLL_MS })
+  const { data: inspectionsData } = useCachedFetch('/admin/inspections', {}, { pollMs: BACKGROUND_POLL_MS })
+  const { data: serviceRequestsData } = useCachedFetch('/admin/service-requests', {}, { pollMs: BACKGROUND_POLL_MS })
   const isMobile = useIsMobile()
   const [modalOpen, setModalOpen] = useState(null)
 
@@ -27,13 +29,13 @@ export default function AdminDashboard() {
   const pendingOdorRequests = pendingServiceRequests.filter(r => /odor/i.test(r.service_type || ''))
   const pendingFlyRequests = pendingServiceRequests.filter(r => /fly/i.test(r.service_type || ''))
 
-  if (loading) return <AdminLayout><p style={styles.stateText}>Loading...</p></AdminLayout>
+  if (loading) return <AdminLayout><SkeletonStatCards count={3} columns="repeat(3, minmax(0, 1fr))" /><SkeletonBlock height={320} /></AdminLayout>
   if (error) return <AdminLayout><p style={{ ...styles.stateText, color: '#b91c1c' }}>{error}</p></AdminLayout>
 
   return (
     <AdminLayout>
       <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Dashboard</h1>
-      <p style={styles.subtitle}>Welcome back, Administrator</p>
+      <p style={styles.subtitle}>Welcome back, Staff</p>
 
        <div style={{ ...styles.statsGrid, ...(isMobile ? styles.statsGridMobile : {}) }}>
         <StatCard value={data.total_farms} label="Total Farms" isMobile={isMobile} />
@@ -66,7 +68,15 @@ export default function AdminDashboard() {
                   {(f.all_sensors || []).map(s => (
                     <div key={s.type} style={styles.sensorCell}>
                       <span style={styles.sensorCellLabel}>{s.type}</span>
-                      <span style={{ ...styles.sensorCellValue, ...(s.critical ? styles.sensorCellValueCritical : {}) }}>
+                      {/* Advisory metrics are shown for context — they are what
+                          drives ammonia — but they can never be red here, so
+                          they sit back a shade and let the two that can be
+                          critical take the eye. */}
+                      <span style={{
+                        ...styles.sensorCellValue,
+                        ...(s.advisory ? styles.sensorCellValueAdvisory : {}),
+                        ...(s.critical ? styles.sensorCellValueCritical : {}),
+                      }}>
                         {s.value ?? '—'}{s.unit}
                       </span>
                     </div>
@@ -163,8 +173,8 @@ const styles = {
   titleMobile: { fontSize: '20px' },
   subtitle: { fontFamily: SANS, fontSize: '13.5px', color: '#6b7770', marginTop: '5px', marginBottom: '24px' },
 
-  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '28px' },
-  statsGridMobile: { gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '20px' },
+  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '16px', marginBottom: '28px' },
+  statsGridMobile: { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '10px', marginBottom: '20px' },
 
   statCard: { fontFamily: SANS, background: '#234A35', border: '1px solid #1c3c2b', borderRadius: '14px', padding: '20px 22px' },
   statCardMobile: { padding: '16px' },
@@ -183,10 +193,11 @@ const styles = {
   alertDetail: { fontSize: '12px', color: '#6b7770', marginTop: '2px' },
   badge: { padding: '4px 10px', borderRadius: '999px', color: 'white', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 },
 
-  sensorTableRow: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginTop: '8px' },
+  sensorTableRow: { display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '10px', marginTop: '8px' },
   sensorCell: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start' },
   sensorCellLabel: { fontSize: '9.5px', fontWeight: 700, color: '#9aa79d', textTransform: 'uppercase', letterSpacing: '0.02em' },
   sensorCellValue: { fontSize: '12px', fontWeight: 700, color: '#4b5a50', marginTop: '2px' },
+  sensorCellValueAdvisory: { color: '#8a968d', fontWeight: 600 },
   sensorCellValueCritical: { color: '#dc2626' },
 }
 

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import api from '../api/axios'
 import AuthLayout, { authFormStyles as styles } from '../components/AuthLayout'
 import { sanitizePhoneInput } from '../utils/phoneValidation'
+import { BtnBusy } from '../components/Loading'
 
 export default function EnterAccountInfo() {
   const { channel } = useParams() // 'email' | 'sms'
@@ -55,7 +56,7 @@ export default function EnterAccountInfo() {
 
         <button type="submit" disabled={submitting} className="agb-btn agb-primary"
           style={{ ...styles.primaryBtn, opacity: submitting ? 0.7 : 1, cursor: submitting ? 'not-allowed' : 'pointer' }}>
-          {submitting ? 'Sending...' : 'Send Code'}
+          {submitting ? <BtnBusy label="Sending…" /> : 'Send Code'}
         </button>
       </form>
 

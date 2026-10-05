@@ -16,6 +16,7 @@ import {
 } from '../../components/ReportsLayout'
 import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 import { DISPLAY_TIME_ZONE } from '../../utils/formatDate'
+import { SkeletonStatCards, SkeletonBlock } from '../../components/Loading'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip)
 
@@ -28,7 +29,7 @@ const BIRD_ESTIMATES = {
 }
 
 const CSV_COLUMNS = [
-  { key: 'id', label: 'ID' }, { key: 'service_type', label: 'Type' }, { key: 'farm_name', label: 'Farm' },
+  { key: 'id', label: 'Request No.' }, { key: 'service_type', label: 'Type' }, { key: 'farm_name', label: 'Farm' },
   { key: 'owner_name', label: 'Owner' }, { key: 'barangay', label: 'Barangay' }, { key: 'est_birds', label: 'Est. birds' },
   { key: 'completed_at', label: 'Date' }, { key: 'notes', label: 'Notes' }, { key: 'status', label: 'Status' },
 ]
@@ -190,7 +191,7 @@ export default function VetReports() {
     exportToCSV(rows, CSV_COLUMNS, `AgriBantay_Vet_Report_${todayStamp()}.csv`)
   }
 
-  if (loading || !data) return <VetLayout><p style={styles.stateText}>Loading...</p></VetLayout>
+  if (loading || !data) return <VetLayout><SkeletonStatCards count={4} /><SkeletonBlock height={260} style={{ marginBottom: '20px' }} /><SkeletonBlock height={260} /></VetLayout>
   if (error) return <VetLayout><p style={{ ...styles.stateText, color: C.red }}>{error}</p></VetLayout>
 
   const stats = tab === 'Overview'
@@ -212,7 +213,7 @@ export default function VetReports() {
       <div className="screen-view rp">
         <PageHeader
           title="Reports"
-          subtitle="Vaccination and blood test history and records"
+          subtitle="Farm biosecurity and blood test history and records"
           onPrint={handlePrint}
           onCsv={handleExportCsv}
           onPdf={handleExportPdf}
@@ -315,7 +316,7 @@ export default function VetReports() {
 
           {tab === 'Overview' && (
             <div className="rp-two">
-              <Panel title="Vaccinations and blood tests per month" subtitle={isRangeFiltered ? rangeLabel : 'Last 6 months'}>
+              <Panel title="Veterinary services per month" subtitle={isRangeFiltered ? rangeLabel : 'Last 6 months'}>
                 {monthlyTrend.every(m => m.count === 0) ? (
                   <div style={styles.empty}>No service history yet.</div>
                 ) : (
@@ -348,11 +349,11 @@ export default function VetReports() {
 
           {tab === 'Service History' && (
             <DataTable
-              title="Completed vaccinations and blood tests"
+              title="Completed veterinary services"
               subtitle={rangeLabel}
-              columns={['ID', 'Type', 'Farm', 'Owner', 'Barangay', 'Date', 'Notes', 'Status']}
+              columns={['Request No.', 'Type', 'Farm', 'Owner', 'Barangay', 'Date', 'Notes', 'Status']}
               emptyText="No completed services in this range."
-              minWidth="820px"
+              minWidth="880px"
               rows={services.map(v => [
                 { text: v.id },
                 { text: serviceTypeLabel(v.service_type), badgeStyle: serviceTypeBadgeStyle(v.service_type), dot: false },
@@ -387,7 +388,7 @@ export default function VetReports() {
         <div className="print-headblock">
           <ReportLetterhead />
           <h1 style={styles.printHead}>AgriBantay Vet Service Report</h1>
-          <p style={styles.printSub}>Vaccination and blood test history and records</p>
+          <p style={styles.printSub}>Farm biosecurity and blood test history and records</p>
           <p style={styles.printSub}>Reporting period: {rangeLabel}</p>
           <p style={styles.printMeta}>Generated {generatedAt}</p>
         </div>
@@ -403,7 +404,7 @@ export default function VetReports() {
           </tbody>
         </table>
 
-        <div className="print-section-title">Completed vaccinations and blood tests — {rangeLabel}</div>
+        <div className="print-section-title">Completed veterinary services — {rangeLabel}</div>
         {services.length === 0 ? (
           <p className="print-empty">No completed services in this range.</p>
         ) : (

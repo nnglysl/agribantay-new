@@ -280,6 +280,12 @@ const FarmLocationMap = forwardRef(function FarmLocationMap(
     if (!verdict || verdict.status === 'conflict') return null
     if (verdict.status === 'checking') return { tone: 'muted', text: verdict.message }
     if (verdict.status === 'verified') return { tone: 'ok', text: `✓ ${verdict.message}` }
+    // A barangay with no boundary in the map data is the NORMAL case — only 5
+    // of San Jose's 33 are mapped. The pin still passed every check that can
+    // be run, so this is a note, not a warning. A yellow box on almost every
+    // registration teaches people to ignore yellow boxes.
+    if (verdict.reason === 'no_boundary_data') return { tone: 'muted', text: verdict.message }
+    // A pin just outside a boundary we DO have is worth a second look.
     if (verdict.status === 'unverified' || verdict.status === 'error') return { tone: 'warn', text: verdict.message }
     const detail = verdict.status === 'mismatch' && verdict.detected_barangay
       ? ` The pin appears to be in Brgy. ${verdict.detected_barangay}.`
