@@ -156,6 +156,36 @@ export default function FarmerReadings() {
 
   const devices = useMemo(() => (Array.isArray(data?.devices) ? data.devices : []), [data])
 
+  // What to say when the table is empty because the farm's device has been
+  // moved on, rather than because the farm was never monitored.
+  //
+  // The two cases looked identical here, and the one message covering both
+  // said no device had been installed "yet" — untrue for a farm that had
+  // just been monitored for a week, and contradicted by the readings the LGU
+  // holds for that same farm. One sentence is enough: the owner needs to
+  // know the monitoring happened and is over, not to read it back.
+  const previousMonitoringNote = useMemo(() => {
+    const period = data?.previous_monitoring
+    if (!period?.from || !period?.to) return null
+
+    const fmt = iso => {
+      const d = new Date(iso)
+      return Number.isNaN(d.getTime())
+        ? null
+        : d.toLocaleDateString('en-US', {
+            month: 'long', day: 'numeric', year: 'numeric', timeZone: DISPLAY_TIME_ZONE,
+          })
+    }
+
+    const from = fmt(period.from)
+    const to = fmt(period.to)
+    if (!from || !to) return null
+
+    return from === to
+      ? `Your farm was monitored on ${from}. The device has since been assigned to another farm.`
+      : `Your farm was monitored from ${from} to ${to}. The device has since been assigned to another farm.`
+  }, [data])
+
   // Which metrics may be badged. The server owns this; the fallback only
   // covers a cached response from before the field existed.
   const alerting = useMemo(() => (
@@ -365,7 +395,7 @@ export default function FarmerReadings() {
         {totalItems === 0 && (
           <div style={styles.empty}>
             {devices.length === 0
-              ? 'No monitoring device has been installed for your farm yet.'
+              ? previousMonitoringNote ?? 'No monitoring device has been installed for your farm yet.'
               : 'No house matches the filters above.'}
           </div>
         )}

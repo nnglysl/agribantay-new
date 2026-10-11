@@ -14,12 +14,14 @@ use App\Models\ManureDisposalRecord;
 use App\Models\SensorReading;
 use App\Models\ServiceRequest;
 use App\Models\User;
+use App\Services\DeploymentHistoryService;
 use App\Services\FarmLocationService;
 use App\Services\FarmStatusService;
 use App\Services\GeocodingService;
 use App\Services\MaintenanceStatusService;
 use App\Services\PreventiveActionService;
 use App\Services\ReadingHistoryService;
+use App\Services\ReadingSummaryService;
 use App\Services\RecommendationExplanationService;
 use App\Services\RootCauseService;
 use App\Services\SmsService;
@@ -574,6 +576,14 @@ class FarmController extends Controller
             ];
         })->values();
 
+        // Every device that has RECORDED here, including the ones the
+        // rotation has already moved on. `device_list` above is the farm's
+        // current hardware and goes empty the moment a unit is reassigned;
+        // this is the farm's monitoring record, which must not. Each entry
+        // carries the span it covered, so the screen can show that AGB-D01
+        // was the device here from the 1st to the 7th.
+        $farm->device_deployments = app(DeploymentHistoryService::class)->forFarm($farm->id);
+
         // Which metrics this screen may badge Safe/Warning/Critical. Sent from
         // the server so Admin and the farmer cannot disagree about whether a
         // house is Critical — temperature is advisory, and a page that still
@@ -770,6 +780,27 @@ class FarmController extends Controller
             'data' => [
                 'hours' => $hours,
                 'devices' => app(ReadingHistoryService::class)->forFarm($id, $hours),
+            ],
+        ]);
+    }
+
+    /**
+     * Daily figures per device — the farm's monitoring period as a table.
+     *
+     * Separate from readingsHistory because it answers a different question:
+     * the chart is read while deciding whether to act, this is read after the
+     * fact, as the record of what a deployment measured. It takes no hours
+     * parameter for the same reason — the period is however long the device
+     * was actually here, which the readings themselves define.
+     */
+    public function readingsSummary(int $id)
+    {
+        Farm::findOrFail($id);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'deployments' => app(ReadingSummaryService::class)->forFarm($id),
             ],
         ]);
     }

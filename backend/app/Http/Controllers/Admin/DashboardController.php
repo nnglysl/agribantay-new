@@ -22,13 +22,6 @@ class DashboardController extends Controller
         $activeRequests    = ServiceRequest::whereIn('status', ['Pending', 'Scheduled'])->count();
         $resolvedRequests  = ServiceRequest::where('status', 'Completed')->count();
 
-        // Fixed: previously counted every historical sensor_readings row
-        // that was ever Critical, which never shrinks since readings are
-        // append-only. Now counts farms currently in Critical status —
-        // the same source of truth FarmMap.jsx already uses for pin
-        // colors, so this number and the map agree.
-        $criticalAlerts = Farm::where('current_status', 'Critical')->count();
-
         $upcomingInspections = Inspection::with('farm')
             ->where('status', 'Scheduled')
             ->orderBy('scheduled_at')
@@ -55,41 +48,36 @@ class DashboardController extends Controller
             'odor_count' => ServiceRequest::where('service_type', 'Odor Control Request')->count(),
         ];
 
-        // Fixed: was querying SensorReading directly for any row that was
-        // ever Critical (unbounded, append-only history — the source of
-        // the duplicate "Hernan's Farm" rows and the map/sidebar
-        // disagreement). Now starts from Farm.current_status — the exact
-        // same field FarmMap.jsx reads for pin colors — so a farm can
-        // only ever appear here if it's ACTUALLY Critical right now, and
-        // it appears exactly once, using its single latest reading for
-        // the per-sensor breakdown.
-        // Which metrics may be called Critical. The same list farms.current_status
-        // is derived from (FarmStatusService::computeStatus), so this panel can
-        // never disagree with the status that put the farm in it.
+        // Current alerts require a reporting device and a recent reading from
+        // its current farm. Historical statuses and incidents stay unchanged.
         $statusService = app(FarmStatusService::class);
         $alertingMetrics = config('sensors.alerting_metrics', ['ammonia']);
         $rank = ['Safe' => 0, 'Warning' => 1, 'Critical' => 2];
+        $freshAfter = now()->subMinutes(config('sensors.offline_after_minutes', 3));
+        $reportingDevices = fn ($query) => $query
+            ->where('status', 'Active')
+            ->where('last_seen_at', '>', $freshAfter);
 
-        $criticalFarms = Farm::where('current_status', 'Critical')
+        $criticalFarms = Farm::whereHas('sensors', $reportingDevices)
+            ->with(['sensors' => $reportingDevices])
             ->get()
-            ->map(function ($farm) use ($statusService, $alertingMetrics, $rank) {
-                // The reading shown has to be the one that made the farm
-                // Critical. Taking the farm's single newest row instead meant
-                // that on a multi-house farm the panel could describe a quiet
-                // house while a different house was the one breaching — the
-                // same per-device rule FarmStatusService uses, so the two
-                // always point at the same reading.
-                $r = Sensor::where('farm_id', $farm->id)
-                    ->where('status', 'Active')
-                    ->get()
+            ->map(function ($farm) use ($statusService, $alertingMetrics, $rank, $freshAfter) {
+                // Check the device's latest row before checking its farm, so a
+                // reassigned device cannot revive a reading from an earlier stay.
+                $r = $farm->sensors
                     ->map(fn (Sensor $sensor) => SensorReading::where('sensor_id', $sensor->id)
                         ->orderByDesc('created_at')
                         ->orderByDesc('id')
                         ->first())
-                    ->filter()
+                    ->filter(fn ($reading) => $reading
+                        && (int) $reading->farm_id === (int) $farm->id
+                        && $reading->created_at->gt($freshAfter))
+                    ->filter(fn (SensorReading $reading) => collect($alertingMetrics)->contains(
+                        fn ($metric) => $reading->{$metric} !== null
+                            && $reading->{$metric.'_status'} === 'Critical'
+                    ))
                     ->sortByDesc(fn (SensorReading $reading) => $rank[$statusService->computeStatus($reading)] ?? 0)
-                    ->first()
-                    ?? SensorReading::where('farm_id', $farm->id)->latest()->first();
+                    ->first();
 
                 if (!$r) return null;
 
@@ -115,11 +103,13 @@ class DashboardController extends Controller
                         'value'    => $r->{$m['key']},
                         'unit'     => $m['unit'],
                         'advisory' => !$alerting,
-                        'critical' => $alerting && $r->{$m['key'].'_status'} === 'Critical',
+                        'critical' => $alerting && $r->{$m['key']} !== null
+                            && $r->{$m['key'].'_status'} === 'Critical',
                     ];
                 }, $metrics);
 
                 $criticalCount = count(array_filter($allSensors, fn($s) => $s['critical']));
+                if ($criticalCount === 0) return null;
 
                 return [
                     'farm_id'          => $farm->id,
@@ -131,8 +121,9 @@ class DashboardController extends Controller
                     'reading_at'       => $r->created_at?->toIso8601String(),
                 ];
             })
-            ->filter() // drops any null (farm marked Critical but has no readings yet — shouldn't happen, but defensive)
+            ->filter()
             ->values();
+        $criticalAlerts = $criticalFarms->count();
 
         return response()->json([
             'success' => true,

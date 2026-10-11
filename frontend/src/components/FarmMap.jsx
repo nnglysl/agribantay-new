@@ -337,9 +337,9 @@ export default function FarmMap({
                   View all still carries the reader to the complete list, so this
                   is how many fit, not how many there are. */}
               {alertItems.length === 0 ? (
-                <div style={styles.empty}>No critical alerts right now.</div>
+                <div style={styles.empty}>No current critical readings.</div>
               ) : alertItems.slice(0, 6).map((f, idx, arr) => {
-                const critical = (f.all_sensors || []).find(s => s.critical)
+                const criticalSensors = (f.all_sensors || []).filter(s => s.critical)
                 return (
                   <div
                     key={f.farm_id ?? f.farm_name}
@@ -348,7 +348,11 @@ export default function FarmMap({
                   >
                     <div style={styles.naItemText}>
                       <div style={styles.naItemTitle}>{f.farm_name}</div>
-                      <div style={styles.naItemSub}>{criticalSensorLabel(critical)}</div>
+                      {criticalSensors.length > 0 ? criticalSensors.map(sensor => (
+                        <div key={sensor.type} style={styles.naItemSub}>{criticalSensorLabel(sensor)}</div>
+                      )) : (
+                        <div style={styles.naItemSub}>{criticalSensorLabel(null)}</div>
+                      )}
                     </div>
                     <span style={styles.naTimeAgo}>{timeAgo(f.reading_at)}</span>
                   </div>
@@ -414,7 +418,7 @@ export default function FarmMap({
         <div ref={listRef} style={styles.sideList}>
           {visibleItems.length === 0 && (
             <div style={styles.empty}>
-              {mode === 'alerts' ? 'No critical alerts right now.'
+              {mode === 'alerts' ? 'No current critical readings.'
                 : mode === 'inspection' ? 'No upcoming inspections.'
                 : requestSubTab === 'fly' ? 'No fly control requests.'
                 : 'No odor control requests.'}

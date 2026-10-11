@@ -135,6 +135,7 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::get('/farms/{id}', [FarmController::class, 'show']);
         Route::get('/farms/{id}/trend', [FarmController::class, 'trend']);
         Route::get('/farms/{id}/readings-history', [FarmController::class, 'readingsHistory']);
+        Route::get('/farms/{id}/readings-summary', [FarmController::class, 'readingsSummary']);
         Route::get('/farms/{id}/root-cause', [FarmController::class, 'rootCause']);
         Route::put('/farms/{id}', [FarmController::class, 'update']);
         Route::post('/farms/{id}/email/otp/request', [FarmController::class, 'requestOwnerEmailOtp']);

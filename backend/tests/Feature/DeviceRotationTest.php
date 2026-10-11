@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\AlertHistory;
 use App\Models\Farm;
 use App\Models\Sensor;
 use App\Models\SensorReading;
@@ -714,5 +715,235 @@ class DeviceRotationTest extends TestCase
         $dash = $this->actingAs($farmer)->getJson('/api/farmer/dashboard')->assertOk();
         $this->assertStringNotContainsString($key, $dash->getContent());
         $this->assertSame('Pending Setup', $dash->json('data.connectivity')); // device is now Inactive
+    }
+
+    /**
+     * A reading at a farm, taken by a device, at a chosen moment.
+     *
+     * created_at is set afterwards through the query builder rather than
+     * passed to create(): it is not in SensorReading::$fillable, so mass
+     * assignment drops it and every backdated reading would silently land on
+     * today — which is exactly the thing these tests exist to measure.
+     */
+    private function readingAt(Farm $farm, Sensor $device, $at, array $overrides = []): SensorReading
+    {
+        $reading = SensorReading::create(array_merge([
+            'farm_id' => $farm->id,
+            'sensor_id' => $device->id,
+            'ammonia' => 10.0,
+            'temperature' => 29.0,
+            'humidity' => 70.0,
+            'moisture' => 20.0,
+            'ammonia_status' => 'Safe',
+            'temperature_status' => 'Safe',
+            'humidity_status' => 'Safe',
+            'moisture_status' => 'Safe',
+        ], $overrides));
+
+        SensorReading::query()
+            ->whereKey($reading->id)
+            ->update(['created_at' => $at, 'updated_at' => $at]);
+
+        return $reading->refresh();
+    }
+
+    /**
+     * The whole point of the rotation fix: a farm's monitoring record must
+     * outlive the device that produced it.
+     *
+     * Before this, the trend chart and the device list were both built from
+     * Sensor::where('farm_id', ...) — the CURRENT assignment — so the week a
+     * device spent at a farm vanished from every screen the moment it was
+     * moved on, even though every reading was still in the table.
+     */
+    public function test_reading_history_survives_unassignment(): void
+    {
+        $farm = $this->makeFarm('History Farm');
+        $device = $this->makeDevice($farm);
+        $admin = $this->admin();
+
+        foreach ([180, 120, 60, 10] as $minutesAgo) {
+            $this->readingAt($farm, $device, now()->subMinutes($minutesAgo));
+        }
+
+        $before = $this->actingAs($admin)
+            ->getJson("/api/admin/farms/{$farm->id}/readings-history?hours=24")
+            ->assertOk();
+        $this->assertCount(1, $before->json('data.devices'));
+
+        // The rotation moves the unit on.
+        $this->actingAs($admin)->patchJson("/api/admin/sensors/{$device->id}/unassign")->assertOk();
+
+        $after = $this->actingAs($admin)
+            ->getJson("/api/admin/farms/{$farm->id}/readings-history?hours=24")
+            ->assertOk();
+
+        $this->assertCount(1, $after->json('data.devices'), 'History disappeared once the device was unassigned.');
+        $this->assertSame($device->label, $after->json('data.devices.0.device_name'));
+        $this->assertFalse($after->json('data.devices.0.is_current'));
+        $this->assertSame(
+            $before->json('data.devices.0.points'),
+            $after->json('data.devices.0.points'),
+            'The points themselves changed when the device moved.'
+        );
+    }
+
+    /**
+     * The panel-facing question: which device recorded here, and when.
+     * Derived from the readings, so it holds for a farm the rotation has
+     * already left.
+     */
+    public function test_device_deployments_report_the_monitoring_period(): void
+    {
+        $farm = $this->makeFarm('Deployment Farm');
+        $device = $this->makeDevice($farm);
+        $admin = $this->admin();
+
+        // Six days of one reading a day — a rotation window in miniature.
+        for ($day = 6; $day >= 1; $day--) {
+            $this->readingAt($farm, $device, now()->subDays($day));
+        }
+
+        $this->actingAs($admin)->patchJson("/api/admin/sensors/{$device->id}/unassign")->assertOk();
+
+        $farmPayload = $this->actingAs($admin)->getJson("/api/admin/farms/{$farm->id}")->assertOk();
+
+        // device_list is current hardware, and is now rightly empty.
+        $this->assertCount(0, $farmPayload->json('data.device_list'));
+
+        $deployments = $farmPayload->json('data.device_deployments');
+        $this->assertCount(1, $deployments, 'The farm lost the record of the device that monitored it.');
+        $this->assertSame($device->label, $deployments[0]['device_name']);
+        $this->assertSame(6, $deployments[0]['reading_count']);
+        $this->assertSame(6, $deployments[0]['days_covered']);
+        $this->assertFalse($deployments[0]['is_current']);
+    }
+
+    /**
+     * Two farms, one device, consecutive windows — the rotation as the study
+     * actually runs it. Each farm must report its own period and its own
+     * readings, and neither may claim the other's.
+     */
+    public function test_each_farm_keeps_its_own_window_of_the_same_device(): void
+    {
+        $farmA = $this->makeFarm('Rotation Farm A');
+        $farmB = $this->makeFarm('Rotation Farm B');
+        $device = $this->makeDevice($farmA);
+        $admin = $this->admin();
+
+        // Week one at A.
+        foreach ([13, 12, 11] as $d) {
+            $this->readingAt($farmA, $device, now()->subDays($d));
+        }
+
+        $this->actingAs($admin)->patchJson("/api/admin/sensors/{$device->id}/unassign")->assertOk();
+        $this->actingAs($admin)->patchJson("/api/admin/sensors/{$device->id}/assign", ['farm_id' => $farmB->id])->assertOk();
+
+        // Week two at B.
+        foreach ([6, 5, 4] as $d) {
+            $this->readingAt($farmB, $device, now()->subDays($d));
+        }
+
+        $a = $this->actingAs($admin)->getJson("/api/admin/farms/{$farmA->id}")->json('data.device_deployments');
+        $b = $this->actingAs($admin)->getJson("/api/admin/farms/{$farmB->id}")->json('data.device_deployments');
+
+        $this->assertCount(1, $a);
+        $this->assertCount(1, $b);
+        $this->assertSame(3, $a[0]['reading_count']);
+        $this->assertSame(3, $b[0]['reading_count']);
+
+        // Same unit, named identically on both — that is the rotation trail.
+        $this->assertSame($device->label, $a[0]['device_name']);
+        $this->assertSame($device->label, $b[0]['device_name']);
+
+        // A's window closed before B's opened.
+        $this->assertTrue($a[0]['last_reading_at'] < $b[0]['first_reading_at']);
+
+        // Only B holds the device now.
+        $this->assertFalse($a[0]['is_current']);
+        $this->assertTrue($b[0]['is_current']);
+    }
+
+    /**
+     * A farm owner whose device has been rotated away must not be told that
+     * no device was ever installed. The readings exist, the LGU can see
+     * them, and "yet" would contradict both.
+     */
+    public function test_farmer_is_told_when_monitoring_has_ended(): void
+    {
+        $farm = $this->makeFarm('Rotated Away Farm');
+        $device = $this->makeDevice($farm);
+        $admin = $this->admin();
+
+        foreach ([9, 8, 7] as $d) {
+            $this->readingAt($farm, $device, now()->subDays($d));
+        }
+
+        // While the device is here, there is nothing to explain.
+        $this->assertNull(
+            $this->actingAs($farm->user)->getJson('/api/farmer/dashboard')->json('data.previous_monitoring')
+        );
+
+        $this->actingAs($admin)->patchJson("/api/admin/sensors/{$device->id}/unassign")->assertOk();
+
+        $after = $this->actingAs($farm->user)->getJson('/api/farmer/dashboard')->assertOk();
+
+        $this->assertCount(0, $after->json('data.devices'));
+
+        $period = $after->json('data.previous_monitoring');
+        $this->assertNotNull($period, 'The farm lost every trace of having been monitored.');
+        $this->assertSame(3, $period['reading_count']);
+        $this->assertTrue($period['from'] < $period['to']);
+    }
+
+    /**
+     * The daily summary table: peaks, not averages, decide the day's status,
+     * and alerts are counted from alert_history rather than from the number
+     * of Critical readings.
+     */
+    public function test_readings_summary_reports_daily_peaks_and_alerts(): void
+    {
+        $farm = $this->makeFarm('Summary Farm');
+        $device = $this->makeDevice($farm);
+        $admin = $this->admin();
+
+        $yesterday = now()->subDay()->setTime(10, 0);
+
+        // A quiet day broken by one spike — the case an average would hide.
+        foreach ([[4.0, 'Safe'], [5.0, 'Safe'], [26.0, 'Critical']] as $i => [$ammonia, $status]) {
+            $this->readingAt($farm, $device, $yesterday->copy()->addMinutes($i * 30), [
+                'ammonia' => $ammonia,
+                'ammonia_status' => $status,
+            ]);
+        }
+
+        AlertHistory::create([
+            'farm_id' => $farm->id,
+            'sensor_id' => $device->id,
+            'sensor_type' => 'ammonia',
+            'status' => 'Critical',
+            'value' => 26.0,
+            'triggered_at' => $yesterday->copy()->addHour(),
+        ]);
+
+        $res = $this->actingAs($admin)
+            ->getJson("/api/admin/farms/{$farm->id}/readings-summary")
+            ->assertOk();
+
+        $deployments = $res->json('data.deployments');
+        $this->assertCount(1, $deployments);
+
+        $row = collect($deployments[0]['rows'])->firstWhere('date', $yesterday->toDateString());
+
+        $this->assertNotNull($row, 'No summary row for the day the readings were taken.');
+        // assertEquals, not assertSame: a whole number round-trips through
+        // JSON as an int, so 26.0 comes back as 26.
+        $this->assertEquals(26.0, $row['ammonia_peak']);
+        $this->assertSame(3, $row['reading_count']);
+        $this->assertSame(1, $row['alerts_raised'], 'Alerts were counted from readings, not from alert_history.');
+        $this->assertSame('Critical', $row['status']);
+
+        // The peak drove the status even though the average stayed low.
+        $this->assertLessThan(20, $row['ammonia_avg']);
     }
 }

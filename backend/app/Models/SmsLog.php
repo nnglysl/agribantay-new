@@ -15,6 +15,7 @@ class SmsLog extends Model
         'status',
         'message_id',
         'failure_reason',
+        'sms_alert_token',
     ];
 
     public function user()

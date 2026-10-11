@@ -30,7 +30,7 @@ class AlertHistoryService
      * incident is actually marked resolved. Prevents a single noisy/
      * borderline reading from flipping status back and forth.
      */
-    private const RESOLVE_AFTER_CONSECUTIVE_SAFE_READINGS = 3;
+    public const RESOLVE_AFTER_CONSECUTIVE_SAFE_READINGS = 3;
 
     /**
      * $timestamp defaults to now() for real ingestion — pass an explicit

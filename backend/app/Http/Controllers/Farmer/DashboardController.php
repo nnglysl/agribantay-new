@@ -7,6 +7,7 @@ use App\Http\Controllers\Farmer\Concerns\ResolvesFarm;
 use App\Models\Sensor;
 use App\Models\ServiceRequest;
 use App\Models\SensorReading;
+use App\Services\DeploymentHistoryService;
 use App\Services\FarmStatusService;
 use Illuminate\Http\Request;
 
@@ -114,6 +115,34 @@ class DashboardController extends Controller
             ->orderBy('scheduled_at')
             ->first();
 
+        // The farm's most recent monitoring period, sent ONLY when no device
+        // is installed right now.
+        //
+        // The fleet rotates: a unit spends about a week at a farm and is then
+        // moved on, which leaves the owner looking at an empty screen. Empty
+        // is correct — there is no device — but the screen said "no device
+        // has been installed yet", which is false for a farm that has just
+        // been monitored for a week, and flatly contradicts the readings the
+        // LGU can see for that same farm. The dates let the page say what
+        // actually happened instead.
+        //
+        // Deliberately just a date range. Farm owners said they do not read
+        // sensor logs or graphs (see the frontend Readings screen), so this
+        // is not the history table in disguise — it is one sentence.
+        $previousMonitoring = null;
+        if (! $hasActiveDevice) {
+            $deployments = app(DeploymentHistoryService::class)->forFarm($farm->id);
+            $latest = end($deployments) ?: null;
+
+            if ($latest) {
+                $previousMonitoring = [
+                    'from' => $latest['first_reading_at'],
+                    'to' => $latest['last_reading_at'],
+                    'reading_count' => $latest['reading_count'],
+                ];
+            }
+        }
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -144,6 +173,9 @@ class DashboardController extends Controller
                     'scheduled_at' => $nextScheduledVisit->scheduled_at,
                 ] : null,
                 'last_reading_at'       => $latestReading?->created_at,
+                // Null while a device is installed; a date range once the
+                // rotation has moved it on. See where it is built above.
+                'previous_monitoring'   => $previousMonitoring,
                 // Device communication state — never exposes the device key.
                 'connectivity'          => $statusService->connectivity($farm),
             ],

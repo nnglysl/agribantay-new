@@ -16,21 +16,17 @@ use App\Models\SensorReading;
  */
 class TrendAnalysisService
 {
-    // Mirrors SensorIngestController's status() calibration exactly —
-    // single source of truth would be better long-term (extract both to
-    // a shared config), but duplicated here for now to avoid touching
-    // the ingestion path.
-    private const THRESHOLDS = [
-        'ammonia'  => ['warning' => 25, 'critical' => 35],
-        'humidity' => ['warning' => 70, 'critical' => 80],
-        // moisture: read from config/sensors.php via MoistureThresholdService
-        // (see criticalThresholdFor) — 25 / 35 per the IoT Thresholds RRL.
-    ];
-
-    private const TEMP_CRITICAL_HIGH = 35;
-    private const TEMP_WARNING_HIGH  = 32;
-    private const TEMP_CRITICAL_LOW  = 18;
-    private const TEMP_WARNING_LOW   = 22;
+    // Thresholds are NOT defined here. They used to be — copied from an
+    // older version of the ingestion path and then left behind when
+    // config/sensors.php moved to researched values, so this service was
+    // projecting against ammonia 25/35 and temperature 18/35 while alerts
+    // were being raised at 15/20 ppm and 12/30. The same reading could be
+    // Critical in the alert and "no projection" in the Root Cause panel
+    // beside it, with nothing on screen to explain the disagreement.
+    //
+    // Everything now comes from config/sensors.php, which carries the
+    // sources for each number, so a recalibration moves this service with
+    // the rest of the system instead of leaving it behind again.
 
     private const SAMPLE_SIZE = 10;
     private const STABLE_SLOPE_EPSILON = 0.01; // per-hour rate below this counts as "Stable"
@@ -38,6 +34,9 @@ class TrendAnalysisService
     public function analyzeFarm(int $farmId): array
     {
         $readings = SensorReading::where('farm_id', $farmId)
+            // The device is needed to know which ammonia scale these
+            // readings are on; without this it is a query per reading.
+            ->with('sensor')
             ->latest()
             ->limit(self::SAMPLE_SIZE)
             ->get()
@@ -54,16 +53,25 @@ class TrendAnalysisService
             ];
         }
 
+        // Which ammonia scale these readings are on. Calibration is per
+        // device, so the question is asked of the device that took the most
+        // recent reading — the same rule SensorIngestController applies when
+        // it classifies one. A calibrated device reports real ppm and is
+        // judged against 15/20; an uncalibrated one reports the placeholder
+        // scale, where those numbers mean nothing.
+        $deviceName = $readings->last()->sensor?->device_name;
+        $ammoniaCalibrated = app(SensorCalibrationService::class)->ammoniaIsCalibrated($deviceName);
+
         return [
             'sample_size' => $readings->count(),
-            'ammonia'     => $this->analyzeSensor($readings, 'ammonia'),
+            'ammonia'     => $this->analyzeSensor($readings, 'ammonia', $ammoniaCalibrated),
             'temperature' => $this->analyzeSensor($readings, 'temperature'),
             'humidity'    => $this->analyzeSensor($readings, 'humidity'),
             'moisture'    => $this->analyzeSensor($readings, 'moisture'),
         ];
     }
 
-    private function analyzeSensor($readings, string $field): array
+    private function analyzeSensor($readings, string $field, bool $ammoniaCalibrated = false): array
     {
         $first = $readings->first()->created_at;
 
@@ -79,7 +87,7 @@ class TrendAnalysisService
             ? 'Stable'
             : ($slope > 0 ? 'Rising' : 'Falling');
 
-        $threshold = $this->criticalThresholdFor($field, $slope);
+        $threshold = $this->criticalThresholdFor($field, $slope, $ammoniaCalibrated);
         $hoursToCritical = $this->projectTimeToThreshold($slope, $currentValue, $threshold, $field);
 
         return [
@@ -116,21 +124,33 @@ class TrendAnalysisService
     }
 
     /**
-     * Temperature is two-sided (too low OR too high is Critical) — picks
-     * whichever bound the current trend is actually heading toward.
-     * Every other sensor only has one Critical direction (too high).
+     * Temperature and humidity are two-sided (too low OR too high is
+     * Critical) — each picks whichever bound the current trend is actually
+     * heading toward. Ammonia and moisture have one Critical direction only
+     * (too high).
+     *
+     * Every number is read from config/sensors.php. See the note at the top
+     * of this class for why none of them is written here.
      */
-    private function criticalThresholdFor(string $field, float $slope): ?float
+    private function criticalThresholdFor(string $field, float $slope, bool $ammoniaCalibrated = false): ?float
     {
-        if ($field === 'temperature') {
-            return $slope >= 0 ? self::TEMP_CRITICAL_HIGH : self::TEMP_CRITICAL_LOW;
+        if ($field === 'temperature' || $field === 'humidity') {
+            $cuts = config("sensors.$field");
+
+            return (float) ($slope >= 0 ? $cuts['high_critical'] : $cuts['low_critical']);
         }
 
         if ($field === 'moisture') {
             return app(MoistureThresholdService::class)->critical();
         }
 
-        return self::THRESHOLDS[$field]['critical'] ?? null;
+        if ($field === 'ammonia') {
+            $cuts = config($ammoniaCalibrated ? 'sensors.ammonia_ppm' : 'sensors.ammonia_placeholder');
+
+            return (float) $cuts['critical'];
+        }
+
+        return null;
     }
 
     /**
@@ -144,9 +164,14 @@ class TrendAnalysisService
             return null;
         }
 
-        $alreadyCritical = $field === 'temperature'
-            ? ($currentValue >= self::TEMP_CRITICAL_HIGH || $currentValue <= self::TEMP_CRITICAL_LOW)
-            : $currentValue >= $threshold;
+        // A two-sided metric is already Critical at either end, whichever
+        // bound the projection happens to be aimed at.
+        if ($field === 'temperature' || $field === 'humidity') {
+            $cuts = config("sensors.$field");
+            $alreadyCritical = $currentValue >= $cuts['high_critical'] || $currentValue < $cuts['low_critical'];
+        } else {
+            $alreadyCritical = $currentValue >= $threshold;
+        }
 
         if ($alreadyCritical) {
             return 0;

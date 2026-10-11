@@ -34,9 +34,11 @@ firmware/
 One folder per physical device. The Arduino IDE requires the `.ino` filename to
 match its folder name exactly, so do not rename one without the other.
 
-The two sketches are **identical except for line 21** (the Device Key) and the
-banner text that prints which unit is running. Pins, sensor logic, API URL,
-timing and HTTP handling are the same in both.
+The sketches share pin assignments, transmission timing and HTTP handling.
+Each unit has its own Device Key and banner. D02 also prints the MQ-137 voltage
+diagnostic described below and sends it as optional `ammonia_adc_mv` telemetry.
+Deploy the database column and backend support BEFORE flashing this version.
+See [the deployment steps](../docs/AMMONIA-VOLTAGE-DEPLOY.md).
 
 ## Before uploading to a device
 
@@ -88,7 +90,8 @@ Content-Type: application/json
 
 {
   "device_key": "AGB-XXXXXXXX",
-  "ammonia_raw": 0,
+  "ammonia_raw": 364,
+  "ammonia_adc_mv": 433,
   "temperature": 33.70,
   "humidity": 52.50,
   "soil_raw": 3311
@@ -106,6 +109,59 @@ Responses:
 
 `ammonia_raw` and `soil_raw` are raw 12-bit ADC values (0–4095), not calibrated
 units. Conversion happens server-side and is still uncalibrated.
+`ammonia_adc_mv` is optional, separate GPIO35 voltage telemetry in millivolts.
+Older firmware may omit it; missing/historical values stay NULL. It does not yet
+change the ammonia formula, statuses or historical readings.
+
+## MQ-137 voltage diagnostic (D02)
+
+The D02 sketch prints one extra line per measurement cycle at **115200 baud**:
+
+```text
+MQ137_DIAG raw=<ADC count> adc_mV=<millivolts> pin=35 (separate samples)
+```
+
+`analogReadMilliVolts()` uses the ESP32 ADC calibration API. It measures the
+voltage at GPIO35, not the MQ-137 supply. Raw and millivolts come from consecutive,
+separate conversions, so they are not one exact paired ADC sample. This is a
+diagnostic for the old `raw * 3.3 / 4095` assumption, not a new ppm formula.
+[Espressif ADC documentation](https://docs.espressif.com/projects/arduino-esp32/en/latest/api/adc.html)
+
+Steps with a laptop and USB data cable:
+
+1. Use the working D02 sketch with its correct Device Key and existing modem
+   settings. The repository sketch contains a **placeholder key**: preserve the
+   actual key privately before uploading. Alternatively, copy only the diagnostic
+   block immediately after `analogRead(MQ137_PIN)` into that working sketch.
+2. Have the hardware member check the board's USB/external-power arrangement
+   before connecting the laptop. The reported single 10k series resistor does
+   **not** establish a safe input voltage; ADC software cannot test protection.
+3. Select **ESP32 Dev Module** and the D02 COM port, then **Verify** and **Upload**.
+   Upload resets the device. Allow existing startup/network setup to finish.
+4. Open **Tools → Serial Monitor**, choose **115200 baud**, and record 5–10
+   `MQ137_DIAG` lines (one per roughly one-minute measurement cycle), together
+   with the local time. The diagnostic prints before the network check, so it
+   can still appear when the current measurement is not transmitted.
+5. Share only those diagnostic lines. Existing serial output also prints the
+   device credential. With the voltage deployment installed, millivolts are also
+   stored as `sensor_readings.ammonia_adc_mv` on successful transmissions.
+
+No multimeter: these lines permit an initial ADC check, but do not independently
+verify the 5V supply, ADC accuracy or the maximum possible AOUT/DOUT voltage.
+Borrow a meter from the school lab/hardware member for those checks; there is no
+need to buy a new NH3 tester or repeat the same low-ppm farm observations first.
+Do not connect the 5V supply to GPIO35 to try to measure it.
+
+Reported wiring on 2026-10-10: VCC → VIN (nominal 5V), AOUT → one 10kΩ → GPIO35,
+DOUT → GPIO27, GND → GND. DOUT is unused by this firmware. A single series resistor
+is not a voltage divider. Check input protection for both connected signal pins;
+do not add arbitrary resistor values without checking module loading and updating
+the conversion for any circuit changes.
+
+The server still uses legacy, unvalidated coefficients for compatibility. The
+`-0.311` derivation is not supported by the supplied Hanwei PDF, which specifies
+`alpha(20/10) <= 0.65`, a bound rather than an exact power-law coefficient.
+See [the reference review](../docs/sistema/07-REFERENCES.md#b2-hanwei-mq-137-technical-datasheet--ang-hardware).
 
 ## Known issues
 

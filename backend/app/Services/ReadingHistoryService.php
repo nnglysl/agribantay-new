@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Models\Sensor;
 use App\Models\SensorReading;
 
 /**
@@ -30,23 +29,32 @@ class ReadingHistoryService
     public const METRICS = ['ammonia', 'temperature', 'humidity', 'moisture'];
 
     /**
-     * One series per device installed at the farm, oldest point first.
+     * One series per device that RECORDED at the farm, oldest point first.
      *
-     * Readings are matched by sensor_id, so a device that has since moved to
-     * another farm keeps the readings it took here — the same rule the rest
-     * of the system uses (a reading belongs to the farm it was taken at).
+     * Devices come from DeploymentHistoryService, not from the assignment
+     * column: the study rotates each unit through a farm for about a week,
+     * so asking which devices are assigned here right now returns nothing
+     * for every farm the rotation has already left — and this chart, which
+     * is the whole record of that week, went blank with it. A reading
+     * belongs to the farm it was taken at, permanently, so the readings are
+     * what the series are built from.
+     *
+     * A device with nothing inside the requested window is dropped rather
+     * than returned empty: on a farm that has hosted several units in turn,
+     * keeping them all would add a legend entry and a flat gap for every
+     * device that was somewhere else that week.
      */
     public function forFarm(int $farmId, int $hours = self::DEFAULT_HOURS): array
     {
         $since = now()->subHours($hours);
 
-        $sensors = Sensor::where('farm_id', $farmId)
-            ->orderBy('installed_at')
-            ->get();
+        $deployments = app(DeploymentHistoryService::class)->forFarm($farmId);
 
-        return $sensors->map(function (Sensor $sensor) use ($farmId, $since) {
+        $series = [];
+
+        foreach ($deployments as $deployment) {
             $rows = SensorReading::where('farm_id', $farmId)
-                ->where('sensor_id', $sensor->id)
+                ->where('sensor_id', $deployment['sensor_id'])
                 ->where('created_at', '>=', $since)
                 ->orderBy('created_at')
                 ->get([
@@ -54,12 +62,19 @@ class ReadingHistoryService
                     'ammonia', 'temperature', 'humidity', 'moisture',
                 ]);
 
-            return [
-                'sensor_id'   => $sensor->id,
-                'device_name' => $sensor->device_name,
+            if ($rows->isEmpty()) {
+                continue;
+            }
+
+            $series[] = [
+                'sensor_id'   => $deployment['sensor_id'],
+                'device_name' => $deployment['device_name'],
+                'is_current'  => $deployment['is_current'],
                 'points'      => $this->downsample($rows),
             ];
-        })->values()->all();
+        }
+
+        return $series;
     }
 
     /**

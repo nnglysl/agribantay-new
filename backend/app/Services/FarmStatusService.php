@@ -2,27 +2,21 @@
 
 namespace App\Services;
 
+use App\Models\ActivityLog;
 use App\Models\Farm;
-use App\Models\SensorReading;
-use App\Models\Sensor;
-use App\Models\ServiceRequest;
 use App\Models\Inspection;
 use App\Models\Notification;
+use App\Models\Sensor;
+use App\Models\SensorReading;
+use App\Models\ServiceRequest;
 use App\Models\User;
-use App\Support\LocalTime;
 
 class FarmStatusService
 {
-    protected SmsService $sms;
-
-    public function __construct(SmsService $sms)
-    {
-        $this->sms = $sms;
-    }
-
     /**
      * Check a farm's latest sensor reading, and if the derived status
-     * has changed since last recorded, update it and send an SMS alert.
+     * has changed since last recorded, update it and notify in-app. SMS
+     * episodes/reminders are checked independently on every sync.
      */
     public function syncStatus(Farm $farm): void
     {
@@ -32,8 +26,10 @@ class FarmStatusService
             return;
         }
 
+        $this->syncSmsAlerts($farm);
+
         if ($newStatus === $farm->current_status) {
-            return; // no change — prevent duplicate SMS
+            return; // no change — preserve the existing in-app behavior
         }
 
         $farm->update(['current_status' => $newStatus]);
@@ -56,6 +52,12 @@ class FarmStatusService
             $this->notifyAdminsOfCritical($farm);
             $this->notifyVetsOfCritical($farm);
         }
+    }
+
+    /** SMS clocks also run on unchanged readings; in-app alerts stay as before. */
+    public function syncSmsAlerts(Farm $farm): void
+    {
+        app(FarmSmsAlertService::class)->sync($farm, fn (Farm $locked) => $this->farmStatus($locked));
     }
 
     /**
@@ -317,52 +319,32 @@ class FarmStatusService
 
     private function notify(Farm $farm, string $status): void
     {
-        $action = match ($status) {
-            'Critical' => 'Recommended: check farm ventilation and equipment soon.',
-            'Warning'  => 'Recommended: monitor ventilation and litter conditions.',
-            'Safe'     => 'Farm conditions are back to normal levels.',
-            default    => '',
-        };
+        $message = FarmSmsAlertService::message($farm, $status);
 
-        $detectedAt = LocalTime::dateTime(now());
-
-        $message = "AgriBantay Update: {$farm->farm_name} is now at {$status} level as of {$detectedAt}. {$action}";
-
-        $this->sms->send(
-            $farm->mobile_number,
-            $message,
-            'Farm Status',
-            $farm->user_id,
-            $farm->id
-        );
-
-        \App\Models\ActivityLog::create([
+        ActivityLog::create([
             'user_id' => null,
-            'role'    => 'System',
-            'action'  => $status === 'Critical' ? 'Critical alert triggered' : ($status === 'Safe' ? 'Status recovered' : 'Warning alert triggered'),
+            'role' => 'System',
+            'action' => $status === 'Critical' ? 'Critical alert triggered' : ($status === 'Safe' ? 'Status recovered' : 'Warning alert triggered'),
             'details' => "{$farm->farm_name} — {$status}",
-            'type'    => 'Alert',
+            'type' => 'Alert',
         ]);
 
-        // The farmer already gets the SMS above — this is the in-app
-        // counterpart, shown in their own Notifications panel. Fires on the
-        // same state transitions as the SMS (never on every reading), so a
-        // farm stuck at Critical across repeated readings doesn't spam this
-        // either.
+        // In-app behavior remains tied to the original status transitions.
+        // SMS delivery has its own episode and reminder clock.
         if ($farm->user_id) {
             $title = match ($status) {
                 'Critical' => 'Critical Farm Alert',
-                'Warning'  => 'Farm Condition Warning',
-                'Safe'     => 'Farm Condition Normalized',
-                default    => 'Farm Status Update',
+                'Warning' => 'Farm Condition Warning',
+                'Safe' => 'Farm Condition Normalized',
+                default => 'Farm Status Update',
             };
 
             Notification::create([
                 'user_id' => $farm->user_id,
-                'title'   => $title,
+                'title' => $title,
                 'message' => $message,
-                'type'    => 'Sensor Alert',
-                'link'    => '/farmowner/dashboard',
+                'type' => 'Sensor Alert',
+                'link' => '/farmowner/dashboard',
                 'is_read' => false,
             ]);
         }

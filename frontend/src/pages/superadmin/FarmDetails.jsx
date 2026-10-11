@@ -20,6 +20,8 @@ import FarmLocationMap from '../../components/FarmLocationMap'
 import { LOCATION_CONFLICT_MESSAGE, LOCATION_OUTSIDE_MESSAGE, isInsideSanJose } from '../../utils/farmLocation'
 import { ALL_TYPES as ALL_SERVICE_TYPES } from '../../constants/serviceTypes'
 import { SectionLoader, BtnBusy } from '../../components/Loading'
+import ReadingsSummaryCard from '../../components/ReadingsSummaryCard'
+import { formatDeploymentPeriod } from '../../utils/deploymentPeriod'
 
 const FARM_SIZES = ['Small', 'Medium', 'Large']
 // 5 is here because the Monitoring tables default to it — a select that
@@ -284,6 +286,21 @@ export default function SuperAdminFarmDetails() {
     { pollMs: LIVE_POLL_MS }
   )
 
+  // Daily figures per device. Fetched only while the Monitoring tab is open
+  // — it is an aggregate over a whole deployment, not a live number, so it
+  // is also left out of the live poll the panels above run on.
+  const { data: summaryData, loading: summaryLoading } = useCachedFetch(
+    activeTab === 'monitoring' ? `/admin/farms/${farmId}/readings-summary` : null
+  )
+
+  // Every device that has recorded here, newest deployment first. `device_list`
+  // above is the farm's CURRENT hardware and empties the moment the rotation
+  // moves a unit on; this is the farm's monitoring record, which must not.
+  const deployments = useMemo(
+    () => [...(farm?.device_deployments || [])].reverse(),
+    [farm]
+  )
+
   // Newest first, keyed on the ISO instant rather than the display string
   // or on whatever order the rows happened to arrive in — so an alert that
   // appears on the next poll lands in the right row, not at the bottom.
@@ -302,6 +319,15 @@ export default function SuperAdminFarmDetails() {
   const [devicePageSize, setDevicePageSize] = useState(5)
   const [alertPage, setAlertPage] = useState(1)
   const [alertPageSize, setAlertPageSize] = useState(5)
+  // Which deployment's daily table is open, by sensor_id. null = the list of
+  // deployments. A farm that has hosted several devices for a week each runs
+  // to dozens of daily rows, and stacking every one of them inside a single
+  // card buried the alerts panel under a wall of numbers nobody scrolled to.
+  const [openSummary, setOpenSummary] = useState(null)
+  const [summaryPage, setSummaryPage] = useState(1)
+  // 10, not 5: TableFooter offers 10 / 25 / 50, and a value outside that
+  // list leaves the rows-per-page selector showing nothing.
+  const [summaryPageSize, setSummaryPageSize] = useState(10)
 
   const initials = farm ? getInitials(farm.owner_name) : ''
   const isActive = farm?.status === 'Active'
@@ -864,6 +890,76 @@ export default function SuperAdminFarmDetails() {
               </Card>
             )}
 
+            {/* The farm's monitoring record, as opposed to its current
+                hardware. The fleet rotates a unit through a farm for about a
+                week, so by the time anyone reviews a farm the device that
+                measured it is usually somewhere else — and the question
+                "which device recorded here, and over what period" has no
+                other answer on this page. Derived from the readings, so it
+                survives the reassignment that empties the panel above. */}
+            {deployments.length > 0 && (
+              <Card title="Device Assignment History">
+                <TableScroll style={tableStyles.wrap}>
+                  <table style={{ ...tableStyles.table, minWidth: '826px' }}>
+                    <thead>
+                      <tr>
+                        <th style={tableStyles.th}>Device</th>
+                        <th style={tableStyles.th}>Monitoring Period</th>
+                        <th style={tableStyles.th}>Days</th>
+                        <th style={tableStyles.th}>Readings</th>
+                        <th style={tableStyles.th}>Assignment</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deployments.map(d => (
+                        <tr key={d.sensor_id}>
+                          <td style={tableStyles.td}>
+                            <div style={monitorStyles.houseName}>{d.device_name}</div>
+                          </td>
+                          <td style={tableStyles.td}>
+                            {formatDeploymentPeriod(d.first_reading_at, d.last_reading_at)}
+                          </td>
+                          <td style={tableStyles.td}>{d.days_covered}</td>
+                          <td style={tableStyles.td}>{d.reading_count.toLocaleString()}</td>
+                          <td style={tableStyles.td}>
+                            {/* "Previously installed" rather than Offline: the
+                                unit is not silent, it is elsewhere, and
+                                calling that Offline reads as a fault. */}
+                            <span style={{
+                              ...styles.miniPill,
+                              color: d.is_current ? STATUS.Safe.color : '#5b6157',
+                              backgroundColor: d.is_current ? STATUS.Safe.bg : '#f0f1ec',
+                            }}>
+                              {d.is_current ? 'Currently installed' : 'Previously installed'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </TableScroll>
+              </Card>
+            )}
+
+            {/* One row per day, not per reading. A week at a reading a minute
+                is around ten thousand rows, which no one can read and which
+                the trend chart already shows as a shape. What a finished
+                monitoring period needs is figures that can be quoted: the
+                peak that day, how many alerts it raised, and how much of the
+                day the device was actually reporting. */}
+            <ReadingsSummaryCard
+              data={summaryData}
+              loading={summaryLoading}
+              openSummary={openSummary}
+              onOpen={(sensorId) => { setOpenSummary(sensorId); setSummaryPage(1) }}
+              onBack={() => setOpenSummary(null)}
+              page={summaryPage}
+              pageSize={summaryPageSize}
+              onPageChange={setSummaryPage}
+              onPageSizeChange={(size) => { setSummaryPageSize(size); setSummaryPage(1) }}
+              isMobile={isMobile}
+            />
+
             <Card title="Recent Alerts">
               {alertsLoading && <SectionLoader />}
               {!alertsLoading && (alertsData?.length ?? 0) === 0 && (
@@ -1394,6 +1490,7 @@ const monitorStyles = {
   // lands on the number first.
   cellStatus: { fontSize: '11px', fontWeight: 600, marginTop: '5px', lineHeight: 1.3, letterSpacing: '0.01em' },
 }
+
 
 /**
  * One reading in the monitoring table.

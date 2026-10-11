@@ -4,8 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Sensor;
 use App\Models\SensorReading;
-use App\Services\FarmStatusService;
 use App\Services\AlertHistoryService;
+use App\Services\FarmStatusService;
 use App\Services\MoistureThresholdService;
 use App\Services\SensorCalibrationService;
 use Illuminate\Http\Request;
@@ -15,16 +15,18 @@ class SensorIngestController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'device_key'    => 'required|string',
-            'ammonia_raw'   => 'required|numeric',
-            'temperature'   => 'required|numeric',
-            'humidity'      => 'required|numeric',
-            'soil_raw'      => 'required|numeric',
+            'device_key' => 'required|string',
+            'ammonia_raw' => 'required|numeric',
+            // Optional diagnostic from a separate ADC conversion; legacy firmware omits it.
+            'ammonia_adc_mv' => 'nullable|integer|between:0,65535',
+            'temperature' => 'required|numeric',
+            'humidity' => 'required|numeric',
+            'soil_raw' => 'required|numeric',
         ]);
 
         $sensor = Sensor::where('device_key', $request->device_key)->first();
 
-        if (!$sensor) {
+        if (! $sensor) {
             return response()->json(['success' => false, 'message' => 'Unknown device.'], 401);
         }
 
@@ -32,13 +34,13 @@ class SensorIngestController extends Controller
         // gated on its CURRENT state — an Admin-deactivated unit or one that
         // has been unassigned (in transit between farms) is known but must
         // not create readings. Neither case bumps last_seen_at.
-        if (!$sensor->isActive()) {
+        if (! $sensor->isActive()) {
             return response()->json(['success' => false, 'message' => 'Device is inactive.'], 403);
         }
 
         $farm = $sensor->farm;
 
-        if (!$farm) {
+        if (! $farm) {
             return response()->json(['success' => false, 'message' => 'Device is not assigned to a farm.'], 409);
         }
 
@@ -50,11 +52,12 @@ class SensorIngestController extends Controller
         $ammonia = $ammoniaPpm ?? round(($request->ammonia_raw / 4095) * 100, 2);
 
         // The cut points must follow the SCALE, not the metric. A calibrated
-        // device reports ppm and is judged against the RRL (15/25); an
+        // device reports ppm and is judged against 15/20 - 20 being the
+        // DA AO No. 12, s. 2002 limit for ammonia at bird level. An
         // uncalibrated one reports the placeholder scale, where those numbers
         // mean nothing, and keeps its original cuts. Classifying ppm against
-        // the placeholder pair would have called 30 ppm - a level the RRL
-        // calls Critical - merely Warning.
+        // the placeholder pair would have called 30 ppm - well past the legal
+        // limit - merely Warning. See config/sensors.php for the sources.
         $ammoniaCuts = config($ammoniaPpm === null ? 'sensors.ammonia_placeholder' : 'sensors.ammonia_ppm');
 
         // A raw ADC value of exactly 0 means the pin is reading no signal at
@@ -79,7 +82,7 @@ class SensorIngestController extends Controller
         // exactly how the alert-history call below already treats it (the
         // running moisture incident, if any, is left open until real data
         // returns). The stored moisture value itself stays null.
-        $soilRaw    = (int) $request->soil_raw;
+        $soilRaw = (int) $request->soil_raw;
         $soilFaulty = $soilRaw <= 0;
 
         // Classify on the RAW computed percentage; the 2-decimal rounding
@@ -87,16 +90,34 @@ class SensorIngestController extends Controller
         // never be what decides Safe/Warning/Critical (thresholds live in
         // config/sensors.php via MoistureThresholdService).
         //
-        // Calibrated two-point conversion when the probe's own air/water
-        // readings are configured; otherwise the placeholder below, which
-        // assumes raw 4095 is bone dry. That assumption is wrong for every
-        // capacitive probe — they read roughly 2500-3200 in open air — so it
-        // reports ~35-40% for a probe sitting on a table and has been
-        // tripping Critical on a farm with no wet manure at all.
+        // THREE conversions, in descending order of what they actually mean.
+        // SensorCalibrationService picks between the first two; the third is
+        // this controller's last resort.
+        //
+        //   polynomial  a*S^2 + b*S + c, fitted against manure samples that
+        //               were weighed, dried over a water bath and reweighed.
+        //               The ONLY path that yields wet-basis moisture content
+        //               — the unit the 25 / 35 thresholds are written in.
+        //
+        //   two-point   (air - S) / (air - water) * 100. A probe index on a
+        //               0-100 scale, not a moisture content: layer manure at
+        //               70% MC is not 70% of the way from air to water in
+        //               dielectric terms. Classifying it is a compromise.
+        //
+        //   placeholder 100 - (S / 4095) * 100, which assumes raw 4095 is
+        //               bone dry. That is wrong for every capacitive probe —
+        //               they read roughly 2500-3200 in open air — so it
+        //               reports ~35-40% for a probe sitting on a table and
+        //               has been tripping Critical on farms with no wet
+        //               manure at all.
+        //
+        // See config/sensors.php ('calibration.moisture') for how the five
+        // polynomial numbers are measured, the accuracy to claim for them,
+        // and why the fit is applied here rather than in the ESP32 sketch.
         $moistureRaw = $soilFaulty
             ? null
             : ($calibration->moisturePercent($soilRaw, $sensor->device_name) ?? 100 - ($soilRaw / 4095) * 100);
-        $moisture    = $soilFaulty ? null : round($moistureRaw, 2);
+        $moisture = $soilFaulty ? null : round($moistureRaw, 2);
 
         if ($soilFaulty) {
             $previous = SensorReading::where('farm_id', $farm->id)->latest()->value('moisture_status');
@@ -109,17 +130,38 @@ class SensorIngestController extends Controller
         // moment and never rewritten — when the device is later moved to
         // another farm, this reading stays with the farm it was collected at.
         $reading = SensorReading::create([
-            'farm_id'            => $farm->id,
-            'sensor_id'          => $sensor->id,
-            'ammonia'            => $ammonia,
-            'ammonia_status'     => $this->status($ammonia, $ammoniaCuts['warning'], $ammoniaCuts['critical']),
-            'temperature'        => $request->temperature,
+            'farm_id' => $farm->id,
+            'sensor_id' => $sensor->id,
+            'ammonia' => $ammonia,
+            'ammonia_status' => $this->status($ammonia, $ammoniaCuts['warning'], $ammoniaCuts['critical']),
+            'temperature' => $request->temperature,
             'temperature_status' => $this->twoSidedStatus($request->temperature, 'temperature'),
-            'humidity'           => $request->humidity,
-            'humidity_status'    => $this->twoSidedStatus($request->humidity, 'humidity'),
-            'moisture'           => $moisture,
-            'moisture_status'    => $moistureStatus,
-            'is_mock'            => false,
+            'humidity' => $request->humidity,
+            'humidity_status' => $this->twoSidedStatus($request->humidity, 'humidity'),
+            'moisture' => $moisture,
+            'moisture_status' => $moistureStatus,
+            'is_mock' => false,
+
+            // Keep what the sensor actually reported, not only what we made
+            // of it. ppm depends on constants that change whenever a device
+            // is calibrated, so without the raw count every past reading is
+            // locked to whichever formula happened to be deployed that day.
+            'ammonia_raw' => (int) $request->ammonia_raw,
+            // Preserve reported millivolts, including zero. Never infer historical
+            // voltage from raw counts or use this new field to change ppm yet.
+            'ammonia_adc_mv' => $request->input('ammonia_adc_mv') === null
+                ? null
+                : (int) $request->input('ammonia_adc_mv'),
+
+            // Same reasoning, and moisture needs it more. The old placeholder
+            // scale inverted cleanly, but neither the two-point nor the
+            // polynomial conversion can be undone without the per-device
+            // constants that were in force when this row was written — and
+            // those change every time a probe is recalibrated or swapped
+            // between farms. Stored even when the probe reported a faulty 0,
+            // so a diagnosable fault stays distinguishable from a row that
+            // simply predates the column.
+            'soil_raw' => $soilRaw,
         ]);
 
         // Only an accepted reading counts as communication — rejected
@@ -137,13 +179,13 @@ class SensorIngestController extends Controller
         $alerting = config('sensors.alerting_metrics', ['ammonia']);
 
         $values = [
-            'ammonia'     => [$reading->ammonia_status, $reading->ammonia],
+            'ammonia' => [$reading->ammonia_status, $reading->ammonia],
             'temperature' => [$reading->temperature_status, $reading->temperature],
-            'humidity'    => [$reading->humidity_status, $reading->humidity],
+            'humidity' => [$reading->humidity_status, $reading->humidity],
             // A faulty probe shouldn't open or close moisture incidents — an
             // unknown reading is neither an alert nor a recovery, so the
             // running incident is left untouched until real data returns.
-            'moisture'    => $soilFaulty ? null : [$moistureStatus, $moisture],
+            'moisture' => $soilFaulty ? null : [$moistureStatus, $moisture],
         ];
 
         foreach ($values as $metric => $pair) {
@@ -153,6 +195,7 @@ class SensorIngestController extends Controller
 
             if (in_array($metric, $alerting, true)) {
                 $alertHistory->recordReading($farm->id, $metric, $pair[0], $pair[1], null, $sensor->id);
+
                 continue;
             }
 
@@ -199,8 +242,13 @@ class SensorIngestController extends Controller
      */
     private function status(float $value, float $warningAt, float $criticalAt): string
     {
-        if ($value >= $criticalAt) return 'Critical';
-        if ($value >= $warningAt) return 'Warning';
+        if ($value >= $criticalAt) {
+            return 'Critical';
+        }
+        if ($value >= $warningAt) {
+            return 'Warning';
+        }
+
         return 'Safe';
     }
 }
