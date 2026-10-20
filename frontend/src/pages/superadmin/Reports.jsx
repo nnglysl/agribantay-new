@@ -1,3 +1,5 @@
+import { matchesReportPeriod } from '../../utils/reportPeriod'
+import AlertIncidentChart from '../../components/AlertIncidentChart'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Line, Bar } from 'react-chartjs-2'
 import {
@@ -6,15 +8,16 @@ import {
 import AdminLayout from '../../components/AdminLayout'
 import GeneratedReportsFilesTab from '../../components/GeneratedReportsFilesTab'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { useReportPeriod } from '../../hooks/useReportPeriod'
+import ReportPeriodFields from '../../components/ReportPeriodFields'
 import {
   C, styles, ReportStyles, PageHeader, Tabs, StatCard, Panel, DataTable, ChartFrame,
-  IconFilter, chartOptions, lineDataset, fmtDate, makeInRange, rangeLabelOf, scopeLabelOf, monthlyBuckets,
-  monthlyBucketsInRange, dailyBuckets, dayOf, MONTH_NAMES, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle,
+  IconFilter, chartOptions, lineDataset, fmtDate, makeInRange, rangeLabelOf, scopeLabelOf,
+  monthlyBucketsInRange, dayOf, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle,
 } from '../../components/ReportsLayout'
 import {
   ODOR_CONTROL, FLY_CONTROL, FARM_BIOSECURITY, BLOOD_TEST, VACCINE_LEGACY,
 } from '../../constants/serviceTypes'
-import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 import { DISPLAY_TIME_ZONE } from '../../utils/formatDate'
 import { SkeletonStatCards, SkeletonBlock } from '../../components/Loading'
 
@@ -87,19 +90,12 @@ const serviceChartOptions = {
 
 export default function SuperAdminReports() {
   const [tab, setTab] = useState('Overview')
-  const now = new Date()
 
   // From/To date-range filter — drives the record-listing tabs (Overview,
   // Inspections, Service Requests).
-  const [draftFrom, setDraftFrom] = useState('')
-  const [draftTo, setDraftTo] = useState('')
-  const [fromDate, setFromDate] = useState('')
-  const [toDate, setToDate] = useState('')
+  const { fromDate, toDate, draftPeriod, setDraftPeriod, periodError, openPeriod, applyPeriod, clearPeriod } = useReportPeriod()
 
-  // Same reasoning as the Admin Reports page: the stat cards are counted on
-  // the server, so the range has to reach it. Counting the returned detail
-  // lists here instead would silently under-report, because they are capped
-  // at 300 rows. No range = all-time, exactly as before.
+  // Cards, charts and tables request the same applied reporting period.
   const reportParams = useMemo(() => {
     const p = {}
     if (fromDate) p.from = fromDate
@@ -108,7 +104,7 @@ export default function SuperAdminReports() {
   }, [fromDate, toDate])
 
   const { data: adminData, loading: adminLoading, error: adminError, refetch: refetchAdmin } = useCachedFetch('/admin/reports', reportParams)
-  const { data: vetData, loading: vetLoading, error: vetError, refetch: refetchVet } = useCachedFetch('/vet/reports')
+  const { data: vetData, loading: vetLoading, error: vetError, refetch: refetchVet } = useCachedFetch('/vet/reports', reportParams)
 
   // Tied to actual data refreshes only (initial load + each 30-minute
   // auto-refetch below) — never recomputed on every render, so it doesn't
@@ -125,17 +121,9 @@ export default function SuperAdminReports() {
   }
 
 
-  // Separate Month + Year filter — used only by the Files tab, which picks
-  // ONE archived monthly report rather than filtering a list of records.
-  const [draftFilesMonth, setDraftFilesMonth] = useState('')
-  const [draftFilesYear, setDraftFilesYear] = useState('')
-  const [filesMonth, setFilesMonth] = useState('')
-  const [filesYear, setFilesYear] = useState('')
-
   const [filterOpen, setFilterOpen] = useState(false)
   const filterRef = useRef(null)
 
-  const reportYears = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i)
 
   const inRange = makeInRange(fromDate, toDate)
   const rangeLabel = rangeLabelOf(fromDate, toDate)
@@ -195,14 +183,14 @@ export default function SuperAdminReports() {
   const inspTrend = useMemo(() => (
     isRangeFiltered
       ? monthlyBucketsInRange(inspections, 'completed_at_raw')
-      : monthlyBuckets(allInspections, 'completed_at_raw', null, null)
+      : monthlyBucketsInRange(allInspections, 'completed_at_raw')
   ), [inspections, allInspections, isRangeFiltered])
 
 
   const serviceTrend = useMemo(() => (
     isRangeFiltered
       ? monthlyBucketsInRange(servicesCombined, 'completed_at_raw')
-      : monthlyBuckets(allServicesCombined, 'completed_at_raw', null, null)
+      : monthlyBucketsInRange(allServicesCombined, 'completed_at_raw')
   ), [servicesCombined, allServicesCombined, isRangeFiltered])
 
   // Per-type counts indexed against serviceTrend's own month keys rather than
@@ -244,18 +232,10 @@ export default function SuperAdminReports() {
       .sort((a, b) => b.total - a.total || a.order - b.order)
   ), [serviceTrendByType])
 
-  // By day while a range is set, by month otherwise — the same rule the
-  // Staff page uses, so the two charts are read the same way.
-  const alertTrend = useMemo(() => (
-    isRangeFiltered
-      ? dailyBuckets(alerts, 'triggered_at_raw')
-      : monthlyBucketsInRange(allAlerts, 'triggered_at_raw')
-  ), [alerts, allAlerts, isRangeFiltered])
-
   // Single centralized refresh mechanism for the whole Reports page: fetch the
   // latest data (both sources) as soon as the page opens (never wait for the
-  // interval), then re-fetch every 30 minutes. Filter changes never trigger a
-  // fetch — they just re-filter the already-loaded dataset client-side.
+  // interval), then re-fetch every 30 minutes. Period changes also fetch scoped
+  // statistics from both sources.
   useEffect(() => {
     refetchAdmin()
     refetchVet()
@@ -277,52 +257,23 @@ export default function SuperAdminReports() {
   }, [filterOpen])
 
   const openFilter = () => {
-    setDraftFrom(fromDate)
-    setDraftTo(toDate)
-    setDraftFilesMonth(filesMonth)
-    setDraftFilesYear(filesYear)
+    openPeriod()
     setFilterOpen(true)
   }
 
-  // One-click Clear Date: clears draft + applied dates immediately (the
-  // Files tab's month/year filter is separate and untouched).
-  const clearDates = () => {
-    setDraftFrom(''); setDraftTo('')
-    setFromDate(''); setToDate('')
-  }
-  const hasDate = !!(draftFrom || draftTo || fromDate || toDate)
-
   const applyFilter = () => {
-    if (tab === 'Files') {
-      setFilesMonth(draftFilesMonth)
-      setFilesYear(draftFilesYear)
-    } else {
-      setFromDate(draftFrom)
-      setToDate(draftTo)
-    }
-    setFilterOpen(false)
+    if (applyPeriod()) setFilterOpen(false)
   }
-
   const clearFilter = () => {
-    if (tab === 'Files') {
-      setFilesMonth('')
-      setFilesYear('')
-      setDraftFilesMonth('')
-      setDraftFilesYear('')
-    } else {
-      setFromDate('')
-      setToDate('')
-      setDraftFrom('')
-      setDraftTo('')
-    }
+    clearPeriod()
     setFilterOpen(false)
   }
 
-  const isFilterActive = tab === 'Files' ? Boolean(filesMonth && filesYear) : isRangeFiltered
+  const isFilterActive = isRangeFiltered
 
-  if (adminLoading || vetLoading || !adminData || !vetData) return <AdminLayout><SkeletonStatCards count={4} /><SkeletonBlock height={260} style={{ marginBottom: '20px' }} /><SkeletonBlock height={260} /></AdminLayout>
   if (adminError) return <AdminLayout><p style={{ ...styles.stateText, color: C.red }}>{adminError}</p></AdminLayout>
   if (vetError) return <AdminLayout><p style={{ ...styles.stateText, color: C.red }}>{vetError}</p></AdminLayout>
+  if (adminLoading || vetLoading || !matchesReportPeriod(adminData, fromDate, toDate) || !matchesReportPeriod(vetData, fromDate, toDate)) return <AdminLayout><SkeletonStatCards count={4} /><SkeletonBlock height={260} style={{ marginBottom: '20px' }} /><SkeletonBlock height={260} /></AdminLayout>
 
   const insp = adminData.inspection_summary ?? {}
   const alertSum = adminData.alert_summary ?? {}
@@ -334,11 +285,11 @@ export default function SuperAdminReports() {
       { value: insp.total, label: 'Total Inspections' },
       { value: insp.completed, label: 'Completed Inspections' },
       { value: alertSum.critical_incidents, label: 'Critical Alerts' },
-      { value: svc.total, label: 'Total Service Requests' },
+      { value: (svc.total ?? 0) + (vetData.total_requests ?? 0), label: 'Total Service Requests' },
       { value: vetData.total_completed, label: 'Vet Services Completed' },
     ],
     Inspections: [
-      { value: inspectionRecords.length, label: 'Total Inspections', onClick: () => selectStatusView('Inspections', 'all'), active: statusView.Inspections === 'all' },
+      { value: inspectionRecords.length, label: 'Completed / Scheduled Visits', onClick: () => selectStatusView('Inspections', 'all'), active: statusView.Inspections === 'all' },
       { value: countBy(inspectionRecords, 'Completed'), label: 'Completed', onClick: () => selectStatusView('Inspections', 'Completed'), active: statusView.Inspections === 'Completed' },
       { value: countBy(inspectionRecords, 'Scheduled'), label: 'Scheduled', onClick: () => selectStatusView('Inspections', 'Scheduled'), active: statusView.Inspections === 'Scheduled' },
     ],
@@ -352,12 +303,12 @@ export default function SuperAdminReports() {
       { value: alertSum.resolved_incidents ?? 0, label: 'Resolved' },
     ],
     Maintenance: [
-      { value: maint.completed_this_month, label: 'Completed This Month' },
-      { value: maint.overdue, label: 'Currently Overdue' },
+      { value: maint.completed_this_month, label: 'Clean-outs in Period' },
+      { value: maint.overdue, label: 'Overdue at Cutoff' },
       { value: maint.non_compliant, label: 'Non-Compliant Farms' },
     ],
     'Service Requests': [
-      { value: serviceRecords.length, label: 'Total Requests', onClick: () => selectStatusView('Service Requests', 'all'), active: statusView['Service Requests'] === 'all' },
+      { value: serviceRecords.length, label: 'Completed / Scheduled Requests', onClick: () => selectStatusView('Service Requests', 'all'), active: statusView['Service Requests'] === 'all' },
       { value: countBy(serviceRecords, 'Completed'), label: 'Completed', onClick: () => selectStatusView('Service Requests', 'Completed'), active: statusView['Service Requests'] === 'Completed' },
       { value: countBy(serviceRecords, 'Scheduled'), label: 'Scheduled', onClick: () => selectStatusView('Service Requests', 'Scheduled'), active: statusView['Service Requests'] === 'Scheduled' },
     ],
@@ -397,56 +348,7 @@ export default function SuperAdminReports() {
                   <span style={styles.filterPopClose} onClick={() => setFilterOpen(false)}>×</span>
                 </div>
 
-                {tab === 'Files' ? (
-                  <div style={styles.filterPopRow}>
-                    <div>
-                      <label style={styles.filterPopLabel}>Month</label>
-                      <select
-                        style={styles.filterPopSelect}
-                        value={draftFilesMonth}
-                        onChange={e => setDraftFilesMonth(e.target.value === '' ? '' : Number(e.target.value))}
-                      >
-                        <option value="">All Months</option>
-                        {MONTH_NAMES.map((name, i) => <option key={name} value={i + 1}>{name}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label style={styles.filterPopLabel}>Year</label>
-                      <select
-                        style={styles.filterPopSelect}
-                        value={draftFilesYear}
-                        onChange={e => setDraftFilesYear(e.target.value === '' ? '' : Number(e.target.value))}
-                      >
-                        <option value="">All Years</option>
-                        {reportYears.map(y => <option key={y} value={y}>{y}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                ) : (
-                  <div style={styles.filterPopRow}>
-                    <div>
-                      <DateRangeHeader>
-                        <label style={styles.filterPopLabel}>From</label>
-                        <ClearDateButton visible={hasDate} onClick={clearDates} />
-                      </DateRangeHeader>
-                      <input
-                        type="date"
-                        style={styles.filterPopSelect}
-                        value={draftFrom}
-                        onChange={e => setDraftFrom(e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label style={styles.filterPopLabel}>To</label>
-                      <input
-                        type="date"
-                        style={styles.filterPopSelect}
-                        value={draftTo}
-                        onChange={e => setDraftTo(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                )}
+                <ReportPeriodFields value={draftPeriod} onChange={setDraftPeriod} error={periodError} />
 
                 <div style={styles.filterPopActions}>
                   <button type="button" onClick={clearFilter} style={styles.filterPopClear}>Show all</button>
@@ -458,9 +360,7 @@ export default function SuperAdminReports() {
         </div>
 
         <div style={styles.body}>
-          {tab !== 'Files' && (
-            <p style={styles.filterNote}>{scopeLabelOf(fromDate, toDate)}</p>
-          )}
+          <p style={styles.filterNote}>{scopeLabelOf(fromDate, toDate)}</p>
 
           {tab !== 'Files' && (
             <div className="rp-stats">
@@ -470,7 +370,7 @@ export default function SuperAdminReports() {
 
           {tab === 'Overview' && (
             <div className="rp-two">
-              <Panel title="Inspections completed per month" subtitle={isRangeFiltered ? rangeLabel : 'Last 6 months'}>
+              <Panel title="Inspections completed per month" subtitle={isRangeFiltered ? rangeLabel : 'All records'}>
                 <ChartFrame>
                   <Line
                     data={{ labels: inspTrend.map(m => m.label), datasets: [lineDataset(inspTrend.map(m => m.count), C.green)] }}
@@ -480,7 +380,7 @@ export default function SuperAdminReports() {
               </Panel>
               <Panel
                 title="Services completed by type"
-                subtitle={isRangeFiltered ? rangeLabel : 'Last 6 months'}
+                subtitle={isRangeFiltered ? rangeLabel : 'All records'}
               >
                 <ChartFrame>
                   <Bar
@@ -522,27 +422,8 @@ export default function SuperAdminReports() {
 
           {tab === 'Alerts' && (
             <>
-              <Panel title="Alert volume over time" subtitle={`${rangeLabel} · incidents by day triggered`}>
-                {alertTrend.length === 0 ? (
-                  <div style={styles.empty}>No alerts recorded in this range.</div>
-                ) : (
-                  <ChartFrame>
-                    <Line
-                      data={{ labels: alertTrend.map(b => b.label), datasets: [lineDataset(alertTrend.map(b => b.count), C.amber)] }}
-                      options={{
-                        ...chartOptions,
-                        scales: {
-                          ...chartOptions.scales,
-                          // Whole incidents — a tick of 0.5 alerts means nothing.
-                          y: {
-                            ...chartOptions.scales.y,
-                            ticks: { ...chartOptions.scales.y.ticks, stepSize: 1 },
-                          },
-                        },
-                      }}
-                    />
-                  </ChartFrame>
-                )}
+              <Panel title="Alert incidents over time" subtitle={`${rangeLabel} · incidents by ${adminData.alert_trend?.aggregation || 'day'} triggered`}>
+                <AlertIncidentChart series={adminData.alert_trend} />
               </Panel>
 
               <DataTable
@@ -569,7 +450,7 @@ export default function SuperAdminReports() {
               {maintView === 'Overdue and non-compliant farms' && (
                 <DataTable
                   title="Overdue and non-compliant farms"
-                  subtitle="Manure clean-out status as of today · not affected by the date filter"
+                  subtitle={`Manure clean-out status as of ${adminData.report_period?.status_as_of || 'today'}`}
                   columns={['Farm', 'Owner', 'Barangay', 'Last clean-out', 'Overdue by', 'Status']}
                   emptyText="All farms are compliant with clean-out schedules."
                   rows={overdueFarms.map(f => [
@@ -622,7 +503,7 @@ export default function SuperAdminReports() {
           )}
 
           {tab === 'Files' && (
-            <GeneratedReportsFilesTab appliedMonth={filesMonth} appliedYear={filesYear} />
+            <GeneratedReportsFilesTab fromDate={fromDate} toDate={toDate} />
           )}
 
           {tab !== 'Files' && (

@@ -14,7 +14,7 @@ use App\Models\ManureDisposalRecord;
 use App\Models\SensorReading;
 use App\Models\ServiceRequest;
 use App\Models\User;
-use App\Services\DeploymentHistoryService;
+use App\Services\MonitoringDeploymentService;
 use App\Services\FarmLocationService;
 use App\Services\FarmStatusService;
 use App\Services\GeocodingService;
@@ -544,7 +544,9 @@ class FarmController extends Controller
         // on a farm with several poultry houses it cannot say which unit went
         // quiet — this list can. Sensor::connectivity() is a method, not an
         // attribute, so it never reaches the client unless spelled out here.
-        $farm->device_list = $farm->sensors->map(function ($sensor) {
+        $monitoring = app(MonitoringDeploymentService::class);
+        $periods = $monitoring->forFarm($farm->id);
+        $farm->device_list = $farm->sensors->map(function ($sensor) use ($farm, $periods, $statusService) {
             // Each house's OWN latest reading. The farm-level `sensor_readings`
             // relation returns whichever house reported most recently, so on a
             // multi-house farm the monitoring panel was showing one house's
@@ -553,6 +555,13 @@ class FarmController extends Controller
             // id DESC as the tiebreaker: two readings can share a second, and
             // created_at alone then picks between them arbitrarily.
             $reading = SensorReading::where('sensor_id', $sensor->id)
+                ->where('farm_id', $farm->id)
+                ->where('created_at', '<=', now());
+            $period = collect($periods)->first(fn ($period) => $period['sensor_id'] === $sensor->id && $period['is_current']);
+            if ($period && $period['range_start']) {
+                $reading->where('created_at', '>=', Carbon::parse($period['range_start']));
+            }
+            $reading = $reading
                 ->orderByDesc('created_at')
                 ->orderByDesc('id')
                 ->first();
@@ -565,6 +574,8 @@ class FarmController extends Controller
                 'last_seen_at' => $sensor->last_seen_at?->toIso8601String(),
                 'installed_at' => $sensor->installed_at?->format('M d, Y'),
                 'has_reading' => (bool) $reading,
+                'last_reading_at' => $reading?->created_at?->toIso8601String(),
+                'last_recorded_condition' => $reading ? $statusService->computeStatus($reading) : null,
                 'ammonia' => $reading?->ammonia,
                 'ammonia_status' => $reading?->ammonia_status,
                 'temperature' => $reading?->temperature,
@@ -576,13 +587,10 @@ class FarmController extends Controller
             ];
         })->values();
 
-        // Every device that has RECORDED here, including the ones the
-        // rotation has already moved on. `device_list` above is the farm's
-        // current hardware and goes empty the moment a unit is reassigned;
-        // this is the farm's monitoring record, which must not. Each entry
-        // carries the span it covered, so the screen can show that AGB-D01
-        // was the device here from the 1st to the 7th.
-        $farm->device_deployments = app(DeploymentHistoryService::class)->forFarm($farm->id);
+        // Assignment history is distinct from reading history. Resolve the
+        // actual logged assignment boundaries, retaining unverified legacy
+        // readings separately when those dates cannot be established.
+        $farm->device_deployments = $periods;
 
         // Which metrics this screen may badge Safe/Warning/Critical. Sent from
         // the server so Admin and the farmer cannot disagree about whether a

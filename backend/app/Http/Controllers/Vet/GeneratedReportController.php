@@ -48,6 +48,7 @@ class GeneratedReportController extends Controller
                 'report_name' => $r->report_name,
                 'period_label' => $this->reports->periodLabel($r->period_start, $r->period_end),
                 'period_start' => $r->period_start->toDateString(),
+                'period_end' => $r->period_end->toDateString(),
                 'report_type' => $r->report_type,
                 'date_generated' => $this->reports->generatedLabel($r->created_at, false),
             ]);
@@ -72,6 +73,8 @@ class GeneratedReportController extends Controller
                 'report_type' => $generatedReport->report_type,
                 'date_generated' => $this->reports->generatedLabel($generatedReport->created_at),
                 'snapshot' => [
+                    'reporting_version' => $snapshot['reporting_version'] ?? null,
+                    'coverage' => $snapshot['coverage'] ?? null,
                     // Who prepared and who notes the report — the same two
                     // lines every other report view prints, and not Admin data.
                     'signatures' => $snapshot['signatures'] ?? null,

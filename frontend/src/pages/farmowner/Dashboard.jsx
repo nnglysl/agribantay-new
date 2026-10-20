@@ -11,6 +11,7 @@ import {
   DEFAULT_ALERTING_METRICS,
 } from '../../constants/sensorConditions'
 import { timeAgo } from '../../utils/formatDate'
+import { farmDashboardStatus } from '../../utils/farmDashboardStatus'
 
 /**
  * Farm owner dashboard — SUMMARY, ALERTS, and WHAT TO DO.
@@ -64,28 +65,6 @@ const SANS = "'Inter', sans-serif"
 const TEXT_DARK = '#16311d'
 const BORDER_GRAY = '#e7e8e0'
 
-const heroConfig = {
-  Safe: {
-    iconName: 'health_and_safety', color: '#2c8047',
-    title: 'Your farm is doing well',
-    text: 'Everything looks comfortable for your chickens right now. Keep up the good work.',
-  },
-  Warning: {
-    iconName: 'warning', color: '#b45309',
-    title: 'Your farm needs attention',
-    text: 'A few conditions need improvement to keep your chickens healthy.',
-  },
-  Critical: {
-    iconName: 'e911_emergency', color: '#b91c1c',
-    title: 'Your farm needs attention now',
-    text: 'Some conditions need your attention today to keep your chickens safe.',
-  },
-  'Pending Setup': {
-    iconName: 'settings', color: '#6b7280',
-    title: 'Farm setup pending',
-    text: 'A monitoring device has not been registered for your farm yet. Once it is installed, you will start seeing your farm conditions here.',
-  },
-}
 /**
  * One alert card: a house, and ONLY the readings on it that are out of range.
  *
@@ -128,7 +107,7 @@ function AlertCard({ device, alerting }) {
             <p style={styles.alertNote}>This device has not sent a reading yet.</p>
           ) : offline && breaches.length === 0 ? (
             <p style={styles.alertNote}>
-              This device has stopped reporting. The readings below may be out of date.
+              This device has stopped reporting. Current conditions are unavailable; its last recorded readings may be out of date.
             </p>
           ) : (
             <>
@@ -151,7 +130,7 @@ function AlertCard({ device, alerting }) {
                     <div style={styles.breachHead}>
                       <span style={styles.breachLabel}>{SENSOR_CONDITIONS[b.metric].label}</span>
                       <span style={{ ...styles.breachPill, color: tone.fg, backgroundColor: tone.bg }}>
-                        {b.status}
+                        {offline ? `Last recorded: ${b.status}` : b.status}
                       </span>
                     </div>
                     <div style={{ ...styles.breachValue, color: tone.fg }}>
@@ -170,7 +149,7 @@ function AlertCard({ device, alerting }) {
 
         {breaches.length > 0 && (
           <div className="fd-alert-todo" style={styles.todoBox}>
-            <div style={styles.todoTitle}>What to do?</div>
+            <div style={styles.todoTitle}>{offline ? 'For the last recorded conditions' : 'What to do?'}</div>
             {/* Stacked here, unlike the readings: this column is narrow, and
                 each instruction is a sentence rather than a number. */}
             <div style={styles.todoList}>
@@ -228,7 +207,6 @@ export default function FarmerDashboard() {
     return <FarmerLayout><SkeletonStatCards count={3} /><SkeletonBlock height={280} /></FarmerLayout>
   }
 
-  const hero = heroConfig[data.health_status] || heroConfig.Safe
   const devices = Array.isArray(data.devices) ? data.devices : []
   // Which metrics may be badged. The server owns this; the fallback only
   // covers a cached response from before the field existed.
@@ -236,19 +214,7 @@ export default function FarmerDashboard() {
     ? data.alerting_metrics
     : DEFAULT_ALERTING_METRICS
 
-  // A house is listed here when there is something to act on: a reading out
-  // of range, a unit that has gone quiet, or one that has never reported.
-  const attention = devices
-    .filter(d => {
-      const worst = overallStatus(d, alerting)
-      return worst === 'Warning' || worst === 'Critical'
-        || !d.has_reading || d.connectivity !== 'Online'
-    })
-    // Critical before Warning, so the worst house is read first.
-    .sort((a, b) => {
-      const rank = s => (s === 'Critical' ? 2 : s === 'Warning' ? 1 : 0)
-      return rank(overallStatus(b, alerting)) - rank(overallStatus(a, alerting))
-    })
+  const { hero, badges, attention, partial, unavailable } = farmDashboardStatus(devices, alerting)
 
   // Farm-wide recommendations ONLY — the per-breach instructions already sit
   // alert card, next to the reading that caused them. Repeating them in a
@@ -265,7 +231,7 @@ export default function FarmerDashboard() {
   const hiddenCount = showAllAlerts ? 0 : Math.max(0, attention.length - ALERT_LIMIT)
   const criticalHidden = showAllAlerts
     ? 0
-    : attention.slice(ALERT_LIMIT).filter(d => overallStatus(d, alerting) === 'Critical').length
+    : attention.slice(ALERT_LIMIT).filter(d => d.connectivity === 'Online' && d.has_reading && overallStatus(d, alerting) === 'Critical').length
 
   // Farm-wide tips, paired with the Tagalog the explanation service wrote
   // for them. Paired BY POSITION, so the Tagalog is only used when the two
@@ -309,11 +275,11 @@ export default function FarmerDashboard() {
       <div style={styles.sectionHead}>
         <h2 style={styles.sectionTitle}>
           Conditions Requiring Attention
-          {attention.length > 0 && (
-            <span style={styles.issueBadge}>
-              {attention.length} {attention.length === 1 ? 'issue' : 'issues'}
+          {badges.map(badge => (
+            <span key={badge.label} style={{ ...styles.issueBadge, color: STATUS_TONE[badge.tone].fg, backgroundColor: STATUS_TONE[badge.tone].bg }}>
+              {badge.label}
             </span>
-          )}
+          ))}
         </h2>
         <Link to="/farmowner/readings" style={styles.viewAllLink}>
           View all readings &rarr;
@@ -376,6 +342,13 @@ export default function FarmerDashboard() {
       {recommendations.length > 0 && (
         <div style={styles.card}>
           <div style={styles.cardTitle}>Recommendations</div>
+          {(partial || unavailable) && (
+            <p style={styles.alertNote}>
+              {unavailable
+                ? 'Based on last recorded readings. Current conditions are unavailable.'
+                : 'Monitoring is partial. Recommendations may include last recorded readings from devices that are not reporting.'}
+            </p>
+          )}
           <ol style={styles.todoOl}>
             {visibleRecommendations.map((item, i) => (
               <li key={i} style={styles.todoOlItem}>

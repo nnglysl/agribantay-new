@@ -1,3 +1,4 @@
+import { matchesReportPeriod } from '../../utils/reportPeriod'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Line, Bar } from 'react-chartjs-2'
 import {
@@ -8,13 +9,14 @@ import ReportLetterhead from '../../components/ReportLetterhead'
 import GeneratedReportsFilesTab from '../../components/GeneratedReportsFilesTab'
 import VetGeneratedReportView from '../../components/VetGeneratedReportView'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { useReportPeriod } from '../../hooks/useReportPeriod'
+import ReportPeriodFields from '../../components/ReportPeriodFields'
 import { exportToCSV, exportPrintRefToPDF, todayStamp } from '../../utils/exportUtils'
 import {
   C, styles, ReportStyles, PageHeader, Tabs, StatCard, Panel, DataTable, ChartFrame, Signatures,
-  IconFilter, chartOptions, lineDataset, fmtDate, dayOf, makeInRange, rangeLabelOf, scopeLabelOf, monthlyBuckets,
-  monthlyBucketsInRange, MONTH_NAMES, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle,
+  IconFilter, chartOptions, lineDataset, fmtDate, makeInRange, rangeLabelOf, scopeLabelOf,
+  monthlyBucketsInRange, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle,
 } from '../../components/ReportsLayout'
-import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 import { DISPLAY_TIME_ZONE } from '../../utils/formatDate'
 import { SkeletonStatCards, SkeletonBlock } from '../../components/Loading'
 
@@ -35,7 +37,10 @@ const CSV_COLUMNS = [
 ]
 
 export default function VetReports() {
-  const { data, loading, error, refetch } = useCachedFetch('/vet/reports')
+  const { fromDate, toDate, draftPeriod, setDraftPeriod, periodError, openPeriod, applyPeriod, clearPeriod } = useReportPeriod()
+  const reportParams = useMemo(() => ({ ...(fromDate ? { from: fromDate } : {}), ...(toDate ? { to: toDate } : {}) }), [fromDate, toDate])
+  const { data, loading, error, refetch } = useCachedFetch('/vet/reports', reportParams)
+
   const printRef = useRef(null)
 
   // Tied to actual data refreshes only (initial load + each 30-minute
@@ -52,25 +57,12 @@ export default function VetReports() {
 
   const [tab, setTab] = useState('Overview')
   const [exportingPdf, setExportingPdf] = useState(false)
-  const now = new Date()
 
   // From/To date-range filter — drives the Service History tab.
-  const [draftFrom, setDraftFrom] = useState('')
-  const [draftTo, setDraftTo] = useState('')
-  const [fromDate, setFromDate] = useState('')
-  const [toDate, setToDate] = useState('')
-
-  // Separate Month + Year filter — used only by the Files tab, which picks
-  // ONE archived monthly report rather than filtering a list of records.
-  const [draftFilesMonth, setDraftFilesMonth] = useState('')
-  const [draftFilesYear, setDraftFilesYear] = useState('')
-  const [filesMonth, setFilesMonth] = useState('')
-  const [filesYear, setFilesYear] = useState('')
 
   const [filterOpen, setFilterOpen] = useState(false)
   const filterRef = useRef(null)
 
-  const reportYears = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i)
 
   const inRange = makeInRange(fromDate, toDate)
   const rangeLabel = rangeLabelOf(fromDate, toDate)
@@ -78,18 +70,12 @@ export default function VetReports() {
   const allServices = data?.completed_services ?? []
   const services = useMemo(() => allServices.filter(v => inRange(v.completed_at_raw)), [allServices, fromDate, toDate])
 
-  const completedThisMonth = useMemo(() => {
-    const n = new Date()
-    const prefix = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`
-    return allServices.filter(v => dayOf(v.completed_at_raw).startsWith(prefix)).length
-  }, [allServices])
-
   const isRangeFiltered = Boolean(fromDate || toDate)
 
   const monthlyTrend = useMemo(() => (
     isRangeFiltered
       ? monthlyBucketsInRange(services, 'completed_at_raw')
-      : monthlyBuckets(allServices, 'completed_at_raw', null, null)
+      : monthlyBucketsInRange(allServices, 'completed_at_raw')
   ), [services, allServices, isRangeFiltered])
 
   const typeSplit = useMemo(() => {
@@ -100,8 +86,7 @@ export default function VetReports() {
 
   // Single centralized refresh mechanism for the whole Reports page: fetch the
   // latest data as soon as the page opens (never wait for the interval), then
-  // re-fetch every 30 minutes. Filter changes never trigger a fetch — they
-  // just re-filter the already-loaded dataset client-side (see useMemo above).
+  // re-fetch every 30 minutes. Filter changes fetch server-scoped statistics and records.
   useEffect(() => {
     refetch()
     const interval = setInterval(refetch, 30 * 60 * 1000)
@@ -119,48 +104,19 @@ export default function VetReports() {
   }, [filterOpen])
 
   const openFilter = () => {
-    setDraftFrom(fromDate)
-    setDraftTo(toDate)
-    setDraftFilesMonth(filesMonth)
-    setDraftFilesYear(filesYear)
+    openPeriod()
     setFilterOpen(true)
   }
 
-  // One-click Clear Date: clears draft + applied dates immediately (the
-  // Files tab's month/year filter is separate and untouched).
-  const clearDates = () => {
-    setDraftFrom(''); setDraftTo('')
-    setFromDate(''); setToDate('')
-  }
-  const hasDate = !!(draftFrom || draftTo || fromDate || toDate)
-
   const applyFilter = () => {
-    if (tab === 'Files') {
-      setFilesMonth(draftFilesMonth)
-      setFilesYear(draftFilesYear)
-    } else {
-      setFromDate(draftFrom)
-      setToDate(draftTo)
-    }
-    setFilterOpen(false)
+    if (applyPeriod()) setFilterOpen(false)
   }
-
   const clearFilter = () => {
-    if (tab === 'Files') {
-      setFilesMonth('')
-      setFilesYear('')
-      setDraftFilesMonth('')
-      setDraftFilesYear('')
-    } else {
-      setFromDate('')
-      setToDate('')
-      setDraftFrom('')
-      setDraftTo('')
-    }
+    clearPeriod()
     setFilterOpen(false)
   }
 
-  const isFilterActive = tab === 'Files' ? Boolean(filesMonth && filesYear) : isRangeFiltered
+  const isFilterActive = isRangeFiltered
 
   const handlePrint = () => window.print()
 
@@ -191,14 +147,14 @@ export default function VetReports() {
     exportToCSV(rows, CSV_COLUMNS, `AgriBantay_Vet_Report_${todayStamp()}.csv`)
   }
 
-  if (loading || !data) return <VetLayout><SkeletonStatCards count={4} /><SkeletonBlock height={260} style={{ marginBottom: '20px' }} /><SkeletonBlock height={260} /></VetLayout>
   if (error) return <VetLayout><p style={{ ...styles.stateText, color: C.red }}>{error}</p></VetLayout>
+  if (loading || !matchesReportPeriod(data, fromDate, toDate)) return <VetLayout><SkeletonStatCards count={4} /><SkeletonBlock height={260} style={{ marginBottom: '20px' }} /><SkeletonBlock height={260} /></VetLayout>
 
   const stats = tab === 'Overview'
     ? [
         { value: data.total_completed, label: 'Total Completed' },
         { value: data.farms_covered, label: 'Farms Covered' },
-        { value: completedThisMonth, label: 'Completed This Month' },
+        { value: data.total_pending, label: 'Pending in Period' },
       ]
     : [
         { value: data.total_completed, label: 'Total Completed' },
@@ -243,56 +199,7 @@ export default function VetReports() {
                   <span style={styles.filterPopClose} onClick={() => setFilterOpen(false)}>×</span>
                 </div>
 
-                {tab === 'Files' ? (
-                  <div style={styles.filterPopRow}>
-                    <div>
-                      <label style={styles.filterPopLabel}>Month</label>
-                      <select
-                        style={styles.filterPopSelect}
-                        value={draftFilesMonth}
-                        onChange={e => setDraftFilesMonth(e.target.value === '' ? '' : Number(e.target.value))}
-                      >
-                        <option value="">All Months</option>
-                        {MONTH_NAMES.map((name, i) => <option key={name} value={i + 1}>{name}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label style={styles.filterPopLabel}>Year</label>
-                      <select
-                        style={styles.filterPopSelect}
-                        value={draftFilesYear}
-                        onChange={e => setDraftFilesYear(e.target.value === '' ? '' : Number(e.target.value))}
-                      >
-                        <option value="">All Years</option>
-                        {reportYears.map(y => <option key={y} value={y}>{y}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                ) : (
-                  <div style={styles.filterPopRow}>
-                    <div>
-                      <DateRangeHeader>
-                        <label style={styles.filterPopLabel}>From</label>
-                        <ClearDateButton visible={hasDate} onClick={clearDates} />
-                      </DateRangeHeader>
-                      <input
-                        type="date"
-                        style={styles.filterPopSelect}
-                        value={draftFrom}
-                        onChange={e => setDraftFrom(e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label style={styles.filterPopLabel}>To</label>
-                      <input
-                        type="date"
-                        style={styles.filterPopSelect}
-                        value={draftTo}
-                        onChange={e => setDraftTo(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                )}
+                <ReportPeriodFields value={draftPeriod} onChange={setDraftPeriod} error={periodError} />
 
                 <div style={styles.filterPopActions}>
                   <button type="button" onClick={clearFilter} style={styles.filterPopClear}>Show all</button>
@@ -304,9 +211,7 @@ export default function VetReports() {
         </div>
 
         <div style={styles.body}>
-          {tab !== 'Files' && (
-            <p style={styles.filterNote}>{scopeLabelOf(fromDate, toDate)}</p>
-          )}
+          <p style={styles.filterNote}>{scopeLabelOf(fromDate, toDate)}</p>
 
           {tab !== 'Files' && (
             <div className="rp-stats">
@@ -316,7 +221,7 @@ export default function VetReports() {
 
           {tab === 'Overview' && (
             <div className="rp-two">
-              <Panel title="Veterinary services per month" subtitle={isRangeFiltered ? rangeLabel : 'Last 6 months'}>
+              <Panel title="Veterinary services per month" subtitle={isRangeFiltered ? rangeLabel : 'All records'}>
                 {monthlyTrend.every(m => m.count === 0) ? (
                   <div style={styles.empty}>No service history yet.</div>
                 ) : (
@@ -329,7 +234,7 @@ export default function VetReports() {
                 )}
               </Panel>
 
-              <Panel title="Services by type" subtitle="All-time completed count">
+              <Panel title="Services by type" subtitle={rangeLabel}>
                 {typeSplit.length === 0 ? (
                   <div style={styles.empty}>No service history yet.</div>
                 ) : (
@@ -369,8 +274,8 @@ export default function VetReports() {
 
           {tab === 'Files' && (
             <GeneratedReportsFilesTab
-              appliedMonth={filesMonth}
-              appliedYear={filesYear}
+              fromDate={fromDate}
+              toDate={toDate}
               basePath="/vet/generated-reports"
               ReportView={VetGeneratedReportView}
             />
@@ -400,7 +305,7 @@ export default function VetReports() {
           <tbody>
             <tr><th>Total completed</th><td>{data.total_completed}</td></tr>
             <tr><th>Farms covered</th><td>{data.farms_covered}</td></tr>
-            <tr><th>Completed this month</th><td>{completedThisMonth}</td></tr>
+            <tr><th>Pending in period</th><td>{data.total_pending}</td></tr>
           </tbody>
         </table>
 

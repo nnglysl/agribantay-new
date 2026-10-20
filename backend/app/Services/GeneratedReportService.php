@@ -12,13 +12,16 @@ use App\Models\SensorReading;
 use App\Models\ServiceRequest;
 use App\Models\User;
 use App\Support\LocalTime;
+use App\Support\ReportPeriod;
 use App\Support\ServiceTypes;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
- * Builds and persists the frozen monthly report snapshot used by the
+ * Builds and persists the frozen report snapshot used by the
  * admin Reports > Files archive. Shared by GeneratedReportController
- * (manual generation, if ever re-enabled) and the reports:generate-monthly
+ * (on-demand generation) and the reports:generate-monthly
  * scheduled command so both produce identical report content.
  */
 class GeneratedReportService
@@ -37,6 +40,24 @@ class GeneratedReportService
      */
     public function generateForPeriod(string $reportName, Carbon $start, Carbon $end, ?int $generatedById = null, string $reportType = 'Monthly'): GeneratedReport
     {
+        // New archives remain frozen snapshots. A running period ends at this
+        // generation instant, never at midnight tonight or a future month-end.
+        $start = $start->copy();
+        $end = $end->copy();
+        if ($end->gt(now())) {
+            $end = now()->setTimezone($start->timezone);
+        }
+        if ($start->gt($end)) {
+            throw ValidationException::withMessages(['period_start' => 'That reporting period has not started yet.']);
+        }
+        if ($reportType === 'Monthly' && $reportName === $start->format('F Y').' Report'
+            && $start->isSameMonth($end) && $end->lt($end->copy()->endOfMonth())) {
+            $coverage = ' ('.$start->format('M j').'–'.$end->format('j').')';
+            if (! str_ends_with($reportName, $coverage)) {
+                $reportName .= $coverage;
+            }
+        }
+
         return GeneratedReport::create([
             'report_name' => $reportName,
             'period_start' => $start->toDateString(),
@@ -45,7 +66,10 @@ class GeneratedReportService
             'generated_by_id' => $generatedById,
             'snapshot' => array_merge(
                 $this->buildSnapshot($start, $end),
-                ['signatures' => $this->signatureBlock($generatedById)]
+                ['signatures' => $this->signatureBlock($generatedById),
+                    'reporting_version' => 2,
+                    'coverage' => ['start' => $start->copy()->utc()->toIso8601String(), 'end' => $end->copy()->utc()->toIso8601String()],
+                ]
             ),
         ]);
     }
@@ -152,17 +176,19 @@ class GeneratedReportService
         $from = $start->copy()->utc();
         $to = $end->copy()->utc();
 
-        $totalInspections = Inspection::count();
-        $completedInspections = Inspection::where('status', 'Completed')->count();
-        $scheduledInspections = Inspection::where('status', 'Scheduled')->count();
-        $generalInspections = Inspection::where('inspection_type', 'General Inspection')->count();
-        $followUpInspections = Inspection::where('inspection_type', 'Follow-up')->count();
+        $inspectionQuery = fn () => Inspection::whereBetween(DB::raw(ReportPeriod::INSPECTION_DATE), [$from, $to]);
+        $totalInspections = $inspectionQuery()->count();
+        $completedInspections = $inspectionQuery()->where('status', 'Completed')->count();
+        $scheduledInspections = $inspectionQuery()->where('status', 'Scheduled')->count();
+        $generalInspections = $inspectionQuery()->where('inspection_type', 'General Inspection')->count();
+        $followUpInspections = $inspectionQuery()->where('inspection_type', 'Follow-up')->count();
 
-        $totalAlerts = SensorReading::count();
-        $ammoniaBreaches = SensorReading::where('ammonia_status', 'Critical')->count();
-        $tempAnomalies = SensorReading::where('temperature_status', '!=', 'Safe')->count();
-        $humidityAnomalies = SensorReading::where('humidity_status', '!=', 'Safe')->count();
-        $moistureBreaches = SensorReading::where('moisture_status', 'Critical')->count();
+        $readingQuery = fn () => SensorReading::whereBetween('created_at', [$from, $to]);
+        $totalAlerts = $readingQuery()->count();
+        $ammoniaBreaches = $readingQuery()->where('ammonia_status', 'Critical')->count();
+        $tempAnomalies = $readingQuery()->where('temperature_status', '!=', 'Safe')->count();
+        $humidityAnomalies = $readingQuery()->where('humidity_status', '!=', 'Safe')->count();
+        $moistureBreaches = $readingQuery()->where('moisture_status', 'Critical')->count();
 
         // Only the metrics the system actually alerts on
         // (config('sensors.alerting_metrics')). Two things were wrong before:
@@ -177,7 +203,7 @@ class GeneratedReportService
         //   outside them. The report printed ~13,000 "critical" readings a few
         //   lines above an alert table listing a handful of incidents, and the
         //   two contradicted each other on the same page.
-        $criticalAlerts = SensorReading::where(function ($q) {
+        $criticalAlerts = $readingQuery()->where(function ($q) {
             $q->where('ammonia_status', 'Critical')
                 ->orWhere('moisture_status', 'Critical');
         })->count();
@@ -197,7 +223,7 @@ class GeneratedReportService
             ])
             ->values();
 
-        $serviceQuery = fn () => ServiceRequest::whereIn('service_type', self::ADMIN_SERVICE_TYPES);
+        $serviceQuery = fn () => ServiceRequest::whereIn('service_type', self::ADMIN_SERVICE_TYPES)->whereBetween(DB::raw(ReportPeriod::SERVICE_DATE), [$from, $to]);
 
         $totalServiceRequests = $serviceQuery()->count();
         $completedServiceRequests = $serviceQuery()->where('status', 'Completed')->count();
@@ -232,7 +258,7 @@ class GeneratedReportService
             ->get();
 
         $maintenanceStatuses = $activeFarms->map(function ($farm) use ($maintenanceService, $to) {
-            $status = $maintenanceService->getStatus($farm, $to);
+            $status = $maintenanceService->getStatus($farm, $to->copy()->setTimezone(LocalTime::timezone()));
 
             return array_merge($status, [
                 'farm_name' => $farm->farm_name,
@@ -261,11 +287,11 @@ class GeneratedReportService
         // period-filtered $maintenanceCompletedList table it summarises.
         // The snapshot key stays completed_this_month so existing archived
         // reports and all three report views keep working unchanged.
-        $completedMaintenanceThisMonth = MaintenanceLog::whereBetween('performed_at', [$from, $to])
+        $completedMaintenanceThisMonth = MaintenanceLog::whereBetween('performed_at', [$start->toDateString(), $end->toDateString()])
             ->count();
 
         $maintenanceCompletedList = MaintenanceLog::with('farm')
-            ->whereBetween('performed_at', [$from, $to])
+            ->whereBetween('performed_at', [$start->toDateString(), $end->toDateString()])
             ->latest('performed_at')
             ->get()
             ->map(fn ($log) => [
@@ -278,19 +304,23 @@ class GeneratedReportService
             ])
             ->values();
 
-        $alertRows = AlertHistory::with('farm')
+        $alertRows = AlertHistory::with(['farm', 'sensor'])
             ->whereBetween('triggered_at', [$from, $to])
             ->latest('triggered_at')
             ->get();
 
         $alertRecordsList = $alertRows
             ->map(fn ($a) => [
+                'id' => $a->id,
+                'farm_id' => $a->farm_id,
+                'sensor_id' => $a->sensor_id,
+                'device_name' => $a->sensor?->device_name,
                 'farm_name' => $a->farm->farm_name ?? '—',
                 'owner_name' => $a->farm->owner_name ?? '—',
                 'sensor_type' => $a->sensor_type,
                 'status' => $a->status,
                 'triggered_at' => LocalTime::dateTime($a->triggered_at),
-                'resolved_at' => LocalTime::dateTime($a->resolved_at),
+                'resolved_at' => $a->resolved_at && $a->resolved_at <= $to ? LocalTime::dateTime($a->resolved_at) : null,
             ])
             ->values();
 
@@ -305,33 +335,18 @@ class GeneratedReportService
         // December, long after it was resolved.
         // Resolution state is read from the RAW rows, not from $alertRecordsList,
         // whose resolved_at has already been formatted for display.
-        $alertRowsByFarm = $alertRows->groupBy(fn ($a) => $a->farm->farm_name ?? '—');
-
-        $alertFarmSummary = $alertRecordsList
-            ->groupBy('farm_name')
-            ->map(fn ($rows, $farmName) => [
-                'farm_name' => $farmName,
-                'owner_name' => $rows->first()['owner_name'] ?? '—',
-                'ammonia' => $rows->where('sensor_type', 'ammonia')->count(),
-                'moisture' => $rows->where('sensor_type', 'moisture')->count(),
-                'critical' => $rows->where('status', 'Critical')->count(),
-                'warning' => $rows->where('status', 'Warning')->count(),
-                // Resolved/ongoing AS OF THE END OF THE PERIOD, never as of
-                // today. This is what makes the pair safe to freeze: an
-                // incident still open on 30 September is reported as ongoing in
-                // the September report for good, which is the true statement
-                // about September. Reading it as "open right now" was the trap
-                // that kept this column out before, and the fix is the cutoff,
-                // not the omission — the report view labels it accordingly.
-                'resolved' => ($alertRowsByFarm[$farmName] ?? collect())
-                    ->filter(fn ($a) => $a->resolved_at && $a->resolved_at <= $to)->count(),
-                'ongoing' => ($alertRowsByFarm[$farmName] ?? collect())
-                    ->filter(fn ($a) => ! $a->resolved_at || $a->resolved_at > $to)->count(),
-                'total' => $rows->count(),
-            ])
-            // Worst first — the farm needing attention is the first one read.
-            ->sortByDesc('total')
-            ->values();
+        $alertFarmSummary = $alertRows->groupBy('farm_id')->map(fn ($rows, $farmId) => [
+            'farm_id' => $farmId,
+            'farm_name' => $rows->first()->farm?->farm_name ?? '—',
+            'owner_name' => $rows->first()->farm?->owner_name ?? '—',
+            'ammonia' => $rows->where('sensor_type', 'ammonia')->count(),
+            'moisture' => $rows->where('sensor_type', 'moisture')->count(),
+            'critical' => $rows->where('status', 'Critical')->count(),
+            'warning' => $rows->where('status', 'Warning')->count(),
+            'resolved' => $rows->filter(fn ($row) => $row->resolved_at && $row->resolved_at <= $to)->count(),
+            'ongoing' => $rows->filter(fn ($row) => ! $row->resolved_at || $row->resolved_at > $to)->count(),
+            'total' => $rows->count(),
+        ])->sortByDesc('total')->values();
 
         $totalFarms = Farm::count();
         // Same "Pending Setup unless there's an active device with an actual
@@ -343,7 +358,7 @@ class GeneratedReportService
         // Vet-side data — combined across every veterinarian (not scoped to
         // one assignee), so the archived monthly report is a genuinely
         // municipal-wide record covering both the admin and vet sides.
-        $vetQuery = fn () => ServiceRequest::whereIn('service_type', self::VET_SERVICE_TYPES);
+        $vetQuery = fn () => ServiceRequest::whereIn('service_type', self::VET_SERVICE_TYPES)->whereBetween(DB::raw(ReportPeriod::SERVICE_DATE), [$from, $to]);
 
         $vetTotalCompleted = $vetQuery()->where('status', 'Completed')->count();
         $vetFarmsCovered = $vetQuery()->where('status', 'Completed')->distinct('farm_id')->count('farm_id');
@@ -365,12 +380,7 @@ class GeneratedReportService
             ])
             ->values();
 
-        // Period-scoped activity counts. These are taken from the very same
-        // collections rendered as the detail tables below, so a summary figure
-        // can never disagree with the rows it summarises. The pre-existing
-        // all-time summaries are left exactly as they were and are labelled
-        // as all-time in the report views; these are additive, so snapshots
-        // archived before this change keep rendering unchanged.
+        // Period activity is counted from the same records as the detail tables.
         $vetFarmsCoveredInPeriod = $vetQuery()
             ->where('status', 'Completed')
             ->whereBetween('completed_at', [$from, $to])
@@ -385,9 +395,9 @@ class GeneratedReportService
         // few blocks up are whole-database counts with no date filter at all:
         // a September report was printing the all-time inspection, alert and
         // service-request totals beside period-filtered tables, and the two
-        // disagreed on the same page. Those keys are left exactly as they were
-        // so reports archived before today keep rendering, and the report views
-        // prefer the keys below whenever a snapshot carries them.
+        // disagreed on the same page. New snapshots scope those summaries too. Previously archived JSON is
+        // never recalculated or rewritten, and older report views keep their
+        // historical labels through the reporting_version marker.
         // ------------------------------------------------------------------
 
         // New accounts, by the role values the system actually stores. A user
@@ -438,12 +448,9 @@ class GeneratedReportService
             ])
             ->values();
 
-        // Inspections are placed in the period by scheduled_at — the date the
-        // visit belongs to. Anchoring on completed_at instead would drop every
-        // inspection that was scheduled in the period and not yet carried out,
-        // which is exactly the backlog the reader is looking for.
-        $periodInspections = Inspection::with('farm')
-            ->whereBetween('scheduled_at', [$from, $to])
+        // Completed work belongs to completed_at. Other inspection states use
+        // scheduled_at, matching the live report and its dated detail records.
+        $periodInspections = $inspectionQuery()->with('farm')
             ->get();
 
         // 'Overdue' is NOT a stored status — inspections are Scheduled,
@@ -472,9 +479,10 @@ class GeneratedReportService
         ];
 
         $inspectionFarmSummary = $periodInspections
-            ->groupBy(fn ($i) => $i->farm->farm_name ?? '—')
-            ->map(fn ($rows, $farmName) => [
-                'farm_name' => $farmName,
+            ->groupBy('farm_id')
+            ->map(fn ($rows, $farmId) => [
+                'farm_id' => $farmId,
+                'farm_name' => $rows->first()->farm?->farm_name ?? '—',
                 'scheduled' => $rows->where('status', 'Scheduled')->count(),
                 'completed' => $rows->where('status', 'Completed')->count(),
                 'cancelled' => $rows->where('status', 'Cancelled')->count(),
@@ -484,15 +492,9 @@ class GeneratedReportService
             ->sortByDesc('total')
             ->values();
 
-        // Service requests are placed by created_at, the date the farmer asked.
-        // Every type is counted, admin and veterinary alike: this is the
-        // municipality-wide figure, and the existing admin-only and vet-only
-        // summaries are still reported separately beside it.
-        //
-        // The four statuses are the enum's own — Pending, Scheduled, Completed,
-        // Cancelled. No status is invented, and none is renamed: the report
-        // says what the workflow says.
-        $periodServiceRequests = ServiceRequest::whereBetween('created_at', [$from, $to])->get();
+        // Municipality-wide service activity: completion date for completed
+        // work, appointment date for scheduled work, submission date otherwise.
+        $periodServiceRequests = ServiceRequest::whereBetween(DB::raw(ReportPeriod::SERVICE_DATE), [$from, $to])->get();
 
         $serviceRequestPeriod = [
             'total' => $periodServiceRequests->count(),

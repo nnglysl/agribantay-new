@@ -1,3 +1,4 @@
+import { formatDateTime } from '../utils/formatDate'
 import ReportLetterhead from './ReportLetterhead'
 import ReportPeriodSections from './ReportPeriodSections'
 import { styles, Signatures } from './ReportsLayout'
@@ -67,6 +68,7 @@ export default function GeneratedReportView({ report }) {
         <p style={styles.printSub}>Poultry farm monitoring and service summary</p>
         <p style={styles.printSub}>Reporting period: {report.period_label}</p>
         <p style={styles.printMeta}>Generated {report.date_generated}</p>
+        {s.coverage && <p style={styles.printMeta}>Data through {formatDateTime(s.coverage.end)} PHT</p>}
         {statusAsOf && (
           <p style={styles.printMeta}>Status snapshot as of {statusAsOf}</p>
         )}
@@ -319,7 +321,7 @@ export default function GeneratedReportView({ report }) {
       {hasVetScope && (
         <>
           <div className="print-section-title">
-            Veterinary summary <span className="print-scope">(all-time, all veterinarians)</span>
+            Veterinary summary <span className="print-scope">({s.reporting_version >= 2 ? 'selected period, all veterinarians' : 'all-time, all veterinarians'})</span>
           </div>
           <table className="print-table print-kv">
             <tbody>

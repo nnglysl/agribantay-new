@@ -212,6 +212,6 @@ class GeneratedReportController extends Controller
             $validated['report_type']
         );
 
-        return response()->json(['success' => true, 'data' => ['id' => $report->id]], 201);
+        return response()->json(['success' => true, 'data' => ['id' => $report->id, 'report_name' => $report->report_name]], 201);
     }
 }

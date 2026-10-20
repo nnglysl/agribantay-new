@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Vet;
 
 use App\Http\Controllers\Controller;
 use App\Models\ServiceRequest;
-use Illuminate\Support\Facades\Auth;
 use App\Support\LocalTime;
+use App\Support\ReportPeriod;
 use App\Support\ServiceTypes;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 class ReportController extends Controller
 {
@@ -16,8 +18,9 @@ class ReportController extends Controller
     // dropping every Blood Test Request from every report.
     private const VET_SERVICE_TYPES = ServiceTypes::VET;
 
-    public function index()
+    public function index(Request $request)
     {
+        $period = ReportPeriod::fromRequest($request);
         // A regular Vet only ever sees their own assigned work —
         // unchanged. Super Admin sees every vet's data combined, since
         // they're not personally assigned anything themselves; filtering
@@ -25,13 +28,13 @@ class ReportController extends Controller
         // instead of the "all vets" view they actually need.
         $isSuperAdmin = Auth::user()->role === 'super_admin';
 
-        $baseQuery = function () use ($isSuperAdmin) {
+        $baseQuery = function () use ($isSuperAdmin, $period) {
             $q = ServiceRequest::whereIn('service_type', self::VET_SERVICE_TYPES);
             if (! $isSuperAdmin) {
                 $q->where('accepted_by', Auth::id());
             }
 
-            return $q;
+            return $period->scope($q, ReportPeriod::SERVICE_DATE);
         };
 
         $totalCompleted = $baseQuery()->where('status', 'Completed')->count();
@@ -72,6 +75,7 @@ class ReportController extends Controller
             ->get()
             ->map(function ($r) use ($isSuperAdmin) {
                 $date = $r->status === 'Completed' ? $r->completed_at : $r->scheduled_at;
+
                 return [
                     'id' => $r->request_number,
                     'service_type' => $r->service_type,
@@ -92,6 +96,8 @@ class ReportController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
+                'report_period' => ['from' => $period->from, 'to' => $period->to],
+                'total_requests' => $baseQuery()->count(),
                 'total_completed' => $totalCompleted,
                 'total_pending' => $totalPending,
                 'farms_covered' => $farmsCovered,

@@ -18,6 +18,10 @@ return [
 
     'offline_after_minutes' => (int) env('SENSOR_OFFLINE_AFTER_MINUTES', 3),
 
+    // Both deployed firmware sketches use SEND_INTERVAL = 60000 ms. This
+    // reporting setting measures data collection coverage, not device uptime.
+    'expected_sampling_interval_seconds' => (int) env('SENSOR_SAMPLING_INTERVAL_SECONDS', 60),
+
     /*
     |--------------------------------------------------------------------------
     | Manure moisture classification thresholds (%)

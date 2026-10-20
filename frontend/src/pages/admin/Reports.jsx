@@ -1,3 +1,5 @@
+import { matchesReportPeriod } from '../../utils/reportPeriod'
+import AlertIncidentChart from '../../components/AlertIncidentChart'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Line, Bar, Doughnut } from 'react-chartjs-2'
 import {
@@ -7,13 +9,14 @@ import AdminLayout from '../../components/AdminLayout'
 import GeneratedReportsFilesTab from '../../components/GeneratedReportsFilesTab'
 import AdminGeneratedReportView from '../../components/AdminGeneratedReportView'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
+import { useReportPeriod } from '../../hooks/useReportPeriod'
+import ReportPeriodFields from '../../components/ReportPeriodFields'
 import {
   C, styles, ReportStyles, PageHeader, Tabs, StatCard, Panel, DataTable, ChartFrame, Legend,
   DonutCenter, IconFilter, chartOptions, donutOptions, lineDataset,
-  fmtDate, makeInRange, rangeLabelOf, scopeLabelOf, monthlyBuckets, monthlyBucketsInRange, dailyBuckets,
-  MONTH_NAMES, serviceTypeBadgeStyle, serviceTypeLabel,
+  fmtDate, makeInRange, rangeLabelOf, scopeLabelOf, monthlyBucketsInRange,
+  serviceTypeBadgeStyle, serviceTypeLabel,
 } from '../../components/ReportsLayout'
-import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 import { DISPLAY_TIME_ZONE } from '../../utils/formatDate'
 import { SkeletonStatCards, SkeletonBlock } from '../../components/Loading'
 
@@ -25,20 +28,11 @@ const MAINTENANCE_VIEWS = ['Overdue and non-compliant farms', 'Completed clean-o
 export default function AdminReports() {
   const [tab, setTab] = useState('Overview')
   const [maintView, setMaintView] = useState(MAINTENANCE_VIEWS[0])
-  const now = new Date()
 
-  // From/To date-range filter — drives every record-listing tab (Overview,
-  // Inspections, Alerts, Maintenance, Service Requests).
-  const [draftFrom, setDraftFrom] = useState('')
-  const [draftTo, setDraftTo] = useState('')
-  const [fromDate, setFromDate] = useState('')
-  const [toDate, setToDate] = useState('')
+  // Shared reporting period drives every tab, including saved report files.
+  const { fromDate, toDate, draftPeriod, setDraftPeriod, periodError, openPeriod, applyPeriod, clearPeriod } = useReportPeriod()
 
-  // Sent to the server so the stat cards are scoped to the same period as
-  // the tables. It cannot be done in the browser: the detail lists this
-  // endpoint returns are capped at 300 rows, so counting them would quietly
-  // under-report once a farm passes that. Empty object = all-time, which is
-  // the behaviour every caller had before.
+  // Cards, charts and tables request the same applied reporting period.
   const reportParams = useMemo(() => {
     const p = {}
     if (fromDate) p.from = fromDate
@@ -61,17 +55,9 @@ export default function AdminReports() {
   }
 
 
-  // Separate Month + Year filter — used only by the Files tab, which picks
-  // ONE archived monthly report rather than filtering a list of records.
-  const [draftFilesMonth, setDraftFilesMonth] = useState('')
-  const [draftFilesYear, setDraftFilesYear] = useState('')
-  const [filesMonth, setFilesMonth] = useState('')
-  const [filesYear, setFilesYear] = useState('')
-
   const [filterOpen, setFilterOpen] = useState(false)
   const filterRef = useRef(null)
 
-  const reportYears = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i)
 
   const inRange = makeInRange(fromDate, toDate)
   const rangeLabel = rangeLabelOf(fromDate, toDate)
@@ -92,19 +78,12 @@ export default function AdminReports() {
   const monthlyTrend = useMemo(() => (
     isRangeFiltered
       ? monthlyBucketsInRange(inspections, 'completed_at_raw')
-      : monthlyBuckets(allInspections, 'completed_at_raw', null, null)
+      : monthlyBucketsInRange(allInspections, 'completed_at_raw')
   ), [inspections, allInspections, isRangeFiltered])
-
-  const alertTrend = useMemo(() => (
-    isRangeFiltered
-      ? dailyBuckets(alerts, 'triggered_at_raw')
-      : monthlyBucketsInRange(allAlerts, 'triggered_at_raw')
-  ), [alerts, allAlerts, isRangeFiltered])
 
   // Single centralized refresh mechanism for the whole Reports page: fetch the
   // latest data as soon as the page opens (never wait for the interval), then
-  // re-fetch every 30 minutes. Filter changes never trigger a fetch — they
-  // just re-filter the already-loaded dataset client-side (see useMemo above).
+  // re-fetch every 30 minutes. Period changes also fetch scoped statistics.
   useEffect(() => {
     refetch()
     const interval = setInterval(refetch, 30 * 60 * 1000)
@@ -122,51 +101,22 @@ export default function AdminReports() {
   }, [filterOpen])
 
   const openFilter = () => {
-    setDraftFrom(fromDate)
-    setDraftTo(toDate)
-    setDraftFilesMonth(filesMonth)
-    setDraftFilesYear(filesYear)
+    openPeriod()
     setFilterOpen(true)
   }
 
-  // One-click Clear Date: clears draft + applied dates immediately (the
-  // Files tab's month/year filter is separate and untouched).
-  const clearDates = () => {
-    setDraftFrom(''); setDraftTo('')
-    setFromDate(''); setToDate('')
-  }
-  const hasDate = !!(draftFrom || draftTo || fromDate || toDate)
-
   const applyFilter = () => {
-    if (tab === 'Files') {
-      setFilesMonth(draftFilesMonth)
-      setFilesYear(draftFilesYear)
-    } else {
-      setFromDate(draftFrom)
-      setToDate(draftTo)
-    }
-    setFilterOpen(false)
+    if (applyPeriod()) setFilterOpen(false)
   }
-
   const clearFilter = () => {
-    if (tab === 'Files') {
-      setFilesMonth('')
-      setFilesYear('')
-      setDraftFilesMonth('')
-      setDraftFilesYear('')
-    } else {
-      setFromDate('')
-      setToDate('')
-      setDraftFrom('')
-      setDraftTo('')
-    }
+    clearPeriod()
     setFilterOpen(false)
   }
 
-  const isFilterActive = tab === 'Files' ? Boolean(filesMonth && filesYear) : isRangeFiltered
+  const isFilterActive = isRangeFiltered
 
-  if (loading || !data) return <AdminLayout><SkeletonStatCards count={4} /><SkeletonBlock height={260} style={{ marginBottom: '20px' }} /><SkeletonBlock height={260} /></AdminLayout>
   if (error) return <AdminLayout><p style={{ ...styles.stateText, color: C.red }}>{error}</p></AdminLayout>
+  if (loading || !matchesReportPeriod(data, fromDate, toDate)) return <AdminLayout><SkeletonStatCards count={4} /><SkeletonBlock height={260} style={{ marginBottom: '20px' }} /><SkeletonBlock height={260} /></AdminLayout>
 
   const insp = data.inspection_summary ?? {}
   const alertSum = data.alert_summary ?? {}
@@ -183,7 +133,7 @@ export default function AdminReports() {
 
   const statsByTab = {
     Overview: [
-      { value: farms.total, label: 'Total Farms' },
+      { value: farms.total, label: isRangeFiltered ? 'Farms Registered in Period' : 'Total Farms' },
       { value: insp.total, label: 'Total Inspections' },
       { value: alertSum.total_incidents ?? alertSum.total, label: 'Total Alerts' },
       { value: alertSum.critical_incidents, label: 'Critical Alerts' },
@@ -209,8 +159,8 @@ export default function AdminReports() {
       { value: alertSum.resolved_incidents ?? 0, label: 'Resolved' },
     ],
     Maintenance: [
-      { value: maint.completed_this_month, label: 'Completed This Month' },
-      { value: maint.overdue, label: 'Currently Overdue' },
+      { value: maint.completed_this_month, label: 'Clean-outs in Period' },
+      { value: maint.overdue, label: 'Overdue at Cutoff' },
       { value: maint.non_compliant, label: 'Non-Compliant Farms' },
     ],
     'Service Requests': [
@@ -252,56 +202,7 @@ export default function AdminReports() {
                   <span style={styles.filterPopClose} onClick={() => setFilterOpen(false)}>×</span>
                 </div>
 
-                {tab === 'Files' ? (
-                  <div style={styles.filterPopRow}>
-                    <div>
-                      <label style={styles.filterPopLabel}>Month</label>
-                      <select
-                        style={styles.filterPopSelect}
-                        value={draftFilesMonth}
-                        onChange={e => setDraftFilesMonth(e.target.value === '' ? '' : Number(e.target.value))}
-                      >
-                        <option value="">All Months</option>
-                        {MONTH_NAMES.map((name, i) => <option key={name} value={i + 1}>{name}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label style={styles.filterPopLabel}>Year</label>
-                      <select
-                        style={styles.filterPopSelect}
-                        value={draftFilesYear}
-                        onChange={e => setDraftFilesYear(e.target.value === '' ? '' : Number(e.target.value))}
-                      >
-                        <option value="">All Years</option>
-                        {reportYears.map(y => <option key={y} value={y}>{y}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                ) : (
-                  <div style={styles.filterPopRow}>
-                    <div>
-                      <DateRangeHeader>
-                        <label style={styles.filterPopLabel}>From</label>
-                        <ClearDateButton visible={hasDate} onClick={clearDates} />
-                      </DateRangeHeader>
-                      <input
-                        type="date"
-                        style={styles.filterPopSelect}
-                        value={draftFrom}
-                        onChange={e => setDraftFrom(e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label style={styles.filterPopLabel}>To</label>
-                      <input
-                        type="date"
-                        style={styles.filterPopSelect}
-                        value={draftTo}
-                        onChange={e => setDraftTo(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                )}
+                <ReportPeriodFields value={draftPeriod} onChange={setDraftPeriod} error={periodError} />
 
                 <div style={styles.filterPopActions}>
                   <button type="button" onClick={clearFilter} style={styles.filterPopClear}>Show all</button>
@@ -313,9 +214,7 @@ export default function AdminReports() {
         </div>
 
         <div style={styles.body}>
-          {tab !== 'Files' && (
-            <p style={styles.filterNote}>{scopeLabelOf(fromDate, toDate)}</p>
-          )}
+          <p style={styles.filterNote}>{scopeLabelOf(fromDate, toDate)}</p>
 
           {tab !== 'Files' && (
             <div className="rp-stats">
@@ -325,7 +224,7 @@ export default function AdminReports() {
 
           {tab === 'Overview' && (
             <div className="rp-two">
-              <Panel title="Inspections completed per month" subtitle={isRangeFiltered ? rangeLabel : 'Last 6 months'}>
+              <Panel title="Inspections completed per month" subtitle={isRangeFiltered ? rangeLabel : 'All records'}>
                 <ChartFrame>
                   <Line
                     data={{ labels: monthlyTrend.map(m => m.label), datasets: [lineDataset(monthlyTrend.map(m => m.count), C.green)] }}
@@ -334,7 +233,7 @@ export default function AdminReports() {
                 </ChartFrame>
               </Panel>
 
-              <Panel title="Farm monitoring status" subtitle="All registered farms" style={{ display: 'flex', flexDirection: 'column' }}>
+              <Panel title="Latest recorded farm condition" subtitle={isRangeFiltered ? `Farms registered during ${rangeLabel}` : 'All registered farms'} style={{ display: 'flex', flexDirection: 'column' }}>
                 <div style={{ ...styles.donutRow, flex: 1 }}>
                   <div style={styles.donutWrap}>
                     <Doughnut
@@ -363,7 +262,7 @@ export default function AdminReports() {
 
           {tab === 'Inspections' && (
             <>
-              <Panel title="General vs Follow-up inspections" subtitle="All-time completed count by type">
+              <Panel title="General vs Follow-up inspections" subtitle={rangeLabel}>
                 <ChartFrame>
                   <Bar
                     data={{
@@ -394,30 +293,8 @@ export default function AdminReports() {
 
           {tab === 'Alerts' && (
             <>
-              <Panel title="Alert volume over time" subtitle={`${rangeLabel} · incidents by day triggered`}>
-                {alertTrend.length === 0 ? (
-                  <div style={styles.empty}>No alerts recorded in this range.</div>
-                ) : (
-                  <ChartFrame>
-                    <Line
-                      data={{ labels: alertTrend.map(b => b.label), datasets: [lineDataset(alertTrend.map(b => b.count), C.amber)] }}
-                      options={{
-                        ...chartOptions,
-                        scales: {
-                          ...chartOptions.scales,
-                          // Alert counts are small whole numbers — force
-                          // integer-only, 1-unit tick spacing instead of
-                          // Chart.js's auto step (which could land on
-                          // fractional or skipped values like 0, 2, 4).
-                          y: {
-                            ...chartOptions.scales.y,
-                            ticks: { ...chartOptions.scales.y.ticks, stepSize: 1 },
-                          },
-                        },
-                      }}
-                    />
-                  </ChartFrame>
-                )}
+              <Panel title="Alert incidents over time" subtitle={`${rangeLabel} · incidents by ${data.alert_trend?.aggregation || 'day'} triggered`}>
+                <AlertIncidentChart series={data.alert_trend} />
               </Panel>
 
               <DataTable
@@ -444,7 +321,7 @@ export default function AdminReports() {
               {maintView === 'Overdue and non-compliant farms' && (
                 <DataTable
                   title="Overdue and non-compliant farms"
-                  subtitle="Manure clean-out status as of today · not affected by the date filter"
+                  subtitle={`Manure clean-out status as of ${data.report_period?.status_as_of || 'today'}`}
                   columns={['Farm', 'Owner', 'Barangay', 'Last clean-out', 'Overdue by', 'Status']}
                   emptyText="All farms are compliant with clean-out schedules."
                   rows={overdueFarms.map(f => [
@@ -494,7 +371,7 @@ export default function AdminReports() {
           )}
 
           {tab === 'Files' && (
-            <GeneratedReportsFilesTab appliedMonth={filesMonth} appliedYear={filesYear} ReportView={AdminGeneratedReportView} />
+            <GeneratedReportsFilesTab fromDate={fromDate} toDate={toDate} ReportView={AdminGeneratedReportView} />
           )}
 
           {tab !== 'Files' && (

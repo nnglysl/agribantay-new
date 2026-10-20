@@ -6,11 +6,13 @@ import { useCachedFetch, invalidateCache } from '../hooks/useCachedFetch'
 import { exportToCSV, exportPrintRefToPDF } from '../utils/exportUtils'
 import { styles, DataTable } from './ReportsLayout'
 import GenerateReportPanel from './GenerateReportPanel'
+import { generatedReportCsv, reportExportFilename } from '../utils/generatedReportCsv'
+import { filterReportFiles } from '../utils/reportPeriod'
 
 /**
  * The Files tab body — archive list, per-row View/Print/Export CSV/Export PDF,
  * and the click-through preview. Shared by Admin and Super Admin Reports so
- * both stay identical; the Month/Year filter itself lives in the parent page
+ * both stay identical; the reporting-period filter lives in the parent page
  * (both already render one Filter button in the tab row) and is passed down.
  *
  * Print/PDF both render the report into one hidden node portaled straight
@@ -19,7 +21,7 @@ import GenerateReportPanel from './GenerateReportPanel'
  * stylesheet Vet's own Reports page still relies on. Nesting the print
  * target inside .screen-view previously produced a blank printed page.
  */
-export default function GeneratedReportsFilesTab({ appliedMonth, appliedYear, basePath = '/admin/generated-reports', ReportView = GeneratedReportView, canGenerate = true }) {
+export default function GeneratedReportsFilesTab({ appliedMonth, appliedYear, fromDate = '', toDate = '', basePath = '/admin/generated-reports', ReportView = GeneratedReportView, canGenerate = true }) {
   const { data: filesData } = useCachedFetch(basePath)
   const [filesReportId, setFilesReportId] = useState(null)
   const [filesReport, setFilesReport] = useState(null)
@@ -34,12 +36,13 @@ export default function GeneratedReportsFilesTab({ appliedMonth, appliedYear, ba
 
   const allFiles = filesData ?? []
   const filteredFiles = useMemo(() => {
+    if (fromDate || toDate) return filterReportFiles(allFiles, fromDate, toDate)
     if (!appliedMonth || !appliedYear) return allFiles
     return allFiles.filter(f => {
       const d = new Date(`${f.period_start}T00:00:00`)
       return d.getMonth() + 1 === appliedMonth && d.getFullYear() === appliedYear
     })
-  }, [allFiles, appliedMonth, appliedYear])
+  }, [allFiles, appliedMonth, appliedYear, fromDate, toDate])
 
   const viewReport = async (id) => {
     setFilesReportId(id)
@@ -73,86 +76,8 @@ export default function GeneratedReportsFilesTab({ appliedMonth, appliedYear, ba
     try {
       const res = await api.get(`${basePath}/${id}`)
       const report = res.data.data
-      const s = report.snapshot ?? {}
-
-      // The summary figures, straight out of the stored snapshot — the same
-      // numbers the printed report shows, never recomputed from today's
-      // database. A September export opened in December must still say what
-      // September said.
-      //
-      // Each block is skipped when the snapshot does not carry it, so an
-      // archive made before these keys existed exports exactly as it used to.
-      const kv = (group, pairs) => Object.entries(pairs)
-        .filter(([, v]) => v !== undefined && v !== null)
-        .map(([label, v]) => ({ section: 'Summary', name: group, detail: label, date: '', status: '', value: v }))
-
-      const a = s.new_accounts
-      const alertP = s.alert_period
-      const inspP = s.inspection_period
-      const svcP = s.service_request_period
-      const compP = s.compliance_period
-
-      const summaryRows = [
-        ...(a ? kv('System activity', {
-          'New Farm Owner accounts': a.farm_owners,
-          'New Staff accounts': a.staff,
-          'New Veterinarian accounts': a.vets,
-          // No Super Admin row, matching the printed report: the system has
-          // one and cannot create another, so the line could only read zero.
-          // Still counted in the snapshot and still inside the total below.
-          'Total new accounts': a.total,
-        }) : []),
-        ...(s.new_farms ? kv('System activity', { 'New farms registered': s.new_farms.count }) : []),
-        ...(s.new_devices ? kv('System activity', { 'New devices registered': s.new_devices.count }) : []),
-        ...(alertP ? kv('Alerts', {
-          'Total alert incidents': alertP.total,
-          'Critical': alertP.critical,
-          'Warning': alertP.warning,
-          'Resolved by period end': alertP.resolved,
-          'Ongoing at period end': alertP.ongoing,
-        }) : []),
-        ...(inspP ? kv('Inspections', {
-          'Total inspections': inspP.total,
-          'Scheduled': inspP.scheduled,
-          'Completed': inspP.completed,
-          'Cancelled': inspP.cancelled,
-          'Overdue (of the scheduled)': inspP.overdue,
-        }) : []),
-        ...(svcP ? kv('Service requests', {
-          'Total requests': svcP.total,
-          'Pending': svcP.pending,
-          'Scheduled': svcP.scheduled,
-          'Completed': svcP.completed,
-          'Cancelled': svcP.cancelled,
-        }) : []),
-        ...(compP ? kv('Compliance', {
-          'Compliant farms': compP.compliant,
-          'Overdue farms': compP.overdue,
-          'Non-compliant farms': compP.non_compliant,
-          'Active farms assessed': compP.total_farms,
-        }) : []),
-      ]
-
-      const rows = [
-        ...summaryRows,
-        ...(s.completed_inspections ?? []).map(i => ({ section: 'Inspection', name: i.farm_name, detail: i.inspection_type, date: i.completed_at, status: i.status || 'Completed' })),
-        ...(s.alert_records ?? []).map(a => ({ section: 'Alert', name: a.farm_name, detail: a.sensor_type, date: a.triggered_at, status: a.status })),
-        ...(s.maintenance_overdue ?? []).map(f => ({ section: 'Overdue/Non-Compliant', name: f.farm_name, detail: `${f.days_overdue} days overdue`, date: f.last_performed_at, status: f.status })),
-        ...(s.maintenance_completed ?? []).map(m => ({ section: 'Clean-out', name: m.farm_name, detail: m.method, date: m.performed_at, status: 'Completed' })),
-        ...(s.completed_services ?? []).map(r => ({ section: 'Service Request', name: r.farm_name, detail: r.service_type, date: r.completed_at, status: 'Completed' })),
-        ...(s.vet_services ?? []).map(v => ({ section: 'Vet Service', name: v.farm_name, detail: `${v.service_type} (${v.vet_name})`, date: v.completed_at, status: 'Completed' })),
-      ]
-      const cols = [
-        { key: 'section', label: 'Section' }, { key: 'name', label: 'Farm' }, { key: 'detail', label: 'Detail' },
-        { key: 'date', label: 'Date' }, { key: 'status', label: 'Status' },
-        // Carries the summary numbers, and is added ONLY when there are
-        // summary rows to put in it. A report archived before the period
-        // sections existed has none, and exporting it must produce the
-        // same file it always did — not the same file plus an empty
-        // column. A frozen report is frozen in its export too.
-        ...(summaryRows.length ? [{ key: 'value', label: 'Value' }] : []),
-      ]
-      exportToCSV(rows, cols, `AgriBantay_${report.report_name.replace(/\s+/g, '_')}.csv`)
+      const { rows, columns: cols } = generatedReportCsv(report)
+      exportToCSV(rows, cols, reportExportFilename(report, 'csv'))
     } catch (err) {
       console.error('CSV export failed:', err)
       alert('Could not export CSV. Please try again.')
@@ -191,7 +116,7 @@ export default function GeneratedReportsFilesTab({ appliedMonth, appliedYear, ba
     const t = setTimeout(async () => {
       if (pendingAction === 'pdf') {
         try {
-          await exportPrintRefToPDF(hiddenRef, `AgriBantay_${pendingReport.report_name.replace(/\s+/g, '_')}.pdf`)
+          await exportPrintRefToPDF(hiddenRef, reportExportFilename(pendingReport, 'pdf'))
         } catch (err) {
           console.error('PDF export failed:', err)
           alert('Could not generate PDF. Please try again.')
@@ -231,7 +156,7 @@ export default function GeneratedReportsFilesTab({ appliedMonth, appliedYear, ba
         )
       ) : (
         <>
-          {/* The Vet archive is read-only — there is no Vet create route. */}
+          {/* Generation availability follows the caller's existing permission. */}
           {canGenerate && <GenerateReportPanel basePath={basePath} />}
 
         {deleteNotice && (
@@ -251,7 +176,7 @@ export default function GeneratedReportsFilesTab({ appliedMonth, appliedYear, ba
               : 'No reports have been generated yet.'
           }
           rows={filteredFiles.map(f => [
-            { text: f.report_name, strong: true },
+            { text: `${f.report_name} (Ref. ${f.id})`, strong: true },
             { text: f.period_label },
             { text: f.report_type },
             { text: f.date_generated },
@@ -260,9 +185,7 @@ export default function GeneratedReportsFilesTab({ appliedMonth, appliedYear, ba
               { label: 'Print', onClick: () => runAction(f.id, 'print') },
               { label: 'Export CSV', onClick: () => exportReportCsv(f.id) },
               { label: 'Export PDF', onClick: () => runAction(f.id, 'pdf') },
-              // Last in the row, and only where generating is allowed: the
-              // Vet archive is read-only here for the same reason it has no
-              // Generate panel.
+              // Keep the existing generation/deletion controls paired.
               ...(canGenerate ? [{ label: 'Delete', onClick: () => { setDeleteError(''); setDeleteTarget(f) }, danger: true }] : []),
             ] },
           ])}

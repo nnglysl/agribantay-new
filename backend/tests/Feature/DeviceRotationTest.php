@@ -815,7 +815,10 @@ class DeviceRotationTest extends TestCase
         $this->assertCount(1, $deployments, 'The farm lost the record of the device that monitored it.');
         $this->assertSame($device->label, $deployments[0]['device_name']);
         $this->assertSame(6, $deployments[0]['reading_count']);
-        $this->assertSame(6, $deployments[0]['days_covered']);
+        // No assignment-start event was recorded by this legacy fixture.
+        // Six reading dates cannot establish the installation duration.
+        $this->assertNull($deployments[0]['days_covered']);
+        $this->assertNotNull($deployments[0]['unassigned_at']);
         $this->assertFalse($deployments[0]['is_current']);
     }
 
@@ -836,8 +839,12 @@ class DeviceRotationTest extends TestCase
             $this->readingAt($farmA, $device, now()->subDays($d));
         }
 
+        $evaluation = now();
+        $this->travelTo($evaluation->copy()->subDays(10));
         $this->actingAs($admin)->patchJson("/api/admin/sensors/{$device->id}/unassign")->assertOk();
+        $this->travelTo($evaluation->copy()->subDays(8));
         $this->actingAs($admin)->patchJson("/api/admin/sensors/{$device->id}/assign", ['farm_id' => $farmB->id])->assertOk();
+        $this->travelTo($evaluation);
 
         // Week two at B.
         foreach ([6, 5, 4] as $d) {
@@ -910,10 +917,12 @@ class DeviceRotationTest extends TestCase
         $yesterday = now()->subDay()->setTime(10, 0);
 
         // A quiet day broken by one spike — the case an average would hide.
-        foreach ([[4.0, 'Safe'], [5.0, 'Safe'], [26.0, 'Critical']] as $i => [$ammonia, $status]) {
+        foreach ([[4.0, 10.0, 'Safe'], [5.0, 20.0, 'Safe'], [26.0, 45.0, 'Critical']] as $i => [$ammonia, $moisture, $status]) {
             $this->readingAt($farm, $device, $yesterday->copy()->addMinutes($i * 30), [
                 'ammonia' => $ammonia,
+                'moisture' => $moisture,
                 'ammonia_status' => $status,
+                'moisture_status' => $status,
             ]);
         }
 
@@ -939,11 +948,125 @@ class DeviceRotationTest extends TestCase
         // assertEquals, not assertSame: a whole number round-trips through
         // JSON as an int, so 26.0 comes back as 26.
         $this->assertEquals(26.0, $row['ammonia_peak']);
+        $this->assertEquals(11.7, $row['ammonia_avg']);
+        $this->assertEquals(25.0, $row['moisture_avg']);
+        $this->assertEquals(45.0, $row['moisture_peak']);
         $this->assertSame(3, $row['reading_count']);
         $this->assertSame(1, $row['alerts_raised'], 'Alerts were counted from readings, not from alert_history.');
         $this->assertSame('Critical', $row['status']);
 
         // The peak drove the status even though the average stayed low.
         $this->assertLessThan(20, $row['ammonia_avg']);
+    }
+
+    public function test_readings_summary_ignores_null_metrics_but_counts_all_recorded_readings(): void
+    {
+        $farm = $this->makeFarm('Missing Metrics Farm');
+        $device = $this->makeDevice($farm);
+
+        foreach ([[0, 0], [10, 20], [null, null]] as $i => [$ammonia, $moisture]) {
+            $this->readingAt($farm, $device, '2026-09-25 01:0'.$i.':00', [
+                'ammonia' => $ammonia,
+                'moisture' => $moisture,
+            ]);
+        }
+        $this->readingAt($farm, $device, '2026-09-26 01:00:00', [
+            'ammonia' => null,
+            'moisture' => null,
+        ]);
+
+        $rows = collect($this->actingAs($this->admin())
+            ->getJson("/api/admin/farms/{$farm->id}/readings-summary")
+            ->assertOk()->json('data.deployments.0.rows'))->keyBy('date');
+
+        $this->assertEquals(5, $rows['2026-09-25']['ammonia_avg']);
+        $this->assertEquals(10, $rows['2026-09-25']['ammonia_peak']);
+        $this->assertEquals(10, $rows['2026-09-25']['moisture_avg']);
+        $this->assertEquals(20, $rows['2026-09-25']['moisture_peak']);
+        $this->assertSame(3, $rows['2026-09-25']['reading_count']);
+        foreach (['ammonia_avg', 'ammonia_peak', 'moisture_avg', 'moisture_peak'] as $metric) {
+            $this->assertNull($rows['2026-09-26'][$metric]);
+        }
+        $this->assertSame(1, $rows['2026-09-26']['reading_count']);
+    }
+
+    public function test_readings_summary_groups_by_manila_day_and_keeps_the_worst_stored_alerting_status(): void
+    {
+        $farm = $this->makeFarm('Local Daily Status Farm');
+        $device = $this->makeDevice($farm);
+
+        $this->readingAt($farm, $device, '2026-09-25 15:59:59', [
+            'ammonia' => 15, 'ammonia_status' => 'Warning',
+            'temperature_status' => 'Critical', 'humidity_status' => 'Critical',
+        ]);
+        $this->readingAt($farm, $device, '2026-09-25 16:00:00', [
+            'ammonia' => 0, 'moisture' => 36, 'moisture_status' => 'Critical',
+        ]);
+        $this->readingAt($farm, $device, '2026-09-26 15:59:59', [
+            'ammonia' => 0, 'moisture' => 0,
+        ]);
+        $this->readingAt($farm, $device, '2026-09-26 16:00:00');
+
+        $rows = collect($this->actingAs($this->admin())
+            ->getJson("/api/admin/farms/{$farm->id}/readings-summary")
+            ->assertOk()->json('data.deployments.0.rows'))->keyBy('date');
+
+        $this->assertSame(['2026-09-27', '2026-09-26', '2026-09-25'], $rows->keys()->all());
+        $this->assertSame('Warning', $rows['2026-09-25']['status']);
+        $this->assertSame(2, $rows['2026-09-26']['reading_count']);
+        $this->assertEquals(18, $rows['2026-09-26']['moisture_avg']);
+        $this->assertEquals(36, $rows['2026-09-26']['moisture_peak']);
+        $this->assertSame('Critical', $rows['2026-09-26']['status']);
+        $this->assertSame('Safe', $rows['2026-09-27']['status']);
+    }
+
+    public function test_readings_summary_preserves_rotated_device_history_without_mixing_farms_or_devices(): void
+    {
+        $farm = $this->makeFarm('Summary History Farm');
+        $otherFarm = $this->makeFarm('Other Summary Farm');
+        $device = $this->makeDevice($farm);
+        $replacement = $this->makeDevice($farm);
+        $admin = $this->admin();
+
+        $reading = $this->readingAt($farm, $device, '2026-09-25 01:00:00', [
+            'ammonia' => 4, 'moisture' => 10,
+        ]);
+        $this->readingAt($farm, $replacement, '2026-09-25 01:30:00', [
+            'ammonia' => 30, 'moisture' => 80,
+        ]);
+        $alert = AlertHistory::create([
+            'farm_id' => $farm->id, 'sensor_id' => $device->id,
+            'sensor_type' => 'ammonia', 'status' => 'Warning',
+            'value' => 15, 'triggered_at' => '2026-09-25 01:00:00',
+        ]);
+        $originalReading = $reading->getAttributes();
+        $originalAlert = $alert->fresh()->getAttributes();
+
+        $this->actingAs($admin)->patchJson("/api/admin/sensors/{$device->id}/unassign")->assertOk();
+        $afterUnassign = $this->getJson("/api/admin/farms/{$farm->id}/readings-summary")->assertOk();
+        $past = collect($afterUnassign->json('data.deployments'))->firstWhere('sensor_id', $device->id);
+        $this->assertFalse($past['is_current']);
+        $this->assertEquals(10, $past['rows'][0]['moisture_avg']);
+
+        $this->patchJson("/api/admin/sensors/{$device->id}/assign", ['farm_id' => $otherFarm->id])->assertOk();
+        $this->readingAt($otherFarm, $device, '2026-09-25 02:00:00', [
+            'ammonia' => 40, 'moisture' => 90,
+        ]);
+
+        $deployments = collect($this->getJson("/api/admin/farms/{$farm->id}/readings-summary")
+            ->assertOk()->json('data.deployments'))->keyBy('sensor_id');
+        $this->assertCount(2, $deployments);
+        $this->assertSame($past, $deployments[$device->id]);
+        $this->assertSame(1, $deployments[$replacement->id]['total_readings']);
+        $this->assertEquals(80, $deployments[$replacement->id]['rows'][0]['moisture_avg']);
+        $this->assertTrue($deployments[$replacement->id]['is_current']);
+
+        $other = $this->getJson("/api/admin/farms/{$otherFarm->id}/readings-summary")
+            ->assertOk()->json('data.deployments.0');
+        $this->assertSame(1, $other['total_readings']);
+        $this->assertEquals(90, $other['rows'][0]['moisture_avg']);
+        $this->assertEquals(40, $other['rows'][0]['ammonia_avg']);
+        $this->assertSame($originalReading, $reading->fresh()->getAttributes());
+        $this->assertSame($originalAlert, $alert->fresh()->getAttributes());
     }
 }

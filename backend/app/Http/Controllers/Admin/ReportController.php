@@ -3,74 +3,56 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\AlertHistory;
+use App\Models\Farm;
 use App\Models\Inspection;
-use Illuminate\Http\Request;
+use App\Models\MaintenanceLog;
 use App\Models\SensorReading;
 use App\Models\ServiceRequest;
-use App\Models\Farm;
-use App\Models\MaintenanceLog;
-use App\Models\AlertHistory;
+use App\Services\FarmStatusService;
 use App\Services\MaintenanceStatusService;
+use App\Services\ReportAlertSeries;
 use App\Support\LocalTime;
+use App\Support\ReportPeriod;
+use Illuminate\Http\Request;
 
 class ReportController extends Controller
 {
     private const ADMIN_SERVICE_TYPES = ['Odor Control Request', 'Fly Control Request'];
 
     /**
-     * `from` / `to` are optional Philippine calendar dates. When they are
-     * absent every figure is all-time, exactly as before — so nothing that
-     * calls this without a range changes behaviour.
-     *
-     * When they are present the ACTIVITY counts are scoped to the period.
-     * Previously the Reports page filtered its tables client-side while the
-     * stat cards above them stayed all-time: picking September showed
-     * September in the table and the whole database in the headline number.
-     * Scoping has to happen here rather than in the browser because the
-     * detail lists this page receives are capped at 300 rows — counting them
-     * would quietly go wrong past that.
-     *
-     * Farm totals and pending request counts stay unscoped on purpose: they
-     * describe the situation right now, not activity within a period.
+     * Complete period-scoped records and counts for LGU reports. Timestamp
+     * filters use Manila calendar boundaries converted to UTC; maintenance
+     * performed_at is a date-only field. No reporting read changes records.
+     * Farm inventory is the registration cohort, with current recorded
+     * conditions; maintenance compliance is assessed at the period cutoff.
      */
     public function index(Request $request)
     {
-        $from = $request->filled('from') ? LocalTime::startOfLocalDay($request->input('from'))->utc() : null;
-        $to   = $request->filled('to') ? LocalTime::endOfLocalDay($request->input('to'))->utc() : null;
-        $ranged = $from || $to;
+        $period = ReportPeriod::fromRequest($request);
+        $scope = fn ($query, string $column) => $period->scope($query, $column);
+        $asOf = $period->asOf();
+        $insp = fn () => $scope(Inspection::query(), ReportPeriod::INSPECTION_DATE);
 
-        // Applies the window to a query on $column, or leaves it alone when
-        // no range was asked for.
-        $scope = function ($query, string $column) use ($from, $to) {
-            if ($from) $query->where($column, '>=', $from);
-            if ($to) $query->where($column, '<=', $to);
-            return $query;
-        };
-
-        // Counted on scheduled_at: an inspection belongs to the period it was
-        // due in, which is the date the table and the calendar both show.
-        $insp = fn () => $scope(Inspection::query(), 'scheduled_at');
-
-        $totalInspections     = $insp()->count();
+        $totalInspections = $insp()->count();
         $completedInspections = $insp()->where('status', 'Completed')->count();
         $scheduledInspections = $insp()->where('status', 'Scheduled')->count();
-        $generalInspections   = $insp()->where('inspection_type', 'General Inspection')->count();
-        $followUpInspections  = $insp()->where('inspection_type', 'Follow-up')->count();
+        $generalInspections = $insp()->where('inspection_type', 'General Inspection')->count();
+        $followUpInspections = $insp()->where('inspection_type', 'Follow-up')->count();
 
-        $totalAlerts       = SensorReading::count();
-        $ammoniaBreaches   = SensorReading::where('ammonia_status', 'Critical')->count();
-        $tempAnomalies     = SensorReading::where('temperature_status', '!=', 'Safe')->count();
-        $humidityAnomalies = SensorReading::where('humidity_status', '!=', 'Safe')->count();
+        $readings = fn () => $scope(SensorReading::query(), 'created_at');
+        $totalAlerts = $readings()->count();
+        $ammoniaBreaches = $readings()->where('ammonia_status', 'Critical')->count();
+        $tempAnomalies = $readings()->where('temperature_status', '!=', 'Safe')->count();
+        $humidityAnomalies = $readings()->where('humidity_status', '!=', 'Safe')->count();
         // Raw READING count — how many individual readings carried a Critical
         // status. The generated-report tables label it exactly that way
         // ("Readings with any critical status"), so it stays a reading count.
         // moisture_status was missing here, which under-reported every farm
         // whose only Critical metric was manure moisture.
-        $criticalAlerts    = SensorReading::where(function ($q) {
+        $criticalAlerts = $readings()->where(function ($q) {
             $q->where('ammonia_status', 'Critical')
-              ->orWhere('temperature_status', 'Critical')
-              ->orWhere('humidity_status', 'Critical')
-              ->orWhere('moisture_status', 'Critical');
+                ->orWhere('moisture_status', 'Critical');
         })->count();
 
         // INCIDENT count — what the Overview "Critical Alerts" stat card is
@@ -97,75 +79,76 @@ class ReportController extends Controller
         // and there was nothing real for those two cards to count. Ammonia and
         // moisture are what the system actually alerts on, so they are what
         // the cards report, in the same unit as every other card beside them.
-        $ammoniaIncidents  = $scope(AlertHistory::query(), 'triggered_at')->where('sensor_type', 'ammonia')->count();
+        $ammoniaIncidents = $scope(AlertHistory::query(), 'triggered_at')->where('sensor_type', 'ammonia')->count();
         $moistureIncidents = $scope(AlertHistory::query(), 'triggered_at')->where('sensor_type', 'moisture')->count();
-        $ongoingIncidents  = $scope(AlertHistory::query(), 'triggered_at')->whereNull('resolved_at')->count();
+        $ongoingIncidents = $scope(AlertHistory::query(), 'triggered_at')->where(fn ($q) => $q->whereNull('resolved_at')->orWhere('resolved_at', '>', $asOf))->count();
         $resolvedIncidents = $totalIncidents - $ongoingIncidents;
 
-        $completedInspectionsList = Inspection::with('farm')
+        $completedInspectionsList = $scope(Inspection::with('farm'), 'completed_at')
             ->where('status', 'Completed')
             ->latest()
             ->get()
-            ->map(fn($i) => [
-                'id'                => $i->id,
+            ->map(fn ($i) => [
+                'id' => $i->id,
                 'inspection_number' => $i->inspection_number,
-                'farm_name'         => $i->farm->farm_name,
-                'owner_name'        => $i->farm->owner_name,
-                'inspection_type'   => $i->inspection_type,
-                'completed_at'      => LocalTime::date($i->completed_at),
+                'farm_name' => $i->farm?->farm_name ?? '—',
+                'owner_name' => $i->farm?->owner_name ?? '—',
+                'inspection_type' => $i->inspection_type,
+                'completed_at' => LocalTime::date($i->completed_at),
                 // NEW — ISO date alongside the display string, so the new
                 // Inspections tab's date-range filter can parse it
                 // reliably instead of re-parsing the formatted string
                 // (formatted-date parsing across browsers is fragile —
                 // learned that the hard way on Alert History's sort).
-                'completed_at_raw'  => $i->completed_at?->toIso8601String(),
-                'status'            => $i->status,
+                'completed_at_raw' => $i->completed_at?->toIso8601String(),
+                'status' => $i->status,
             ]);
 
         // Super Admin Reports lists Completed AND Scheduled inspections (the
         // Admin page keeps using completed_inspections above). `date_raw` is
         // whichever date the row is "about": completion date for Completed,
         // scheduled date for Scheduled — that's what the date filter uses.
-        $inspectionRecordsList = Inspection::with('farm')
+        $inspectionRecordsList = $scope(Inspection::with('farm'), ReportPeriod::INSPECTION_DATE)
             ->whereIn('status', ['Completed', 'Scheduled'])
             ->get()
             ->map(function ($i) {
                 $date = $i->status === 'Completed' ? $i->completed_at : $i->scheduled_at;
+
                 return [
-                    'id'                => $i->id,
+                    'id' => $i->id,
                     'inspection_number' => $i->inspection_number,
-                    'farm_name'         => $i->farm->farm_name,
-                    'owner_name'        => $i->farm->owner_name,
-                    'inspection_type'   => $i->inspection_type,
-                    'date'              => LocalTime::date($date),
-                    'date_raw'          => $date?->toIso8601String(),
-                    'status'            => $i->status,
+                    'farm_name' => $i->farm?->farm_name ?? '—',
+                    'owner_name' => $i->farm?->owner_name ?? '—',
+                    'inspection_type' => $i->inspection_type,
+                    'date' => LocalTime::date($date),
+                    'date_raw' => $date?->toIso8601String(),
+                    'status' => $i->status,
                 ];
             })
             ->sortByDesc('date_raw')
             ->values();
 
-        $serviceQuery = fn() => ServiceRequest::whereIn('service_type', self::ADMIN_SERVICE_TYPES);
+        $serviceQuery = fn () => $scope(ServiceRequest::whereIn('service_type', self::ADMIN_SERVICE_TYPES), ReportPeriod::SERVICE_DATE);
 
-        $totalServiceRequests     = $serviceQuery()->count();
+        $totalServiceRequests = $serviceQuery()->count();
         $completedServiceRequests = $serviceQuery()->where('status', 'Completed')->count();
-        $pendingServiceRequests   = $serviceQuery()->where('status', 'Pending')->count();
+        $pendingServiceRequests = $serviceQuery()->where('status', 'Pending')->count();
 
         $completedServicesList = $serviceQuery()
             ->with('farm')
             ->where('status', 'Completed')
             ->latest('completed_at')
             ->get()
-            ->map(fn($r) => [
-                'id'               => $r->request_number,
-                'service_type'     => $r->service_type,
-                'farm_name'        => $r->farm->farm_name,
-                'owner_name'       => $r->farm->owner_name,
-                'barangay'         => $r->farm->barangay,
-                'completed_at'     => LocalTime::date($r->completed_at),
+            ->map(fn ($r) => [
+                'id' => $r->request_number,
+                'service_type' => $r->service_type,
+                'farm_name' => $r->farm->farm_name,
+                'owner_name' => $r->farm->owner_name,
+                'barangay' => $r->farm->barangay,
+                'completed_at' => LocalTime::date($r->completed_at),
                 'completed_at_raw' => $r->completed_at?->toIso8601String(), // NEW, same reasoning as above
-                'notes'            => $r->notes,
-                'status'           => $r->status,
+                'notes' => $r->notes,
+                'status' => $r->status,
             ]);
 
         // Completed + Scheduled admin-handled requests for Super Admin
@@ -176,15 +159,16 @@ class ReportController extends Controller
             ->get()
             ->map(function ($r) {
                 $date = $r->status === 'Completed' ? $r->completed_at : $r->scheduled_at;
+
                 return [
-                    'id'           => $r->request_number,
+                    'id' => $r->request_number,
                     'service_type' => $r->service_type,
-                    'farm_name'    => $r->farm->farm_name,
-                    'owner_name'   => $r->farm->owner_name,
-                    'barangay'     => $r->farm->barangay,
-                    'date'         => LocalTime::date($date),
-                    'date_raw'     => $date?->toIso8601String(),
-                    'status'       => $r->status,
+                    'farm_name' => $r->farm->farm_name,
+                    'owner_name' => $r->farm->owner_name,
+                    'barangay' => $r->farm->barangay,
+                    'date' => LocalTime::date($date),
+                    'date_raw' => $date?->toIso8601String(),
+                    'status' => $r->status,
                 ];
             })
             ->sortByDesc('date_raw')
@@ -195,140 +179,143 @@ class ReportController extends Controller
         // Overdue Maintenance page already relies on, so "Overdue" /
         // "Non-Compliant" here mean exactly the same thing they do there.
         $maintenanceService = app(MaintenanceStatusService::class);
-        $activeFarms = Farm::where('status', 'Active')->with('latestCleanout')->get();
+        $activeFarms = Farm::where('status', 'Active')->where('created_at', '<=', $asOf)->with('latestCleanout')->get();
 
-        $maintenanceStatuses = $activeFarms->map(function ($farm) use ($maintenanceService) {
-            $status = $maintenanceService->getStatus($farm);
+        $maintenanceStatuses = $activeFarms->map(function ($farm) use ($maintenanceService, $asOf) {
+            $status = $maintenanceService->getStatus($farm, $asOf->copy()->setTimezone(LocalTime::timezone()));
+
             return array_merge($status, [
-                'farm_id'    => $farm->id,
-                'farm_name'  => $farm->farm_name,
+                'farm_id' => $farm->id,
+                'farm_name' => $farm->farm_name,
                 'owner_name' => $farm->owner_name,
-                'barangay'   => $farm->barangay,
-                'farm_size'  => $farm->farm_size,
+                'barangay' => $farm->barangay,
+                'farm_size' => $farm->farm_size,
             ]);
         });
 
-        $overdueFarmsList      = $maintenanceStatuses->where('status', 'Overdue')->values();
+        $overdueFarmsList = $maintenanceStatuses->where('status', 'Overdue')->values();
         $nonCompliantFarmsList = $maintenanceStatuses->where('status', 'Non-Compliant')->values();
 
-        $completedMaintenanceThisMonth = MaintenanceLog::whereMonth('performed_at', now()->month)
-            ->whereYear('performed_at', now()->year)
-            ->count();
+        $completedMaintenanceThisMonth = $period->scope(MaintenanceLog::query(), 'performed_at', true)->count();
 
-        $maintenanceLogsList = MaintenanceLog::with('farm')
+        $maintenanceLogsList = $period->scope(MaintenanceLog::with('farm'), 'performed_at', true)
             ->latest('performed_at')
-            ->limit(200)
             ->get()
-            ->map(fn($log) => [
-                'id'               => $log->id,
-                'farm_name'        => $log->farm->farm_name ?? '—',
-                'owner_name'       => $log->farm->owner_name ?? '—',
-                'barangay'         => $log->farm->barangay ?? '—',
-                'method'           => $log->maintenance_type,
-                'performed_at'     => $log->performed_at->format('M d, Y'),
-                'performed_at_raw' => $log->performed_at->toIso8601String(),
-                'notes'            => $log->notes,
+            ->map(fn ($log) => [
+                'id' => $log->id,
+                'farm_name' => $log->farm->farm_name ?? '—',
+                'owner_name' => $log->farm->owner_name ?? '—',
+                'barangay' => $log->farm->barangay ?? '—',
+                'method' => $log->maintenance_type,
+                'performed_at' => $log->performed_at->format('M d, Y'),
+                'performed_at_raw' => $log->performed_at->toDateString(),
+                'notes' => $log->notes,
             ]);
 
         // ------------------------------------------------------------- NEW
-        // Alerts tab — reads AlertHistory (real, debounced, discrete
-        // incidents with actual trigger/resolve timestamps) instead of
-        // raw SensorReading rows. alert_summary above is left completely
-        // untouched — this is purely additive for the new detail table
-        // and trend chart, which need real incident-level data that
-        // alert_summary was never designed to provide.
-        $alertRecords = AlertHistory::with(['farm', 'sensor'])
+        // Incident details, counters and bars share this same date-scoped source.
+        $alertQuery = fn () => $scope(AlertHistory::query(), 'triggered_at');
+        $alertRecords = $alertQuery()->with(['farm', 'sensor'])
             ->latest('triggered_at')
-            ->limit(300)
             ->get()
-            ->map(fn($a) => [
-                'id'               => $a->id,
-                'farm_name'        => $a->farm->farm_name ?? '—',
-                'owner_name'       => $a->farm->owner_name ?? '—',
+            ->map(fn ($a) => [
+                'id' => $a->id,
+                'farm_name' => $a->farm->farm_name ?? '—',
+                'owner_name' => $a->farm->owner_name ?? '—',
                 // Which poultry house the incident happened in — null for
                 // rows recorded before per-device alert tracking.
-                'device_name'      => $a->sensor?->device_name,
-                'sensor_type'      => $a->sensor_type,
-                'status'           => $a->status,
-                'triggered_at'     => LocalTime::dateTime($a->triggered_at),
+                'device_name' => $a->sensor?->device_name,
+                'farm_id' => $a->farm_id,
+                'sensor_id' => $a->sensor_id,
+                'sensor_type' => $a->sensor_type,
+                'status' => $a->status,
+                'triggered_at' => LocalTime::dateTime($a->triggered_at),
                 'triggered_at_raw' => $a->triggered_at->toIso8601String(),
-                'resolved_at'      => LocalTime::dateTime($a->resolved_at),
-                'is_ongoing'       => is_null($a->resolved_at),
+                'resolved_at' => $a->resolved_at && $a->resolved_at <= $asOf ? LocalTime::dateTime($a->resolved_at) : null,
+                'is_ongoing' => is_null($a->resolved_at) || $a->resolved_at > $asOf,
             ]);
 
         // ------------------------------------------------------------- NEW
         // Overview tab — a couple of cheap counts specifically for the
         // Overview stat cards / donut chart, kept separate from the
         // detail-tab summaries above so nothing there needed touching.
-        $totalFarms = Farm::count();
+        $selectedFarms = $scope(Farm::query(), 'created_at')->with(['sensors', 'sensorReadings' => fn ($q) => $q->latest()->limit(1)])->get();
+        $totalFarms = $selectedFarms->count();
 
         // Bucketed by the same "Pending Setup unless there's an active
         // device with an actual reading" rule used everywhere else a farm's
         // monitoring status is shown, so a farm with no device is never
         // counted as "Safe" here either.
-        $farmStatusBreakdown = app(\App\Services\FarmStatusService::class)->statusBreakdown();
+        $farmStatusBreakdown = ['normal' => 0, 'warning' => 0, 'critical' => 0, 'pending_setup' => 0];
+        $statuses = ['Safe' => 'normal', 'Warning' => 'warning', 'Critical' => 'critical'];
+        foreach ($selectedFarms as $farm) {
+            $status = app(FarmStatusService::class)->displayStatus($farm);
+            $farmStatusBreakdown[$statuses[$status] ?? 'pending_setup']++;
+        }
 
         return response()->json([
             'success' => true,
-            'data'    => [
+            'data' => [
                 'inspection_summary' => [
-                    'total'     => $totalInspections,
+                    'total' => $totalInspections,
                     'completed' => $completedInspections,
                     'scheduled' => $scheduledInspections,
-                    'general'   => $generalInspections,
+                    'general' => $generalInspections,
                     'follow_up' => $followUpInspections,
                 ],
                 'alert_summary' => [
-                    'total'              => $totalAlerts,
-                    'ammonia_breaches'   => $ammoniaBreaches,
-                    'temp_anomalies'     => $tempAnomalies,
+                    'total' => $totalAlerts,
+                    'ammonia_breaches' => $ammoniaBreaches,
+                    'temp_anomalies' => $tempAnomalies,
                     'humidity_anomalies' => $humidityAnomalies,
-                    'critical_alerts'    => $criticalAlerts,
+                    'critical_alerts' => $criticalAlerts,
                     // Separate key, not a replacement: the generated-report
                     // tables print 'critical_alerts' under the honest label
                     // "Readings with any critical status", while the Reports
                     // stat card wants discrete incidents. Both are correct —
                     // they answer different questions.
                     'critical_incidents' => $criticalIncidents,
-                    'total_incidents'    => $totalIncidents,
-                    'ammonia_incidents'  => $ammoniaIncidents,
+                    'total_incidents' => $totalIncidents,
+                    'ammonia_incidents' => $ammoniaIncidents,
                     'moisture_incidents' => $moistureIncidents,
-                    'ongoing_incidents'  => $ongoingIncidents,
+                    'ongoing_incidents' => $ongoingIncidents,
                     'resolved_incidents' => $resolvedIncidents,
                 ],
                 'service_summary' => [
-                    'total'     => $totalServiceRequests,
+                    'total' => $totalServiceRequests,
                     'completed' => $completedServiceRequests,
-                    'pending'   => $pendingServiceRequests,
+                    'pending' => $pendingServiceRequests,
                 ],
                 'completed_inspections' => $completedInspectionsList,
-                'completed_services'    => $completedServicesList,
+                'completed_services' => $completedServicesList,
                 // Super Admin Reports (Completed + Scheduled)
-                'inspection_records'    => $inspectionRecordsList,
-                'service_records'       => $serviceRecordsList,
+                'inspection_records' => $inspectionRecordsList,
+                'service_records' => $serviceRecordsList,
 
                 // NEW — Overview tab
                 'overview_summary' => [
-                    'total_farms'               => $totalFarms,
-                    'total_inspections'         => $totalInspections,
-                    'total_alerts'              => $totalAlerts,
-                    'critical_alerts'           => $criticalIncidents,
-                    'pending_service_requests'  => $pendingServiceRequests,
-                    'farm_status_breakdown'     => $farmStatusBreakdown,
+                    'total_farms' => $totalFarms,
+                    'total_inspections' => $totalInspections,
+                    'total_alerts' => $totalIncidents,
+                    'critical_alerts' => $criticalIncidents,
+                    'pending_service_requests' => $pendingServiceRequests,
+                    'farm_status_breakdown' => $farmStatusBreakdown,
                 ],
 
                 // NEW — Maintenance tab
                 'maintenance_summary' => [
                     'completed_this_month' => $completedMaintenanceThisMonth,
-                    'overdue'              => $overdueFarmsList->count(),
-                    'non_compliant'        => $nonCompliantFarmsList->count(),
+                    'overdue' => $overdueFarmsList->count(),
+                    'non_compliant' => $nonCompliantFarmsList->count(),
                 ],
-                'maintenance_overdue_list'       => $overdueFarmsList,
+                'maintenance_overdue_list' => $overdueFarmsList,
                 'maintenance_non_compliant_list' => $nonCompliantFarmsList,
-                'maintenance_completed_list'     => $maintenanceLogsList,
+                'maintenance_completed_list' => $maintenanceLogsList,
 
                 // NEW — Alerts tab
                 'alert_records' => $alertRecords,
+                'alert_trend' => app(ReportAlertSeries::class)->build($alertQuery(), $period),
+                'report_period' => ['from' => $period->from, 'to' => $period->to, 'status_as_of' => LocalTime::dateTime($asOf)],
             ],
         ]);
     }

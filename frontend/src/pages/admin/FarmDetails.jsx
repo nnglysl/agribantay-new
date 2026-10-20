@@ -1,5 +1,4 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { AMMONIA_UNIT } from '../../utils/ammonia'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
 import TableScroll from '../../components/TableScroll'
@@ -20,6 +19,7 @@ import FarmLocationMap from '../../components/FarmLocationMap'
 import { LOCATION_CONFLICT_MESSAGE, LOCATION_OUTSIDE_MESSAGE, isInsideSanJose } from '../../utils/farmLocation'
 import { SectionLoader, BtnBusy } from '../../components/Loading'
 import ReadingsSummaryCard from '../../components/ReadingsSummaryCard'
+import MonitoringDeviceRow from '../../components/MonitoringDeviceRow'
 import { formatDeploymentPeriod } from '../../utils/deploymentPeriod'
 
 const FARM_SIZES = ['Small', 'Medium', 'Large']
@@ -285,11 +285,11 @@ export default function FarmDetails() {
     { pollMs: LIVE_POLL_MS }
   )
 
-  // Daily figures per device. Fetched only while the Monitoring tab is open
-  // — it is an aggregate over a whole deployment, not a live number, so it
-  // is also left out of the live poll the panels above run on.
+  // Active coverage runs to evaluation time; refresh it with monitoring.
   const { data: summaryData, loading: summaryLoading } = useCachedFetch(
-    activeTab === 'monitoring' ? `/admin/farms/${farmId}/readings-summary` : null
+    activeTab === 'monitoring' ? `/admin/farms/${farmId}/readings-summary` : null,
+    {},
+    { pollMs: LIVE_POLL_MS }
   )
 
   // Every device that has recorded here, newest deployment first. `device_list`
@@ -369,9 +369,8 @@ export default function FarmDetails() {
     installed_at: s.installed_at,
   }))
 
-  // Only houses that have actually reported appear in the monitoring
-  // table, and the paging maths has to count the same list the rows do.
-  const reportingDevices = deviceList.filter(d => d.has_reading)
+  // Installed devices remain visible before their first reading.
+  const reportingDevices = deviceList
 
   const sortedCleanoutLogs = useMemo(() => {
     const list = cleanoutData?.logs || []
@@ -841,31 +840,15 @@ export default function FarmDetails() {
                       </tr>
                     </thead>
                     <tbody>
-                      {reportingDevices.slice((devicePage - 1) * devicePageSize, devicePage * devicePageSize).map(d => {
-                        const worst = worstOfDevice(d, alertingMetrics)
-                        const tone = STATUS[worst] || STATUS.Offline
-                        return (
-                          <tr key={d.id}>
-                            <td style={tableStyles.td}>
-                              <div style={monitorStyles.houseName}>{d.device_name}</div>
-                              <div style={monitorStyles.houseSub}>{d.connectivity}</div>
-                            </td>
-                            <MonitorCell device={d} metric="ammonia" unit={AMMONIA_UNIT} alerting={alertingMetrics} />
-                            <MonitorCell device={d} metric="temperature" unit="°C" alerting={alertingMetrics} />
-                            <MonitorCell device={d} metric="humidity" unit="%" alerting={alertingMetrics} />
-                            <MonitorCell device={d} metric="moisture" unit="%" alerting={alertingMetrics} />
-                            <td style={tableStyles.td}>
-                              <span style={{
-                                ...styles.miniPill,
-                                color: tone.color,
-                                backgroundColor: tone.bg || '#f0f1ec',
-                              }}>
-                                {worst}
-                              </span>
-                            </td>
-                          </tr>
-                        )
-                      })}
+                      {reportingDevices.slice((devicePage - 1) * devicePageSize, devicePage * devicePageSize).map(d => (
+                        <MonitoringDeviceRow
+                          key={d.id}
+                          device={d}
+                          alerting={alertingMetrics}
+                          cellStyle={tableStyles.td}
+                          pillStyle={styles.miniPill}
+                        />
+                      ))}
                     </tbody>
                   </table>
                 </TableScroll>
@@ -911,14 +894,14 @@ export default function FarmDetails() {
                     </thead>
                     <tbody>
                       {deployments.map(d => (
-                        <tr key={d.sensor_id}>
+                        <tr key={d.assignment_key}>
                           <td style={tableStyles.td}>
                             <div style={monitorStyles.houseName}>{d.device_name}</div>
                           </td>
                           <td style={tableStyles.td}>
-                            {formatDeploymentPeriod(d.first_reading_at, d.last_reading_at)}
+                            {formatDeploymentPeriod(d.assigned_at, d.unassigned_at, d.is_current)}
                           </td>
-                          <td style={tableStyles.td}>{d.days_covered}</td>
+                          <td style={tableStyles.td}>{d.days_covered ?? '—'}</td>
                           <td style={tableStyles.td}>{d.reading_count.toLocaleString()}</td>
                           <td style={tableStyles.td}>
                             {/* "Previously installed" rather than Offline: the
@@ -1459,26 +1442,6 @@ const DEVICE_TONE = {
 }
 
 
-// Worst of a house's four metrics — the same "worst wins" rule the reading
-// truth table uses, so a house summarised as Safe never hides a Critical.
-const DEVICE_SEVERITY = { Safe: 0, Warning: 1, Critical: 2 }
-
-/**
- * Worst status across a house's ALERTING metrics.
- *
- * Temperature and humidity are advisory — measured and shown, but they no
- * longer set a level. Scoring them here would have this page call a farm
- * Critical on a 31 C reading while the owner's own dashboard, which already
- * honours the same config, shows Safe.
- */
-function worstOfDevice(device, alerting = ['ammonia']) {
-  return ['ammonia', 'temperature', 'humidity', 'moisture'].filter(m => alerting.includes(m)).reduce((acc, metric) => {
-    const status = device[`${metric}_status`]
-    if (!status || !(status in DEVICE_SEVERITY)) return acc
-    return DEVICE_SEVERITY[status] > DEVICE_SEVERITY[acc] ? status : acc
-  }, 'Safe')
-}
-
 const monitorStyles = {
   houseName: { fontSize: '13.5px', fontWeight: 800, color: '#16311d', lineHeight: 1.3 },
   houseSub: { fontSize: '11.5px', color: '#9aa79d', marginTop: '4px', lineHeight: 1.3 },
@@ -1491,36 +1454,6 @@ const monitorStyles = {
 }
 
 
-/**
- * One reading in the monitoring table.
- *
- * An advisory metric renders the number alone. A badge is a judgement, and
- * these carry none any more — showing one next to a reading the system will
- * not act on teaches the reader to discount the colour, which then costs
- * something when ammonia really is badged.
- */
-function MonitorCell({ device, metric, unit, alerting }) {
-  const value = device[metric]
-  const status = device[`${metric}_status`]
-
-  if (value === null || value === undefined) {
-    return <td style={tableStyles.td}><span style={styles.muted}>&mdash;</span></td>
-  }
-
-  const shown = `${value}${unit ? ` ${unit}` : ''}`
-
-  if (!alerting.includes(metric) || !status) {
-    return <td style={tableStyles.td}><span style={monitorStyles.cellValue}>{shown}</span></td>
-  }
-
-  const tone = STATUS[status] || STATUS.Offline
-  return (
-    <td style={tableStyles.td}>
-      <div style={monitorStyles.cellValue}>{shown}</div>
-      <div style={{ ...monitorStyles.cellStatus, color: tone.color }}>{status}</div>
-    </td>
-  )
-}
 function DeviceList({ devices }) {
   if (!devices.length) {
     return (

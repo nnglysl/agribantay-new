@@ -35,11 +35,8 @@ export default function Login() {
   const [login, setLogin] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
-  // Checked by default: the session is meant to outlive closing the tab or
-  // the browser, so coming back later (or pressing Back into the app) lands
-  // on the dashboard instead of this form. Unchecking still confines the
-  // session to sessionStorage, which ends when the tab closes.
-  const [remember, setRemember] = useState(true)
+  // Persistent login is opt-in on each visit to the login form.
+  const [remember, setRemember] = useState(false)
   // ?expired=1 is set by the axios 401 handler when it drops a token the
   // server no longer accepts. Saying so up front explains why the person
   // was thrown back here, instead of leaving them to wonder whether they

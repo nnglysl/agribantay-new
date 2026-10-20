@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { manilaDay } from '../utils/reportPeriod'
 import { serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../utils/serviceBadgeStyle'
 import SharedPagination from './Pagination'
 import { DISPLAY_TIME_ZONE } from '../utils/formatDate'
@@ -41,7 +42,7 @@ export const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
 const pad = n => String(n).padStart(2, '0')
 export const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-export const todayIso = () => iso(new Date())
+export const todayIso = () => manilaDay()
 
 export const shiftDays = days => {
   const d = new Date()
@@ -57,7 +58,7 @@ export const monthBounds = (month, year) => ({
   to: iso(new Date(year, month, 0)),
 })
 
-export const dayOf = v => (v ? String(v).slice(0, 10) : '')
+export const dayOf = v => v ? manilaDay(v) : ''
 
 // Report tables show the LOCAL calendar day of an instant.
 //
@@ -68,16 +69,18 @@ export const dayOf = v => (v ? String(v).slice(0, 10) : '')
 // formatting it in the display timezone makes the two agree.
 //
 // A bare "YYYY-MM-DD" (a date-only value, or a filter bound) has no time of
-// day, so it is still anchored at midday to keep it on its own calendar date.
+// day, so it is anchored in UTC and formatted explicitly in Manila.
 export const fmtDate = v => {
   if (!v) return '—'
   const raw = String(v)
-  const d = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? new Date(`${raw}T12:00:00`) : new Date(raw)
+  if (/^[A-Za-z]{3} \d{1,2}, \d{4}$/.test(raw)) return raw
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? new Date(`${raw}T00:00:00Z`) : new Date(raw)
   if (Number.isNaN(d.getTime())) return v
   return d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', timeZone: DISPLAY_TIME_ZONE })
 }
 
 export const makeInRange = (from, to) => v => {
+  if (!from && !to) return true
   const day = dayOf(v)
   if (!day) return false
   if (from && day < from) return false
@@ -109,7 +112,8 @@ export const activePresetOf = (from, to) => {
 /** Completed-per-month buckets for the 6 months ending at `endMonth`/`endYear` (defaults to the current month). */
 export const monthlyBuckets = (rows, dateKey, endMonth, endYear) => {
   const months = []
-  const anchor = (endMonth && endYear) ? new Date(endYear, endMonth - 1, 1) : new Date()
+  const current = manilaDay().split('-').map(Number)
+  const anchor = (endMonth && endYear) ? new Date(endYear, endMonth - 1, 1) : new Date(current[0], current[1] - 1, 1)
   for (let i = 5; i >= 0; i--) {
     const d = new Date(anchor)
     d.setMonth(d.getMonth() - i)

@@ -486,7 +486,10 @@ class ManualReportGenerationTest extends TestCase
         // The headline figure must equal the rows where an ALERTING metric is
         // Critical — computed here straight from the table, so a future change
         // to the query cannot quietly widen it again.
-        $expected = SensorReading::where(function ($q) {
+        $expected = SensorReading::whereBetween('created_at', [
+            LocalTime::startOfLocalDay($month->toDateString())->utc(),
+            LocalTime::endOfLocalDay($month->copy()->endOfMonth()->toDateString())->utc(),
+        ])->where(function ($q) {
             $q->where('ammonia_status', 'Critical')
                 ->orWhere('moisture_status', 'Critical');
         })->count();

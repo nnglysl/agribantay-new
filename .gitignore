@@ -7,6 +7,26 @@ vendor/
 .env.*
 !.env.example
 
+# Local assistant settings and credential stores
+.claude/
+.aws/
+.ssh/
+.npmrc
+.pypirc
+auth.json
+credentials.json
+service-account*.json
+service_account*.json
+secrets.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_ed25519
+
 # Build output
 dist/
 build/
@@ -35,8 +55,8 @@ frontend-files/
 # Local deployment helpers and audit notes
 /deploy/
 
-# Database backups — a full dump carries every user row (emails, mobile
-# numbers, password hashes). Once committed it stays in git history forever,
-# so new dumps are never tracked. agribantay_dump.sql and dump_utf8.sql were
-# committed before this rule existed; this does not untrack them.
+# Database backups and local database files
 *.sql
+*.sqlite
+*.sqlite3
+*.db

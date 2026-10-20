@@ -1,3 +1,4 @@
+import { formatDateTime } from '../utils/formatDate'
 import ReportLetterhead from './ReportLetterhead'
 import { styles, Signatures } from './ReportsLayout'
 import { orDash, orCount } from '../utils/reportValue'
@@ -42,6 +43,7 @@ export default function VetGeneratedReportView({ report }) {
         <p style={styles.printSub}>Farm biosecurity and blood test history and records</p>
         <p style={styles.printSub}>Reporting period: {report.period_label}</p>
         <p style={styles.printMeta}>Generated {report.date_generated}</p>
+        {s.coverage && <p style={styles.printMeta}>Data through {formatDateTime(s.coverage.end)} PHT</p>}
       </div>
 
       {activity && (
@@ -59,7 +61,7 @@ export default function VetGeneratedReportView({ report }) {
       )}
 
       <div className="print-section-title">
-        Veterinary summary <span className="print-scope">(all-time, all veterinarians)</span>
+        Veterinary summary <span className="print-scope">({s.reporting_version >= 2 ? 'selected period, all veterinarians' : 'all-time, all veterinarians'})</span>
       </div>
       {hasSummary ? (
         <table className="print-table print-kv">

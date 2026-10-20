@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Models\AlertHistory;
-use App\Models\SensorReading;
 use App\Support\LocalTime;
 use Illuminate\Support\Carbon;
 
@@ -28,28 +27,24 @@ use Illuminate\Support\Carbon;
  */
 class ReadingSummaryService
 {
-    /** Readings arrive about once a minute — see config('sensors'). */
-    private const EXPECTED_READINGS_PER_MINUTE = 1;
-
     /**
      * Daily rows for every device that recorded at this farm, grouped by
      * deployment, newest day first within each.
      *
-     * Devices come from DeploymentHistoryService for the same reason the
-     * chart's do: the rotation moves a unit on after about a week, and the
-     * farm's record of that week must survive the move.
+     * MonitoringDeploymentService resolves individual assignment visits;
+     * repeated visits by the same device must not share a daily aggregate.
      */
     public function forFarm(int $farmId): array
     {
-        $deployments = app(DeploymentHistoryService::class)->forFarm($farmId);
+        $deployments = app(MonitoringDeploymentService::class)->forFarm($farmId);
 
-        return array_values(array_filter(array_map(
+        return array_values(array_map(
             fn (array $deployment) => $this->summariseDeployment($farmId, $deployment),
             $deployments
-        )));
+        ));
     }
 
-    private function summariseDeployment(int $farmId, array $deployment): ?array
+    private function summariseDeployment(int $farmId, array $deployment): array
     {
         $sensorId = $deployment['sensor_id'];
 
@@ -58,9 +53,9 @@ class ReadingSummaryService
         // screen is to never load them.
         $localDay = $this->localDayExpression('created_at');
 
-        $days = SensorReading::query()
-            ->where('farm_id', $farmId)
-            ->where('sensor_id', $sensorId)
+        $start = $deployment['range_start'] ? Carbon::parse($deployment['range_start']) : null;
+        $end = Carbon::parse($deployment['range_end']);
+        $days = app(MonitoringDeploymentService::class)->readings($farmId, $sensorId, $start, $end)
             ->selectRaw("{$localDay} as day")
             ->selectRaw('COUNT(*) as reading_count')
             ->selectRaw('MAX(ammonia) as ammonia_peak, AVG(ammonia) as ammonia_avg')
@@ -78,16 +73,9 @@ class ReadingSummaryService
             ->orderByRaw("{$localDay} DESC")
             ->get();
 
-        if ($days->isEmpty()) {
-            return null;
-        }
+        $alertsByDay = $this->alertCountsByDay($farmId, $sensorId, $start, $end);
 
-        $alertsByDay = $this->alertCountsByDay($farmId, $sensorId);
-
-        $firstAt = Carbon::parse($deployment['first_reading_at']);
-        $lastAt = Carbon::parse($deployment['last_reading_at']);
-
-        $rows = $days->map(function ($day) use ($alertsByDay, $firstAt, $lastAt) {
+        $rows = $days->map(function ($day) use ($alertsByDay) {
             // Local-zoned, so ->startOfDay()/->endOfDay() below bound the
             // Philippine calendar day rather than the UTC one, and
             // ->toDateString() prints the date a reader would call it.
@@ -96,7 +84,6 @@ class ReadingSummaryService
             return [
                 'date' => $date->toDateString(),
                 'reading_count' => (int) $day->reading_count,
-                'uptime_percent' => $this->uptimePercent((int) $day->reading_count, $date, $firstAt, $lastAt),
                 'ammonia_peak' => $this->round($day->ammonia_peak, 1),
                 'ammonia_avg' => $this->round($day->ammonia_avg, 1),
                 'moisture_peak' => $this->round($day->moisture_peak, 0),
@@ -109,26 +96,10 @@ class ReadingSummaryService
             ];
         })->all();
 
-        return [
-            'sensor_id' => $sensorId,
-            'device_name' => $deployment['device_name'],
-            'is_current' => $deployment['is_current'],
-            'first_reading_at' => $deployment['first_reading_at'],
-            'last_reading_at' => $deployment['last_reading_at'],
-            'days_covered' => $deployment['days_covered'],
+        return array_merge($deployment, [
             'total_readings' => $deployment['reading_count'],
-            // The deployment-wide figure the monitoring period is reported
-            // with. Averaging the daily percentages would weight a two-hour
-            // first day the same as a full one, so it is recomputed over the
-            // whole span instead.
-            'uptime_percent' => $this->uptimePercent(
-                $deployment['reading_count'],
-                null,
-                $firstAt,
-                $lastAt
-            ),
             'rows' => $rows,
-        ];
+        ]);
     }
 
     /**
@@ -136,7 +107,7 @@ class ReadingSummaryService
      * from Critical readings. A single incident spans many readings while it
      * stays unresolved; counting rows would report one breach as hundreds.
      */
-    private function alertCountsByDay(int $farmId, int $sensorId): array
+    private function alertCountsByDay(int $farmId, int $sensorId, ?Carbon $start, Carbon $end): array
     {
         // Grouped on the same local day as the readings above, or an alert
         // raised after 4 PM Manila would be counted against the next row.
@@ -145,6 +116,8 @@ class ReadingSummaryService
         return AlertHistory::query()
             ->where('farm_id', $farmId)
             ->where('sensor_id', $sensorId)
+            ->when($start, fn ($query) => $query->where('triggered_at', '>=', $start))
+            ->where('triggered_at', '<', $end)
             ->selectRaw("{$localDay} as day, COUNT(*) as total")
             ->groupByRaw($localDay)
             ->pluck('total', 'day')
@@ -187,41 +160,6 @@ class ReadingSummaryService
         }
 
         return "DATE(DATE_ADD({$column}, INTERVAL {$minutes} MINUTE))";
-    }
-
-    /**
-     * Share of the expected readings that actually arrived.
-     *
-     * Expected is measured against the part of the window the device was
-     * ACTUALLY deployed for, not a flat 1,440 a day: a unit installed at
-     * 2pm did not miss the morning, and charging it for those hours would
-     * report a working device as half broken on its first and last day.
-     *
-     * @param  Carbon|null  $date  the day to measure, or null for the whole span
-     */
-    private function uptimePercent(int $readingCount, ?Carbon $date, Carbon $firstAt, Carbon $lastAt): ?float
-    {
-        if ($date !== null) {
-            $start = $firstAt->greaterThan($date->copy()->startOfDay()) ? $firstAt : $date->copy()->startOfDay();
-            $end = $lastAt->lessThan($date->copy()->endOfDay()) ? $lastAt : $date->copy()->endOfDay();
-        } else {
-            $start = $firstAt;
-            $end = $lastAt;
-        }
-
-        $minutes = $start->diffInMinutes($end);
-
-        // A window shorter than a couple of minutes cannot produce a
-        // meaningful percentage — one reading either way swings it by 50%.
-        if ($minutes < 2) {
-            return null;
-        }
-
-        $expected = $minutes * self::EXPECTED_READINGS_PER_MINUTE;
-
-        // Capped at 100: a device transmitting slightly faster than once a
-        // minute would otherwise report 103% uptime.
-        return round(min(100, $readingCount / $expected * 100), 1);
     }
 
     /**

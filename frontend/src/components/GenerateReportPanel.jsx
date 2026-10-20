@@ -1,3 +1,4 @@
+import { manilaDay } from '../utils/reportPeriod'
 import { useMemo, useState } from 'react'
 import api from '../api/axios'
 import { invalidateCache } from '../hooks/useCachedFetch'
@@ -34,8 +35,7 @@ function toDateString(year, monthIndex, day) {
 }
 
 function todayDateString() {
-  const d = new Date()
-  return toDateString(d.getFullYear(), d.getMonth(), d.getDate())
+  return manilaDay()
 }
 
 /**
@@ -147,8 +147,12 @@ export default function GenerateReportPanel({ basePath = '/admin/generated-repor
   const clamped = useMemo(() => {
     if (!resolved) return null
     const end = resolved.end > maxDay ? maxDay : resolved.end
-    return { ...resolved, end, inProgress: end !== resolved.end }
-  }, [resolved, maxDay])
+    const partial = end !== resolved.end
+    const name = period === 'Monthly' && partial
+      ? `${resolved.name} (${MONTH_LABELS[Number(end.slice(5, 7)) - 1].slice(0, 3)} ${Number(resolved.start.slice(8))}–${Number(end.slice(8))})`
+      : partial ? `${prettyRange(resolved.start, end)} ${period === 'Weekly' ? 'Weekly Report' : 'Report'}` : resolved.name
+    return { ...resolved, name, end, inProgress: partial || end === maxDay }
+  }, [resolved, maxDay, period])
 
   const rangeInvalid = period === 'Custom' && from && to && from > to
 
@@ -168,7 +172,7 @@ export default function GenerateReportPanel({ basePath = '/admin/generated-repor
     setExists(null)
 
     try {
-      await api.post(basePath, {
+      const response = await api.post(basePath, {
         report_name: clamped.name,
         period_start: clamped.start,
         period_end: clamped.end,
@@ -178,7 +182,7 @@ export default function GenerateReportPanel({ basePath = '/admin/generated-repor
       // Only after the server confirms. Invalidating wakes the list beside
       // this panel, so the new row appears without a page reload.
       invalidateCache(basePath)
-      setNotice(`"${clamped.name}" has been generated.`)
+      setNotice(`"${response.data?.data?.report_name || clamped.name}" has been generated.`)
     } catch (err) {
       // 409 is the archive refusing to be overwritten, which is the rule
       // working. Anything else is a genuine failure and keeps the red.

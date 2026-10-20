@@ -7,7 +7,8 @@ import { BACKGROUND_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useOverflowX } from '../../hooks/useOverflowX'
 import { roleBadgeStyle } from '../../utils/roleBadgeStyle'
-import { serviceTypeBadgeStyle } from '../../utils/serviceBadgeStyle'
+import { activityTypeBadgeStyle } from '../../utils/activityTypeBadgeStyle'
+import { Badge } from '../../components/ReportsLayout'
 import { SkeletonTable } from '../../components/Loading'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
@@ -287,9 +288,7 @@ export default function ActivityLogs() {
                       <div style={styles.detailsCell} title={log.details}>{log.details}</div>
                     </td>
                     <td style={styles.td}>
-                      {['Farm Biosecurity', 'Vaccination', 'Blood Test'].includes(log.type) ? (
-                        <span style={{ ...styles.badge, ...serviceTypeBadgeStyle(log.type) }}>{log.type}</span>
-                      ) : log.type}
+                      <Badge text={log.type} dot={false} badgeStyle={activityTypeBadgeStyle(log.type)} />
                     </td>
                   </tr>
                 ))}

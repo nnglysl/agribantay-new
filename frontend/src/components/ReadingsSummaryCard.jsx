@@ -38,7 +38,7 @@ export default function ReadingsSummaryCard({
   isMobile,
 }) {
   const deployments = data?.deployments || []
-  const open = deployments.find(d => d.sensor_id === openSummary) || null
+  const open = deployments.find(d => d.assignment_key === openSummary) || null
 
   return (
     <div style={styles.card}>
@@ -69,27 +69,27 @@ export default function ReadingsSummaryCard({
                 <th style={styles.th}>Monitoring Period</th>
                 <th style={styles.th}>Days</th>
                 <th style={styles.th}>Readings</th>
-                <th style={styles.th}>Uptime</th>
-                <th style={styles.th}></th>
+                <th style={styles.th}>Data Coverage</th>
+                <th style={styles.th}>View</th>
               </tr>
             </thead>
             <tbody>
               {deployments.map(dep => (
-                <tr key={dep.sensor_id}>
+                <tr key={dep.assignment_key}>
                   <td style={styles.td}>
                     <div style={styles.device}>{dep.device_name}</div>
-                    {!dep.is_current && <div style={styles.deviceSub}>Previously installed</div>}
+                    <div style={styles.deviceSub}>{dep.is_current ? 'Currently installed' : 'Previously installed'}</div>
                   </td>
-                  <td style={styles.td}>
-                    {formatDeploymentPeriod(dep.first_reading_at, dep.last_reading_at)}
+                  <td style={styles.td} title={dep.period_note || undefined}>
+                    {formatDeploymentPeriod(dep.assigned_at, dep.unassigned_at, dep.is_current)}
                   </td>
-                  <td style={styles.td}>{dep.days_covered}</td>
+                  <td style={styles.td}>{dep.days_covered ?? '—'}</td>
                   <td style={styles.td}>{dep.total_readings.toLocaleString()}</td>
-                  <td style={styles.td}>
-                    {dep.uptime_percent === null ? '—' : `${dep.uptime_percent}%`}
+                  <td style={styles.td} title={dep.period_note || 'Occupied sampling intervals ÷ expected intervals during this assignment. Duplicate readings in one interval count once.'}>
+                    {dep.data_coverage_percent == null ? '—' : `${dep.data_coverage_percent}%`}
                   </td>
                   <td style={{ ...styles.td, textAlign: 'right' }}>
-                    <button type="button" style={styles.viewBtn} onClick={() => onOpen(dep.sensor_id)}>
+                    <button type="button" style={styles.viewBtn} onClick={() => onOpen(dep.assignment_key)}>
                       View
                     </button>
                   </td>
@@ -104,21 +104,24 @@ export default function ReadingsSummaryCard({
       {!loading && open && (
         <>
           <div style={styles.openMeta}>
-            {formatDeploymentPeriod(open.first_reading_at, open.last_reading_at)}
+            {formatDeploymentPeriod(open.assigned_at, open.unassigned_at, open.is_current)}
             {' · '}{open.total_readings.toLocaleString()} readings
-            {open.uptime_percent !== null && ` · ${open.uptime_percent}% uptime`}
+            {open.data_coverage_percent != null && ` · ${open.data_coverage_percent}% data coverage`}
+            {open.period_note && <div style={{ marginTop: '4px' }}>{open.period_note}</div>}
           </div>
+
+          {open.rows.length === 0 && <div style={styles.empty}>No readings yet for this assignment.</div>}
 
           <TableScroll style={styles.tableWrap}>
             <table style={{ ...styles.table, minWidth: '826px' }}>
               <thead>
                 <tr>
                   <th style={styles.th}>Date</th>
-                  <th style={styles.th}>Ammonia Peak</th>
                   <th style={styles.th}>Ammonia Avg</th>
+                  <th style={styles.th}>Ammonia Peak</th>
+                  <th style={styles.th}>Moisture Avg</th>
                   <th style={styles.th}>Moisture Peak</th>
                   <th style={styles.th}>Readings</th>
-                  <th style={styles.th}>Alerts</th>
                   <th style={styles.th}>Status</th>
                 </tr>
               </thead>
@@ -133,13 +136,11 @@ export default function ReadingsSummaryCard({
                           timeZone: DISPLAY_TIME_ZONE,
                         }) || row.date}
                       </td>
-                      <td style={styles.td}>{formatAmmonia(row.ammonia_peak)}</td>
                       <td style={styles.td}>{formatAmmonia(row.ammonia_avg)}</td>
-                      <td style={styles.td}>
-                        {row.moisture_peak === null ? '—' : `${row.moisture_peak}%`}
-                      </td>
+                      <td style={styles.td}>{formatAmmonia(row.ammonia_peak)}</td>
+                      <td style={styles.td}>{formatMoisture(row.moisture_avg)}</td>
+                      <td style={styles.td}>{formatMoisture(row.moisture_peak)}</td>
                       <td style={styles.td}>{row.reading_count.toLocaleString()}</td>
-                      <td style={styles.td}>{row.alerts_raised}</td>
                       <td style={styles.td}>
                         <span style={{
                           ...styles.pill,
@@ -187,7 +188,10 @@ export default function ReadingsSummaryCard({
 }
 
 const formatAmmonia = value =>
-  value === null ? '—' : `${value}${AMMONIA_UNIT ? ` ${AMMONIA_UNIT}` : ''}`
+  value == null ? '—' : `${value}${AMMONIA_UNIT ? ` ${AMMONIA_UNIT}` : ''}`
+
+const formatMoisture = value =>
+  value == null ? '—' : `${value}%`
 
 const SANS = "'Inter', sans-serif"
 
