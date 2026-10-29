@@ -1,3 +1,4 @@
+import TableScroll from '../../components/TableScroll'
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import VetLayout from '../../components/VetLayout'
@@ -5,7 +6,6 @@ import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { BACKGROUND_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
-import { useOverflowX } from '../../hooks/useOverflowX'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { BARANGAYS } from '../../constants/barangays'
 import { SkeletonTable } from '../../components/Loading'
@@ -24,7 +24,6 @@ export default function VetFarms() {
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const isMobile = useIsMobile()
-  const [tableScrollRef, tableOverflows] = useOverflowX()
 
   const [barangayFilter, setBarangayFilter] = useState('')
   const [sizeFilter, setSizeFilter] = useState('')
@@ -100,14 +99,14 @@ export default function VetFarms() {
         All Registered Farms and Owners
       </p>
 
-      <div className="no-print" style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
-        <div style={styles.searchWrap}>
+      <div className="no-print agb-search-filter-row" style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
+        <div className="agb-search-field" style={styles.searchWrap}>
           <svg style={styles.searchIcon} width="16" height="16" viewBox="0 0 24 24" fill="none">
             <circle cx="11" cy="11" r="7" stroke="#9aa79d" strokeWidth="2" />
             <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="#9aa79d" strokeWidth="2" strokeLinecap="round" />
           </svg>
-          <input
-            placeholder="Search farm, owner, or barangay..."
+          <input aria-label="Search farm, owner, or barangay"
+            placeholder={isMobile ? 'Search...' : "Search farm, owner, or barangay..."}
             value={search}
             onChange={e => setSearch(e.target.value)}
             style={styles.searchInput}
@@ -119,8 +118,8 @@ export default function VetFarms() {
           )}
         </div>
 
-        <div style={styles.filterAnchor} ref={filterRef}>
-          <button
+        <div className="agb-search-filter-anchor" style={styles.filterAnchor} ref={filterRef}>
+          <button aria-expanded={filterOpen} className="agb-search-filter-button"
             type="button"
             onClick={() => (filterOpen ? setFilterOpen(false) : openFilter())}
             style={{ ...styles.filterBtn, ...(activeFilterCount > 0 ? styles.filterBtnActive : {}) }}
@@ -165,10 +164,7 @@ export default function VetFarms() {
 
       {!loading && !error && (
         <div style={styles.tableCard}>
-          {tableOverflows && allFarms.length > 0 && (
-            <p style={styles.scrollHint}>{isMobile ? 'Swipe' : 'Scroll'} left/right to see all columns →</p>
-          )}
-          <div ref={tableScrollRef} style={styles.tableScroll}>
+          <TableScroll style={styles.tableScroll}>
             <table style={{ ...styles.table, ...styles.tableMinWidth }}>
               <thead>
                 <tr>
@@ -178,7 +174,7 @@ export default function VetFarms() {
                   <th style={styles.th}>Email</th>
                   <th style={styles.th}>Barangay</th>
                   <th style={styles.th}>Farm Size</th>
-                  <th style={{ ...styles.th, textAlign: 'right' }}>Action</th>
+                  <th className="agb-table-actions-cell" style={{ ...styles.th, textAlign: 'right' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -201,14 +197,14 @@ export default function VetFarms() {
                     <td style={styles.td}>{f.email || '—'}</td>
                     <td style={styles.td}>{f.barangay}</td>
                     <td style={styles.td}>{f.farm_size || '—'}</td>
-                    <td style={{ ...styles.td, textAlign: 'right' }}>
-                      <span style={styles.viewBtn} onClick={() => navigate(`/vet/farms/${f.id}`)}>View</span>
+                    <td className="agb-table-actions-cell" style={{ ...styles.td, textAlign: 'right' }}>
+                      <span className="agb-table-action" style={styles.viewBtn} onClick={() => navigate(`/vet/farms/${f.id}`)}>View</span>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
           {allFarms.length === 0 && (
             <div style={styles.empty}>
               {search || barangayFilter || sizeFilter
@@ -241,13 +237,13 @@ function Pagination({
   rangeStart, rangeEnd, totalItems, isMobile,
 }) {
   return (
-    <div className="no-print" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+    <div className="no-print agb-table-footer" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
       <div style={paginationStyles.info}>
         {totalItems === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
       </div>
 
-      <div style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
-        <select value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
+      <div className="agb-table-footer-controls" style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
+        <select aria-label="Rows per page" value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
           {PAGE_SIZE_OPTIONS.map(size => (
             <option key={size} value={size}>{size} / page</option>
           ))}

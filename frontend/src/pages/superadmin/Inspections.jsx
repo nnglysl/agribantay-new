@@ -1,3 +1,5 @@
+import ScrollableTabs from '../../components/ScrollableTabs'
+import TableScroll from '../../components/TableScroll'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
@@ -6,7 +8,6 @@ import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButt
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { LIVE_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
-import { useOverflowX } from '../../hooks/useOverflowX'
 import { useMonthFilter, filterByMonth } from '../../hooks/useMonthFilter'
 import { formatDate, formatDateTime, parseLocalDate, DISPLAY_TIME_ZONE } from '../../utils/formatDate'
 import { viewModalStyles as v } from '../../styles/viewModalStyles'
@@ -269,9 +270,9 @@ export default function SuperAdminInspections() {
       </div>
 
       <div style={{ ...styles.tabsRow, ...(isMobile ? styles.tabsRowMobile : {}) }}>
-        <div style={styles.tabs}>
+        <ScrollableTabs style={styles.tabs} isMobile={isMobile} label="Inspection tabs">
           {['calendar', 'scheduled', 'overdue', 'completed', 'history'].map(t => (
-            <div
+            <div className="agb-ui-tab"
               key={t}
               style={{ ...styles.tab, ...(tab === t ? styles.tabActive : {}) }}
               onClick={() => setTab(t)}
@@ -279,17 +280,17 @@ export default function SuperAdminInspections() {
               {t.charAt(0).toUpperCase() + t.slice(1)}
             </div>
           ))}
-        </div>
+        </ScrollableTabs>
 
         {tab !== 'calendar' && (
-          <div style={{ ...styles.toolbarRight, ...(isMobile ? styles.toolbarRightMobile : {}) }}>
-            <div style={styles.searchWrap}>
+          <div className="agb-search-filter-row" style={{ ...styles.toolbarRight, ...(isMobile ? styles.toolbarRightMobile : {}) }}>
+            <div className="agb-search-field" style={styles.searchWrap}>
               <svg style={styles.searchIcon} width="15" height="15" viewBox="0 0 24 24" fill="none">
                 <circle cx="11" cy="11" r="7" stroke="#9aa79d" strokeWidth="2" />
                 <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="#9aa79d" strokeWidth="2" strokeLinecap="round" />
               </svg>
-              <input
-                placeholder="Search farm, type, or scheduled by..."
+              <input aria-label="Search farm, type, or scheduled by"
+                placeholder={isMobile ? 'Search...' : "Search farm, type, or scheduled by..."}
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 style={styles.searchInput}
@@ -301,8 +302,8 @@ export default function SuperAdminInspections() {
               )}
             </div>
 
-            <div style={styles.filterAnchor} ref={filterRef}>
-              <button
+            <div className="agb-search-filter-anchor" style={styles.filterAnchor} ref={filterRef}>
+              <button aria-expanded={filterOpen} className="agb-search-filter-button"
                 type="button"
                 onClick={() => (filterOpen ? setFilterOpen(false) : openFilter())}
                 style={{ ...styles.filterBtn, ...(activeFilterCount > 0 ? styles.filterBtnActive : {}) }}
@@ -606,7 +607,7 @@ const HISTORY_COLUMNS = [
 ]
 
 function InspectionTable({ list, columns, actionLabel, onView, isMobile, emptyText }) {
-  const [tableScrollRef, tableOverflows] = useOverflowX()
+
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
 
@@ -623,27 +624,26 @@ function InspectionTable({ list, columns, actionLabel, onView, isMobile, emptyTe
 
   return (
     <div style={styles.tableCard}>
-      {tableOverflows && <p style={styles.scrollHint}>{isMobile ? 'Swipe' : 'Scroll'} left/right to see all columns →</p>}
-      <div ref={tableScrollRef} style={styles.tableScroll}>
+      <TableScroll style={styles.tableScroll}>
         <table style={{ ...styles.table, ...styles.tableMinWidth }}>
           <thead>
             <tr>
               {columns.map(c => <th key={c.header} style={styles.th}>{c.header}</th>)}
-              <th style={{ ...styles.th, textAlign: 'right' }}>Action</th>
+              <th className="agb-table-actions-cell" style={{ ...styles.th, textAlign: 'right' }}>Action</th>
             </tr>
           </thead>
           <tbody>
             {paginated.map(i => (
               <tr key={i.id}>
                 {columns.map(c => <td key={c.header} style={styles.td}>{c.render(i)}</td>)}
-                <td style={{ ...styles.td, textAlign: 'right' }}>
-                  <span style={{ ...styles.actionBtn, ...styles.viewLink }} onClick={() => onView(i)}>{actionLabel}</span>
+                <td className="agb-table-actions-cell" style={{ ...styles.td, textAlign: 'right' }}>
+                  <span className="agb-table-action" style={{ ...styles.actionBtn, ...styles.viewLink }} onClick={() => onView(i)}>{actionLabel}</span>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
+      </TableScroll>
 
       <Pagination
         currentPage={currentPage}
@@ -662,12 +662,12 @@ function InspectionTable({ list, columns, actionLabel, onView, isMobile, emptyTe
 
 function Pagination({ currentPage, totalPages, pageSize, onPageChange, onPageSizeChange, rangeStart, rangeEnd, totalItems, isMobile }) {
   return (
-    <div className="no-print" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+    <div className="no-print agb-table-footer" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
       <div style={paginationStyles.info}>
         {totalItems === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
       </div>
-      <div style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
-        <select value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
+      <div className="agb-table-footer-controls" style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
+        <select aria-label="Rows per page" value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
           {PAGE_SIZE_OPTIONS.map(size => <option key={size} value={size}>{size} / page</option>)}
         </select>
         <SharedPagination currentPage={currentPage} totalPages={totalPages} onPageChange={onPageChange} isMobile={isMobile} />

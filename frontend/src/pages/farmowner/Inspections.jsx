@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import FarmerLayout from '../../components/FarmerLayout'
 import TableScroll from '../../components/TableScroll'
+import ScrollableTabs from '../../components/ScrollableTabs'
 import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { LIVE_POLL_MS } from '../../constants/polling'
@@ -125,7 +126,7 @@ export default function Inspections() {
       </p>
 
       <div style={styles.tabsRow}>
-        <div className="insp-tabs" style={{ marginBottom: 0, borderBottom: 'none', flex: 1 }}>
+        <ScrollableTabs className="insp-tabs" style={{ marginBottom: 0, borderBottom: 'none', flex: 1 }} containerStyle={{ flex: '1 1 auto', width: 'max-content' }} isMobile={isMobile} label="Inspection tabs">
         <button
           className={`insp-tab-btn ${activeTab === 'upcoming' ? 'active' : ''}`}
           onClick={() => setActiveTab('upcoming')}
@@ -138,7 +139,7 @@ export default function Inspections() {
         >
           Past Inspections
         </button>
-        </div>
+        </ScrollableTabs>
 
         <FilterPopover activeCount={activeFilterCount} onOpen={openFilter} onReset={resetFilter} onApply={applyFilter} isMobile={isMobile}>
           <DateRangeHeader>
@@ -170,7 +171,7 @@ export default function Inspections() {
                     <th style={styles.th}>Type</th>
                     <th style={styles.th}>Scheduled Date</th>
                     <th style={styles.th}>Status</th>
-                    <th style={{ ...styles.th, textAlign: 'right' }}>Action</th>
+                    <th className="agb-table-actions-cell" style={{ ...styles.th, textAlign: 'right' }}>Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -182,20 +183,20 @@ export default function Inspections() {
                       <td style={styles.td}>
                         <span style={{ ...styles.badge, ...statusBadgeStyle(i.status) }}>{i.status}</span>
                       </td>
-                      <td style={{ ...styles.td, textAlign: 'right' }}>
-                        <span style={styles.viewBtn} onClick={() => setViewInspection(i)}>View</span>
+                      <td className="agb-table-actions-cell" style={{ ...styles.td, textAlign: 'right' }}>
+                        <span className="agb-table-action" style={styles.viewBtn} onClick={() => setViewInspection(i)}>View</span>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </TableScroll>
-            <div className="insp-pagination">
+            <div className="insp-pagination agb-table-footer">
               <span style={styles.paginationText}>
                 Showing 1–{list.length} of {list.length}
               </span>
-              <div style={styles.pagerBtns}>
-                <select value={RECENT_LIMIT} disabled style={styles.pageSizeSelect}>
+              <div className="agb-table-footer-controls" style={styles.pagerBtns}>
+                <select aria-label="Rows per page" value={RECENT_LIMIT} disabled style={styles.pageSizeSelect}>
                   <option value={RECENT_LIMIT}>{RECENT_LIMIT} / page</option>
                 </select>
                 <SharedPagination currentPage={1} totalPages={1} onPageChange={() => {}} />

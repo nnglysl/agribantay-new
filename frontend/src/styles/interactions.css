@@ -1,0 +1,12 @@
+/* Dashboard controls keep their existing colors, size, radius and spacing. */
+.agb-dashboard :where(button, .agb-table-action, .agb-ui-tab):not(:disabled):not([aria-disabled='true']):not(.agb-dropdown-option):not(.agb-dropdown-trigger):not(.agb-search-filter-button):not(.rp-tab):is(:hover, :active) {
+  filter: brightness(0.96);
+}
+.agb-dashboard :where(button, .agb-table-action, .agb-ui-tab):not(:disabled):not([aria-disabled='true']):not(.agb-dropdown-option):not(.agb-dropdown-trigger):focus-visible {
+  outline: 2px solid #2c8047 !important;
+  outline-offset: 2px;
+}
+
+/* Existing navigation already supplies its own hover color and icon gap. */
+.agb-nav-item:focus-visible,
+.agb-logout:focus-visible { outline: 2px solid #7cc795; outline-offset: -2px; }

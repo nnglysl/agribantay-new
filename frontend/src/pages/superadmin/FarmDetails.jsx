@@ -1,3 +1,4 @@
+import ScrollableTabs from '../../components/ScrollableTabs'
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
@@ -101,28 +102,7 @@ function PhotoIcon() {
   )
 }
 
-const responsiveCss = `
-  .material-symbols-outlined {
-    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
-  }
-`
-
-function useMaterialSymbolsFont() {
-  useMemo(() => {
-    if (typeof document === 'undefined') return
-    const id = 'material-symbols-outlined-font'
-    if (document.getElementById(id)) return
-    const link = document.createElement('link')
-    link.id = id
-    link.rel = 'stylesheet'
-    link.href = 'https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200'
-    document.head.appendChild(link)
-  }, [])
-}
-
 export default function SuperAdminFarmDetails() {
-  useMaterialSymbolsFont()
-
   const { farmId } = useParams()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -615,8 +595,6 @@ export default function SuperAdminFarmDetails() {
 
   return (
     <AdminLayout>
-      <style>{responsiveCss}</style>
-
       <button type="button" style={styles.backBtn} onClick={() => navigate('/superadmin/farms')}>
         ← Back
       </button>
@@ -653,7 +631,7 @@ export default function SuperAdminFarmDetails() {
         </div>
       </div>
 
-      <div style={styles.tabsRow}>
+      <ScrollableTabs style={{ ...styles.tabsRow, marginBottom: 0 }} containerStyle={{ marginBottom: styles.tabsRow.marginBottom }} isMobile={isMobile} label="Farm detail tabs">
         {TABS.map(t => (
           <button
             key={t.key}
@@ -663,7 +641,7 @@ export default function SuperAdminFarmDetails() {
             {t.label}
           </button>
         ))}
-      </div>
+      </ScrollableTabs>
 
       {activeTab === 'info' && (
         <div style={{ ...styles.infoColumns, ...(isMobile ? styles.infoColumnsMobile : {}) }}>
@@ -1017,7 +995,7 @@ export default function SuperAdminFarmDetails() {
                         Date {cleanoutSort === 'asc' ? '▲' : '▼'}
                       </th>
                       <th style={tableStyles.th}>Notes</th>
-                      <th style={{ ...tableStyles.th, textAlign: 'right' }}>Action</th>
+                      <th className="agb-table-actions-cell" style={{ ...tableStyles.th, textAlign: 'right' }}>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1025,8 +1003,8 @@ export default function SuperAdminFarmDetails() {
                       <tr key={log.id}>
                         <td style={tableStyles.td}>{log.performed_at}</td>
                         <td style={tableStyles.td}><span style={tableStyles.truncate}>{log.notes || '—'}</span></td>
-                        <td style={{ ...tableStyles.td, textAlign: 'right' }}>
-                          <span style={tableStyles.viewLink} onClick={() => setCleanoutViewLog(log)}>View</span>
+                        <td className="agb-table-actions-cell" style={{ ...tableStyles.td, textAlign: 'right' }}>
+                          <span className="agb-table-action" style={tableStyles.viewLink} onClick={() => setCleanoutViewLog(log)}>View</span>
                         </td>
                       </tr>
                     ))}
@@ -1101,7 +1079,7 @@ export default function SuperAdminFarmDetails() {
                       <th style={{ ...tableStyles.th, ...tableStyles.thSortable }} onClick={() => toggleDisposalSort('quantity')}>
                         Quantity {disposalSort.field === 'quantity' && (disposalSort.dir === 'asc' ? '▲' : '▼')}
                       </th>
-                      <th style={{ ...tableStyles.th, textAlign: 'right' }}>Action</th>
+                      <th className="agb-table-actions-cell" style={{ ...tableStyles.th, textAlign: 'right' }}>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1111,8 +1089,8 @@ export default function SuperAdminFarmDetails() {
                         <td style={tableStyles.td}>{r.disposal_method}</td>
                         <td style={tableStyles.td}>{r.buyer_name || '—'}</td>
                         <td style={tableStyles.td}>{r.quantity} kg</td>
-                        <td style={{ ...tableStyles.td, textAlign: 'right' }}>
-                          <span style={tableStyles.viewLink} onClick={() => setDisposalViewRecord(r)}>View</span>
+                        <td className="agb-table-actions-cell" style={{ ...tableStyles.td, textAlign: 'right' }}>
+                          <span className="agb-table-action" style={tableStyles.viewLink} onClick={() => setDisposalViewRecord(r)}>View</span>
                         </td>
                       </tr>
                     ))}
@@ -1187,7 +1165,7 @@ export default function SuperAdminFarmDetails() {
                         Date {inspectionSort.field === 'date' && (inspectionSort.dir === 'asc' ? '▲' : '▼')}
                       </th>
                       <th style={tableStyles.th}>Scheduled By</th>
-                      <th style={{ ...tableStyles.th, textAlign: 'right' }}>Action</th>
+                      <th className="agb-table-actions-cell" style={{ ...tableStyles.th, textAlign: 'right' }}>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1207,8 +1185,8 @@ export default function SuperAdminFarmDetails() {
                           {/* The Staff account stored on the record. Dash for rows
                               created before scheduled_by existed. */}
                           <td style={tableStyles.td}>{i.scheduled_by_name || '—'}</td>
-                          <td style={{ ...tableStyles.td, textAlign: 'right' }}>
-                            <span style={tableStyles.viewLink} onClick={() => setInspectionViewRecord(i)}>View</span>
+                          <td className="agb-table-actions-cell" style={{ ...tableStyles.td, textAlign: 'right' }}>
+                            <span className="agb-table-action" style={tableStyles.viewLink} onClick={() => setInspectionViewRecord(i)}>View</span>
                           </td>
                         </tr>
                       )
@@ -1281,7 +1259,7 @@ export default function SuperAdminFarmDetails() {
                       <th style={tableStyles.th}>Status</th>
                       <th style={tableStyles.th}>Accepted By</th>
                       <th style={tableStyles.th}>Date Completed</th>
-                      <th style={{ ...tableStyles.th, textAlign: 'right' }}>Action</th>
+                      <th className="agb-table-actions-cell" style={{ ...tableStyles.th, textAlign: 'right' }}>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1299,8 +1277,8 @@ export default function SuperAdminFarmDetails() {
                           </td>
                           <td style={tableStyles.td}>{r.accepted_by || '—'}</td>
                           <td style={tableStyles.td}>{r.completed_at || '—'}</td>
-                          <td style={{ ...tableStyles.td, textAlign: 'right' }}>
-                            <span style={tableStyles.viewLink} onClick={() => setServiceRequestViewRecord(r)}>View</span>
+                          <td className="agb-table-actions-cell" style={{ ...tableStyles.td, textAlign: 'right' }}>
+                            <span className="agb-table-action" style={tableStyles.viewLink} onClick={() => setServiceRequestViewRecord(r)}>View</span>
                           </td>
                         </tr>
                       )
@@ -1597,12 +1575,12 @@ function Pagination({ currentPage, lastPage, pageSize, total, onPageChange, onPa
   const rangeEnd = Math.min(currentPage * pageSize, total)
 
   return (
-    <div className="no-print" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+    <div className="no-print agb-table-footer" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
       <div style={paginationStyles.info}>
         {total === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${total}`}
       </div>
-      <div style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
-        <select value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
+      <div className="agb-table-footer-controls" style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
+        <select aria-label="Rows per page" value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
           {PAGE_SIZE_OPTIONS.map(size => <option key={size} value={size}>{size} / page</option>)}
         </select>
         <SharedPagination currentPage={currentPage} totalPages={lastPage} onPageChange={onPageChange} isMobile={isMobile} />

@@ -1,3 +1,6 @@
+import DropdownList from '../../components/DropdownList'
+import TableScroll from '../../components/TableScroll'
+import ScrollableTabs from '../../components/ScrollableTabs'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import api from '../../api/axios'
@@ -8,7 +11,6 @@ import { useCachedFetch, invalidateCache } from '../../hooks/useCachedFetch'
 import { getUser } from '../../utils/auth'
 import { LIVE_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
-import { useOverflowX } from '../../hooks/useOverflowX'
 import { useMonthFilter } from '../../hooks/useMonthFilter'
 import { formatDate, formatDateTime, parseLocalDate, DISPLAY_TIME_ZONE } from '../../utils/formatDate'
 import { viewModalStyles as v } from '../../styles/viewModalStyles'
@@ -61,6 +63,14 @@ function displayStatus(i) {
   return isOverdue(i) ? 'Overdue' : i.status
 }
 
+function matchesInspectionSearch(inspection, search) {
+  const query = search.trim().toLowerCase()
+  return !query || [
+    inspection.inspection_number, inspection.farm_name, inspection.owner_name,
+    inspection.inspection_type, responsibleStaff(inspection), displayStatus(inspection),
+  ].some(value => String(value ?? '').toLowerCase().includes(query))
+}
+
 export default function Inspections() {
   const [searchParams, setSearchParams] = useSearchParams()
   // Read once per render from the stored session, the same way Service
@@ -69,6 +79,7 @@ export default function Inspections() {
   const currentUserId = getUser()?.id ?? null
 
   const [tab, setTab] = useState('schedule')
+  const [search, setSearch] = useState('')
   const { month: viewDate, setMonth: setViewDate, prevMonth, nextMonth } = useMonthFilter()
   const [modalDate, setModalDate] = useState(null)
   const [prefillFarm, setPrefillFarm] = useState(null)
@@ -260,9 +271,9 @@ export default function Inspections() {
       </div>
 
       <div className="no-print" style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
-        <div style={styles.tabs}>
+        <ScrollableTabs style={styles.tabs} isMobile={isMobile}>
           {['schedule', 'scheduled', 'overdue', 'completed', 'history'].map(t => (
-            <div
+            <div className="agb-ui-tab"
               key={t}
               style={{ ...styles.tab, ...(tab === t ? styles.tabActive : {}) }}
               onClick={() => setTab(t)}
@@ -270,52 +281,72 @@ export default function Inspections() {
               {t.charAt(0).toUpperCase() + t.slice(1)}
             </div>
           ))}
-        </div>
-
-        <div style={styles.filterAnchor} ref={filterRef}>
-          <button
-            type="button"
-            onClick={() => (filterOpen ? setFilterOpen(false) : setFilterOpen(true))}
-            style={{ ...styles.filterBtn, ...(activeFilterCount > 0 ? styles.filterBtnActive : {}) }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-              <path d="M4 5h16l-6 8v6l-4-2v-4L4 5z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-            </svg>
-            Filter
-            {activeFilterCount > 0 && <span style={styles.filterCount}>{activeFilterCount}</span>}
-          </button>
-
-          {filterOpen && (
-            <div style={{ ...styles.filterPanel, ...(isMobile ? styles.filterPanelMobile : {}) }}>
-              <div style={styles.filterPanelHeader}>
-                <span style={styles.filterPanelTitle}>Filter</span>
-                <span style={styles.filterPanelClose} onClick={() => setFilterOpen(false)}>×</span>
-              </div>
-
-              <DateRangeHeader>
-                <label style={styles.filterLabel}>From</label>
-                <ClearDateButton visible={hasDate} onClick={clearDates} />
-              </DateRangeHeader>
-              <input type="date" value={draftFromDate} onChange={e => setDraftFromDate(e.target.value)} style={styles.filterSelect} />
-
-              <label style={styles.filterLabel}>To</label>
-              <input type="date" value={draftToDate} onChange={e => setDraftToDate(e.target.value)} style={styles.filterSelect} />
-
-              <label style={styles.filterLabel}>Inspection Type</label>
-              <select value={draftType} onChange={e => setDraftType(e.target.value)} style={styles.filterSelect}>
-                <option value="">All Types</option>
-                <option value="General Inspection">General Inspection</option>
-                <option value="Follow-up">Follow-up Inspection</option>
-              </select>
-
-              <div style={styles.filterActions}>
-                <button type="button" onClick={showAllFilter} style={styles.filterResetBtn}>Show all</button>
-                <button type="button" onClick={applyFilter} style={styles.filterApplyBtn}>Apply</button>
-              </div>
-            </div>
-          )}
-        </div>
+        </ScrollableTabs>
       </div>
+
+      {tab !== 'schedule' && (
+        <div className="no-print agb-search-filter-row" style={styles.listToolbar}>
+          <div className="agb-search-field" style={styles.searchWrap}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <circle cx="11" cy="11" r="7" stroke="#9aa79d" strokeWidth="2" />
+              <path d="M20 20l-3.5-3.5" stroke="#9aa79d" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+            <input
+              aria-label="Search inspections"
+              placeholder={isMobile ? 'Search...' : 'Search inspections, farm, or staff...'}
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+            {search && (
+              <button type="button" style={styles.clearSearchBtn} onClick={() => setSearch('')} aria-label="Clear search">&times;</button>
+            )}
+          </div>
+
+          <div className="agb-search-filter-anchor" style={styles.filterAnchor} ref={filterRef}>
+            <button className="agb-search-filter-button" aria-expanded={filterOpen}
+              type="button"
+              onClick={() => (filterOpen ? setFilterOpen(false) : setFilterOpen(true))}
+              style={{ ...styles.filterBtn, ...(activeFilterCount > 0 ? styles.filterBtnActive : {}) }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                <path d="M4 5h16l-6 8v6l-4-2v-4L4 5z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+              </svg>
+              Filter
+              {activeFilterCount > 0 && <span style={styles.filterCount}>{activeFilterCount}</span>}
+            </button>
+
+            {filterOpen && (
+              <div style={{ ...styles.filterPanel, ...(isMobile ? styles.filterPanelMobile : {}) }}>
+                <div style={styles.filterPanelHeader}>
+                  <span style={styles.filterPanelTitle}>Filter</span>
+                  <span style={styles.filterPanelClose} onClick={() => setFilterOpen(false)}>×</span>
+                </div>
+
+                <DateRangeHeader>
+                  <label style={styles.filterLabel}>From</label>
+                  <ClearDateButton visible={hasDate} onClick={clearDates} />
+                </DateRangeHeader>
+                <input type="date" value={draftFromDate} onChange={e => setDraftFromDate(e.target.value)} style={styles.filterSelect} />
+
+                <label style={styles.filterLabel}>To</label>
+                <input type="date" value={draftToDate} onChange={e => setDraftToDate(e.target.value)} style={styles.filterSelect} />
+
+                <label style={styles.filterLabel}>Inspection Type</label>
+                <select value={draftType} onChange={e => setDraftType(e.target.value)} style={styles.filterSelect}>
+                  <option value="">All Types</option>
+                  <option value="General Inspection">General Inspection</option>
+                  <option value="Follow-up">Follow-up Inspection</option>
+                </select>
+
+                <div style={styles.filterActions}>
+                  <button type="button" onClick={showAllFilter} style={styles.filterResetBtn}>Show all</button>
+                  <button type="button" onClick={applyFilter} style={styles.filterApplyBtn}>Apply</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {tab === 'schedule' && prefillFarm && !modalDate && (
         <div style={styles.criticalBanner}>
@@ -344,7 +375,7 @@ export default function Inspections() {
 
       {!loading && !error && tab === 'scheduled' && (
         <InspectionList
-          list={scheduled}
+          list={scheduled.filter(i => matchesInspectionSearch(i, search))}
           statusColor={statusColor}
           onCancel={handleCancel}
           onComplete={setCompleteInspection}
@@ -355,7 +386,7 @@ export default function Inspections() {
 
       {!loading && !error && tab === 'overdue' && (
         <InspectionList
-          list={overdue}
+          list={overdue.filter(i => matchesInspectionSearch(i, search))}
           statusColor={statusColor}
           onCancel={handleCancel}
           onComplete={setCompleteInspection}
@@ -365,12 +396,12 @@ export default function Inspections() {
       )}
 
       {!loading && !error && tab === 'completed' && (
-        <InspectionList list={completed} statusColor={statusColor} onView={setViewInspection} isMobile={isMobile} />
+        <InspectionList list={completed.filter(i => matchesInspectionSearch(i, search))} statusColor={statusColor} onView={setViewInspection} isMobile={isMobile} />
       )}
 
       {!loading && !error && tab === 'history' && (
         <InspectionList
-          list={history}
+          list={history.filter(i => matchesInspectionSearch(i, search))}
           statusColor={statusColor}
           onView={setViewInspection}
           isMobile={isMobile}
@@ -539,7 +570,7 @@ function badgeBg(status) {
 }
 
 function InspectionList({ list, statusColor, onCancel, onComplete, onReschedule, onView, isMobile }) {
-  const [tableScrollRef, tableOverflows] = useOverflowX()
+
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
 
@@ -555,26 +586,25 @@ function InspectionList({ list, statusColor, onCancel, onComplete, onReschedule,
   const rangeEnd = Math.min(currentPage * pageSize, totalItems)
 
   const rowActions = (i) => (
-    <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+    <div className="agb-table-actions" style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
       {onView && (
-        <span style={{ ...styles.actionBtn, ...styles.viewLink }} onClick={() => onView(i)}>View</span>
+        <span className="agb-table-action" style={{ ...styles.actionBtn, ...styles.viewLink }} onClick={() => onView(i)}>View</span>
       )}
       {i.status === 'Scheduled' && onComplete && (
-        <span style={{ ...styles.actionBtn, ...styles.completeLink }} onClick={() => onComplete(i)}>Complete</span>
+        <span className="agb-table-action" style={{ ...styles.actionBtn, ...styles.completeLink }} onClick={() => onComplete(i)}>Complete</span>
       )}
       {i.status === 'Scheduled' && onReschedule && (
-        <span style={{ ...styles.actionBtn, ...styles.rescheduleLink }} onClick={() => onReschedule(i)}>Reschedule</span>
+        <span className="agb-table-action" style={{ ...styles.actionBtn, ...styles.rescheduleLink }} onClick={() => onReschedule(i)}>Reschedule</span>
       )}
       {i.status === 'Scheduled' && onCancel && (
-        <span style={{ ...styles.actionBtn, ...styles.cancelLink }} onClick={() => onCancel(i)}>Cancel</span>
+        <span className="agb-table-action" style={{ ...styles.actionBtn, ...styles.cancelLink }} onClick={() => onCancel(i)}>Cancel</span>
       )}
     </div>
   )
 
   return (
     <div style={styles.tableCard}>
-      {tableOverflows && <p style={styles.scrollHint}>{isMobile ? 'Swipe' : 'Scroll'} left/right to see all columns →</p>}
-      <div ref={tableScrollRef} style={styles.tableScroll}>
+      <TableScroll style={styles.tableScroll}>
         <table style={{ ...styles.table, ...styles.tableMinWidth }}>
           <thead>
             <tr>
@@ -585,7 +615,7 @@ function InspectionList({ list, statusColor, onCancel, onComplete, onReschedule,
               <th style={styles.th}>Type</th>
               <th style={styles.th}>Staff</th>
               <th style={styles.th}>Status</th>
-              <th style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
+              <th className="agb-table-actions-cell" style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -609,13 +639,13 @@ function InspectionList({ list, statusColor, onCancel, onComplete, onReschedule,
                       {displayStatus(i)}
                     </span>
                   </td>
-                  <td style={styles.td}>{rowActions(i)}</td>
+                  <td className="agb-table-actions-cell" style={styles.td}>{rowActions(i)}</td>
                 </tr>
               )
             })}
           </tbody>
         </table>
-      </div>
+      </TableScroll>
 
       <Pagination
         currentPage={currentPage}
@@ -634,12 +664,12 @@ function InspectionList({ list, statusColor, onCancel, onComplete, onReschedule,
 
 function Pagination({ currentPage, totalPages, pageSize, onPageChange, onPageSizeChange, rangeStart, rangeEnd, totalItems, isMobile }) {
   return (
-    <div className="no-print" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+    <div className="no-print agb-table-footer" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
       <div style={paginationStyles.info}>
         {totalItems === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
       </div>
-      <div style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
-        <select value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
+      <div className="agb-table-footer-controls" style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
+        <select aria-label="Rows per page" value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
           {PAGE_SIZE_OPTIONS.map(size => <option key={size} value={size}>{size} / page</option>)}
         </select>
         <SharedPagination currentPage={currentPage} totalPages={totalPages} onPageChange={onPageChange} isMobile={isMobile} />
@@ -977,7 +1007,7 @@ function ScheduleModal({ date, farms, prefillFarm, onClose, onSuccess, isMobile,
 
           <label style={modalStyles.label}>Farm *</label>
           <div style={{ position: 'relative' }}>
-            <input
+            <input className="agb-dropdown-trigger" data-selected={Boolean(farmId)} aria-label="Search farms for inspection" title={farmSearch}
               type="text"
               placeholder="Search by farm or owner name..."
               value={farmSearch}
@@ -990,9 +1020,9 @@ function ScheduleModal({ date, farms, prefillFarm, onClose, onSuccess, isMobile,
               style={modalStyles.input}
             />
             {showFarmList && (
-              <div style={modalStyles.dropdownList}>
+              <DropdownList role="group" aria-label="Farm choices" style={modalStyles.dropdownList}>
                 {filteredFarms.map(f => (
-                  <div
+                  <button className="agb-dropdown-option" type="button"
                     key={f.id}
                     style={modalStyles.dropdownItem}
                     onClick={() => {
@@ -1002,7 +1032,7 @@ function ScheduleModal({ date, farms, prefillFarm, onClose, onSuccess, isMobile,
                     }}
                   >
                     {f.farm_name} — {f.owner_name}
-                  </div>
+                  </button>
                 ))}
                 {filteredFarms.length === 0 && (
                   <div style={modalStyles.dropdownEmpty}>
@@ -1011,7 +1041,7 @@ function ScheduleModal({ date, farms, prefillFarm, onClose, onSuccess, isMobile,
                       : 'No farms match your search.'}
                   </div>
                 )}
-              </div>
+              </DropdownList>
             )}
           </div>
 
@@ -1252,6 +1282,9 @@ const styles = {
     gap: '14px', marginBottom: '18px', borderBottom: '1px solid #e7e8e0', flexWrap: 'wrap',
   },
   toolbarMobile: { flexDirection: 'column', flexWrap: 'nowrap', alignItems: 'stretch', gap: '12px' },
+  listToolbar: { marginBottom: '18px' },
+  searchWrap: { position: 'relative', flex: 1, minWidth: 0 },
+  clearSearchBtn: { position: 'absolute', background: 'none', border: 'none', color: '#9aa79d', fontSize: '18px', cursor: 'pointer', lineHeight: 1 },
 
   // minWidth 0 is what lets overflowX work: without it a flex item refuses
   // to be narrower than its contents, so the row pushed the whole page

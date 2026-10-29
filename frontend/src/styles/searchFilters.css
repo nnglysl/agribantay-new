@@ -1,0 +1,102 @@
+.agb-search-filter-row {
+  display: flex !important;
+  flex-flow: row nowrap !important;
+  align-items: center !important;
+  gap: 10px !important;
+  min-width: 0 !important;
+  max-width: 100%;
+}
+.agb-search-filter-row--with-extra > .agb-search-filter-anchor { order: 1; }
+.agb-search-filter-row--with-extra > :not(.agb-search-field):not(.agb-search-filter-anchor) { order: 2; }
+
+.agb-search-field {
+  position: relative;
+  min-width: 0 !important;
+  flex-shrink: 1 !important;
+}
+.agb-search-field > input {
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  padding: 0 40px 0 36px !important;
+  border: 1px solid #dcdfd6;
+  border-radius: 10px !important;
+  background-color: #fff;
+  color: #16311d;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px !important;
+  box-sizing: border-box;
+  text-overflow: ellipsis;
+}
+.agb-search-field > input::placeholder { color: #6b7770; opacity: 1; }
+.agb-search-field > svg {
+  position: absolute;
+  left: 12px !important;
+  top: 50% !important;
+  width: 16px !important;
+  height: 16px !important;
+  transform: translateY(-50%) !important;
+  pointer-events: none;
+}
+.agb-search-field > button {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  top: 50% !important;
+  right: 8px !important;
+  width: 28px !important;
+  height: 28px !important;
+  padding: 0 !important;
+  transform: translateY(-50%) !important;
+}
+
+.agb-search-filter-anchor { position: relative; flex: 0 0 auto !important; width: auto !important; }
+.agb-search-filter-button {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 8px !important;
+  width: auto !important;
+  height: 40px;
+  padding: 0 12px !important;
+  border: 1px solid #dcdfd6;
+  border-radius: 10px !important;
+  background-color: #fff;
+  color: #33413a;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px !important;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.agb-search-filter-button > svg { flex: 0 0 16px; width: 16px !important; height: 16px !important; }
+.agb-search-filter-button:hover { border-color: #2c8047 !important; background-color: #fafbf8 !important; }
+.agb-search-filter-button[aria-expanded='true'] { border-color: #2c8047 !important; color: #2c8047 !important; }
+.agb-search-field > input:focus-visible,
+.agb-search-field > button:focus-visible,
+.agb-search-filter-button:focus-visible { outline: 2px solid #2c8047 !important; outline-offset: 2px; }
+.agb-search-field > input:focus { border-color: #2c8047 !important; }
+.agb-search-field > input:not(:disabled):hover { border-color: #2c8047 !important; }
+
+@media (max-width: 768px) {
+  .agb-search-filter-row { width: 100% !important; }
+  .agb-search-field { flex: 1 1 0 !important; width: auto !important; }
+  .agb-search-field > input,
+  .agb-search-filter-button { height: 44px; }
+
+  /* Preserve the additional Handled By control without squeezing the pair. */
+  .agb-search-filter-row--with-extra {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 8px !important;
+  }
+  .agb-search-filter-row--with-extra > .agb-search-field { grid-column: 1; grid-row: 1; }
+  .agb-search-filter-row--with-extra > .agb-search-filter-anchor { grid-column: 2; grid-row: 1; }
+  .agb-search-filter-row--with-extra > :not(.agb-search-field):not(.agb-search-filter-anchor) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: end;
+    width: auto !important;
+    max-width: 100%;
+  }
+}

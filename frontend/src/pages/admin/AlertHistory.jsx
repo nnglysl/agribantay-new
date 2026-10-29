@@ -1,3 +1,5 @@
+import DropdownList from '../../components/DropdownList'
+import TableScroll from '../../components/TableScroll'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
@@ -5,7 +7,6 @@ import SharedPagination from '../../components/Pagination'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { LIVE_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
-import { useOverflowX } from '../../hooks/useOverflowX'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { SkeletonTable } from '../../components/Loading'
 
@@ -36,7 +37,6 @@ export default function AlertHistory() {
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const isMobile = useIsMobile()
-  const [tableScrollRef, tableOverflows] = useOverflowX()
 
   const [filterOpen, setFilterOpen] = useState(false)
   const [draftSeverity, setDraftSeverity] = useState(severityFilter)
@@ -196,14 +196,14 @@ export default function AlertHistory() {
       <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Alert History</h1>
       <p style={styles.subtitle}>View past and ongoing alerts from all monitored farms.</p>
 
-      <div className="no-print" style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
-        <div style={styles.searchWrap}>
+      <div className="no-print agb-search-filter-row" style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
+        <div className="agb-search-field" style={styles.searchWrap}>
           <svg style={styles.searchIcon} width="16" height="16" viewBox="0 0 24 24" fill="none">
             <circle cx="11" cy="11" r="7" stroke="#9aa79d" strokeWidth="2" />
             <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="#9aa79d" strokeWidth="2" strokeLinecap="round" />
           </svg>
-          <input
-            placeholder="Search by farm name or owner..."
+          <input aria-label="Search by farm name or owner"
+            placeholder={isMobile ? 'Search...' : "Search by farm name or owner..."}
             value={search}
             onChange={e => setSearch(e.target.value)}
             style={styles.searchInput}
@@ -215,8 +215,8 @@ export default function AlertHistory() {
           )}
         </div>
 
-        <div style={styles.filterAnchor} ref={filterRef}>
-          <button
+        <div className="agb-search-filter-anchor" style={styles.filterAnchor} ref={filterRef}>
+          <button aria-expanded={filterOpen} className="agb-search-filter-button"
             type="button"
             onClick={() => (filterOpen ? setFilterOpen(false) : openFilter())}
             style={{ ...styles.filterBtn, ...(activeFilterCount > 0 ? styles.filterBtnActive : {}) }}
@@ -260,7 +260,7 @@ export default function AlertHistory() {
                 <>
                   <label style={styles.filterLabel}>Farm</label>
                   {selectedFarm ? (
-                    <div style={styles.pickedFarm}>
+                    <div className="agb-dropdown-value" style={styles.pickedFarm}>
                       <span style={styles.pickedFarmName}>{selectedFarm.farm_name}</span>
                       <span style={styles.clearFarmLink} onClick={() => { setDraftFarm(''); setFarmQuery('') }}>Clear</span>
                     </div>
@@ -273,16 +273,16 @@ export default function AlertHistory() {
                         style={styles.filterSelect}
                       />
                       {farmSuggestions.length > 0 && (
-                        <div style={styles.farmResultsList}>
+                        <DropdownList role="group" aria-label="Farm filter choices" style={styles.farmResultsList}>
                           {farmSuggestions.map(f => (
-                            <div key={f.id} style={styles.farmResultItem} onClick={() => setDraftFarm(String(f.id))}>
-                              <div style={styles.farmResultName}>{f.farm_name}</div>
-                              <div style={styles.farmResultMeta}>
+                            <button className="agb-dropdown-option" type="button" key={f.id} style={styles.farmResultItem} onClick={() => setDraftFarm(String(f.id))}>
+                              <div className="agb-dropdown-label" style={styles.farmResultName}>{f.farm_name}</div>
+                              <div className="agb-dropdown-meta" style={styles.farmResultMeta}>
                                 {f.owner_name || 'No owner on record'}{f.barangay ? ` · ${f.barangay}` : ''}
                               </div>
-                            </div>
+                            </button>
                           ))}
-                        </div>
+                        </DropdownList>
                       )}
                       {farmQuery.trim() !== '' && farmSuggestions.length === 0 && (
                         <div style={styles.farmEmptyResult}>No farm matches “{farmQuery.trim()}”.</div>
@@ -343,10 +343,7 @@ export default function AlertHistory() {
 
       {!loading && !error && (
         <div style={styles.tableCard}>
-          {tableOverflows && paginatedHistory.length > 0 && (
-            <p style={styles.scrollHint}>{isMobile ? 'Swipe' : 'Scroll'} left/right to see all columns →</p>
-          )}
-          <div ref={tableScrollRef} style={styles.tableScroll}>
+          <TableScroll style={styles.tableScroll}>
             <table style={{ ...styles.table, ...styles.tableMinWidth }}>
               <thead>
                 <tr>
@@ -398,7 +395,7 @@ export default function AlertHistory() {
                 })}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
           {allHistory.length === 0 && (
             <div style={styles.empty}>
               {search || severityFilter || sensorFilter || houseFilter || farmFilter || statusFilter
@@ -431,13 +428,13 @@ function Pagination({
   rangeStart, rangeEnd, totalItems, isMobile,
 }) {
   return (
-    <div className="no-print" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+    <div className="no-print agb-table-footer" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
       <div style={paginationStyles.info}>
         {totalItems === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
       </div>
 
-      <div style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
-        <select value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
+      <div className="agb-table-footer-controls" style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
+        <select aria-label="Rows per page" value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
           {PAGE_SIZE_OPTIONS.map(size => (
             <option key={size} value={size}>{size} / page</option>
           ))}

@@ -1,6 +1,8 @@
+import MonthlyReportBarChart from '../../components/MonthlyReportBarChart'
+import TableScroll from '../../components/TableScroll'
 import { matchesReportPeriod } from '../../utils/reportPeriod'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Line, Bar } from 'react-chartjs-2'
+import { Bar } from 'react-chartjs-2'
 import {
   Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip,
 } from 'chart.js'
@@ -14,7 +16,7 @@ import ReportPeriodFields from '../../components/ReportPeriodFields'
 import { exportToCSV, exportPrintRefToPDF, todayStamp } from '../../utils/exportUtils'
 import {
   C, styles, ReportStyles, PageHeader, Tabs, StatCard, Panel, DataTable, ChartFrame, Signatures,
-  IconFilter, chartOptions, lineDataset, fmtDate, makeInRange, rangeLabelOf, scopeLabelOf,
+  IconFilter, chartOptions, fmtDate, makeInRange, rangeLabelOf, scopeLabelOf,
   monthlyBucketsInRange, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle,
 } from '../../components/ReportsLayout'
 import { DISPLAY_TIME_ZONE } from '../../utils/formatDate'
@@ -177,12 +179,10 @@ export default function VetReports() {
           hideActions
         />
 
-        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <Tabs tabs={TABS} active={tab} onChange={setTab} />
-          </div>
-
-          <div ref={filterRef} style={{ position: 'relative', marginBottom: 10 }}>
+        <Tabs tabs={TABS} active={tab} onChange={setTab} />
+        <div className="rp-filter-toolbar">
+          <p style={{ ...styles.filterNote, margin: 0 }}>{scopeLabelOf(fromDate, toDate)}</p>
+          <div ref={filterRef} style={{ position: 'relative' }}>
             <button
               type="button"
               onClick={() => (filterOpen ? setFilterOpen(false) : openFilter())}
@@ -211,7 +211,6 @@ export default function VetReports() {
         </div>
 
         <div style={styles.body}>
-          <p style={styles.filterNote}>{scopeLabelOf(fromDate, toDate)}</p>
 
           {tab !== 'Files' && (
             <div className="rp-stats">
@@ -225,12 +224,7 @@ export default function VetReports() {
                 {monthlyTrend.every(m => m.count === 0) ? (
                   <div style={styles.empty}>No service history yet.</div>
                 ) : (
-                  <ChartFrame>
-                    <Line
-                      data={{ labels: monthlyTrend.map(m => m.label), datasets: [lineDataset(monthlyTrend.map(m => m.count), C.green)] }}
-                      options={chartOptions}
-                    />
-                  </ChartFrame>
+                  <MonthlyReportBarChart buckets={monthlyTrend} label="Completed veterinary services" emptyText="No service history yet." />
                 )}
               </Panel>
 
@@ -301,6 +295,7 @@ export default function VetReports() {
         <div className="print-section-title">
           Summary <span className="print-scope">(selected range; your own accepted services)</span>
         </div>
+        <TableScroll hint={false}>
         <table className="print-table print-kv">
           <tbody>
             <tr><th>Total completed</th><td>{data.total_completed}</td></tr>
@@ -308,11 +303,13 @@ export default function VetReports() {
             <tr><th>Pending in period</th><td>{data.total_pending}</td></tr>
           </tbody>
         </table>
+        </TableScroll>
 
         <div className="print-section-title">Completed veterinary services — {rangeLabel}</div>
         {services.length === 0 ? (
           <p className="print-empty">No completed services in this range.</p>
         ) : (
+          <TableScroll hint={false}>
           <table className="print-table">
             <colgroup>
               <col style={{ width: '5%' }} /><col style={{ width: '13%' }} /><col style={{ width: '13%' }} />
@@ -332,6 +329,7 @@ export default function VetReports() {
               ))}
             </tbody>
           </table>
+          </TableScroll>
         )}
 
         <Signatures right={data.vet_name || 'Municipal Veterinarian'} />

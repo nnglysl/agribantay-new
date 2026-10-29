@@ -123,13 +123,13 @@ export default function ServiceRequests() {
 
       <div style={styles.tabsRow}>
         <div style={{ ...styles.tabs, marginBottom: 0, borderBottom: 'none' }}>
-          <div
+          <div className="agb-ui-tab"
             style={{ ...styles.tab, ...(tab === 'active' ? styles.tabActive : {}) }}
             onClick={() => setTab('active')}
           >
             My Requests
           </div>
-          <div
+          <div className="agb-ui-tab"
             style={{ ...styles.tab, ...(tab === 'past' ? styles.tabActive : {}) }}
             onClick={() => setTab('past')}
           >
@@ -217,7 +217,7 @@ export default function ServiceRequests() {
                     <th style={styles.th}>Request Date</th>
                     <th style={styles.th}>Scheduled Date</th>
                     <th style={styles.th}>Status</th>
-                    <th style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
+                    <th className="agb-table-actions-cell" style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -234,8 +234,8 @@ export default function ServiceRequests() {
                             {r.status}
                           </div>
                         </td>
-                        <td style={{ ...styles.td, textAlign: 'right' }}>
-                          <span style={styles.viewBtn} onClick={() => setViewRequest(r)}>View</span>
+                        <td className="agb-table-actions-cell" style={{ ...styles.td, textAlign: 'right' }}>
+                          <span className="agb-table-action" style={styles.viewBtn} onClick={() => setViewRequest(r)}>View</span>
                         </td>
                       </tr>
                     )
@@ -353,15 +353,15 @@ function Pagination({
   rangeStart, rangeEnd, totalItems, isMobile,
 }) {
   return (
-    <div className="no-print" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+    <div className="no-print agb-table-footer" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
       <div style={paginationStyles.info}>
         {totalItems === 0
           ? 'No results'
           : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
       </div>
 
-      <div style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
-        <select
+      <div className="agb-table-footer-controls" style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
+        <select aria-label="Rows per page"
           value={pageSize}
           onChange={e => onPageSizeChange(Number(e.target.value))}
           style={paginationStyles.pageSizeSelect}

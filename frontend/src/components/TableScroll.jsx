@@ -1,44 +1,86 @@
-import { useOverflowX } from '../hooks/useOverflowX'
-import { useIsMobile } from '../hooks/useIsMobile'
+import { useEffect, useId, useRef, useState } from 'react'
+import '../styles/tables.css'
 
-/**
- * A table that scrolls sideways when it does not fit, and says so.
- *
- * The list pages each grew their own copy of this: a `useOverflowX` ref, a
- * scrolling div, and a hint rendered above it only when the table really
- * overflows. The detail pages never got one, so their tables had an
- * `overflow-x: auto` wrapper around a table with no minimum width — which
- * never overflows, because the table simply shrinks to whatever it is given.
- * On a phone that turned six columns into six slivers and broke the words
- * inside them, which reads as damage rather than as a table waiting to be
- * scrolled.
- *
- * Giving the table a minimum width is what makes the wrapper mean anything.
- * This component pairs the two so they cannot drift apart again, and carries
- * the hint along with them.
- *
- * `style` and `className` are passed through to the scrolling element, so a
- * page keeps whatever border, radius and margin it already had.
- */
-export default function TableScroll({ children, style, className, hint = true }) {
-  const [ref, overflows] = useOverflowX()
-  const isMobile = useIsMobile()
+/** One touch-scrolling surface, with a persistent, synchronized scroll control. */
+export default function TableScroll({ children, style, className = '' }) {
+  const viewport = useRef(null)
+  const id = useId()
+  const [scroll, setScroll] = useState({ left: 0, max: 0, ratio: 1, hasRecords: false })
+  const overflows = scroll.hasRecords && scroll.max > 1
+
+  useEffect(() => {
+    const el = viewport.current
+    let frame
+    let table
+    const measure = () => {
+      const max = Math.max(0, el.scrollWidth - el.clientWidth)
+      const left = Math.max(0, Math.min(el.scrollLeft, max))
+      const ratio = el.clientWidth / Math.max(1, el.scrollWidth)
+      // Read the existing rendered rows solely to decide whether the indicator is useful.
+      const hasRecords = [...(table?.tBodies || [])].some(body => body.rows.length > 0)
+      setScroll(previous => previous.left === left && previous.max === max && previous.ratio === ratio && previous.hasRecords === hasRecords
+        ? previous : { left, max, ratio, hasRecords })
+    }
+    const schedule = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(measure)
+    }
+    const resize = new ResizeObserver(schedule)
+    const observeTable = () => {
+      if (table !== el.firstElementChild) {
+        if (table) resize.unobserve(table)
+        table = el.firstElementChild
+        if (table) resize.observe(table)
+      }
+      schedule()
+    }
+    // Recheck after loading, filtering, paging, or replacing a table's rows.
+    const content = new MutationObserver(observeTable)
+    resize.observe(el)
+    observeTable()
+    content.observe(el, { childList: true, subtree: true, characterData: true })
+    el.addEventListener('scroll', schedule, { passive: true })
+    return () => {
+      cancelAnimationFrame(frame)
+      resize.disconnect()
+      content.disconnect()
+      el.removeEventListener('scroll', schedule)
+    }
+  }, [])
 
   return (
-    <>
-      {hint && overflows && (
-        <p style={hintStyle}>{isMobile ? 'Swipe' : 'Scroll'} left/right to see all columns →</p>
-      )}
-      <div ref={ref} className={className} style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', ...style }}>
+    <div className="agb-table-scroll-shell">
+      <div
+        ref={viewport}
+        id={id}
+        className={`agb-table-scroll ${className}`}
+        style={style}
+        tabIndex={overflows ? 0 : undefined}
+        role={overflows ? 'region' : undefined}
+        aria-label={overflows ? 'Scrollable table' : undefined}
+      >
         {children}
       </div>
-    </>
+      {overflows && (
+        <div className="agb-table-scroll-control">
+          <input
+            type="range"
+            min="0"
+            max={scroll.max}
+            step="1"
+            value={scroll.left}
+            aria-label="Scroll table horizontally"
+            aria-controls={id}
+            aria-valuetext={`${Math.round(scroll.left / scroll.max * 100)}% scrolled`}
+            style={{ '--table-thumb-width': `${scroll.ratio * 100}%` }}
+            onChange={event => {
+              const left = Number(event.target.value)
+              viewport.current.scrollLeft = left
+              setScroll(previous => ({ ...previous, left }))
+            }}
+          />
+        </div>
+      )}
+    </div>
   )
-}
-
-const hintStyle = {
-  fontFamily: "'Inter', sans-serif",
-  fontSize: '11px',
-  color: '#9aa79d',
-  margin: '12px 0 0',
 }

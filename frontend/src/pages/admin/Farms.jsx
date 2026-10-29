@@ -1,3 +1,6 @@
+import ScrollableTabs from '../../components/ScrollableTabs'
+import DropdownList from '../../components/DropdownList'
+import TableScroll from '../../components/TableScroll'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { AMMONIA_UNIT } from '../../utils/ammonia'
 import { useNavigate } from 'react-router-dom'
@@ -6,7 +9,6 @@ import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch, invalidateCache } from '../../hooks/useCachedFetch'
 import { BACKGROUND_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
-import { useOverflowX } from '../../hooks/useOverflowX'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { BARANGAYS } from '../../constants/barangays'
 import { sanitizePhoneInput } from '../../utils/phoneValidation'
@@ -106,7 +108,7 @@ export default function Farms() {
   // 560px rather than the 768px isMobile breakpoint, because browser zoom
   // shrinks the CSS viewport into that range on ordinary laptops.
   const pinActions = !useIsMobile(560)
-  const [tableScrollRef, tableOverflows] = useOverflowX()
+
 
   const current = tabState[statusTab]
   const updateCurrent = (patch) => {
@@ -253,23 +255,23 @@ export default function Farms() {
       )}
 
       <div className="no-print" style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
-        <div style={styles.statusTabs}>
+        <ScrollableTabs style={styles.statusTabs} isMobile={isMobile} label="Farm status tabs">
           <div style={{ ...styles.statusTab, ...(statusTab === 'active' ? styles.statusTabActive : {}) }} onClick={() => setStatusTab('active')}>
             Active Farms
           </div>
           <div style={{ ...styles.statusTab, ...(statusTab === 'deactivated' ? styles.statusTabActive : {}) }} onClick={() => setStatusTab('deactivated')}>
             Deactivated Farms
           </div>
-        </div>
+        </ScrollableTabs>
 
-        <div style={{ ...styles.toolbarRight, ...(isMobile ? styles.toolbarRightMobile : {}) }}>
-          <div style={styles.searchWrap}>
+        <div className="agb-search-filter-row" style={{ ...styles.toolbarRight, ...(isMobile ? styles.toolbarRightMobile : {}) }}>
+          <div className="agb-search-field" style={styles.searchWrap}>
             <svg style={styles.searchIcon} width="15" height="15" viewBox="0 0 24 24" fill="none">
               <circle cx="11" cy="11" r="7" stroke="#9aa79d" strokeWidth="2" />
               <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="#9aa79d" strokeWidth="2" strokeLinecap="round" />
             </svg>
-            <input
-              placeholder="Search farm or owner..."
+            <input aria-label="Search farm or owner"
+              placeholder={isMobile ? 'Search...' : "Search farm or owner..."}
               value={current.search}
               onChange={e => updateCurrent({ search: e.target.value, currentPage: 1 })}
               style={styles.searchInput}
@@ -286,8 +288,8 @@ export default function Farms() {
             )}
           </div>
 
-          <div style={styles.filterAnchor} ref={filterRef}>
-            <button
+          <div className="agb-search-filter-anchor" style={styles.filterAnchor} ref={filterRef}>
+            <button aria-expanded={filterOpen} className="agb-search-filter-button"
               type="button"
               onClick={() => (filterOpen ? setFilterOpen(false) : openFilter())}
               style={{ ...styles.filterBtn, ...(activeFilterCount > 0 ? styles.filterBtnActive : {}) }}
@@ -353,10 +355,7 @@ export default function Farms() {
 
       {!loading && !error && (
         <div style={styles.tableCard}>
-          {tableOverflows && allFarms.length > 0 && (
-            <p style={styles.scrollHint}>{isMobile ? 'Swipe' : 'Scroll'} left/right to see all columns →</p>
-          )}
-          <div ref={tableScrollRef} style={styles.tableScroll}>
+          <TableScroll style={styles.tableScroll}>
             <table style={{ ...styles.table, ...styles.tableMinWidth }}>
               <thead>
                 <tr>
@@ -371,7 +370,7 @@ export default function Farms() {
                     {current.sortField === 'created_at' && <span style={styles.sortArrow}>{current.sortDirection === 'asc' ? ' ▲' : ' ▼'}</span>}
                   </th>
                   <th style={styles.th}>Monitoring Status</th>
-                  <th style={{ ...styles.th, ...(pinActions ? styles.thActions : styles.thActionsStatic) }}>Actions</th>
+                  <th className="agb-table-actions-cell" style={{ ...styles.th, ...(pinActions ? styles.thActions : styles.thActionsStatic) }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -401,16 +400,16 @@ export default function Farms() {
                         {f.current_status || 'Offline'}
                       </span>
                     </td>
-                    <td style={{ ...styles.td, ...(pinActions ? styles.tdActions : null) }}>
-                      <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
-                        <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => navigate(`/admin/farms/${f.id}`)}>View</span>
+                    <td className="agb-table-actions-cell" style={{ ...styles.td, ...(pinActions ? styles.tdActions : null) }}>
+                      <div className="agb-table-actions" style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                        <span className="agb-table-action" style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => navigate(`/admin/farms/${f.id}`)}>View</span>
                       </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
           {allFarms.length === 0 && <div style={styles.empty}>No {statusTab === 'active' ? 'active' : 'deactivated'} farms found.</div>}
 
           {allFarms.length > 0 && (
@@ -445,10 +444,10 @@ export default function Farms() {
 
 function Pagination({ currentPage, totalPages, pageSize, onPageChange, onPageSizeChange, rangeStart, rangeEnd, totalItems, isMobile }) {
   return (
-    <div className="no-print" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+    <div className="no-print agb-table-footer" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
       <div style={paginationStyles.info}>{totalItems === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}</div>
-      <div style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
-        <select value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
+      <div className="agb-table-footer-controls" style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
+        <select aria-label="Rows per page" value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
           {PAGE_SIZE_OPTIONS.map(size => <option key={size} value={size}>{size} / page</option>)}
         </select>
         <SharedPagination currentPage={currentPage} totalPages={totalPages} onPageChange={onPageChange} isMobile={isMobile} />
@@ -460,7 +459,7 @@ function Pagination({ currentPage, totalPages, pageSize, onPageChange, onPageSiz
 function TabPagination({ currentPage, lastPage, onPageChange }) {
   if (lastPage <= 1) return null
   return (
-    <div style={profileStyles.tabPager}>
+    <div className="agb-pagination agb-pagination-simple" style={profileStyles.tabPager}>
       <button
         style={{ ...profileStyles.tabPagerBtn, ...(currentPage === 1 ? profileStyles.tabPagerBtnDisabled : {}) }}
         onClick={() => onPageChange(Math.max(1, currentPage - 1))}
@@ -943,16 +942,16 @@ function AddFarmModal({ onClose, onSuccess, isMobile }) {
             </div>
 
             {ownerResults.length > 0 && (
-              <div style={modalStyles.ownerResultsList}>
+              <DropdownList role="group" aria-label="Owner choices" style={modalStyles.ownerResultsList}>
                 {ownerResults.map(o => (
-                  <div key={o.id} style={modalStyles.ownerResultItem} onClick={() => setSelectedOwner(o)}>
-                    <div style={modalStyles.ownerResultName}>{o.first_name} {o.last_name}</div>
-                    <div style={modalStyles.ownerResultMeta}>
+                  <button className="agb-dropdown-option" type="button" key={o.id} style={modalStyles.ownerResultItem} onClick={() => setSelectedOwner(o)}>
+                    <div className="agb-dropdown-label" style={modalStyles.ownerResultName}>{o.first_name} {o.last_name}</div>
+                    <div className="agb-dropdown-meta" style={modalStyles.ownerResultMeta}>
                       {o.mobile_number || o.email} · {o.farm_count} farm{o.farm_count === 1 ? '' : 's'} registered
                     </div>
-                  </div>
+                  </button>
                 ))}
-              </div>
+              </DropdownList>
             )}
 
             {ownerQuery.trim().length >= 2 && !searching && ownerResults.length === 0 && (
@@ -1324,7 +1323,7 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
       return inspectionSort.dir === 'asc' ? result : -result
     })
   }, [inspectionData, inspectionStatusFilter, inspectionSearch, inspectionSort])
-      
+
   const toggleInspectionSort = (field) => {
     setInspectionSort(s => (s.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' }))
   }
@@ -1388,7 +1387,7 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
               <button style={profileStyles.closeBtn} onClick={onClose} aria-label="Close">×</button>
             </div>
 
-            <div style={profileStyles.tabsRow}>
+            <ScrollableTabs style={profileStyles.tabsRow} containerStyle={{ flex: '0 0 auto' }} isMobile={isMobile} label="Farm profile tabs">
               {tabs.map(t => (
                 <button
                   key={t.key}
@@ -1398,7 +1397,7 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                   {t.label}
                 </button>
               ))}
-            </div>
+            </ScrollableTabs>
 
             <div style={profileStyles.body}>
               {activeTab === 'info' && (
@@ -1491,8 +1490,8 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                   )}
                   {!cleanoutLoading && cleanoutData?.logs?.length > 0 && (
                     <>
-                      <div style={tableStyles.wrap}>
-                        <table style={tableStyles.table}>
+                      <TableScroll style={tableStyles.wrap}>
+                        <table style={{ ...tableStyles.table, minWidth: '640px' }}>
                           <thead>
                             <tr>
                               <th
@@ -1502,7 +1501,7 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                                 Date {cleanoutSort === 'asc' ? '▲' : '▼'}
                               </th>
                               <th style={tableStyles.th}>Notes</th>
-                              <th style={{ ...tableStyles.th, textAlign: 'right' }}>Action</th>
+                              <th className="agb-table-actions-cell" style={{ ...tableStyles.th, textAlign: 'right' }}>Action</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1512,14 +1511,14 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                                 <td style={tableStyles.td}>
                                   <span style={tableStyles.truncate}>{log.notes || '—'}</span>
                                 </td>
-                                <td style={{ ...tableStyles.td, textAlign: 'right' }}>
-                                  <span style={tableStyles.viewLink} onClick={() => setCleanoutViewLog(log)}>View</span>
+                                <td className="agb-table-actions-cell" style={{ ...tableStyles.td, textAlign: 'right' }}>
+                                  <span className="agb-table-action" style={tableStyles.viewLink} onClick={() => setCleanoutViewLog(log)}>View</span>
                                 </td>
                               </tr>
                             ))}
                           </tbody>
                         </table>
-                      </div>
+                      </TableScroll>
                       <TabPagination currentPage={cleanoutData.current_page} lastPage={cleanoutData.last_page} onPageChange={setCleanoutPage} />
                     </>
                   )}
@@ -1554,8 +1553,8 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                         </div>
                       )}
 
-                      <div style={tableStyles.wrap}>
-                        <table style={tableStyles.table}>
+                      <TableScroll style={tableStyles.wrap}>
+                        <table style={{ ...tableStyles.table, minWidth: '640px' }}>
                           <thead>
                             <tr>
                               <th
@@ -1572,7 +1571,7 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                               >
                                 Quantity {disposalSort.field === 'quantity' && (disposalSort.dir === 'asc' ? '▲' : '▼')}
                               </th>
-                              <th style={{ ...tableStyles.th, textAlign: 'right' }}>Action</th>
+                              <th className="agb-table-actions-cell" style={{ ...tableStyles.th, textAlign: 'right' }}>Action</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1582,14 +1581,14 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                                 <td style={tableStyles.td}>{r.disposal_method}</td>
                                 <td style={tableStyles.td}>{r.buyer_name || '—'}</td>
                                 <td style={tableStyles.td}>{r.quantity} kg</td>
-                                <td style={{ ...tableStyles.td, textAlign: 'right' }}>
-                                  <span style={tableStyles.viewLink} onClick={() => setDisposalViewRecord(r)}>View</span>
+                                <td className="agb-table-actions-cell" style={{ ...tableStyles.td, textAlign: 'right' }}>
+                                  <span className="agb-table-action" style={tableStyles.viewLink} onClick={() => setDisposalViewRecord(r)}>View</span>
                                 </td>
                               </tr>
                             ))}
                           </tbody>
                         </table>
-                      </div>
+                      </TableScroll>
                       <TabPagination currentPage={disposalData.current_page} lastPage={disposalData.last_page} onPageChange={setDisposalPage} />
                     </>
                   )}
@@ -1624,8 +1623,8 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                         </div>
                       )}
 
-                      <div style={tableStyles.wrap}>
-                        <table style={tableStyles.table}>
+                      <TableScroll style={tableStyles.wrap}>
+                        <table style={{ ...tableStyles.table, minWidth: '640px' }}>
                           <thead>
                             <tr>
                               <th
@@ -1641,7 +1640,7 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                               >
                                 Date {inspectionSort.field === 'date' && (inspectionSort.dir === 'asc' ? '▲' : '▼')}
                               </th>
-                              <th style={{ ...tableStyles.th, textAlign: 'right' }}>Action</th>
+                              <th className="agb-table-actions-cell" style={{ ...tableStyles.th, textAlign: 'right' }}>Action</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1658,15 +1657,15 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                                     }}>{i.status}</span>
                                   </td>
                                   <td style={tableStyles.td}>{done ? i.completed_at : i.scheduled_at}</td>
-                                  <td style={{ ...tableStyles.td, textAlign: 'right' }}>
-                                    <span style={tableStyles.viewLink} onClick={() => setInspectionViewRecord(i)}>View</span>
+                                  <td className="agb-table-actions-cell" style={{ ...tableStyles.td, textAlign: 'right' }}>
+                                    <span className="agb-table-action" style={tableStyles.viewLink} onClick={() => setInspectionViewRecord(i)}>View</span>
                                   </td>
                                 </tr>
                               )
                             })}
                           </tbody>
                         </table>
-                      </div>
+                      </TableScroll>
                       <TabPagination currentPage={inspectionData.current_page} lastPage={inspectionData.last_page} onPageChange={setInspectionPage} />
                     </>
                   )}

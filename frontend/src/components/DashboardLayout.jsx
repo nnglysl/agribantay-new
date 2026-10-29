@@ -1,3 +1,4 @@
+import DropdownList from './DropdownList'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useState, useEffect, useRef } from 'react'
 import { getUser, clearAuth } from '../utils/auth'
@@ -9,6 +10,7 @@ import agribantayLogo from '../assets/agribantay_logo.png'
 import agribantayName from '../assets/agribantay_name.png'
 import agriLogoName from '../assets/agri_logo_name.png'
 import { SectionLoader } from '../components/Loading'
+import MaterialSymbol from './MaterialSymbol'
 
 function IconGrid({ color }) { return <svg width="16" height="16" viewBox="0 0 24 24" fill={color}><path d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z" /></svg> }
 function IconFarm({ color }) { return <svg width="16" height="16" viewBox="0 0 24 24" fill={color}><path d="M3 21V9l9-6 9 6v12h-6v-7H9v7H3z" /></svg> }
@@ -275,15 +277,7 @@ function NotificationBell() {
   return (
     <div ref={wrapRef} style={bellStyles.wrap}>
       <button type="button" onClick={toggleOpen} style={bellStyles.btn} aria-label="Notifications">
-        <span
-          className="material-symbols-outlined"
-          style={{
-            ...bellStyles.icon,
-            fontVariationSettings: "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24",
-          }}
-        >
-          notifications
-        </span>
+        <MaterialSymbol name="notifications" style={bellStyles.icon} />
         {unreadCount > 0 && (
           <span style={bellStyles.badge}>{unreadCount > 9 ? '9+' : unreadCount}</span>
         )}
@@ -318,7 +312,7 @@ function NotificationBell() {
                 NOTIFICATION_CATEGORIES.map(c => {
                   const unread = unreadIn(c.key)
                   return (
-                    <span
+                    <span className="agb-ui-tab"
                       key={c.key}
                       onClick={() => setActiveTab(c.key)}
                       style={{ ...bellStyles.tab, ...(activeTab === c.key ? bellStyles.tabActive : {}) }}
@@ -329,13 +323,13 @@ function NotificationBell() {
                 })
               ) : (
                 <>
-                  <span
+                  <span className="agb-ui-tab"
                     onClick={() => setActiveTab('all')}
                     style={{ ...bellStyles.tab, ...(activeTab === 'all' ? bellStyles.tabActive : {}) }}
                   >
                     All Notifications
                   </span>
-                  <span
+                  <span className="agb-ui-tab"
                     onClick={() => setActiveTab('unread')}
                     style={{ ...bellStyles.tab, ...(activeTab === 'unread' ? bellStyles.tabActive : {}) }}
                   >
@@ -345,7 +339,7 @@ function NotificationBell() {
               )}
             </div>
 
-            <div style={{ ...bellStyles.dropdownList, ...(isMobile ? bellStyles.dropdownListMobile : {}) }}>
+            <DropdownList role="group" aria-label="Notification items" style={{ ...bellStyles.dropdownList, ...(isMobile ? bellStyles.dropdownListMobile : {}) }}>
               {loading && <SectionLoader label="Loading notifications…" padding="18px 12px" />}
               {!loading && visibleItems.length === 0 && (
                 <div style={bellStyles.empty}>{emptyMessage}</div>
@@ -359,7 +353,7 @@ function NotificationBell() {
                   </div>
 
                   {group.items.map(n => (
-                    <div
+                    <button className="agb-dropdown-option" type="button"
                       key={n.id}
                       style={{ ...bellStyles.item, ...(n.is_read ? {} : bellStyles.itemUnread) }}
                       onClick={() => handleNotificationClick(n)}
@@ -369,13 +363,13 @@ function NotificationBell() {
                       </span>
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <div style={bellStyles.itemTitleRow}>
-                          <span style={bellStyles.itemTitle}>{n.title}</span>
+                          <span className="agb-dropdown-label" style={bellStyles.itemTitle}>{n.title}</span>
                           {!n.is_read && <span style={bellStyles.itemDot} />}
                         </div>
-                        <div style={bellStyles.itemMessage}>{n.message}</div>
-                        <div style={bellStyles.itemTime}>{timeAgo(n.created_at)}</div>
+                        <div className="agb-dropdown-meta" style={bellStyles.itemMessage}>{n.message}</div>
+                        <div className="agb-dropdown-meta" style={bellStyles.itemTime}>{timeAgo(n.created_at)}</div>
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               ))}
@@ -392,7 +386,7 @@ function NotificationBell() {
                   {loadingMore ? 'Loading…' : 'See More'}
                 </button>
               )}
-            </div>
+            </DropdownList>
           </div>
         </>
       )}
@@ -449,7 +443,7 @@ export default function DashboardLayout({ children, navItems = [], roleLabel = '
     : styles.sidebar
 
   return (
-    <div style={styles.wrapper}>
+    <div className="agb-dashboard" style={styles.wrapper}>
        <style>{`
         @media print {
           @page { margin: 1.5cm; }

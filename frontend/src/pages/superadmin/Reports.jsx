@@ -1,7 +1,8 @@
+import MonthlyReportBarChart from '../../components/MonthlyReportBarChart'
 import { matchesReportPeriod } from '../../utils/reportPeriod'
 import AlertIncidentChart from '../../components/AlertIncidentChart'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Line, Bar } from 'react-chartjs-2'
+import { Bar } from 'react-chartjs-2'
 import {
   Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip,
 } from 'chart.js'
@@ -12,7 +13,7 @@ import { useReportPeriod } from '../../hooks/useReportPeriod'
 import ReportPeriodFields from '../../components/ReportPeriodFields'
 import {
   C, styles, ReportStyles, PageHeader, Tabs, StatCard, Panel, DataTable, ChartFrame,
-  IconFilter, chartOptions, lineDataset, fmtDate, makeInRange, rangeLabelOf, scopeLabelOf,
+  IconFilter, chartOptions, fmtDate, makeInRange, rangeLabelOf, scopeLabelOf,
   monthlyBucketsInRange, dayOf, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle,
 } from '../../components/ReportsLayout'
 import {
@@ -326,12 +327,10 @@ export default function SuperAdminReports() {
           hideActions
         />
 
-        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <Tabs tabs={TABS} active={tab} onChange={setTab} />
-          </div>
-
-          <div ref={filterRef} style={{ position: 'relative', marginBottom: 10 }}>
+        <Tabs tabs={TABS} active={tab} onChange={setTab} />
+        <div className="rp-filter-toolbar">
+          <p style={{ ...styles.filterNote, margin: 0 }}>{scopeLabelOf(fromDate, toDate)}</p>
+          <div ref={filterRef} style={{ position: 'relative' }}>
             <button
               type="button"
               onClick={() => (filterOpen ? setFilterOpen(false) : openFilter())}
@@ -360,7 +359,6 @@ export default function SuperAdminReports() {
         </div>
 
         <div style={styles.body}>
-          <p style={styles.filterNote}>{scopeLabelOf(fromDate, toDate)}</p>
 
           {tab !== 'Files' && (
             <div className="rp-stats">
@@ -371,12 +369,7 @@ export default function SuperAdminReports() {
           {tab === 'Overview' && (
             <div className="rp-two">
               <Panel title="Inspections completed per month" subtitle={isRangeFiltered ? rangeLabel : 'All records'}>
-                <ChartFrame>
-                  <Line
-                    data={{ labels: inspTrend.map(m => m.label), datasets: [lineDataset(inspTrend.map(m => m.count), C.green)] }}
-                    options={chartOptions}
-                  />
-                </ChartFrame>
+                <MonthlyReportBarChart buckets={inspTrend} label="Completed inspections" emptyText="No completed inspections in this reporting period." />
               </Panel>
               <Panel
                 title="Services completed by type"

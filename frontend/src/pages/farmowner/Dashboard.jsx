@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import FarmerLayout from '../../components/FarmerLayout'
+import MaterialSymbol from '../../components/MaterialSymbol'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { BACKGROUND_POLL_MS } from '../../constants/polling'
 import { useSelectedFarm } from '../../hooks/useSelectedFarm'
@@ -30,18 +31,6 @@ import { farmDashboardStatus } from '../../utils/farmDashboardStatus'
  * whether the owner runs two houses or twenty.
  */
 
-function useMaterialSymbolsFont() {
-  useEffect(() => {
-    const id = 'material-symbols-outlined-font'
-    if (document.getElementById(id)) return
-    const link = document.createElement('link')
-    link.id = id
-    link.rel = 'stylesheet'
-    link.href = 'https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200'
-    document.head.appendChild(link)
-  }, [])
-}
-
 const responsiveCss = `
   .fd-banner { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
   @media (max-width: 560px) { .fd-banner { align-items: flex-start; } }
@@ -52,10 +41,6 @@ const responsiveCss = `
   .fd-alert-row { display: flex; gap: 20px; flex-wrap: wrap; align-items: stretch; }
   .fd-alert-main { flex: 2 1 380px; min-width: 0; }
   .fd-alert-todo { flex: 1 1 250px; min-width: 0; }
-
-  .material-symbols-outlined {
-    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
-  }
 `
 
 // Enough to see the worst of a bad day without the page becoming a scroll.
@@ -87,7 +72,7 @@ function AlertCard({ device, alerting }) {
       <div className="fd-alert-row">
         <div className="fd-alert-main">
           <div style={styles.alertHouseRow}>
-            <span className="material-symbols-outlined" style={styles.houseIcon}>home</span>
+            <MaterialSymbol name="home" style={styles.houseIcon} />
             <div style={{ minWidth: 0 }}>
               <div style={styles.alertHouse}>{device.device_name}</div>
               <div style={styles.alertConn}>
@@ -168,7 +153,6 @@ function AlertCard({ device, alerting }) {
 }
 
 export default function FarmerDashboard() {
-  useMaterialSymbolsFont()
   const [showAllRecommendations, setShowAllRecommendations] = useState(false)
   const [showAllAlerts, setShowAllAlerts] = useState(false)
   const { selectedFarmId, farmsLoading } = useSelectedFarm()
@@ -259,12 +243,7 @@ export default function FarmerDashboard() {
 
       {/* ------------------------------------------------------- Main banner */}
       <div className="fd-banner" style={{ ...styles.banner, backgroundColor: hero.color }}>
-        <span
-          className="material-symbols-outlined"
-          style={{ fontSize: '38px', color: '#fff', lineHeight: 1, flexShrink: 0 }}
-        >
-          {hero.iconName}
-        </span>
+        <MaterialSymbol name={hero.iconName} style={{ fontSize: '38px', color: '#fff', lineHeight: 1, flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: '200px' }}>
           <div style={styles.bannerTitle}>{hero.title}</div>
           <p style={styles.bannerText}>{hero.text}</p>

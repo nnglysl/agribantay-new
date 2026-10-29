@@ -276,7 +276,7 @@ export default function ManureRecords() {
                       <tr>
                         <th style={styles.th}>Date</th>
                         <th style={styles.th}>Notes</th>
-                        <th style={{ ...styles.th, textAlign: 'right' }}>Action</th>
+                        <th className="agb-table-actions-cell" style={{ ...styles.th, textAlign: 'right' }}>Action</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -284,8 +284,8 @@ export default function ManureRecords() {
                         <tr key={log.id}>
                           <td style={styles.tdStrong}>{log.performed_at}</td>
                           <td style={styles.td}>{log.notes || '—'}</td>
-                          <td style={{ ...styles.td, textAlign: 'right' }}>
-                            <span style={styles.viewBtn} onClick={() => setViewRecord({ type: 'cleanout', record: log })}>
+                          <td className="agb-table-actions-cell" style={{ ...styles.td, textAlign: 'right' }}>
+                            <span className="agb-table-action" style={styles.viewBtn} onClick={() => setViewRecord({ type: 'cleanout', record: log })}>
                               View
                             </span>
                           </td>
@@ -294,12 +294,12 @@ export default function ManureRecords() {
                     </tbody>
                   </table>
                 </TableScroll>
-                <div className="mr-pagination">
+                <div className="mr-pagination agb-table-footer">
                   <span style={styles.paginationText}>
                     Showing 1–{recentMaintLogs.length} of {recentMaintLogs.length}
                   </span>
-                  <div style={styles.pagerBtns}>
-                    <select value={RECENT_LIMIT} disabled style={styles.pageSizeSelect}>
+                  <div className="agb-table-footer-controls" style={styles.pagerBtns}>
+                    <select aria-label="Rows per page" value={RECENT_LIMIT} disabled style={styles.pageSizeSelect}>
                       <option value={RECENT_LIMIT}>{RECENT_LIMIT} / page</option>
                     </select>
                     <SharedPagination currentPage={1} totalPages={1} onPageChange={() => {}} />
@@ -334,7 +334,7 @@ export default function ManureRecords() {
                       <th style={styles.th}>Method</th>
                       <th style={styles.th}>Buyer</th>
                       <th style={styles.th}>Quantity</th>
-                      <th style={{ ...styles.th, textAlign: 'right' }}>Action</th>
+                      <th className="agb-table-actions-cell" style={{ ...styles.th, textAlign: 'right' }}>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -344,8 +344,8 @@ export default function ManureRecords() {
                         <td style={styles.td}>{r.disposal_method === 'Other' ? (r.other_method_detail || 'Other') : r.disposal_method}</td>
                         <td style={styles.td}>{r.buyer_name || '—'}</td>
                         <td style={styles.tdStrong}>{r.quantity} kg</td>
-                        <td style={{ ...styles.td, textAlign: 'right' }}>
-                          <span style={styles.viewBtn} onClick={() => setViewRecord({ type: 'disposal', record: r })}>
+                        <td className="agb-table-actions-cell" style={{ ...styles.td, textAlign: 'right' }}>
+                          <span className="agb-table-action" style={styles.viewBtn} onClick={() => setViewRecord({ type: 'disposal', record: r })}>
                             View
                           </span>
                         </td>
@@ -354,12 +354,12 @@ export default function ManureRecords() {
                   </tbody>
                 </table>
               </TableScroll>
-              <div className="mr-pagination">
+              <div className="mr-pagination agb-table-footer">
                 <span style={styles.paginationText}>
                   Showing 1–{recentDisposalRecords.length} of {recentDisposalRecords.length}
                 </span>
-                <div style={styles.pagerBtns}>
-                  <select value={RECENT_LIMIT} disabled style={styles.pageSizeSelect}>
+                <div className="agb-table-footer-controls" style={styles.pagerBtns}>
+                  <select aria-label="Rows per page" value={RECENT_LIMIT} disabled style={styles.pageSizeSelect}>
                     <option value={RECENT_LIMIT}>{RECENT_LIMIT} / page</option>
                   </select>
                   <SharedPagination currentPage={1} totalPages={1} onPageChange={() => {}} />

@@ -1,3 +1,4 @@
+import TableScroll from '../../components/TableScroll'
 import { useMemo, useState } from 'react'
 import FarmerLayout from '../../components/FarmerLayout'
 import TableFooter from '../../components/TableFooter'
@@ -5,7 +6,6 @@ import { SkeletonTable } from '../../components/Loading'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { BACKGROUND_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
-import { useOverflowX } from '../../hooks/useOverflowX'
 import { useSelectedFarm } from '../../hooks/useSelectedFarm'
 import { AMMONIA_NOTE } from '../../utils/ammonia'
 import { timeAgo, DISPLAY_TIME_ZONE } from '../../utils/formatDate'
@@ -137,7 +137,7 @@ function SummaryCard({ count, title, sub }) {
 
 export default function FarmerReadings() {
   const isMobile = useIsMobile()
-  const [tableScrollRef, tableOverflows] = useOverflowX()
+
   const { selectedFarmId, farmsLoading } = useSelectedFarm()
 
   const [houseFilter, setHouseFilter] = useState('')
@@ -318,13 +318,9 @@ export default function FarmerReadings() {
           </span>
         </div>
 
-        {tableOverflows && totalItems > 0 && (
-          <p style={styles.scrollHint}>
-            {isMobile ? 'Swipe' : 'Scroll'} left and right to see all columns &rarr;
-          </p>
-        )}
 
-        <div ref={tableScrollRef} style={styles.tableScroll}>
+
+        <TableScroll style={styles.tableScroll}>
           <table style={{ ...styles.table, ...styles.tableMinWidth }}>
             <thead>
               <tr>
@@ -390,7 +386,7 @@ export default function FarmerReadings() {
               })}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
 
         {totalItems === 0 && (
           <div style={styles.empty}>

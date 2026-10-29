@@ -1,3 +1,18 @@
+@import './styles/searchFilters.css';
+@import './styles/dropdowns.css';
+@import './styles/interactions.css';
+
+/* Inter travels inside the render-blocking entry stylesheet. Vite's ?inline
+   embeds the WOFF2 in dev and production, eliminating a second font request.
+   block covers local decoding only, without a visible fallback-font swap. */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: block;
+  src: url('./assets/fonts/inter-latin-wght-normal.woff2?inline') format('woff2');
+}
+
 * {
   margin: 0;
   padding: 0;

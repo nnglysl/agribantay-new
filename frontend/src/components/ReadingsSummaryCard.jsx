@@ -88,8 +88,8 @@ export default function ReadingsSummaryCard({
                   <td style={styles.td} title={dep.period_note || 'Occupied sampling intervals ÷ expected intervals during this assignment. Duplicate readings in one interval count once.'}>
                     {dep.data_coverage_percent == null ? '—' : `${dep.data_coverage_percent}%`}
                   </td>
-                  <td style={{ ...styles.td, textAlign: 'right' }}>
-                    <button type="button" style={styles.viewBtn} onClick={() => onOpen(dep.assignment_key)}>
+                  <td className="agb-table-actions-cell" style={{ ...styles.td, textAlign: 'right' }}>
+                    <button className="agb-table-action" type="button" style={styles.viewBtn} onClick={() => onOpen(dep.assignment_key)}>
                       View
                     </button>
                   </td>

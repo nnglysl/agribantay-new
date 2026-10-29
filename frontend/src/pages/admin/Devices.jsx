@@ -1,10 +1,11 @@
+import DropdownList from '../../components/DropdownList'
+import TableScroll from '../../components/TableScroll'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import DeviceKeyField from '../../components/DeviceKeyField'
 import TableFooter from '../../components/TableFooter'
 import { useIsMobile } from '../../hooks/useIsMobile'
-import { useOverflowX } from '../../hooks/useOverflowX'
 import { SkeletonTable } from '../../components/Loading'
 import { invalidateCache } from '../../hooks/useCachedFetch'
 
@@ -60,7 +61,6 @@ export default function Devices() {
   const [banner, setBanner] = useState(null)
 
   const isMobile = useIsMobile()
-  const [tableScrollRef, tableOverflows] = useOverflowX()
 
   // Applied filters, plus the drafts the popover edits until Apply is pressed
   // — the same two-tier pattern the other Admin list pages use, so Filter
@@ -248,16 +248,16 @@ export default function Devices() {
         <div style={banner.tone === 'ok' ? s.bannerOk : s.bannerError}>{banner.text}</div>
       )}
 
-      <div style={{ ...s.toolbar, ...(isMobile ? s.toolbarMobile : {}) }}>
-        <div style={s.searchWrap}>
+      <div className="agb-search-filter-row" style={{ ...s.toolbar, ...(isMobile ? s.toolbarMobile : {}) }}>
+        <div className="agb-search-field" style={s.searchWrap}>
           <svg style={s.searchIcon} width="16" height="16" viewBox="0 0 24 24" fill="none">
             <circle cx="11" cy="11" r="7" stroke="#9aa79d" strokeWidth="2" />
             <path d="M20 20l-3.5-3.5" stroke="#9aa79d" strokeWidth="2" strokeLinecap="round" />
           </svg>
-          <input
+          <input aria-label="Search by Device Name, Device Key, or farm"
             value={search}
             onChange={e => { setSearch(e.target.value); setCurrentPage(1) }}
-            placeholder="Search by Device Name, Device Key, or farm"
+            placeholder={isMobile ? 'Search...' : "Search by Device Name, Device Key, or farm"}
             style={s.searchInput}
           />
           {search && (
@@ -265,8 +265,8 @@ export default function Devices() {
           )}
         </div>
 
-        <div style={s.filterAnchor} ref={filterRef}>
-          <button
+        <div className="agb-search-filter-anchor" style={s.filterAnchor} ref={filterRef}>
+          <button aria-expanded={filterOpen} className="agb-search-filter-button"
             type="button"
             onClick={openFilter}
             style={{ ...s.filterBtn, ...(activeFilterCount > 0 ? s.filterBtnActive : {}) }}
@@ -320,10 +320,7 @@ export default function Devices() {
         <SkeletonTable rows={6} columns={6} />
       ) : (
         <div style={s.tableCard}>
-          {tableOverflows && totalItems > 0 && (
-            <p style={s.scrollHint}>{isMobile ? 'Swipe' : 'Scroll'} left/right to see all columns &rarr;</p>
-          )}
-          <div ref={tableScrollRef} style={s.tableScroll}>
+          <TableScroll style={s.tableScroll}>
             <table style={{ ...s.table, ...s.tableMinWidth }}>
               <thead>
                 <tr>
@@ -332,7 +329,7 @@ export default function Devices() {
                   <th style={s.th}>Connectivity</th>
                   <th style={s.th}>Last Seen</th>
                   <th style={s.th}>Installed</th>
-                  <th style={{ ...s.th, textAlign: 'right' }}>Action</th>
+                  <th className="agb-table-actions-cell" style={{ ...s.th, textAlign: 'right' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -350,11 +347,11 @@ export default function Devices() {
                     <td style={s.td}><StatusPill device={d} /></td>
                     <td style={s.td}>{d.last_seen_at || '—'}</td>
                     <td style={s.td}>{d.installed_at || '—'}</td>
-                    <td style={s.td}>
-                      <div style={s.actionGroup}>
-                      <button type="button" style={s.ghostBtn} onClick={() => setViewing(d)}>View</button>
+                    <td className="agb-table-actions-cell" style={s.td}>
+                      <div className="agb-table-actions" style={s.actionGroup}>
+                      <button className="agb-table-action" type="button" style={s.ghostBtn} onClick={() => setViewing(d)}>View</button>
                       {d.farm_id ? (
-                        <button
+                        <button className="agb-table-action"
                           type="button"
                           style={s.ghostBtn}
                           disabled={busyId === d.id}
@@ -363,7 +360,7 @@ export default function Devices() {
                           {busyId === d.id ? 'Working…' : 'Unassign'}
                         </button>
                       ) : (
-                        <button
+                        <button className="agb-table-action"
                           type="button"
                           style={s.ghostBtn}
                           disabled={busyId === d.id}
@@ -378,7 +375,7 @@ export default function Devices() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
 
           {totalItems === 0 && (
             <div style={s.empty}>
@@ -685,7 +682,7 @@ function AssignModal({ device, farms, busy, onClose, onConfirm }) {
         <label style={m.label}>Find a farm *</label>
 
         {selectedFarm ? (
-          <div style={m.pickedFarm}>
+          <div className="agb-dropdown-value" style={m.pickedFarm}>
             <div>
               <div style={m.pickedFarmName}>{selectedFarm.farm_name}</div>
               <div style={m.pickedFarmMeta}>
@@ -711,21 +708,21 @@ function AssignModal({ device, farms, busy, onClose, onConfirm }) {
             />
 
             {options.length > 0 && (
-              <div style={m.farmResultsList}>
+              <DropdownList role="group" aria-label="Farm choices" style={m.farmResultsList}>
                 {options.map(f => (
-                  <div
+                  <button className="agb-dropdown-option" type="button"
                     key={f.id}
                     style={m.farmResultItem}
                     onClick={() => setSelectedFarm(f)}
                   >
-                    <div style={m.farmResultName}>{f.farm_name}</div>
-                    <div style={m.farmResultMeta}>
+                    <div className="agb-dropdown-label" style={m.farmResultName}>{f.farm_name}</div>
+                    <div className="agb-dropdown-meta" style={m.farmResultMeta}>
                       {f.owner_name || 'No owner on record'}
                       {f.barangay ? ` · ${f.barangay}` : ''}
                     </div>
-                  </div>
+                  </button>
                 ))}
-              </div>
+              </DropdownList>
             )}
 
             {options.length === 0 && (

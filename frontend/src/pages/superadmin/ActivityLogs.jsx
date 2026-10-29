@@ -1,3 +1,4 @@
+import TableScroll from '../../components/TableScroll'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import AdminLayout from '../../components/AdminLayout'
 import SharedPagination from '../../components/Pagination'
@@ -5,7 +6,6 @@ import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButt
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { BACKGROUND_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
-import { useOverflowX } from '../../hooks/useOverflowX'
 import { roleBadgeStyle } from '../../utils/roleBadgeStyle'
 import { activityTypeBadgeStyle } from '../../utils/activityTypeBadgeStyle'
 import { Badge } from '../../components/ReportsLayout'
@@ -58,7 +58,6 @@ export default function ActivityLogs() {
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const isMobile = useIsMobile()
-  const [tableScrollRef, tableOverflows] = useOverflowX()
 
   const [filterOpen, setFilterOpen] = useState(false)
   const [draftRole, setDraftRole] = useState(roleFilter)
@@ -156,14 +155,14 @@ export default function ActivityLogs() {
         </div>
       </div>
 
-      <div className="no-print" style={{ ...styles.toolbarRow, ...(isMobile ? styles.toolbarRowMobile : {}) }}>
-        <div style={styles.searchWrap}>
+      <div className="no-print agb-search-filter-row" style={{ ...styles.toolbarRow, ...(isMobile ? styles.toolbarRowMobile : {}) }}>
+        <div className="agb-search-field" style={styles.searchWrap}>
           <svg style={styles.searchIcon} width="15" height="15" viewBox="0 0 24 24" fill="none">
             <circle cx="11" cy="11" r="7" stroke="#9aa79d" strokeWidth="2" />
             <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="#9aa79d" strokeWidth="2" strokeLinecap="round" />
           </svg>
-          <input
-            placeholder="Search name, action, or details..."
+          <input aria-label="Search name, action, or details"
+            placeholder={isMobile ? 'Search...' : "Search name, action, or details..."}
             value={search}
             onChange={e => setSearch(e.target.value)}
             style={styles.searchInput}
@@ -175,8 +174,8 @@ export default function ActivityLogs() {
           )}
         </div>
 
-        <div style={styles.filterAnchor} ref={filterRef}>
-          <button
+        <div className="agb-search-filter-anchor" style={styles.filterAnchor} ref={filterRef}>
+          <button aria-expanded={filterOpen} className="agb-search-filter-button"
             type="button"
             onClick={() => (filterOpen ? setFilterOpen(false) : openFilter())}
             style={{ ...styles.filterBtn, ...(activeFilterCount > 0 ? styles.filterBtnActive : {}) }}
@@ -234,10 +233,7 @@ export default function ActivityLogs() {
 
       {!loading && !error && (
         <div style={styles.tableCard}>
-          {tableOverflows && paginatedLogs.length > 0 && (
-            <p style={styles.scrollHint}>{isMobile ? 'Swipe' : 'Scroll'} left/right to see all columns →</p>
-          )}
-          <div ref={tableScrollRef} style={styles.tableScroll}>
+          <TableScroll style={styles.tableScroll}>
             <table style={{ ...styles.table, ...styles.tableMinWidth }}>
               {/* Widths are declared once here rather than left to the
                   content, so every page of the log lines up with the last. */}
@@ -258,7 +254,7 @@ export default function ActivityLogs() {
                       has no place on a screen an LGU office uses. */}
                   <th style={styles.th}>Performed By</th>
                   <th style={styles.th}>Role</th>
-                  <th style={styles.th}>Action</th>
+                  <th className="agb-table-actions-cell" style={styles.th}>Action</th>
                   <th style={styles.th}>Details</th>
                   <th style={styles.th}>Type</th>
                 </tr>
@@ -294,7 +290,7 @@ export default function ActivityLogs() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
           {filteredLogs.length === 0 && (
             <div style={styles.empty}>
               {search || activeFilterCount > 0 ? 'No activity matches your search or filter.' : 'No activity recorded yet.'}
@@ -325,13 +321,13 @@ function Pagination({
   rangeStart, rangeEnd, totalItems, isMobile,
 }) {
   return (
-    <div className="no-print" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+    <div className="no-print agb-table-footer" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
       <div style={paginationStyles.info}>
         {totalItems === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
       </div>
 
-      <div style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
-        <select value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
+      <div className="agb-table-footer-controls" style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
+        <select aria-label="Rows per page" value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
           {PAGE_SIZE_OPTIONS.map(size => (
             <option key={size} value={size}>{size} / page</option>
           ))}

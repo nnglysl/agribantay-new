@@ -1,3 +1,5 @@
+import ScrollableTabs from '../../components/ScrollableTabs'
+import TableScroll from '../../components/TableScroll'
 import { useState, useMemo, useEffect, useRef } from 'react'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
@@ -9,7 +11,6 @@ import { LIVE_POLL_MS } from '../../constants/polling'
 import { matchesHandledBy } from '../../utils/handledBy'
 import HandledByFilter from '../../components/HandledByFilter'
 import { useIsMobile } from '../../hooks/useIsMobile'
-import { useOverflowX } from '../../hooks/useOverflowX'
 import { getUser } from '../../utils/auth'
 import { formatDate, formatDateTime, isWithinLocalDateRange } from '../../utils/formatDate'
 import { BADGE_SHAPE, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../../utils/serviceBadgeStyle'
@@ -75,7 +76,6 @@ export default function ServiceRequests() {
   const [viewRequest, setViewRequest] = useState(null)
   const [rescheduleTarget, setRescheduleTarget] = useState(null)
   const isMobile = useIsMobile()
-  const [tableScrollRef, tableOverflows] = useOverflowX()
 
   const dateColumn = DATE_COLUMNS[tab] || DATE_COLUMNS.pending
 
@@ -251,32 +251,32 @@ export default function ServiceRequests() {
       </p>
 
       <div className="no-print" style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
-        <div style={styles.tabs}>
-          <div style={{ ...styles.tab, ...(tab === 'pending' ? styles.tabActive : {}) }} onClick={() => setTab('pending')}>
+        <ScrollableTabs style={styles.tabs} isMobile={isMobile} label="Service request tabs">
+          <div className="agb-ui-tab" style={{ ...styles.tab, ...(tab === 'pending' ? styles.tabActive : {}) }} onClick={() => setTab('pending')}>
             Pending
           </div>
-          <div style={{ ...styles.tab, ...(tab === 'scheduled' ? styles.tabActive : {}) }} onClick={() => setTab('scheduled')}>
+          <div className="agb-ui-tab" style={{ ...styles.tab, ...(tab === 'scheduled' ? styles.tabActive : {}) }} onClick={() => setTab('scheduled')}>
             Scheduled
           </div>
-          <div style={{ ...styles.tab, ...(tab === 'overdue' ? styles.tabActive : {}) }} onClick={() => setTab('overdue')}>
+          <div className="agb-ui-tab" style={{ ...styles.tab, ...(tab === 'overdue' ? styles.tabActive : {}) }} onClick={() => setTab('overdue')}>
             Overdue
           </div>
-          <div style={{ ...styles.tab, ...(tab === 'completed' ? styles.tabActive : {}) }} onClick={() => setTab('completed')}>
+          <div className="agb-ui-tab" style={{ ...styles.tab, ...(tab === 'completed' ? styles.tabActive : {}) }} onClick={() => setTab('completed')}>
             Completed
           </div>
-          <div style={{ ...styles.tab, ...(tab === 'history' ? styles.tabActive : {}) }} onClick={() => setTab('history')}>
+          <div className="agb-ui-tab" style={{ ...styles.tab, ...(tab === 'history' ? styles.tabActive : {}) }} onClick={() => setTab('history')}>
             History
           </div>
-        </div>
+        </ScrollableTabs>
 
-        <div style={{ ...styles.toolbarRight, ...(isMobile ? styles.toolbarRightMobile : {}) }}>
-          <div style={styles.searchWrap}>
+        <div className="agb-search-filter-row agb-search-filter-row--with-extra" style={{ ...styles.toolbarRight, ...(isMobile ? styles.toolbarRightMobile : {}) }}>
+          <div className="agb-search-field" style={styles.searchWrap}>
             <svg style={styles.searchIcon} width="15" height="15" viewBox="0 0 24 24" fill="none">
               <circle cx="11" cy="11" r="7" stroke="#9aa79d" strokeWidth="2" />
               <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="#9aa79d" strokeWidth="2" strokeLinecap="round" />
             </svg>
-            <input
-              placeholder="Search request, farm, or owner..."
+            <input aria-label="Search request, farm, or owner"
+              placeholder={isMobile ? 'Search...' : "Search request, farm, or owner..."}
               value={search}
               onChange={e => setSearch(e.target.value)}
               style={styles.searchInput}
@@ -290,8 +290,8 @@ export default function ServiceRequests() {
 
           <HandledByFilter value={handledBy} onChange={setHandledBy} isMobile={isMobile} />
 
-          <div style={styles.filterAnchor} ref={filterRef}>
-            <button
+          <div className="agb-search-filter-anchor" style={styles.filterAnchor} ref={filterRef}>
+            <button aria-expanded={filterOpen} className="agb-search-filter-button"
               type="button"
               onClick={() => (filterOpen ? setFilterOpen(false) : openFilter())}
               style={{ ...styles.filterBtn, ...(activeFilterCount > 0 ? styles.filterBtnActive : {}) }}
@@ -373,11 +373,8 @@ export default function ServiceRequests() {
 
       {!loading && !error && (
         <div style={styles.tableCard}>
-          {tableOverflows && list.length > 0 && (
-            <p style={styles.scrollHint}>{isMobile ? 'Swipe' : 'Scroll'} left/right to see all columns →</p>
-          )}
 
-          <div ref={tableScrollRef} style={styles.tableScroll}>
+          <TableScroll style={styles.tableScroll}>
             <table style={{ ...styles.table, ...styles.tableMinWidth }}>
               <thead>
                 <tr>
@@ -392,7 +389,7 @@ export default function ServiceRequests() {
                       detail of its state, and it could not be scanned down
                       the page while it was buried in another cell. */}
                   <th style={styles.th}>Handled By</th>
-                  <th style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
+                  <th className="agb-table-actions-cell" style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -425,38 +422,38 @@ export default function ServiceRequests() {
                           ? r.accepted_by
                           : <span style={styles.unassignedCell}>&mdash;</span>}
                       </td>
-                      <td style={styles.td}>
-                        <div style={styles.actionGroup}>
+                      <td className="agb-table-actions-cell" style={styles.td}>
+                        <div className="agb-table-actions" style={styles.actionGroup}>
                           {!isSuperAdmin && r.status === 'Pending' && (
                             <>
-                              <span style={{ ...styles.actionBtn, ...styles.acceptBtn }} onClick={() => setAcceptTarget(r)}>
+                              <span className="agb-table-action" style={{ ...styles.actionBtn, ...styles.acceptBtn }} onClick={() => setAcceptTarget(r)}>
                                 Accept
                               </span>
-                              <span style={{ ...styles.actionBtn, ...styles.declineBtn }} onClick={() => setConfirmDecline(r)}>
+                              <span className="agb-table-action" style={{ ...styles.actionBtn, ...styles.declineBtn }} onClick={() => setConfirmDecline(r)}>
                                 Decline
                               </span>
                             </>
                           )}
                           {!isSuperAdmin && r.status === 'Scheduled' && isOwnedByMe(r) && (
                             <>
-                              <span
+                              <span className="agb-table-action"
                                 style={{ ...styles.actionBtn, ...styles.completeBtn }}
                                 onClick={() => { setConfirmComplete(r); setCompleteNotes('') }}
                               >
                                 Mark Completed
                               </span>
-                              <span style={{ ...styles.actionBtn, ...styles.rescheduleBtn }} onClick={() => setRescheduleTarget(r)}>
+                              <span className="agb-table-action" style={{ ...styles.actionBtn, ...styles.rescheduleBtn }} onClick={() => setRescheduleTarget(r)}>
                                 Reschedule
                               </span>
                             </>
                           )}
                           {(isSuperAdmin || r.status === 'Completed' || r.status === 'Cancelled' || (r.status === 'Scheduled' && !isOwnedByMe(r))) && (
-                            <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => setViewRequest(r)}>
+                            <span className="agb-table-action" style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => setViewRequest(r)}>
                               View
                             </span>
                           )}
                           {!isSuperAdmin && r.status === 'Completed' && isOwnedByMe(r) && (
-                            <span style={{ ...styles.actionBtn, ...styles.rescheduleBtn }} onClick={() => { setConfirmReopen(r); setReopenError('') }}>
+                            <span className="agb-table-action" style={{ ...styles.actionBtn, ...styles.rescheduleBtn }} onClick={() => { setConfirmReopen(r); setReopenError('') }}>
                               Undo Completion
                             </span>
                           )}
@@ -467,7 +464,7 @@ export default function ServiceRequests() {
                 })}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
 
           {list.length === 0 && (
             <div style={styles.empty}>
@@ -606,13 +603,13 @@ function Pagination({
   rangeStart, rangeEnd, totalItems, isMobile,
 }) {
   return (
-    <div className="no-print" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+    <div className="no-print agb-table-footer" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
       <div style={paginationStyles.info}>
         {totalItems === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
       </div>
 
-      <div style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
-        <select value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
+      <div className="agb-table-footer-controls" style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
+        <select aria-label="Rows per page" value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
           {PAGE_SIZE_OPTIONS.map(size => (
             <option key={size} value={size}>{size} / page</option>
           ))}

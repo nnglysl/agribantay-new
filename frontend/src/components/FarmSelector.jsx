@@ -1,3 +1,4 @@
+import DropdownList from './DropdownList'
 import { useRef, useState, useEffect } from 'react'
 import { useSelectedFarm } from '../hooks/useSelectedFarm'
 
@@ -47,14 +48,14 @@ export default function FarmSelector({ inline = false, align = 'left' }) {
   const isSingleFarm = farms.length === 1
 
   return (
-    <div ref={wrapRef} style={{ ...styles.wrap, ...(inline ? styles.wrapInline : {}) }}>
-      <button
+    <div className="agb-farm-selector" ref={wrapRef} style={{ ...styles.wrap, ...(inline ? styles.wrapInline : {}) }}>
+      <button className="agb-dropdown-trigger" aria-expanded={open && !isSingleFarm} aria-disabled={isSingleFarm} title={selectedFarm.farm_name}
         type="button"
         style={{ ...styles.trigger, ...(isSingleFarm ? styles.triggerStatic : {}) }}
         onClick={() => !isSingleFarm && setOpen(v => !v)}
       >
         <span style={styles.iconChip}><FarmIcon /></span>
-        <span style={styles.label}>{selectedFarm.farm_name}</span>
+        <span className="agb-dropdown-current-name" style={styles.label}>{selectedFarm.farm_name}</span>
         {!isSingleFarm && (
           <span style={{ ...styles.chevronWrap, transform: open ? 'rotate(180deg)' : 'none' }}>
             <ChevronIcon />
@@ -63,27 +64,27 @@ export default function FarmSelector({ inline = false, align = 'left' }) {
       </button>
 
       {open && !isSingleFarm && (
-        <div style={{ ...styles.dropdown, ...(align === 'right' ? styles.dropdownRight : {}) }}>
+        <DropdownList role="group" aria-label="Farm choices" className="agb-farm-selector-list" style={{ ...styles.dropdown, ...(align === 'right' ? styles.dropdownRight : {}) }}>
           {farms.map(f => {
             const active = f.id === selectedFarmId
             const color = STATUS_COLOR[f.status] || '#9aa79d'
             return (
-              <div
+              <button className="agb-dropdown-option" type="button" aria-current={active ? 'true' : undefined}
                 key={f.id}
                 style={{ ...styles.option, ...(active ? styles.optionActive : {}) }}
                 onClick={() => { setSelectedFarmId(f.id); setOpen(false) }}
               >
                 <span style={styles.iconChip}><FarmIcon /></span>
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={styles.optionName}>{f.farm_name}</div>
-                  {f.barangay && <div style={styles.optionBarangay}>{f.barangay}</div>}
+                  <div className="agb-dropdown-label" style={styles.optionName}>{f.farm_name}</div>
+                  {f.barangay && <div className="agb-dropdown-meta" style={styles.optionBarangay}>{f.barangay}</div>}
                 </div>
                 <span style={{ ...styles.statusDot, backgroundColor: color }} />
                 {active && <span style={styles.check}>✓</span>}
-              </div>
+              </button>
             )
           })}
-        </div>
+        </DropdownList>
       )}
     </div>
   )

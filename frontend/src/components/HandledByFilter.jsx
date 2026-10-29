@@ -12,8 +12,8 @@ export default function HandledByFilter({ value, onChange, isMobile }) {
   const label = HANDLED_BY_OPTIONS.find(o => o.value === value)?.label || 'All'
 
   return (
-    <div style={{ ...s.wrap, ...(isMobile ? s.wrapMobile : {}) }}>
-      <div style={{ ...s.face, ...(active ? s.faceActive : {}) }} aria-hidden="true">
+    <div className="agb-select-shell" style={{ ...s.wrap, ...(isMobile ? s.wrapMobile : {}) }}>
+      <div className="agb-select-face" style={{ ...s.face, ...(active ? s.faceActive : {}) }} aria-hidden="true">
         <UsersIcon />
         <span style={s.text}>
           <span style={s.label}>Handled By:</span> <span style={s.value}>{label}</span>

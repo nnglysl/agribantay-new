@@ -1,6 +1,5 @@
-import { useMemo } from 'react'
-
-const SANS = "'Inter', sans-serif"
+import { useEffect, useMemo, useRef, useState } from 'react'
+import '../styles/pagination.css'
 
 /**
  * The single Previous / page-numbers / Next control used everywhere a table
@@ -11,9 +10,20 @@ const SANS = "'Inter', sans-serif"
  * instead of being redefined per page.
  */
 export default function Pagination({ currentPage, totalPages, onPageChange, isMobile = false, maxButtons }) {
+  const navigation = useRef(null)
+  const [availableWidth, setAvailableWidth] = useState(() => typeof window === 'undefined' ? 1024 : window.innerWidth)
+  useEffect(() => {
+    const container = navigation.current.closest('.agb-table-footer') || navigation.current.parentElement
+    const observer = new ResizeObserver(([entry]) => setAvailableWidth(entry.contentRect.width || window.innerWidth))
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [])
+
   const pages = Math.max(1, totalPages || 1)
   const safe = Math.min(Math.max(1, currentPage || 1), pages)
-  const max = maxButtons ?? (isMobile ? 3 : 5)
+  const requestedButtons = maxButtons ?? (isMobile ? 3 : 5)
+  // Only the visible page-number window changes; every page stays reachable.
+  const max = Math.min(requestedButtons, availableWidth < 250 ? 1 : availableWidth < 620 ? 3 : requestedButtons)
 
   const pageNumbers = useMemo(() => {
     let start = Math.max(1, safe - Math.floor(max / 2))
@@ -25,56 +35,42 @@ export default function Pagination({ currentPage, totalPages, onPageChange, isMo
   }, [safe, pages, max])
 
   return (
-    <div className="no-print" style={styles.wrap}>
+    <nav ref={navigation} className="no-print agb-pagination" aria-label="Pagination">
       <button
         type="button"
-        style={{ ...styles.navBtn, ...(safe === 1 ? styles.navBtnDisabled : {}) }}
+        className="agb-pagination-nav"
+        aria-label="Previous"
         onClick={() => onPageChange(safe - 1)}
         disabled={safe === 1}
       >
-        Previous
+        <span className="agb-pagination-arrow" aria-hidden="true">‹</span>
+        <span className="agb-pagination-label">Previous</span>
       </button>
 
-      {pageNumbers[0] > 1 && <span style={styles.ellipsis}>…</span>}
+      {pageNumbers[0] > 1 && <span className="agb-pagination-ellipsis" aria-hidden="true">…</span>}
       {pageNumbers.map(p => (
         <button
           key={p}
           type="button"
-          style={{ ...styles.pageBtn, ...(p === safe ? styles.pageBtnActive : {}) }}
+          className="agb-pagination-page"
+          aria-current={p === safe ? 'page' : undefined}
           onClick={() => onPageChange(p)}
         >
           {p}
         </button>
       ))}
-      {pageNumbers[pageNumbers.length - 1] < pages && <span style={styles.ellipsis}>…</span>}
+      {pageNumbers[pageNumbers.length - 1] < pages && <span className="agb-pagination-ellipsis" aria-hidden="true">…</span>}
 
       <button
         type="button"
-        style={{ ...styles.navBtn, ...(safe === pages ? styles.navBtnDisabled : {}) }}
+        className="agb-pagination-nav"
+        aria-label="Next"
         onClick={() => onPageChange(safe + 1)}
         disabled={safe === pages}
       >
-        Next
+        <span className="agb-pagination-label">Next</span>
+        <span className="agb-pagination-arrow" aria-hidden="true">›</span>
       </button>
-    </div>
+    </nav>
   )
-}
-
-const styles = {
-  wrap: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
-  navBtn: {
-    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    height: '34px', padding: '0 14px', borderRadius: '8px', border: '1px solid #dcdfd6',
-    backgroundColor: '#fff', color: '#33413a', fontFamily: SANS, fontSize: '13px', fontWeight: 600,
-    cursor: 'pointer', whiteSpace: 'nowrap',
-  },
-  navBtnDisabled: { color: '#b7bdb4', backgroundColor: '#f7f8f5', cursor: 'not-allowed' },
-  pageBtn: {
-    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    height: '34px', minWidth: '34px', padding: '0 10px', borderRadius: '8px', border: '1px solid #dcdfd6',
-    backgroundColor: '#fff', color: '#33413a', fontFamily: SANS, fontSize: '13px', fontWeight: 600,
-    cursor: 'pointer',
-  },
-  pageBtnActive: { backgroundColor: '#2c8047', border: '1px solid #2c8047', color: '#fff' },
-  ellipsis: { padding: '0 2px', color: '#9aa79d', fontSize: '13px', fontFamily: SANS },
 }

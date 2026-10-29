@@ -1,3 +1,4 @@
+import TableScroll from './TableScroll'
 import { formatDateTime } from '../utils/formatDate'
 import ReportLetterhead from './ReportLetterhead'
 import { styles, Signatures } from './ReportsLayout'
@@ -51,12 +52,14 @@ export default function VetGeneratedReportView({ report }) {
           <div className="print-section-title">
             Activity this period — {report.period_label}
           </div>
+          <TableScroll hint={false}>
           <table className="print-table print-kv">
             <tbody>
               <tr><th>Veterinary services completed</th><td>{orCount(activity.vet_services_completed)}</td></tr>
               <tr><th>Farms covered this period</th><td>{orCount(activity.vet_farms_covered)}</td></tr>
             </tbody>
           </table>
+          </TableScroll>
         </>
       )}
 
@@ -64,12 +67,14 @@ export default function VetGeneratedReportView({ report }) {
         Veterinary summary <span className="print-scope">({s.reporting_version >= 2 ? 'selected period, all veterinarians' : 'all-time, all veterinarians'})</span>
       </div>
       {hasSummary ? (
+        <TableScroll hint={false}>
         <table className="print-table print-kv">
           <tbody>
             <tr><th>Total completed</th><td>{orCount(vet.total_completed)}</td></tr>
             <tr><th>Farms covered</th><td>{orCount(vet.farms_covered)}</td></tr>
           </tbody>
         </table>
+        </TableScroll>
       ) : (
         <p className="print-empty">
           Veterinary totals were not captured in this report snapshot. Reports archived from the next
@@ -84,6 +89,7 @@ export default function VetGeneratedReportView({ report }) {
       {vetServices.length === 0 ? (
         <p className="print-empty">No completed vet services in this period.</p>
       ) : (
+        <TableScroll hint={false}>
         <table className="print-table">
           <colgroup>
             <col style={{ width: '14%' }} /><col style={{ width: '15%' }} /><col style={{ width: '13%' }} />
@@ -106,6 +112,7 @@ export default function VetGeneratedReportView({ report }) {
             ))}
           </tbody>
         </table>
+        </TableScroll>
       )}
 
       <Signatures signatures={s.signatures} fallbackTitle="Municipal Veterinarian" />

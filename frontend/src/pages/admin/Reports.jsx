@@ -1,9 +1,10 @@
+import MonthlyReportBarChart from '../../components/MonthlyReportBarChart'
 import { matchesReportPeriod } from '../../utils/reportPeriod'
 import AlertIncidentChart from '../../components/AlertIncidentChart'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Line, Bar, Doughnut } from 'react-chartjs-2'
+import { Bar } from 'react-chartjs-2'
 import {
-  Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Tooltip,
+  Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip,
 } from 'chart.js'
 import AdminLayout from '../../components/AdminLayout'
 import GeneratedReportsFilesTab from '../../components/GeneratedReportsFilesTab'
@@ -12,15 +13,15 @@ import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useReportPeriod } from '../../hooks/useReportPeriod'
 import ReportPeriodFields from '../../components/ReportPeriodFields'
 import {
-  C, styles, ReportStyles, PageHeader, Tabs, StatCard, Panel, DataTable, ChartFrame, Legend,
-  DonutCenter, IconFilter, chartOptions, donutOptions, lineDataset,
+  C, styles, ReportStyles, PageHeader, Tabs, StatCard, Panel, DataTable, ChartFrame,
+  IconFilter, chartOptions,
   fmtDate, makeInRange, rangeLabelOf, scopeLabelOf, monthlyBucketsInRange,
   serviceTypeBadgeStyle, serviceTypeLabel,
 } from '../../components/ReportsLayout'
 import { DISPLAY_TIME_ZONE } from '../../utils/formatDate'
 import { SkeletonStatCards, SkeletonBlock } from '../../components/Loading'
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Tooltip)
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip)
 
 const TABS = ['Overview', 'Inspections', 'Alerts', 'Maintenance', 'Service Requests', 'Files']
 const MAINTENANCE_VIEWS = ['Overdue and non-compliant farms', 'Completed clean-out log']
@@ -180,12 +181,10 @@ export default function AdminReports() {
           subtitle="Overall Farm Monitoring Summary"
           hideActions
         />
-        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <Tabs tabs={TABS} active={tab} onChange={setTab} />
-          </div>
-
-          <div ref={filterRef} style={{ position: 'relative', marginBottom: 10 }}>
+        <Tabs tabs={TABS} active={tab} onChange={setTab} />
+        <div className="rp-filter-toolbar">
+          <p style={{ ...styles.filterNote, margin: 0 }}>{scopeLabelOf(fromDate, toDate)}</p>
+          <div ref={filterRef} style={{ position: 'relative' }}>
             <button
               type="button"
               onClick={() => (filterOpen ? setFilterOpen(false) : openFilter())}
@@ -214,7 +213,6 @@ export default function AdminReports() {
         </div>
 
         <div style={styles.body}>
-          <p style={styles.filterNote}>{scopeLabelOf(fromDate, toDate)}</p>
 
           {tab !== 'Files' && (
             <div className="rp-stats">
@@ -223,41 +221,9 @@ export default function AdminReports() {
           )}
 
           {tab === 'Overview' && (
-            <div className="rp-two">
-              <Panel title="Inspections completed per month" subtitle={isRangeFiltered ? rangeLabel : 'All records'}>
-                <ChartFrame>
-                  <Line
-                    data={{ labels: monthlyTrend.map(m => m.label), datasets: [lineDataset(monthlyTrend.map(m => m.count), C.green)] }}
-                    options={chartOptions}
-                  />
-                </ChartFrame>
-              </Panel>
-
-              <Panel title="Latest recorded farm condition" subtitle={isRangeFiltered ? `Farms registered during ${rangeLabel}` : 'All registered farms'} style={{ display: 'flex', flexDirection: 'column' }}>
-                <div style={{ ...styles.donutRow, flex: 1 }}>
-                  <div style={styles.donutWrap}>
-                    <Doughnut
-                      data={{
-                        labels: ['Safe', 'Warning', 'Critical', 'Pending Setup'],
-                        datasets: [{
-                          data: [farms.normal ?? 0, farms.warning ?? 0, farms.critical ?? 0, farms.pendingSetup ?? 0],
-                          backgroundColor: [C.green, C.amber, C.red, C.faint],
-                          borderWidth: 0,
-                        }],
-                      }}
-                      options={donutOptions}
-                    />
-                    <DonutCenter total={farms.total} />
-                  </div>
-                  <Legend items={[
-                    { label: 'Safe', value: farms.normal, color: C.green },
-                    { label: 'Warning', value: farms.warning, color: C.amber },
-                    { label: 'Critical', value: farms.critical, color: C.red },
-                    { label: 'Pending Setup', value: farms.pendingSetup, color: C.faint },
-                  ]} />
-                </div>
-              </Panel>
-            </div>
+            <Panel title="Inspections completed per month" subtitle={isRangeFiltered ? rangeLabel : 'All records'}>
+              <MonthlyReportBarChart buckets={monthlyTrend} label="Completed inspections" emptyText="No completed inspections in this reporting period." />
+            </Panel>
           )}
 
           {tab === 'Inspections' && (

@@ -1,3 +1,4 @@
+import ScrollableTabs from '../../components/ScrollableTabs'
 import { useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import VetLayout from '../../components/VetLayout'
@@ -185,7 +186,7 @@ export default function VetFarmDetails() {
         </div>
       </div>
 
-      <div style={styles.tabsRow}>
+      <ScrollableTabs style={{ ...styles.tabsRow, marginBottom: 0 }} containerStyle={{ marginBottom: styles.tabsRow.marginBottom }} isMobile={isMobile} label="Farm detail tabs">
         {TABS.map(t => (
           <button
             key={t.key}
@@ -195,7 +196,7 @@ export default function VetFarmDetails() {
             {t.label}
           </button>
         ))}
-      </div>
+      </ScrollableTabs>
 
       {activeTab === 'info' && (
         <Card title="Account Information">
@@ -401,7 +402,7 @@ export default function VetFarmDetails() {
                       <th style={tableStyles.th}>Status</th>
                       <th style={tableStyles.th}>Accepted By</th>
                       <th style={tableStyles.th}>Date Completed</th>
-                      <th style={{ ...tableStyles.th, textAlign: 'right' }}>Action</th>
+                      <th className="agb-table-actions-cell" style={{ ...tableStyles.th, textAlign: 'right' }}>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -419,8 +420,8 @@ export default function VetFarmDetails() {
                           </td>
                           <td style={tableStyles.td}>{r.accepted_by || '—'}</td>
                           <td style={tableStyles.td}>{r.completed_at || '—'}</td>
-                          <td style={{ ...tableStyles.td, textAlign: 'right' }}>
-                            <span
+                          <td className="agb-table-actions-cell" style={{ ...tableStyles.td, textAlign: 'right' }}>
+                            <span className="agb-table-action"
                               style={tableStyles.viewLink}
                               onClick={() => setViewRecord({
                                 ...r,
@@ -491,12 +492,12 @@ function Pagination({ currentPage, lastPage, pageSize, total, onPageChange, onPa
   const rangeEnd = Math.min(currentPage * pageSize, total)
 
   return (
-    <div className="no-print" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+    <div className="no-print agb-table-footer" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
       <div style={paginationStyles.info}>
         {total === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${total}`}
       </div>
-      <div style={paginationStyles.controls}>
-        <select value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
+      <div className="agb-table-footer-controls" style={paginationStyles.controls}>
+        <select aria-label="Rows per page" value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))} style={paginationStyles.pageSizeSelect}>
           {PAGE_SIZE_OPTIONS.map(size => <option key={size} value={size}>{size} / page</option>)}
         </select>
         <SharedPagination currentPage={currentPage} totalPages={lastPage} onPageChange={onPageChange} isMobile={isMobile} />

@@ -1,0 +1,108 @@
+.agb-table-scroll-shell {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.agb-table-scroll {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  /* The range below stays visible on browsers that hide native scrollbars. */
+  scrollbar-width: none;
+}
+
+.agb-table-scroll::-webkit-scrollbar { display: none; }
+.agb-table-scroll:focus-visible { outline: 2px solid #2c8047; outline-offset: -2px; }
+
+.agb-table-scroll-control {
+  display: flex;
+  align-items: center;
+  padding: 2px 12px;
+}
+
+.agb-table-scroll-control input {
+  --table-scroll-thumb: #b8b8b8;
+  appearance: none;
+  -webkit-appearance: none;
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  margin: 0;
+  background: transparent;
+  cursor: grab;
+}
+.agb-table-scroll-control input:hover { --table-scroll-thumb: #a3a3a3; }
+.agb-table-scroll-control input:active { --table-scroll-thumb: #888; cursor: grabbing; }
+
+.agb-table-scroll-control input::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 8px;
+  background: #f1f1f1;
+}
+.agb-table-scroll-control input::-moz-range-track {
+  height: 8px;
+  border-radius: 8px;
+  background: #f1f1f1;
+}
+.agb-table-scroll-control input::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: max(32px, var(--table-thumb-width));
+  height: 8px;
+  margin-top: 0;
+  border: 0;
+  border-radius: 8px;
+  background: var(--table-scroll-thumb);
+}
+.agb-table-scroll-control input::-moz-range-thumb {
+  width: max(32px, var(--table-thumb-width));
+  height: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--table-scroll-thumb);
+}
+.agb-table-scroll-control input:focus-visible { outline: 2px solid #888; outline-offset: 1px; border-radius: 4px; }
+
+/* Scoped overrides unify geometry while keeping each action's existing colors. */
+.agb-table-actions-cell { width: 1%; white-space: nowrap; text-align: right !important; }
+.agb-table-scroll .agb-table-actions {
+  display: flex !important;
+  flex-flow: row nowrap !important;
+  align-items: center !important;
+  justify-content: flex-end;
+  gap: 6px !important;
+  width: max-content;
+  margin-left: auto;
+}
+.agb-table-action {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-height: 36px;
+  min-width: 36px;
+  padding: 0 12px !important;
+  border-radius: 8px !important;
+  font-size: 12px !important;
+  line-height: 1.25;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+@media (max-width: 768px) {
+  .agb-table-action { min-height: 44px; min-width: 44px; }
+  .agb-table-scroll-control input { height: 28px; }
+}
+
+/* Report capture and print keep the full table and omit screen controls. */
+.gr-hidden-capture .agb-table-scroll,
+.print-view .agb-table-scroll { overflow: visible; }
+.gr-hidden-capture .agb-table-scroll-control,
+.print-view .agb-table-scroll-control { display: none; }
+
+@media print {
+  .agb-table-scroll { overflow: visible !important; }
+  .agb-table-scroll-control { display: none !important; }
+}

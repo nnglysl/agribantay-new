@@ -1,3 +1,4 @@
+import TableScroll from '../../components/TableScroll'
 import { useEffect, useRef, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../../api/axios'
@@ -6,7 +7,6 @@ import SharedPagination from '../../components/Pagination'
 import { useCachedFetch, invalidateCache } from '../../hooks/useCachedFetch'
 import { LIVE_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
-import { useOverflowX } from '../../hooks/useOverflowX'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { roleBadgeStyle } from '../../utils/roleBadgeStyle'
 import { sanitizePhoneInput } from '../../utils/phoneValidation'
@@ -48,7 +48,6 @@ export default function ManageAccounts() {
   const [draftRole, setDraftRole] = useState('all')
   const filterRef = useRef(null)
   const isMobile = useIsMobile()
-  const [tableScrollRef, tableOverflows] = useOverflowX()
 
   const current = tabState[statusTab]
 
@@ -165,14 +164,14 @@ export default function ManageAccounts() {
           </div>
         </div>
 
-        <div style={{ ...styles.toolbarRight, ...(isMobile ? styles.toolbarRightMobile : {}) }}>
-          <div style={styles.searchWrap}>
+        <div className="agb-search-filter-row" style={{ ...styles.toolbarRight, ...(isMobile ? styles.toolbarRightMobile : {}) }}>
+          <div className="agb-search-field" style={styles.searchWrap}>
             <svg style={styles.searchIcon} width="15" height="15" viewBox="0 0 24 24" fill="none">
               <circle cx="11" cy="11" r="7" stroke="#9aa79d" strokeWidth="2" />
               <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="#9aa79d" strokeWidth="2" strokeLinecap="round" />
             </svg>
-            <input
-              placeholder="Search name, email, or contact..."
+            <input aria-label="Search name, email, or contact"
+              placeholder={isMobile ? 'Search...' : "Search name, email, or contact..."}
               value={current.search}
               onChange={e => updateCurrent({ search: e.target.value, currentPage: 1 })}
               style={styles.searchInput}
@@ -184,8 +183,8 @@ export default function ManageAccounts() {
             )}
           </div>
 
-          <div style={styles.filterAnchor} ref={filterRef}>
-            <button
+          <div className="agb-search-filter-anchor" style={styles.filterAnchor} ref={filterRef}>
+            <button aria-expanded={filterOpen} className="agb-search-filter-button"
               type="button"
               onClick={() => (filterOpen ? setFilterOpen(false) : openFilter())}
               style={{ ...styles.filterBtn, ...(activeFilterCount > 0 ? styles.filterBtnActive : {}) }}
@@ -224,10 +223,7 @@ export default function ManageAccounts() {
 
       {!loading && !error && (
         <div style={styles.tableCard}>
-          {tableOverflows && accounts.length > 0 && (
-            <p style={styles.scrollHint}>{isMobile ? 'Swipe' : 'Scroll'} left/right to see all columns →</p>
-          )}
-          <div ref={tableScrollRef} style={styles.tableScroll}>
+          <TableScroll style={styles.tableScroll}>
             <table style={{ ...styles.table, ...styles.tableMinWidth }}>
               <thead>
                 <tr>
@@ -236,7 +232,7 @@ export default function ManageAccounts() {
                   <th style={styles.th}>Role</th>
                   <th style={styles.th}>Email</th>
                   <th style={styles.th}>Contact</th>
-                  <th style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
+                  <th className="agb-table-actions-cell" style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -259,13 +255,13 @@ export default function ManageAccounts() {
                     </td>
                     <td style={styles.td}>{acc.email || '—'}</td>
                     <td style={styles.td}>{acc.mobile_number || '—'}</td>
-                    <td style={styles.td}>
-                      <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                        <span style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => navigate(`/superadmin/accounts/${acc.id}`)}>View</span>
+                    <td className="agb-table-actions-cell" style={styles.td}>
+                      <div className="agb-table-actions" style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                        <span className="agb-table-action" style={{ ...styles.actionBtn, ...styles.viewBtn }} onClick={() => navigate(`/superadmin/accounts/${acc.id}`)}>View</span>
                         {statusTab === 'active' ? (
-                          <span style={{ ...styles.actionBtn, ...styles.deactivateBtn }} onClick={() => handleDeactivate(acc)}>Deactivate</span>
+                          <span className="agb-table-action" style={{ ...styles.actionBtn, ...styles.deactivateBtn }} onClick={() => handleDeactivate(acc)}>Deactivate</span>
                         ) : (
-                          <span style={{ ...styles.actionBtn, ...styles.activateBtn }} onClick={() => handleActivate(acc)}>Activate</span>
+                          <span className="agb-table-action" style={{ ...styles.actionBtn, ...styles.activateBtn }} onClick={() => handleActivate(acc)}>Activate</span>
                         )}
                       </div>
                     </td>
@@ -273,7 +269,7 @@ export default function ManageAccounts() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
           {accounts.length === 0 && (
             <div style={styles.empty}>
               No {statusTab === 'active' ? 'active' : 'deactivated'} accounts found.
@@ -332,13 +328,13 @@ function Pagination({
   rangeStart, rangeEnd, totalItems, isMobile,
 }) {
   return (
-    <div className="no-print" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
+    <div className="no-print agb-table-footer" style={{ ...paginationStyles.wrap, ...(isMobile ? paginationStyles.wrapMobile : {}) }}>
       <div style={paginationStyles.info}>
         {totalItems === 0 ? 'No results' : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
       </div>
 
-      <div style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
-        <select
+      <div className="agb-table-footer-controls" style={{ ...paginationStyles.controls, ...(isMobile ? paginationStyles.controlsMobile : {}) }}>
+        <select aria-label="Rows per page"
           value={pageSize}
           onChange={e => onPageSizeChange(Number(e.target.value))}
           style={paginationStyles.pageSizeSelect}

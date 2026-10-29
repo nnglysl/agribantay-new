@@ -1,3 +1,6 @@
+import TableScroll from './TableScroll'
+import ScrollableTabs from './ScrollableTabs'
+import { useIsMobile } from '../hooks/useIsMobile'
 import { useState } from 'react'
 import { manilaDay } from '../utils/reportPeriod'
 import { serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../utils/serviceBadgeStyle'
@@ -255,7 +258,10 @@ export function ReportStyles() {
       .rp-tab:hover { color: ${C.dark}; }
       .rp-tab[aria-selected="true"] { border-bottom-color: ${C.green}; color: ${C.dark}; font-weight: 700; }
 
-      .rp-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; }
+      .rp-filter-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
+      .rp-filter-toolbar > p { flex: 1; min-width: 0; }
+      .rp-filter-toolbar > div { flex-shrink: 0; }
+      .rp-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); grid-auto-rows: 1fr; gap: 16px; }
       .rp-two { display: grid; grid-template-columns: 1.45fr 1fr; gap: 18px; align-items: stretch; }
       .rp-two > * { min-width: 0; }
 
@@ -265,6 +271,8 @@ export function ReportStyles() {
 
       @container (max-width: 900px) {
         .rp-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+        .rp-stats { --rp-stat-padding: 14px 12px; --rp-stat-value-size: 26px; --rp-stat-label-size: 12px; --rp-stat-height: 106px; }
+        .rp-stats > :last-child:nth-child(odd) { grid-column: 1 / -1; }
         .rp-two { grid-template-columns: 1fr; }
       }
       @container (max-width: 620px) {
@@ -357,6 +365,10 @@ export function ReportStyles() {
                 font-family: Georgia, 'Times New Roman', serif; color: #000; background: #fff;
                 border: 1px solid ${C.border}; border-radius: 10px; }
 
+      @media screen {
+        .gr-doc .agb-table-scroll > .print-table:not(.print-kv) { min-width: 640px; }
+      }
+
       /* The archived-report viewer is a fixed 800px document. On a phone the
          40px paper margins plus six-column tables leave the text unreadable,
          so on screen only, the margins tighten and each table scrolls in place.
@@ -364,10 +376,6 @@ export function ReportStyles() {
          capture targets (.print-view, .gr-hidden-capture) are untouched. */
       @media screen and (max-width: 760px) {
         .gr-doc { padding: 22px 16px; }
-        .gr-doc .print-table {
-          display: block; overflow-x: auto; white-space: nowrap;
-          -webkit-overflow-scrolling: touch;
-        }
 
         /* The letterhead is a two-column row. Below this width the office
            block is squeezed to a third of the page and every line in it
@@ -391,6 +399,7 @@ export function StatCard({ value, label, foot, onClick, active = false }) {
   const clickable = typeof onClick === 'function'
   return (
     <div
+      className="rp-stat-card"
       style={{ ...styles.statCard, ...(clickable ? styles.statCardClickable : {}), ...(active ? styles.statCardActive : {}) }}
       onClick={onClick}
       role={clickable ? 'button' : undefined}
@@ -430,14 +439,15 @@ export function PageHeader({ title, subtitle, onPrint, onCsv, onPdf, exportingPd
 }
 
 export function Tabs({ tabs, active, onChange }) {
+  const isMobile = useIsMobile()
   return (
-    <div className="rp-tabs" role="tablist">
+    <ScrollableTabs className="rp-tabs" role="tablist" label="Report tabs" isMobile={isMobile}>
       {tabs.map(t => (
         <button key={t} role="tab" aria-selected={t === active} className="rp-tab" onClick={() => onChange(t)}>
           {t}
         </button>
       ))}
-    </div>
+    </ScrollableTabs>
   )
 }
 
@@ -474,9 +484,9 @@ export function Badge({ text, tone = 'green', dot = true, badgeStyle }) {
 function Cell({ cell }) {
   if (cell.actions) {
     return (
-      <span style={styles.cellActions}>
+      <span className="agb-table-actions" style={styles.cellActions}>
         {cell.actions.map((a, i) => (
-          <button
+          <button className="agb-table-action"
             key={i}
             type="button"
             /* danger is opt-in and additive: a destructive action should not look
@@ -552,18 +562,20 @@ export function DataTable({ title, subtitle, columns, rows, emptyText, paginate 
       ) : (
         <>
           <div className="rp-table-scroll">
+            <TableScroll>
             <table className="rp-table" style={{ minWidth }}>
               <thead>
-                <tr>{columns.map(c => <th key={c} style={styles.th}>{c}</th>)}</tr>
+                <tr>{columns.map(c => <th key={c} className={c === 'Actions' || c === 'Action' ? 'agb-table-actions-cell' : undefined} style={styles.th}>{c}</th>)}</tr>
               </thead>
               <tbody>
                 {shown.map((row, ri) => (
                   <tr key={ri}>
-                    {row.map((cell, ci) => <td key={ci} style={styles.td}><Cell cell={cell} /></td>)}
+                    {row.map((cell, ci) => <td key={ci} className={columns[ci] === 'Actions' || columns[ci] === 'Action' ? 'agb-table-actions-cell' : undefined} style={styles.td}><Cell cell={cell} /></td>)}
                   </tr>
                 ))}
               </tbody>
             </table>
+            </TableScroll>
           </div>
 
           <div className="rp-cards">
@@ -580,12 +592,12 @@ export function DataTable({ title, subtitle, columns, rows, emptyText, paginate 
           </div>
 
           {paginate && total > 0 && (
-            <div style={styles.pager}>
+            <div className="agb-table-footer" style={styles.pager}>
               <span style={styles.pagerInfo}>
                 Showing {start + 1}–{Math.min(start + size, total)} of {total} records
               </span>
-              <div style={styles.pagerBtns}>
-                <select
+              <div className="agb-table-footer-controls" style={styles.pagerBtns}>
+                <select aria-label="Rows per page"
                   value={pageSize}
                   onChange={e => { setPageSize(Number(e.target.value)); setPage(1) }}
                   style={styles.pageSizeSelect}
@@ -703,11 +715,11 @@ export const styles = {
   previewBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' },
 
   // Dashboard-matched card
-  statCard: { fontFamily: SANS, background: C.card, border: `1px solid ${C.cardBorder}`, borderRadius: 14, padding: '20px 22px' },
+  statCard: { fontFamily: SANS, background: C.card, border: `1px solid ${C.cardBorder}`, borderRadius: 14, padding: 'var(--rp-stat-padding, 20px 22px)', minHeight: 'var(--rp-stat-height, 120px)', minWidth: 0, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'center' },
   statCardClickable: { cursor: 'pointer', userSelect: 'none', transition: 'box-shadow .15s, transform .15s' },
   statCardActive: { background: C.greenDeep, border: `1px solid ${C.green}`, boxShadow: `0 0 0 3px rgba(44,128,71,0.35)` },
-  statValue: { fontSize: 30, fontWeight: 800, letterSpacing: '-0.02em', color: '#fff', lineHeight: 1, fontVariantNumeric: 'tabular-nums' },
-  statLabel: { fontSize: 13, fontWeight: 700, color: C.cardLabel, marginTop: 8, lineHeight: 1.35 },
+  statValue: { fontSize: 'var(--rp-stat-value-size, 30px)', fontWeight: 800, letterSpacing: '-0.02em', color: '#fff', lineHeight: 1, fontVariantNumeric: 'tabular-nums' },
+  statLabel: { fontSize: 'var(--rp-stat-label-size, 13px)', fontWeight: 700, color: C.cardLabel, marginTop: 8, lineHeight: 1.35, overflowWrap: 'anywhere' },
   statFoot: { fontSize: 12, color: C.cardFoot, marginTop: 3 },
 
   filterBar: { fontFamily: SANS, background: '#fff', border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 16px', display: 'flex', alignItems: 'flex-end', gap: 18, flexWrap: 'wrap' },

@@ -1,3 +1,4 @@
+import TableScroll from './TableScroll'
 import { formatDateTime } from '../utils/formatDate'
 import ReportLetterhead from './ReportLetterhead'
 import ReportPeriodSections from './ReportPeriodSections'
@@ -79,6 +80,7 @@ export default function GeneratedReportView({ report }) {
           <div className="print-section-title">
             Activity this period — {report.period_label}
           </div>
+          <TableScroll hint={false}>
           <table className="print-table print-kv">
             <tbody>
               <tr><th>Inspections completed</th><td>{orCount(activity.inspections_completed)}</td></tr>
@@ -87,6 +89,7 @@ export default function GeneratedReportView({ report }) {
               <tr><th>Service requests completed</th><td>{orCount(activity.services_completed)}</td></tr>
             </tbody>
           </table>
+          </TableScroll>
         </>
       )}
 
@@ -101,6 +104,7 @@ export default function GeneratedReportView({ report }) {
       <div className="print-section-title">
         Inspection summary <span className="print-scope">(all-time)</span>
       </div>
+      <TableScroll hint={false}>
       <table className="print-table print-kv">
         <tbody>
           <tr><th>Total inspections</th><td>{orCount(insp.total)}</td></tr>
@@ -110,6 +114,7 @@ export default function GeneratedReportView({ report }) {
           <tr><th>Follow-up</th><td>{orCount(insp.follow_up)}</td></tr>
         </tbody>
       </table>
+      </TableScroll>
 
       {/*
         Counts of sensor_readings ROWS, not of alert_history rows (see
@@ -126,6 +131,7 @@ export default function GeneratedReportView({ report }) {
       <div className="print-section-title">
         Sensor reading summary <span className="print-scope">(all-time)</span>
       </div>
+      <TableScroll hint={false}>
       <table className="print-table print-kv">
         <tbody>
           <tr><th>Total sensor readings recorded</th><td>{orCount(alertSum.total)}</td></tr>
@@ -152,6 +158,7 @@ export default function GeneratedReportView({ report }) {
           )}
         </tbody>
       </table>
+      </TableScroll>
 
       <div className="print-section-title">
         Maintenance compliance{' '}
@@ -159,6 +166,7 @@ export default function GeneratedReportView({ report }) {
           (status snapshot{statusAsOf ? ` as of ${statusAsOf}` : ' as of generation'})
         </span>
       </div>
+      <TableScroll hint={false}>
       <table className="print-table print-kv">
         <tbody>
           {!activity && (
@@ -168,10 +176,12 @@ export default function GeneratedReportView({ report }) {
           <tr><th>Farms non-compliant</th><td>{orCount(maint.non_compliant)}</td></tr>
         </tbody>
       </table>
+      </TableScroll>
 
       <div className="print-section-title">
         Service request summary <span className="print-scope">(all-time, odor and fly control)</span>
       </div>
+      <TableScroll hint={false}>
       <table className="print-table print-kv">
         <tbody>
           <tr><th>Total requests</th><td>{orCount(svc.total)}</td></tr>
@@ -179,6 +189,7 @@ export default function GeneratedReportView({ report }) {
           <tr><th>Pending</th><td>{orCount(svc.pending)}</td></tr>
         </tbody>
       </table>
+      </TableScroll>
         </>
       )}
 
@@ -186,6 +197,7 @@ export default function GeneratedReportView({ report }) {
       {inspections.length === 0 ? (
         <p className="print-empty">No completed inspections in this period.</p>
       ) : (
+        <TableScroll hint={false}>
         <table className="print-table">
           <colgroup>
             <col style={{ width: '13%' }} /><col style={{ width: '24%' }} /><col style={{ width: '21%' }} />
@@ -201,6 +213,7 @@ export default function GeneratedReportView({ report }) {
             ))}
           </tbody>
         </table>
+        </TableScroll>
       )}
 
       <div className="print-section-title">
@@ -210,6 +223,7 @@ export default function GeneratedReportView({ report }) {
       {overdueFarms.length === 0 ? (
         <p className="print-empty">No farms were overdue or non-compliant at this cutoff.</p>
       ) : (
+        <TableScroll hint={false}>
         <table className="print-table">
           <colgroup>
             <col style={{ width: '22%' }} /><col style={{ width: '20%' }} /><col style={{ width: '17%' }} />
@@ -225,6 +239,7 @@ export default function GeneratedReportView({ report }) {
             ))}
           </tbody>
         </table>
+        </TableScroll>
       )}
 
       <div className="print-section-title">Alert incidents by farm — {report.period_label}</div>
@@ -232,6 +247,7 @@ export default function GeneratedReportView({ report }) {
         <p className="print-empty">No alerts recorded in this period.</p>
       ) : (
         alertSummaryRows ? (
+          <TableScroll hint={false}>
           <table className="print-table">
             {/* Narrower name columns so the six numeric ones keep enough
                 width for their own headings. A column too tight for the word
@@ -257,7 +273,9 @@ export default function GeneratedReportView({ report }) {
               ))}
             </tbody>
           </table>
+          </TableScroll>
         ) : (
+        <TableScroll hint={false}>
         <table className="print-table">
           <colgroup>
             <col style={{ width: '20%' }} /><col style={{ width: '18%' }} /><col style={{ width: '13%' }} />
@@ -273,6 +291,7 @@ export default function GeneratedReportView({ report }) {
             ))}
           </tbody>
         </table>
+        </TableScroll>
         )
       )}
 
@@ -280,6 +299,7 @@ export default function GeneratedReportView({ report }) {
       {cleanouts.length === 0 ? (
         <p className="print-empty">No completed clean-outs in this period.</p>
       ) : (
+        <TableScroll hint={false}>
         <table className="print-table">
           <colgroup>
             <col style={{ width: '24%' }} /><col style={{ width: '22%' }} /><col style={{ width: '19%' }} />
@@ -295,12 +315,14 @@ export default function GeneratedReportView({ report }) {
             ))}
           </tbody>
         </table>
+        </TableScroll>
       )}
 
       <div className="print-section-title">Completed service requests — {report.period_label}</div>
       {services.length === 0 ? (
         <p className="print-empty">No completed service requests in this period.</p>
       ) : (
+        <TableScroll hint={false}>
         <table className="print-table">
           <colgroup>
             <col style={{ width: '16%' }} /><col style={{ width: '17%' }} /><col style={{ width: '15%' }} />
@@ -316,6 +338,7 @@ export default function GeneratedReportView({ report }) {
             ))}
           </tbody>
         </table>
+        </TableScroll>
       )}
 
       {hasVetScope && (
@@ -323,17 +346,20 @@ export default function GeneratedReportView({ report }) {
           <div className="print-section-title">
             Veterinary summary <span className="print-scope">({s.reporting_version >= 2 ? 'selected period, all veterinarians' : 'all-time, all veterinarians'})</span>
           </div>
+          <TableScroll hint={false}>
           <table className="print-table print-kv">
             <tbody>
               <tr><th>Total completed</th><td>{orCount(vet.total_completed)}</td></tr>
               <tr><th>Farms covered</th><td>{orCount(vet.farms_covered)}</td></tr>
             </tbody>
           </table>
+          </TableScroll>
 
           <div className="print-section-title">Completed veterinary services — {report.period_label}</div>
           {vetServices.length === 0 ? (
             <p className="print-empty">No completed vet services in this period.</p>
           ) : (
+            <TableScroll hint={false}>
             <table className="print-table">
               <colgroup>
                 <col style={{ width: '16%' }} /><col style={{ width: '17%' }} /><col style={{ width: '15%' }} />
@@ -349,6 +375,7 @@ export default function GeneratedReportView({ report }) {
                 ))}
               </tbody>
             </table>
+            </TableScroll>
           )}
         </>
       )}

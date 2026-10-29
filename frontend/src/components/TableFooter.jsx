@@ -33,14 +33,14 @@ export default function TableFooter({
   isMobile = false,
 }) {
   return (
-    <div className="no-print" style={{ ...styles.wrap, ...(isMobile ? styles.wrapMobile : {}) }}>
+    <div className="no-print agb-table-footer" style={{ ...styles.wrap, ...(isMobile ? styles.wrapMobile : {}) }}>
       <div style={styles.info}>
         {totalItems === 0
           ? 'No results'
           : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
       </div>
 
-      <div style={{ ...styles.controls, ...(isMobile ? styles.controlsMobile : {}) }}>
+      <div className="agb-table-footer-controls" style={{ ...styles.controls, ...(isMobile ? styles.controlsMobile : {}) }}>
         <select
           value={pageSize}
           onChange={e => onPageSizeChange(Number(e.target.value))}

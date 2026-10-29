@@ -1,0 +1,156 @@
+/* Native pickers retain their platform interaction, dimensions and appearance. */
+select { max-width: 100%; }
+select:not(:disabled) {
+  cursor: pointer;
+  transition: border-color 150ms ease, outline-color 150ms ease;
+}
+input:is([type='date'], [type='month'], [type='time'], [type='week'], [type='datetime-local']):not(:disabled) {
+  transition: border-color 150ms ease, outline-color 150ms ease;
+}
+select:not(:disabled):hover,
+input:is([type='date'], [type='month'], [type='time'], [type='week'], [type='datetime-local']):not(:disabled):hover { border-color: #166534 !important; }
+select:focus-visible,
+input:is([type='date'], [type='month'], [type='time'], [type='week'], [type='datetime-local']):focus-visible {
+  border-color: #166534 !important;
+  outline: 2px solid #166534 !important;
+  outline-offset: -2px;
+}
+select:disabled { cursor: not-allowed; }
+
+/* Progressive enhancement: some browser/OS pickers ignore option colors. */
+select:not(:disabled) option:not(:disabled) { cursor: pointer; transition: background-color 150ms ease, color 150ms ease; }
+select:not(:disabled) option:not(:disabled):checked { background-color: #d9efdf; color: #166534; }
+select:not(:disabled) option:not(:disabled):is(:hover, :focus) { background-color: #e8f5ec; color: #166534; }
+
+/* Keep the original select elements and handlers, while styling their menus
+   in browsers that support customizable native pickers. */
+@supports (appearance: base-select) {
+  select:not([multiple]):not([size]),
+  select:not([multiple]):not([size])::picker(select) { appearance: base-select; }
+  select:not([multiple]):not([size]) { line-height: normal; align-items: center; }
+  select:not([multiple]):not([size])::picker(select) {
+    box-sizing: border-box;
+    inline-size: anchor-size(width);
+    max-inline-size: calc(100vw - 24px);
+    max-block-size: min(320px, 50dvh);
+    margin-block: 6px;
+    padding: 4px;
+    border: 1px solid #dcdfd6;
+    border-radius: 12px;
+    background: #fff;
+    color: #33413a;
+    box-shadow: 0 4px 12px rgba(20, 48, 28, 0.12);
+    overflow-y: auto;
+  }
+  select:not([multiple]):not([size])::picker-icon {
+    content: '';
+    width: 7px;
+    height: 7px;
+    margin-left: auto;
+    margin-right: 2px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    rotate: 45deg;
+  }
+  select:not([multiple]):not([size]):open::picker-icon { rotate: 225deg; }
+  select:not([multiple]):not([size]) option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-block: 2px;
+    padding: 9px 10px;
+    border: 0;
+    border-radius: 9px;
+    background: #fff;
+    color: #33413a;
+    font: inherit;
+    line-height: 1.4;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  select:not([multiple]):not([size]) option::checkmark { order: 1; margin-left: auto; color: #166534; }
+  select:not(:disabled):not([multiple]):not([size]) option:not(:disabled):checked { background: #d9efdf; color: #166534; }
+  select:not(:disabled):not([multiple]):not([size]) option:not(:disabled):is(:hover, :focus) { background: #e8f5ec; color: #166534; }
+  select:not([multiple]):not([size]) option:focus-visible { outline: 2px solid #166534; outline-offset: -2px; }
+  select:not([multiple]):not([size]) option:disabled { color: #9aa79d; cursor: not-allowed; }
+}
+
+/* The transparent native Handled By select needs a visible focus surface. */
+.agb-select-shell:hover .agb-select-face { border-color: #166534 !important; }
+.agb-select-shell:focus-within .agb-select-face {
+  border-color: #166534 !important;
+  outline: 2px solid #166534;
+  outline-offset: -2px;
+}
+
+.agb-dropdown-list { box-sizing: border-box; overscroll-behavior-y: contain; }
+/* Inset each highlight without changing the menu's width or positioning. */
+.agb-dropdown-list:not(.agb-farm-selector-list):not([role='navigation']) .agb-dropdown-option {
+  width: calc(100% - 8px);
+  margin: 2px 4px;
+  border-radius: 9px;
+}
+.agb-farm-selector-list > .agb-dropdown-option + .agb-dropdown-option { margin-top: 2px; }
+.agb-dropdown-option {
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background-color: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+.agb-dropdown-label, .agb-dropdown-meta { transition: color 150ms ease; }
+.agb-dropdown-option[aria-current='true'] {
+  background-color: #d9efdf !important;
+  color: #166534 !important;
+  box-shadow: inset 2px 0 #166534;
+}
+.agb-dropdown-option:not(:disabled):not([aria-disabled='true']):is(:hover, :focus-visible, :active) {
+  background-color: #e8f5ec !important;
+  color: #166534 !important;
+}
+.agb-dropdown-option:not(:disabled):not([aria-disabled='true']):is(:hover, :focus-visible, :active) :is(.agb-dropdown-label, .agb-dropdown-meta),
+.agb-dropdown-option[aria-current='true'] :is(.agb-dropdown-label, .agb-dropdown-meta) { color: #166534 !important; }
+.agb-dropdown-option:focus-visible { outline: 2px solid #166534; outline-offset: -2px; }
+.agb-dropdown-option:is(:disabled, [aria-disabled='true']) { cursor: not-allowed; }
+.agb-dropdown-trigger[data-selected='true'] { border-color: #166534 !important; }
+.agb-dropdown-trigger:focus-visible { outline: 2px solid #166534 !important; outline-offset: -2px; }
+.agb-dropdown-trigger:not([aria-disabled='true']):hover { border-color: #166534 !important; }
+.agb-dropdown-value { min-width: 0; overflow-wrap: anywhere; }
+
+/* Keep complete farm/owner names readable within the existing menu width. */
+.agb-dropdown-list :is(.agb-dropdown-label, .agb-dropdown-meta) {
+  min-width: 0;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+}
+.agb-farm-selector { min-width: 0; max-width: 100%; }
+.agb-farm-selector .agb-dropdown-trigger { min-width: 0; max-width: 100%; }
+.agb-dropdown-current-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.agb-farm-selector-list {
+  min-width: min(270px, calc(100vw - 32px)) !important;
+  max-width: calc(100vw - 32px);
+  max-height: min(360px, 50vh);
+  overflow-y: auto !important;
+}
+
+@media (pointer: coarse) {
+  .agb-dropdown-option { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  select, input:is([type='date'], [type='month'], [type='time'], [type='week'], [type='datetime-local']),
+  .agb-dropdown-option, .agb-dropdown-label, .agb-dropdown-meta { transition: none !important; }
+}

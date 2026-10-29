@@ -1,10 +1,10 @@
+import TableScroll from '../../components/TableScroll'
 import { useState } from 'react'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { LIVE_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
-import { useOverflowX } from '../../hooks/useOverflowX'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { SkeletonTable, BtnBusy } from '../../components/Loading'
 import { useBusyAction } from '../../hooks/useBusyAction'
@@ -18,7 +18,6 @@ export default function UserManagement() {
   const [actionBusy, runAction] = useBusyAction()
   const [resetPasswordResult, setResetPasswordResult] = useState(null)
   const isMobile = useIsMobile()
-  const [tableScrollRef, tableOverflows] = useOverflowX()
 
   const params = {}
   // Debounced so typing doesn't fire a request per keystroke.
@@ -116,10 +115,7 @@ export default function UserManagement() {
 
       {!loading && !error && (
         <div style={styles.tableCard}>
-          {tableOverflows && allVets.length > 0 && (
-            <p style={styles.scrollHint}>{isMobile ? 'Swipe' : 'Scroll'} left/right to see all columns →</p>
-          )}
-          <div ref={tableScrollRef} style={styles.tableScroll}>
+          <TableScroll style={styles.tableScroll}>
             <table style={{ ...styles.table, ...styles.tableMinWidth }}>
               <thead>
                 <tr>
@@ -127,7 +123,7 @@ export default function UserManagement() {
                   <th style={styles.th}>Email</th>
                   <th style={styles.th}>Contact</th>
                   <th style={styles.th}>Status</th>
-                  <th style={styles.th}>Actions</th>
+                  <th className="agb-table-actions-cell" style={styles.th}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -141,20 +137,20 @@ export default function UserManagement() {
                         {v.status === 'active' ? 'Active' : 'Inactive'}
                       </span>
                     </td>
-                    <td style={styles.td}>
-                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                        <span style={{ ...styles.actionBtn, ...styles.editBtn }} onClick={() => setEditVet(v)}>
+                    <td className="agb-table-actions-cell" style={styles.td}>
+                      <div className="agb-table-actions" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <span className="agb-table-action" style={{ ...styles.actionBtn, ...styles.editBtn }} onClick={() => setEditVet(v)}>
                           Edit
                         </span>
-                        <span style={{ ...styles.actionBtn, ...styles.resetBtn }} onClick={() => handleResetPassword(v)}>
+                        <span className="agb-table-action" style={{ ...styles.actionBtn, ...styles.resetBtn }} onClick={() => handleResetPassword(v)}>
                           Reset Password
                         </span>
                         {v.status === 'active' ? (
-                          <span style={{ ...styles.actionBtn, ...styles.deactivateBtn }} onClick={() => handleDeactivate(v)}>
+                          <span className="agb-table-action" style={{ ...styles.actionBtn, ...styles.deactivateBtn }} onClick={() => handleDeactivate(v)}>
                             Deactivate
                           </span>
                         ) : (
-                          <span style={{ ...styles.actionBtn, ...styles.activateBtn }} onClick={() => handleActivate(v)}>
+                          <span className="agb-table-action" style={{ ...styles.actionBtn, ...styles.activateBtn }} onClick={() => handleActivate(v)}>
                             Activate
                           </span>
                         )}
@@ -164,7 +160,7 @@ export default function UserManagement() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
           {allVets.length === 0 && <div style={styles.empty}>No veterinarian accounts found.</div>}
         </div>
       )}

@@ -1,3 +1,4 @@
+import TableScroll from './TableScroll'
 import { orCount, orDash } from '../utils/reportValue'
 
 /**
@@ -50,6 +51,7 @@ export default function ReportPeriodSections({ snapshot, periodLabel, statusAsOf
           <div className="print-section-title">
             System activity — {periodLabel}
           </div>
+          <TableScroll hint={false}>
           <table className="print-table print-kv">
             <tbody>
               {accounts && (
@@ -74,12 +76,14 @@ export default function ReportPeriodSections({ snapshot, periodLabel, statusAsOf
               {devices && <tr><th>New devices registered</th><td>{orCount(devices.count)}</td></tr>}
             </tbody>
           </table>
+          </TableScroll>
         </>
       )}
 
       {farms && farms.count > 0 && (
         <>
           <div className="print-section-title">Farms registered — {periodLabel}</div>
+          <TableScroll hint={false}>
           <table className="print-table">
             <colgroup>
               <col style={{ width: '28%' }} /><col style={{ width: '24%' }} />
@@ -100,12 +104,14 @@ export default function ReportPeriodSections({ snapshot, periodLabel, statusAsOf
               ))}
             </tbody>
           </table>
+          </TableScroll>
         </>
       )}
 
       {devices && devices.count > 0 && (
         <>
           <div className="print-section-title">Devices registered — {periodLabel}</div>
+          <TableScroll hint={false}>
           <table className="print-table">
             <colgroup>
               <col style={{ width: '34%' }} /><col style={{ width: '22%' }} />
@@ -121,6 +127,7 @@ export default function ReportPeriodSections({ snapshot, periodLabel, statusAsOf
               ))}
             </tbody>
           </table>
+          </TableScroll>
         </>
       )}
 
@@ -130,6 +137,7 @@ export default function ReportPeriodSections({ snapshot, periodLabel, statusAsOf
           <div className="print-section-title">
             Alert summary — {periodLabel}
           </div>
+          <TableScroll hint={false}>
           <table className="print-table print-kv">
             <tbody>
               <tr><th>Total alert incidents</th><td>{orCount(alerts.total)}</td></tr>
@@ -149,6 +157,7 @@ export default function ReportPeriodSections({ snapshot, periodLabel, statusAsOf
               </tr>
             </tbody>
           </table>
+          </TableScroll>
         </>
       )}
 
@@ -158,6 +167,7 @@ export default function ReportPeriodSections({ snapshot, periodLabel, statusAsOf
           <div className="print-section-title">
             Inspection summary — {periodLabel}
           </div>
+          <TableScroll hint={false}>
           <table className="print-table print-kv">
             <tbody>
               <tr><th>Total inspections</th><td>{orCount(inspections.total)}</td></tr>
@@ -174,12 +184,14 @@ export default function ReportPeriodSections({ snapshot, periodLabel, statusAsOf
               </tr>
             </tbody>
           </table>
+          </TableScroll>
         </>
       )}
 
       {inspectionsByFarm.length > 0 && (
         <>
           <div className="print-section-title">Inspections by farm — {periodLabel}</div>
+          <TableScroll hint={false}>
           <table className="print-table">
             <colgroup>
               <col style={{ width: '36%' }} /><col style={{ width: '13%' }} /><col style={{ width: '13%' }} />
@@ -201,6 +213,7 @@ export default function ReportPeriodSections({ snapshot, periodLabel, statusAsOf
               ))}
             </tbody>
           </table>
+          </TableScroll>
         </>
       )}
 
@@ -210,6 +223,7 @@ export default function ReportPeriodSections({ snapshot, periodLabel, statusAsOf
           <div className="print-section-title">
             Service request summary — {periodLabel}
           </div>
+          <TableScroll hint={false}>
           <table className="print-table print-kv">
             <tbody>
               {/* The four statuses the workflow actually stores, in its own
@@ -223,6 +237,7 @@ export default function ReportPeriodSections({ snapshot, periodLabel, statusAsOf
               <tr><th>Cancelled</th><td>{orCount(requests.cancelled)}</td></tr>
             </tbody>
           </table>
+          </TableScroll>
         </>
       )}
 
@@ -235,6 +250,7 @@ export default function ReportPeriodSections({ snapshot, periodLabel, statusAsOf
               (status as of {statusAsOf || 'period end'})
             </span>
           </div>
+          <TableScroll hint={false}>
           <table className="print-table print-kv">
             <tbody>
               {/* A position, not activity: where each farm stood on the clean-out
@@ -247,6 +263,7 @@ export default function ReportPeriodSections({ snapshot, periodLabel, statusAsOf
               <tr><th>Active farms assessed</th><td>{orCount(compliance.total_farms)}</td></tr>
             </tbody>
           </table>
+          </TableScroll>
         </>
       )}
     </>

@@ -1,3 +1,4 @@
+import DropdownList from '../components/DropdownList'
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useIsMobile } from '../hooks/useIsMobile'
@@ -218,16 +219,16 @@ export default function LandingPage() {
         </div>
 
         {isMobile && navOpen && (
-          <div style={styles.navMobileMenu}>
+          <DropdownList role="navigation" aria-label="Mobile navigation" style={styles.navMobileMenu}>
             {NAV_LINKS.map(l => (
-              <a key={l.href} href={l.href} onClick={scrollTo(l.href.slice(1))} style={styles.navMobileLink}>
+              <a className="agb-dropdown-option" key={l.href} href={l.href} onClick={scrollTo(l.href.slice(1))} style={styles.navMobileLink}>
                 {l.label}
               </a>
             ))}
             <button className="agb-btn agb-primary" style={{ ...styles.navLoginBtn, ...styles.navLoginBtnMobile }} onClick={() => navigate('/login')}>
               Login
             </button>
-          </div>
+          </DropdownList>
         )}
       </header>
 
@@ -533,7 +534,7 @@ const styles = {
     boxShadow: '0 12px 32px -14px rgba(15,38,22,0.28)',
   },
   navMobileLink: {
-    padding: '13px 6px', fontSize: '15.5px', fontWeight: 600, color: '#33413a',
+    padding: '13px 8px', fontSize: '15.5px', fontWeight: 600, color: '#33413a',
     textDecoration: 'none', borderBottom: '1px solid #f0efe8',
   },
   navLoginBtnMobile: { marginTop: '12px', textAlign: 'center', width: '100%', boxSizing: 'border-box' },
