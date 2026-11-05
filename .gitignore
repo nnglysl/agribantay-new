@@ -33,6 +33,7 @@ build/
 /tmp/rendering-*/
 /tmp/rendering-*.png
 /tmp/rendering-*.json
+/tmp/pdfs/
 
 # Logs
 *.log
