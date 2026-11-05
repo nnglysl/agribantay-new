@@ -1,20 +1,22 @@
+import { GREEN } from '../../theme/green'
+import { useTableFetch } from '../../hooks/useTableFetch'
 import ScrollableTabs from '../../components/ScrollableTabs'
 import TableScroll from '../../components/TableScroll'
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import api from '../../api/axios'
 import VetLayout from '../../components/VetLayout'
 import ServiceRequestDetailsModal from '../../components/ServiceRequestDetailsModal'
 import SharedPagination from '../../components/Pagination'
 import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
-import { useCachedFetch } from '../../hooks/useCachedFetch'
+
 import { LIVE_POLL_MS } from '../../constants/polling'
-import { matchesHandledBy } from '../../utils/handledBy'
+
 import HandledByFilter from '../../components/HandledByFilter'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { getUser } from '../../utils/auth'
-import { formatDate, formatDateTime, isWithinLocalDateRange } from '../../utils/formatDate'
+import { formatDate, formatDateTime } from '../../utils/formatDate'
 import { BADGE_SHAPE, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../../utils/serviceBadgeStyle'
-import { isRequestOverdue, requestDisplayStatus } from '../../utils/serviceRequestStatus'
+import { requestDisplayStatus } from '../../utils/serviceRequestStatus'
 import { VET_ACTIVE_TYPES, FARM_BIOSECURITY, ATTACHMENT_MAX_FILES } from '../../constants/serviceTypes'
 import AttachmentField from '../../components/AttachmentField'
 import { validateAttachment } from '../../utils/attachment'
@@ -123,8 +125,7 @@ export default function VaccinationRequests() {
     (sortMode !== 'oldest' ? 1 : 0) +
     ((fromDate || toDate) ? 1 : 0)
 
-  const { data, loading, error, refetch } = useCachedFetch('/vet/vaccination-requests', handledBy !== 'all' ? { handled_by: handledBy } : {}, { pollMs: LIVE_POLL_MS })
-  const requestData = data || { scheduled: [], completed: [], history: [] }
+  const { data, loading, error, refetch } = useTableFetch('/vet/vaccination-requests', { handled_by: handledBy, service_type: typeFilter === 'all' ? '' : typeFilter, sort: sortMode, search, tab, from: fromDate, to: toDate }, currentPage, pageSize, setCurrentPage, { pollMs: LIVE_POLL_MS })
 
   useEffect(() => {
     refetch()
@@ -156,93 +157,9 @@ export default function VaccinationRequests() {
     }
   }
 
-  // From/To filter on the REQUEST date (created_at) — the date the farmer
-  // submitted it — as inclusive local calendar dates. Same helper as Admin.
-  const inDateRange = (r) => isWithinLocalDateRange(r.created_at, fromDate, toDate)
-
-  const filteredCompleted = useMemo(
-    () => (requestData.completed || []).filter(inDateRange),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [requestData.completed, fromDate, toDate]
-  )
-
-  // Completed + declined (Cancelled), so declined requests stay visible.
-  const filteredHistory = useMemo(
-    () => (requestData.history || []).filter(inDateRange),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [requestData.history, fromDate, toDate]
-  )
-
-  // The backend still groups Pending + Scheduled together under one
-  // "scheduled" key — split them client-side so the page can show a
-  // dedicated Pending tab without touching the API response shape.
-  // All three active lists honour the same From/To (request date) filter.
-  const pendingList = useMemo(
-    () => (requestData.scheduled || []).filter(r => r.status === 'Pending' && inDateRange(r)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [requestData.scheduled, fromDate, toDate]
-  )
-  // Overdue is the past-due slice of Scheduled (derived, not stored).
-  const scheduledList = useMemo(
-    () => (requestData.scheduled || []).filter(r => r.status === 'Scheduled' && !isRequestOverdue(r) && inDateRange(r)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [requestData.scheduled, fromDate, toDate]
-  )
-  const overdueList = useMemo(
-    () => (requestData.scheduled || []).filter(r => isRequestOverdue(r) && inDateRange(r)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [requestData.scheduled, fromDate, toDate]
-  )
-
-  const baseList = tab === 'pending' ? pendingList
-    : tab === 'scheduled' ? scheduledList
-    : tab === 'overdue' ? overdueList
-    : tab === 'history' ? filteredHistory
-    : filteredCompleted
-
-  // First Come, First Served — sorts by submission date (created_at) if
-  // available, falling back to id order if the backend hasn't been
-  // updated to include it yet.
-  const sortedList = useMemo(() => {
-    const list = [...baseList]
-    list.sort((a, b) => {
-      const aKey = a.created_at ? new Date(a.created_at).getTime() : a.id
-      const bKey = b.created_at ? new Date(b.created_at).getTime() : b.id
-      return sortMode === 'newest' ? bKey - aKey : aKey - bKey
-    })
-    return list
-  }, [baseList, sortMode])
-
-  const typeFilteredList = useMemo(() => {
-    // The server already applied handled_by; re-checked here so a cached
-    // response from a previous selection never shows the wrong rows.
-    const base = sortedList.filter(r => matchesHandledBy(r, handledBy, user?.id))
-    if (typeFilter === 'all') return base
-    return base.filter(r => r.service_type === typeFilter)
-  }, [sortedList, typeFilter, handledBy, user?.id])
-
-  const searchedList = useMemo(() => {
-    if (!search) return typeFilteredList
-    const q = search.toLowerCase()
-    return typeFilteredList.filter(r => {
-      const haystack = [
-        r.request_number, r.farm_name, r.owner_name, r.barangay,
-      ].filter(Boolean).join(' ').toLowerCase()
-      return haystack.includes(q)
-    })
-  }, [typeFilteredList, search])
-
-  const totalItems = searchedList.length
-  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
-
-  useEffect(() => {
-    if (currentPage > totalPages) setCurrentPage(totalPages)
-  }, [totalPages, currentPage])
-
-  const list = useMemo(() => {
-    const start = (currentPage - 1) * pageSize
-    return searchedList.slice(start, start + pageSize)
-  }, [searchedList, currentPage, pageSize])
+  const totalItems = data?.total || 0
+  const totalPages = data?.last_page || 1
+  const list = data?.items || []
 
   const rangeStartIdx = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1
   const rangeEndIdx = Math.min(currentPage * pageSize, totalItems)
@@ -252,8 +169,8 @@ export default function VaccinationRequests() {
       <style>{`
         .agb-input:focus {
           outline: none;
-          border-color: #2c8047;
-          box-shadow: 0 0 0 3px rgba(44,128,71,0.14);
+          border-color: var(--agb-green);
+          box-shadow: 0 0 0 3px rgba(var(--agb-green-rgb), 0.14);
         }
       `}</style>
       <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Service Requests</h1>
@@ -974,7 +891,7 @@ const styles = {
   // sideways instead of scrolling inside itself.
   tabs: { display: 'flex', gap: '4px', overflowX: 'auto', minWidth: 0, maxWidth: '100%', flexWrap: 'nowrap', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', },
   tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap', flexShrink: 0, },
-  tabActive: { color: '#2c8047', fontWeight: 700, borderBottom: '2px solid #2c8047' },
+  tabActive: { color: GREEN.primary, fontWeight: 700, borderBottom: '2px solid var(--agb-green)' },
 
   toolbarRight: { display: 'flex', alignItems: 'center', gap: '10px', paddingBottom: '10px' },
   toolbarRightMobile: { paddingBottom: '2px', flexWrap: 'wrap' },
@@ -1000,10 +917,10 @@ const styles = {
     borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
     color: '#33413a', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: SANS, whiteSpace: 'nowrap',
   },
-  filterBtnActive: { borderColor: '#2c8047', color: '#2c8047' },
+  filterBtnActive: { borderColor: GREEN.primary, color: GREEN.primary },
   filterCount: {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: '#2c8047',
+    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: GREEN.primary,
     color: '#fff', fontSize: '11px', fontWeight: 700, padding: '0 4px',
   },
   filterPanel: {
@@ -1029,7 +946,7 @@ const styles = {
   },
   filterApplyBtn: {
     flex: 1, padding: '9px 0', borderRadius: '10px', border: 'none',
-    backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
+    backgroundColor: GREEN.primary, color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
   },
 
   tableCard: { backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden' },
@@ -1056,9 +973,9 @@ const styles = {
     padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600,
     cursor: 'pointer', border: '1px solid #e3e6dd', backgroundColor: '#fff', whiteSpace: 'nowrap',
   },
-  primaryAcceptBtn: { color: '#2c8047' },
+  primaryAcceptBtn: { color: GREEN.primary },
   primaryDeclineBtn: { color: '#b91c1c' },
-  primaryCompleteBtn: { color: '#2c8047' },
+  primaryCompleteBtn: { color: GREEN.primary },
   rescheduleBtn: { color: '#2f6bb0' },
   viewBtn: { color: '#4b5a50' },
   noAction: { color: '#c4cabd' },
@@ -1078,7 +995,7 @@ const paginationStyles = {
   navBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '13px', cursor: 'pointer' },
   navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
-  pageBtnActive: { backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff' },
+  pageBtnActive: { backgroundColor: GREEN.primary, borderColor: GREEN.primary, color: '#fff' },
   ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
 }
 
@@ -1101,7 +1018,7 @@ const modalStyles = {
   actionsMobile: { flexDirection: 'column-reverse' },
   btnFull: { width: '100%', boxSizing: 'border-box' },
   cancelBtn: { padding: '10px 18px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff', fontSize: '14px', fontWeight: 600, color: '#33413a', cursor: 'pointer' },
-  submitBtn: { padding: '10px 18px', borderRadius: '10px', border: 'none', backgroundColor: '#2c8047', color: '#fff', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
+  submitBtn: { padding: '10px 18px', borderRadius: '10px', border: 'none', backgroundColor: GREEN.primary, color: '#fff', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
 }
 
 const confirmStyles = {

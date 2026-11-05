@@ -1,3 +1,4 @@
+import { GREEN } from '../theme/green'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 
 /**
@@ -163,11 +164,11 @@ const s = {
   ring: { position: 'absolute', inset: 0, borderRadius: '50%', boxShadow: 'inset 0 0 0 2px rgba(255,255,255,0.9)', pointerEvents: 'none' },
   placeholder: {
     width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontSize: '56px', fontWeight: 700, color: '#2c8047', backgroundColor: '#e3f0e7',
+    fontSize: '56px', fontWeight: 700, color: GREEN.primary, backgroundColor: '#e3f0e7',
   },
   hidden: { position: 'absolute', width: '1px', height: '1px', opacity: 0, overflow: 'hidden', pointerEvents: 'none' },
   controls: { display: 'flex', alignItems: 'center', gap: '10px', width: '100%', maxWidth: `${SIZE + 40}px` },
-  slider: { flex: 1, accentColor: '#2c8047', margin: 0 },
+  slider: { flex: 1, accentColor: GREEN.primary, margin: 0 },
   zoomBtn: {
     width: '28px', height: '28px', borderRadius: '50%', border: '1px solid #dcdfd6', backgroundColor: '#fff',
     color: '#33413a', fontSize: '16px', lineHeight: 1, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,

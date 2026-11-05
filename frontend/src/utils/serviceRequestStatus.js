@@ -4,7 +4,7 @@
 // Completed/Cancelled are excluded by status, so none of them can be
 // overdue. Today's visit stays Scheduled for the whole calendar day.
 export function isRequestOverdue(r) {
-  if (!r || r.status !== 'Scheduled' || !r.scheduled_at) return false
+  if (!r || r.is_retired || isRetiredService(r.service_type || r.request_type) || r.status !== 'Scheduled' || !r.scheduled_at) return false
   const d = new Date(r.scheduled_at)
   if (isNaN(d.getTime())) return false
   const today = new Date()
@@ -17,3 +17,4 @@ export function isRequestOverdue(r) {
 export function requestDisplayStatus(r) {
   return isRequestOverdue(r) ? 'Overdue' : r?.status
 }
+import { isRetiredService } from '../constants/serviceTypes'

@@ -1,3 +1,4 @@
+import { GREEN } from '../theme/green'
 import { useState, useEffect } from 'react'
 import api from '../api/axios'
 import { BtnBusy } from '../components/Loading'
@@ -134,14 +135,14 @@ const styles = {
   info: { fontSize: '12.5px', color: '#4b5a50', margin: '0 0 12px' },
   label: { display: 'block', fontSize: '12.5px', fontWeight: 600, color: '#33413a', marginBottom: '8px', textAlign: 'center' },
   resendBtn: {
-    background: 'none', border: 'none', color: '#2c8047', fontSize: '12.5px', fontWeight: 600,
+    background: 'none', border: 'none', color: GREEN.primary, fontSize: '12.5px', fontWeight: 600,
     cursor: 'pointer', padding: '12px 0 0', fontFamily: SANS, display: 'block', margin: '0 auto',
   },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '18px' },
   cancelBtn: { padding: '9px 16px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff', fontSize: '13.5px', fontWeight: 600, color: '#33413a', cursor: 'pointer', fontFamily: SANS },
-  verifyBtn: { padding: '9px 18px', borderRadius: '10px', border: 'none', backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS },
+  verifyBtn: { padding: '9px 18px', borderRadius: '10px', border: 'none', backgroundColor: GREEN.primary, color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS },
   successIconWrap: {
-    width: '52px', height: '52px', borderRadius: '50%', backgroundColor: '#2c8047',
+    width: '52px', height: '52px', borderRadius: '50%', backgroundColor: GREEN.primary,
     display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px',
   },
 }

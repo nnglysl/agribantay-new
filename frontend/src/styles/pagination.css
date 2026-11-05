@@ -71,10 +71,10 @@
   white-space: nowrap;
   cursor: pointer;
 }
-.agb-pagination button[aria-current='page'] { background-color: #2c8047; border-color: #2c8047; color: #fff; }
+.agb-pagination button[aria-current='page'] { background-color: var(--agb-green); border-color: var(--agb-green); color: #fff; }
 .agb-pagination button:disabled { color: #b7bdb4; background-color: #f7f8f5; cursor: not-allowed; }
 .agb-pagination button:focus-visible,
-.agb-table-footer select:focus-visible { outline: 2px solid #2c8047; outline-offset: 2px; }
+.agb-table-footer select:focus-visible { outline: 2px solid var(--agb-green); outline-offset: 2px; }
 .agb-pagination-ellipsis { flex: 0 0 8px; width: 8px; color: #9aa79d; font-size: 13px; text-align: center; }
 .agb-pagination-arrow { display: none; font-size: 22px; line-height: 1; }
 .agb-pagination-simple { width: 100%; flex-wrap: nowrap !important; justify-content: center !important; }

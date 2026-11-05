@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { GREEN } from '../theme/green'
+import { useTableFetch } from '../hooks/useTableFetch'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import api from '../api/axios'
 import GeneratedReportView from './GeneratedReportView'
-import { useCachedFetch, invalidateCache } from '../hooks/useCachedFetch'
+import { invalidateCache } from '../hooks/useCachedFetch'
 import { exportToCSV, exportPrintRefToPDF } from '../utils/exportUtils'
 import { styles, DataTable } from './ReportsLayout'
 import GenerateReportPanel from './GenerateReportPanel'
 import { generatedReportCsv, reportExportFilename } from '../utils/generatedReportCsv'
-import { filterReportFiles } from '../utils/reportPeriod'
+
 
 /**
  * The Files tab body — archive list, per-row View/Print/Export CSV/Export PDF,
@@ -22,7 +24,11 @@ import { filterReportFiles } from '../utils/reportPeriod'
  * target inside .screen-view previously produced a blank printed page.
  */
 export default function GeneratedReportsFilesTab({ appliedMonth, appliedYear, fromDate = '', toDate = '', basePath = '/admin/generated-reports', ReportView = GeneratedReportView, canGenerate = true }) {
-  const { data: filesData } = useCachedFetch(basePath)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+  const periodFrom = fromDate || (appliedMonth && appliedYear ? `${appliedYear}-${String(appliedMonth).padStart(2, '0')}-01` : '')
+  const periodTo = toDate || (!fromDate && appliedMonth && appliedYear ? `${appliedYear}-${String(appliedMonth).padStart(2, '0')}-${new Date(appliedYear, appliedMonth, 0).getDate()}` : '')
+  const { data: filesData, loading: filesLoading, error: filesError } = useTableFetch(basePath, { from: periodFrom, to: periodTo }, page, pageSize, setPage)
   const [filesReportId, setFilesReportId] = useState(null)
   const [filesReport, setFilesReport] = useState(null)
   const [filesReportLoading, setFilesReportLoading] = useState(false)
@@ -34,15 +40,8 @@ export default function GeneratedReportsFilesTab({ appliedMonth, appliedYear, fr
   const [deleteNotice, setDeleteNotice] = useState('')
   const hiddenRef = useRef(null)
 
-  const allFiles = filesData ?? []
-  const filteredFiles = useMemo(() => {
-    if (fromDate || toDate) return filterReportFiles(allFiles, fromDate, toDate)
-    if (!appliedMonth || !appliedYear) return allFiles
-    return allFiles.filter(f => {
-      const d = new Date(`${f.period_start}T00:00:00`)
-      return d.getMonth() + 1 === appliedMonth && d.getFullYear() === appliedYear
-    })
-  }, [allFiles, appliedMonth, appliedYear, fromDate, toDate])
+  const allFiles = filesData?.items || []
+  const filteredFiles = allFiles
 
   const viewReport = async (id) => {
     setFilesReportId(id)
@@ -166,12 +165,13 @@ export default function GeneratedReportsFilesTab({ appliedMonth, appliedYear, fr
           </div>
         )}
 
-        <DataTable
+        {filesLoading ? <p>Loading reports…</p> : filesError ? <p>{filesError}</p> : <DataTable
           title="Generated Reports"
+          server={{ total: filesData?.total || 0, lastPage: filesData?.last_page || 1, page: filesData?.page || page, pageSize, setPage, setPageSize }}
           subtitle="Generated on demand. Newest first."
           columns={['Report Name', 'Reporting Period', 'Report Type', 'Date Generated', 'Actions']}
           emptyText={
-            allFiles.length > 0 && filteredFiles.length === 0
+            (periodFrom || periodTo) && filteredFiles.length === 0
               ? 'No reports match the current filter. Clear it to see the rest.'
               : 'No reports have been generated yet.'
           }
@@ -189,7 +189,7 @@ export default function GeneratedReportsFilesTab({ appliedMonth, appliedYear, fr
               ...(canGenerate ? [{ label: 'Delete', onClick: () => { setDeleteError(''); setDeleteTarget(f) }, danger: true }] : []),
             ] },
           ])}
-        />
+        />}
         </>
       )}
 
@@ -235,8 +235,8 @@ export default function GeneratedReportsFilesTab({ appliedMonth, appliedYear, fr
 /* Plain and quiet: a confirmation, not an alarm. Red is reserved for the one
    button that destroys something, so the dialog itself stays neutral. */
 const delStyles = {
-  notice: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', backgroundColor: '#f0f7f2', border: '1px solid #cfe5d6', color: '#2c8047', borderRadius: '10px', padding: '10px 14px', fontSize: '13px', fontWeight: 600, marginBottom: '14px' },
-  noticeClose: { cursor: 'pointer', fontSize: '18px', lineHeight: 1, color: '#2c8047' },
+  notice: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', backgroundColor: '#f0f7f2', border: '1px solid #cfe5d6', color: GREEN.primary, borderRadius: '10px', padding: '10px 14px', fontSize: '13px', fontWeight: 600, marginBottom: '14px' },
+  noticeClose: { cursor: 'pointer', fontSize: '18px', lineHeight: 1, color: GREEN.primary },
   overlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 32, 21, 0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', zIndex: 1000 },
   modal: { backgroundColor: '#fff', borderRadius: '14px', padding: '22px', width: '100%', maxWidth: '440px', boxShadow: '0 18px 44px rgba(0,0,0,.18)' },
   title: { margin: '0 0 10px', fontSize: '17px', fontWeight: 700, color: '#16311d' },

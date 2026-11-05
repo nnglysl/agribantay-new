@@ -5,15 +5,6 @@ namespace App\Console\Commands;
 use App\Models\User;
 use Illuminate\Console\Command;
 
-/**
- * Lists user accounts whose mobile numbers collide once formatting is
- * stripped (e.g. "0992 772 4857" vs "09927724857"). These violate the
- * one-number-per-account rule but are deliberately NOT auto-fixed — the
- * normalize migration leaves them untouched — because deciding which
- * account to keep, merge or re-number is a manual call.
- *
- *   php artisan users:mobile-conflicts
- */
 class ReportMobileNumberConflicts extends Command
 {
     protected $signature = 'users:mobile-conflicts';

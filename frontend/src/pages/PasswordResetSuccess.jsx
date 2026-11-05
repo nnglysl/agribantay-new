@@ -1,10 +1,11 @@
+import { GREEN } from '../theme/green'
 import { useNavigate } from 'react-router-dom'
 import AuthLayout, { authFormStyles as styles } from '../components/AuthLayout'
 
 function CheckCircleIcon() {
   return (
-    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#2c8047" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" fill="#eaf3ec" stroke="none" />
+    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke={GREEN.primary} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" fill={GREEN.soft} stroke="none" />
       <path d="M8 12.5l2.5 2.5L16 9.5" />
     </svg>
   )

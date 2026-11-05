@@ -1,8 +1,10 @@
 import MonthlyReportBarChart from '../../components/MonthlyReportBarChart'
+import InspectionTypeBarChart from '../../components/InspectionTypeBarChart'
 import { matchesReportPeriod } from '../../utils/reportPeriod'
-import AlertIncidentChart from '../../components/AlertIncidentChart'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bar } from 'react-chartjs-2'
+import { fillMonthlyReportBuckets } from '../../utils/fillMonthlyReportBuckets'
+import AlertSensorMonthlyChart from '../../components/AlertSensorMonthlyChart'
+import { monthlyAlertSensorCounts } from '../../utils/monthlyAlertSensorCounts'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip,
 } from 'chart.js'
@@ -13,18 +15,41 @@ import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { useReportPeriod } from '../../hooks/useReportPeriod'
 import ReportPeriodFields from '../../components/ReportPeriodFields'
 import {
-  C, styles, ReportStyles, PageHeader, Tabs, StatCard, Panel, DataTable, ChartFrame,
+  C, styles, ReportStyles, PageHeader, Tabs, StatCard, Panel, DataTable,
   IconFilter, chartOptions,
-  fmtDate, makeInRange, rangeLabelOf, scopeLabelOf, monthlyBucketsInRange,
-  serviceTypeBadgeStyle, serviceTypeLabel,
+  fmtDate, makeInRange, rangeLabelOf, monthlyBucketsInRange,
 } from '../../components/ReportsLayout'
 import { DISPLAY_TIME_ZONE } from '../../utils/formatDate'
 import { SkeletonStatCards, SkeletonBlock } from '../../components/Loading'
+import './reports-overview.css'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip)
 
-const TABS = ['Overview', 'Inspections', 'Alerts', 'Maintenance', 'Service Requests', 'Files']
-const MAINTENANCE_VIEWS = ['Overdue and non-compliant farms', 'Completed clean-out log']
+// Retired Staff service requests are excluded from active reporting. Saved
+// report files retain their original snapshots; Vet reports remain role-scoped.
+const TABS = ['Overview', 'Inspections', 'Alerts', 'Maintenance', 'Files']
+const MAINTENANCE_VIEWS = ['Non-Compliant farms', 'Completed clean-out log']
+
+const overviewChartOptions = {
+  ...chartOptions,
+  plugins: {
+    ...chartOptions.plugins,
+    tooltip: {
+      ...chartOptions.plugins.tooltip,
+      callbacks: { label: context => `${context.parsed.y} completed inspection${context.parsed.y === 1 ? '' : 's'}` },
+    },
+  },
+  scales: {
+    ...chartOptions.scales,
+    y: {
+      ...chartOptions.scales.y,
+      suggestedMax: 1,
+      title: { display: true, text: 'Number of inspections', color: C.mute, font: { family: "'Inter', sans-serif", size: 11 } },
+      ticks: { ...chartOptions.scales.y.ticks, maxTicksLimit: 6, color: C.mute },
+    },
+    x: { ...chartOptions.scales.x, ticks: { ...chartOptions.scales.x.ticks, color: C.mute } },
+  },
+}
 
 export default function AdminReports() {
   const [tab, setTab] = useState('Overview')
@@ -58,6 +83,8 @@ export default function AdminReports() {
 
   const [filterOpen, setFilterOpen] = useState(false)
   const filterRef = useRef(null)
+  const filterButtonRef = useRef(null)
+  const filterId = useId()
 
 
   const inRange = makeInRange(fromDate, toDate)
@@ -65,22 +92,19 @@ export default function AdminReports() {
 
   const allInspections = data?.completed_inspections ?? []
   const allAlerts = data?.alert_records ?? []
-  const overdueFarms = [...(data?.maintenance_overdue_list ?? []), ...(data?.maintenance_non_compliant_list ?? [])]
+  const nonCompliantFarms = data?.maintenance_non_compliant_list ?? []
   const allCleanouts = data?.maintenance_completed_list ?? []
-  const allServices = data?.completed_services ?? []
 
   const inspections = useMemo(() => allInspections.filter(r => inRange(r.completed_at_raw)), [allInspections, fromDate, toDate])
   const alerts = useMemo(() => allAlerts.filter(r => inRange(r.triggered_at_raw)), [allAlerts, fromDate, toDate])
   const cleanouts = useMemo(() => allCleanouts.filter(r => inRange(r.performed_at_raw)), [allCleanouts, fromDate, toDate])
-  const services = useMemo(() => allServices.filter(r => inRange(r.completed_at_raw)), [allServices, fromDate, toDate])
 
   const isRangeFiltered = Boolean(fromDate || toDate)
 
   const monthlyTrend = useMemo(() => (
-    isRangeFiltered
-      ? monthlyBucketsInRange(inspections, 'completed_at_raw')
-      : monthlyBucketsInRange(allInspections, 'completed_at_raw')
-  ), [inspections, allInspections, isRangeFiltered])
+    fillMonthlyReportBuckets(monthlyBucketsInRange(inspections, 'completed_at_raw'), fromDate, toDate)
+  ), [inspections, fromDate, toDate])
+  const monthlyAlertSeries = useMemo(() => monthlyAlertSensorCounts(alerts, fromDate, toDate), [alerts, fromDate, toDate])
 
   // Single centralized refresh mechanism for the whole Reports page: fetch the
   // latest data as soon as the page opens (never wait for the interval), then
@@ -122,7 +146,6 @@ export default function AdminReports() {
   const insp = data.inspection_summary ?? {}
   const alertSum = data.alert_summary ?? {}
   const maint = data.maintenance_summary ?? {}
-  const svc = data.service_summary ?? {}
   const overview = data.overview_summary ?? {}
   const farms = {
     total: overview.total_farms,
@@ -134,40 +157,26 @@ export default function AdminReports() {
 
   const statsByTab = {
     Overview: [
-      { value: farms.total, label: isRangeFiltered ? 'Farms Registered in Period' : 'Total Farms' },
-      { value: insp.total, label: 'Total Inspections' },
-      { value: alertSum.total_incidents ?? alertSum.total, label: 'Total Alerts' },
-      { value: alertSum.critical_incidents, label: 'Critical Alerts' },
-      { value: svc.pending, label: 'Pending Service Requests' },
+      { value: farms.total, label: 'Total Farms', foot: isRangeFiltered ? 'Registered in period' : 'All registered farms' },
+      { value: insp.total, label: 'Total Inspections', foot: isRangeFiltered ? 'In selected period' : 'All records' },
+      { value: alertSum.total_incidents ?? alertSum.total, label: 'Total Alerts', foot: isRangeFiltered ? 'Incidents in period' : 'All incidents' },
+      { value: alertSum.critical_incidents, label: 'Critical Alerts', foot: isRangeFiltered ? 'Incidents in period' : 'All incidents' },
     ],
     Inspections: [
-      { value: insp.total, label: 'Total Inspections' },
-      { value: insp.completed, label: 'Completed' },
-      { value: insp.scheduled, label: 'Scheduled' },
-      { value: insp.general, label: 'General' },
-      { value: insp.follow_up, label: 'Follow-up' },
+      { value: insp.total, label: 'Total Inspections', foot: 'Includes all statuses' },
+      { value: insp.completed, label: 'Completed', foot: 'Marked as completed' },
+      { value: insp.scheduled, label: 'Scheduled', foot: 'Scheduled status' },
     ],
-    // Every card here counts INCIDENTS, the same unit Alert History shows, so
-    // the five numbers can be read across one row. Temperature and humidity
-    // are advisory metrics the system never alerts on, so their cards counted
-    // raw readings instead and reached five figures beside a Total of 87.
-    // Ammonia and moisture are what actually raise alerts.
+    // All three cards retain the API's incident counts and report-cutoff rules.
     Alerts: [
-      { value: alertSum.total_incidents ?? alertSum.total, label: 'Total Alerts' },
-      { value: alertSum.ammonia_incidents ?? 0, label: 'Ammonia Alerts' },
-      { value: alertSum.moisture_incidents ?? 0, label: 'Moisture Alerts' },
-      { value: alertSum.critical_incidents ?? 0, label: 'Critical Alerts' },
-      { value: alertSum.resolved_incidents ?? 0, label: 'Resolved' },
+      { value: alertSum.total_incidents ?? alertSum.total, label: 'Total Alerts', foot: 'Alert incidents' },
+      { value: alertSum.critical_incidents ?? 0, label: 'Critical Alerts', foot: 'Critical incidents' },
+      { value: alertSum.resolved_incidents ?? 0, label: 'Resolved Alerts', foot: 'Resolved by report cutoff' },
     ],
     Maintenance: [
       { value: maint.completed_this_month, label: 'Clean-outs in Period' },
-      { value: maint.overdue, label: 'Overdue at Cutoff' },
+      { value: maint.undetermined, label: 'Undetermined' },
       { value: maint.non_compliant, label: 'Non-Compliant Farms' },
-    ],
-    'Service Requests': [
-      { value: svc.total, label: 'Total Requests' },
-      { value: svc.completed, label: 'Completed' },
-      { value: svc.pending, label: 'Pending' },
     ],
   }
 
@@ -175,18 +184,21 @@ export default function AdminReports() {
     <AdminLayout>
       <ReportStyles />
 
-      <div className="screen-view rp">
+      <div className="screen-view rp staff-reports">
         <PageHeader
           title="Reports"
-          subtitle="Overall Farm Monitoring Summary"
+          subtitle={tab === 'Inspections' ? 'Inspection activity and completion records' : tab === 'Alerts' ? 'Alert trends and incident summary' : 'Overall Farm Monitoring Summary'}
           hideActions
         />
         <Tabs tabs={TABS} active={tab} onChange={setTab} />
         <div className="rp-filter-toolbar">
-          <p style={{ ...styles.filterNote, margin: 0 }}>{scopeLabelOf(fromDate, toDate)}</p>
+          <p className="staff-report-period" aria-live="polite">Reporting period: <strong>{rangeLabel}</strong></p>
           <div ref={filterRef} style={{ position: 'relative' }}>
             <button
+              ref={filterButtonRef}
               type="button"
+              aria-expanded={filterOpen}
+              aria-controls={filterId}
               onClick={() => (filterOpen ? setFilterOpen(false) : openFilter())}
               style={{ ...styles.filterToggleBtn, ...(isFilterActive ? styles.filterToggleBtnActive : {}) }}
             >
@@ -195,10 +207,12 @@ export default function AdminReports() {
               {isFilterActive && <span style={styles.filterToggleCount}>1</span>}
             </button>
             {filterOpen && (
-              <div style={styles.filterPop}>
+              <div id={filterId} role="group" aria-label="Report period filter" style={styles.filterPop} onKeyDown={event => {
+                if (event.key === 'Escape') { event.preventDefault(); setFilterOpen(false); filterButtonRef.current.focus() }
+              }}>
                 <div style={styles.filterPopHeader}>
                   <span style={styles.filterPopTitle}>Filter</span>
-                  <span style={styles.filterPopClose} onClick={() => setFilterOpen(false)}>×</span>
+                  <button type="button" className="staff-report-filter-close" aria-label="Close report period filter" onClick={() => { setFilterOpen(false); filterButtonRef.current.focus() }}>×</button>
                 </div>
 
                 <ReportPeriodFields value={draftPeriod} onChange={setDraftPeriod} error={periodError} />
@@ -215,34 +229,30 @@ export default function AdminReports() {
         <div style={styles.body}>
 
           {tab !== 'Files' && (
-            <div className="rp-stats">
+            <div className={`rp-stats${tab === 'Overview' ? ' staff-overview-stats' : tab === 'Inspections' ? ' staff-inspection-stats' : tab === 'Alerts' ? ' staff-alert-stats' : ''}`}>
               {statsByTab[tab].map(s => <StatCard key={s.label} {...s} />)}
             </div>
           )}
 
           {tab === 'Overview' && (
-            <Panel title="Inspections completed per month" subtitle={isRangeFiltered ? rangeLabel : 'All records'}>
-              <MonthlyReportBarChart buckets={monthlyTrend} label="Completed inspections" emptyText="No completed inspections in this reporting period." />
+            <Panel title="Inspections Completed per Month" subtitle="Number of inspections marked as completed within the selected period." style={{ borderRadius: 10, padding: '20px' }} subtitleStyle={{ color: C.mute, lineHeight: 1.55 }}>
+              <MonthlyReportBarChart buckets={monthlyTrend} label="Completed inspections" emptyText="No completed inspections in this reporting period." options={overviewChartOptions} height="clamp(220px, 24vw, 280px)" describeValues />
             </Panel>
           )}
 
           {tab === 'Inspections' && (
-            <>
-              <Panel title="General vs Follow-up inspections" subtitle={rangeLabel}>
-                <ChartFrame>
-                  <Bar
-                    data={{
-                      labels: ['General', 'Follow-up'],
-                      datasets: [{ data: [insp.general ?? 0, insp.follow_up ?? 0], backgroundColor: [C.green, C.card], borderRadius: 3, maxBarThickness: 130 }],
-                    }}
-                    options={chartOptions}
-                  />
-                </ChartFrame>
+            <div className="staff-inspections-report">
+              <Panel title="Inspections by Type" subtitle="Number of inspections per type within the selected period." style={{ borderRadius: 10, padding: 20 }} subtitleStyle={{ color: C.mute, lineHeight: 1.55 }}>
+                <InspectionTypeBarChart general={insp.general} followUp={insp.follow_up} />
               </Panel>
 
               <DataTable
-                title="Completed inspections"
-                subtitle={rangeLabel}
+                variant="compact"
+                minWidth="780px"
+                columnWidths={['14%', '18%', '18%', '18%', '16%', '16%']}
+                resetKey={`${fromDate}:${toDate}`}
+                title="Completed Inspections"
+                subtitle="Inspections marked as completed within the selected period."
                 columns={['Inspection No.', 'Farm', 'Owner', 'Type', 'Date', 'Status']}
                 emptyText="No completed inspections in this range."
                 rows={inspections.map(i => [
@@ -254,18 +264,22 @@ export default function AdminReports() {
                   { text: i.status || 'Completed', tone: 'green' },
                 ])}
               />
-            </>
+            </div>
           )}
 
           {tab === 'Alerts' && (
-            <>
-              <Panel title="Alert incidents over time" subtitle={`${rangeLabel} · incidents by ${data.alert_trend?.aggregation || 'day'} triggered`}>
-                <AlertIncidentChart series={data.alert_trend} />
+            <div className="staff-alerts-report">
+              <Panel title="Alert Incidents by Sensor" subtitle="Monthly number of alert incidents for ammonia and moisture." style={{ borderRadius: 10, padding: 20 }} subtitleStyle={{ color: C.mute, lineHeight: 1.55 }}>
+                <AlertSensorMonthlyChart series={monthlyAlertSeries} ammoniaTotal={alertSum.ammonia_incidents} moistureTotal={alertSum.moisture_incidents} />
               </Panel>
 
               <DataTable
-                title="Alert incidents"
-                subtitle={rangeLabel}
+                variant="compact"
+                minWidth="840px"
+                columnWidths={['18%', '18%', '12%', '14%', '22%', '16%']}
+                resetKey={`${fromDate}:${toDate}`}
+                title="Alert Incidents"
+                subtitle="Alert incidents within the selected period."
                 columns={['Farm', 'Owner', 'Sensor', 'Severity', 'Triggered', 'Status']}
                 emptyText="No alerts recorded in this range."
                 rows={alerts.map(a => [
@@ -277,32 +291,35 @@ export default function AdminReports() {
                   { text: a.is_ongoing ? 'Ongoing' : 'Resolved', tone: a.is_ongoing ? 'amber' : 'green' },
                 ])}
               />
-            </>
+            </div>
           )}
 
           {tab === 'Maintenance' && (
             <>
               <Tabs tabs={MAINTENANCE_VIEWS} active={maintView} onChange={setMaintView} />
 
-              {maintView === 'Overdue and non-compliant farms' && (
+              {maintView === 'Non-Compliant farms' && (
                 <DataTable
-                  title="Overdue and non-compliant farms"
+                resetKey={`${fromDate}:${toDate}`}
+                  title="Non-Compliant farms"
                   subtitle={`Manure clean-out status as of ${data.report_period?.status_as_of || 'today'}`}
-                  columns={['Farm', 'Owner', 'Barangay', 'Last clean-out', 'Overdue by', 'Status']}
-                  emptyText="All farms are compliant with clean-out schedules."
-                  rows={overdueFarms.map(f => [
+                  columns={['Farm', 'Owner', 'Barangay', 'Last clean-out', 'Due date', 'Overdue by', 'Status']}
+                  emptyText="No Non-Compliant farms at this cutoff. Check Undetermined totals for missing dates."
+                  rows={nonCompliantFarms.map(f => [
                     { text: f.farm_name, strong: true },
                     { text: f.owner_name },
                     { text: f.barangay },
                     { text: fmtDate(f.last_performed_at) },
+                    { text: fmtDate(f.due_date) },
                     { text: `${f.days_overdue} days` },
-                    { text: f.status, tone: f.status === 'Non-Compliant' ? 'red' : 'amber' },
+                    { text: f.status, tone: 'red' },
                   ])}
                 />
               )}
 
               {maintView === 'Completed clean-out log' && (
                 <DataTable
+                resetKey={`${fromDate}:${toDate}`}
                   title="Completed clean-out log"
                   subtitle={rangeLabel}
                   columns={['Farm', 'Owner', 'Barangay', 'Completed', 'Method']}
@@ -317,23 +334,6 @@ export default function AdminReports() {
                 />
               )}
             </>
-          )}
-
-          {tab === 'Service Requests' && (
-            <DataTable
-              title="Completed service requests"
-              subtitle={rangeLabel}
-              columns={['Type', 'Farm', 'Owner', 'Barangay', 'Completed', 'Notes']}
-              emptyText="No completed service requests in this range."
-              rows={services.map(s => [
-                { text: serviceTypeLabel(s.service_type), badgeStyle: serviceTypeBadgeStyle(s.service_type), dot: false },
-                { text: s.farm_name },
-                { text: s.owner_name },
-                { text: s.barangay },
-                { text: fmtDate(s.completed_at) },
-                { text: s.notes },
-              ])}
-            />
           )}
 
           {tab === 'Files' && (

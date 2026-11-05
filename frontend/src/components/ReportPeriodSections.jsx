@@ -90,9 +90,7 @@ export default function ReportPeriodSections({ snapshot, periodLabel, statusAsOf
               <col style={{ width: '19%' }} /><col style={{ width: '13%' }} />
               <col style={{ width: '16%' }} />
             </colgroup>
-            {/* Size earns its column: it is what sets the clean-out interval
-                (Small 365 days, Medium 270, Large 180), so it decides when each
-                farm listed here first falls due in the Compliance section. */}
+            {/* Farm size is registration metadata; annual compliance is uniform. */}
             <thead><tr><th>Farm</th><th>Owner</th><th>Barangay</th><th>Size</th><th>Date registered</th></tr></thead>
             <tbody>
               {farms.list.map((f, i) => (
@@ -258,7 +256,7 @@ export default function ReportPeriodSections({ snapshot, periodLabel, statusAsOf
                   cutoff are excluded — they did not exist in the period being
                   reported. The three buckets partition the total. */}
               <tr><th>Compliant farms</th><td>{orCount(compliance.compliant)}</td></tr>
-              <tr><th>Overdue farms</th><td>{orCount(compliance.overdue)}</td></tr>
+              <tr><th>{compliance.policy ? 'Undetermined farms' : 'Overdue farms'}</th><td>{orCount(compliance.policy ? compliance.undetermined : compliance.overdue)}</td></tr>
               <tr><th>Non-compliant farms</th><td>{orCount(compliance.non_compliant)}</td></tr>
               <tr><th>Active farms assessed</th><td>{orCount(compliance.total_farms)}</td></tr>
             </tbody>

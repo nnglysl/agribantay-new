@@ -95,6 +95,8 @@ class MonitoringDisplayTest extends TestCase
     {
         $farm = $this->farm();
         $device = $this->device($farm);
+        // Phase 1 requires verified assignment evidence before current reads.
+        $this->event($device, $farm, '2026-10-20 03:58:00', true);
         $this->assertSame(3, config('sensors.offline_after_minutes'));
         foreach (['Safe', 'Warning', 'Critical'] as $i => $status) {
             $at = '2026-10-20 03:59:0'.$i;

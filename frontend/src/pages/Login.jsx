@@ -1,3 +1,4 @@
+import { GREEN } from '../theme/green'
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api/axios'
@@ -256,8 +257,8 @@ export default function Login() {
             <span
               style={{
                 ...loginOnlyStyles.checkbox,
-                background: remember ? '#1f5a34' : '#fff',
-                borderColor: remember ? '#1f5a34' : '#c4cabd',
+                background: remember ? GREEN.hover : '#fff',
+                borderColor: remember ? GREEN.hover : '#c4cabd',
               }}
             >
               {remember && <CheckIcon />}
@@ -338,8 +339,8 @@ const loginOnlyStyles = {
   optionRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '-4px' },
   rememberBtn: { display: 'inline-flex', alignItems: 'center', gap: '9px', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: '13px', color: '#4b5a50', fontFamily: "'Public Sans', system-ui, sans-serif" },
   checkbox: { width: '18px', height: '18px', borderRadius: '6px', border: '1.5px solid #c4cabd', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background-color .15s ease, border-color .15s ease' },
-  forgotLinkBtn: { fontSize: '13px', fontWeight: 700, color: '#2c8047', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: "'Public Sans', system-ui, sans-serif" },
+  forgotLinkBtn: { fontSize: '13px', fontWeight: 700, color: GREEN.primary, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: "'Public Sans', system-ui, sans-serif" },
   loadingRow: { display: 'inline-flex', alignItems: 'center', gap: '9px' },
   legal: { textAlign: 'center', fontSize: '12.5px', lineHeight: 1.6, color: '#8a968d', margin: '14px 0 0' },
-  legalLink: { color: '#2c8047', fontWeight: 600, cursor: 'pointer' },
+  legalLink: { color: GREEN.primary, fontWeight: 600, cursor: 'pointer' },
 }

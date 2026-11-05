@@ -8,18 +8,6 @@ use App\Models\User;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
-/**
- * One-off cleanup for farm owner accounts left behind by farm deletions that
- * happened BEFORE the owner lifecycle rule existed.
- *
- * SuperAdmin\FarmDeletionController@destroy now deletes the owner when their
- * last farm goes. Deletions made before that shipped removed only the farm, so
- * their owners are still in `users` with zero farms — able to sign in and land
- * on an empty dashboard. This removes exactly those rows and nothing else.
- *
- * Reports by default and changes nothing. --force is required to delete, so an
- * accidental run can only ever produce a list.
- */
 class PruneOrphanFarmOwners extends Command
 {
     protected $signature = 'farms:prune-orphan-owners {--force : Actually delete the accounts listed}';
@@ -28,9 +16,6 @@ class PruneOrphanFarmOwners extends Command
 
     public function handle(): int
     {
-        // Scoped three ways on purpose: the role must be farm_owner, the farm
-        // count must be exactly zero, and the count is taken live rather than
-        // from any cached column.
         $orphans = User::where('role', 'farm_owner')
             ->whereNotExists(function ($q) {
                 $q->select(DB::raw(1))
@@ -80,8 +65,6 @@ class PruneOrphanFarmOwners extends Command
 
                 $label = trim($owner->first_name.' '.$owner->last_name)." (id {$owner->id})";
 
-                // Sanctum's tokens have no foreign key to users, so they would
-                // outlive the row otherwise.
                 $owner->tokens()->delete();
                 $owner->delete();
 
@@ -89,8 +72,7 @@ class PruneOrphanFarmOwners extends Command
             }
 
             if ($deleted !== []) {
-                // Recorded so the removal is accounted for rather than simply
-                // happening — these were real accounts.
+
                 ActivityLog::create([
                     'user_id' => null,
                     'role'    => 'system',

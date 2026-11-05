@@ -23,8 +23,6 @@ class SensorReading extends Model
         // a later recalibration can be applied to history. See the migration
         // 2026_10_05_200000_add_ammonia_raw_to_sensor_readings_table.
         'ammonia_raw',
-        // Separate ESP32 calibrated ADC voltage sample, in millivolts (not ppm).
-        'ammonia_adc_mv',
 
         // The capacitive probe's raw ADC count, for the same reason. Moisture
         // needs it more: unlike the old placeholder ammonia scale, neither

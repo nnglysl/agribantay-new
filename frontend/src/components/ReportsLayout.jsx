@@ -1,7 +1,8 @@
+import { GREEN } from '../theme/green'
 import TableScroll from './TableScroll'
 import ScrollableTabs from './ScrollableTabs'
 import { useIsMobile } from '../hooks/useIsMobile'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { manilaDay } from '../utils/reportPeriod'
 import { serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../utils/serviceBadgeStyle'
 import SharedPagination from './Pagination'
@@ -13,13 +14,13 @@ export { serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle }
 export const SANS = "'Inter', sans-serif"
 
 export const C = {
-  card: '#234A35',        // dashboard stat-card green
-  cardBorder: '#1c3c2b',
-  cardLabel: '#eaf3ec',
+  card: GREEN.primary,        // dashboard stat-card green
+  cardBorder: GREEN.hover,
+  cardLabel: GREEN.soft,
   cardFoot: 'rgba(234,243,236,0.7)',
   dark: '#16311d',        // dashboard heading ink
-  green: '#2c8047',
-  greenDeep: '#256b3d',
+  green: GREEN.primary,
+  greenDeep: GREEN.hover,
   amber: '#b45309',
   red: '#b91c1c',
   bg: '#f3f4ef',
@@ -243,7 +244,7 @@ export const IconFilter = () => (
 
 /* ---------------- shared stylesheet ---------------- */
 
-export function ReportStyles() {
+export function ReportStyles({ pageSettings = true } = {}) {
   return (
     <style>{`
       .rp { container-type: inline-size; max-width: 100%; font-family: ${SANS}; }
@@ -328,7 +329,7 @@ export function ReportStyles() {
          print block. @page cannot be scoped, so the two coexist; this rule is
          in the page-level stylesheet, which React renders after the layout
          wrapper, so it wins on the Reports pages where reports are printed. */
-      @page { size: A4 portrait; margin: 14mm 12mm; }
+      ${pageSettings ? '@page { size: A4 portrait; margin: 14mm 12mm; }' : ''}
 
       @media print {
         html, body { background: #fff; }
@@ -395,21 +396,22 @@ export function ReportStyles() {
 /** Dashboard-matched stat card: dark green fill, white value, light-green label. */
 // `onClick` makes the card a toggle button; `active` marks the selected one.
 // Both optional — pages that don't pass them render exactly as before.
-export function StatCard({ value, label, foot, onClick, active = false }) {
+export function StatCard({ value, label, foot, onClick, active = false, variant = 'default' }) {
   const clickable = typeof onClick === 'function'
+  const neutral = variant === 'neutral'
   return (
     <div
       className="rp-stat-card"
-      style={{ ...styles.statCard, ...(clickable ? styles.statCardClickable : {}), ...(active ? styles.statCardActive : {}) }}
+      style={{ ...styles.statCard, ...(neutral ? styles.statCardNeutral : {}), ...(clickable ? styles.statCardClickable : {}), ...(active ? styles.statCardActive : {}) }}
       onClick={onClick}
       role={clickable ? 'button' : undefined}
       tabIndex={clickable ? 0 : undefined}
       aria-pressed={clickable ? active : undefined}
       onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } : undefined}
     >
-      <div style={styles.statValue}>{value ?? 0}</div>
-      <div style={styles.statLabel}>{label}</div>
-      {foot && <div style={styles.statFoot}>{foot}</div>}
+      <div style={{ ...styles.statValue, ...(neutral ? styles.statValueNeutral : {}) }}>{value ?? 0}</div>
+      <div style={{ ...styles.statLabel, ...(neutral ? styles.statLabelNeutral : {}) }}>{label}</div>
+      {foot && <div style={{ ...styles.statFoot, ...(neutral ? styles.statFootNeutral : {}) }}>{foot}</div>}
     </div>
   )
 }
@@ -451,11 +453,11 @@ export function Tabs({ tabs, active, onChange }) {
   )
 }
 
-export function Panel({ title, subtitle, children, style }) {
+export function Panel({ title, subtitle, children, style, subtitleStyle }) {
   return (
     <section style={{ ...styles.panel, ...style }}>
       {title && <h3 style={styles.panelTitle}>{title}</h3>}
-      {subtitle && <p style={styles.panelSubtitle}>{subtitle}</p>}
+      {subtitle && <p style={{ ...styles.panelSubtitle, ...subtitleStyle }}>{subtitle}</p>}
       {children}
     </section>
   )
@@ -467,7 +469,7 @@ export function Panel({ title, subtitle, children, style }) {
 // fixed green/amber/red palette below.
 export function Badge({ text, tone = 'green', dot = true, badgeStyle }) {
   const map = {
-    green: { bg: '#eaf3ec', fg: C.greenDeep },
+    green: { bg: GREEN.soft, fg: C.greenDeep },
     amber: { bg: '#fdf3e3', fg: C.amber },
     red: { bg: '#fbeaea', fg: C.red },
   }
@@ -544,33 +546,36 @@ export function FilterBar({ from, to, onFrom, onTo, onPreset, onClear, count, no
 }
 
 /** Table with page-size control, mobile card fallback and calm empty state. */
-export function DataTable({ title, subtitle, columns, rows, emptyText, paginate = true, minWidth = '620px' }) {
+export function DataTable({ title, subtitle, columns, rows, emptyText, paginate = true, minWidth = '620px', server, resetKey = '', variant = 'default', columnWidths }) {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+  const compact = variant === 'compact'
 
-  const total = rows.length
-  const size = paginate ? pageSize : Math.max(total, 1)
-  const pages = Math.max(1, Math.ceil(total / size))
-  const safe = Math.min(page, pages)
+  useEffect(() => { setPage(1) }, [resetKey])
+  const total = server?.total ?? rows.length
+  const size = server?.pageSize ?? (paginate ? pageSize : Math.max(total, 1))
+  const pages = server?.lastPage ?? Math.max(1, Math.ceil(total / size))
+  const safe = server?.page ?? Math.min(page, pages)
   const start = (safe - 1) * size
-  const shown = rows.slice(start, start + size)
+  const shown = server ? rows : rows.slice(start, start + size)
 
   return (
-    <Panel title={title} subtitle={subtitle}>
+    <Panel title={title} subtitle={subtitle} style={compact ? { borderRadius: 10, padding: 20 } : undefined} subtitleStyle={compact ? { color: C.mute, lineHeight: 1.55 } : undefined}>
       {total === 0 ? (
         <div style={styles.empty}>{emptyText}</div>
       ) : (
         <>
           <div className="rp-table-scroll">
             <TableScroll>
-            <table className="rp-table" style={{ minWidth }}>
+            <table className="rp-table" style={{ minWidth, ...(columnWidths ? { tableLayout: 'fixed' } : {}) }}>
+              {columnWidths && <colgroup>{columnWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>}
               <thead>
-                <tr>{columns.map(c => <th key={c} className={c === 'Actions' || c === 'Action' ? 'agb-table-actions-cell' : undefined} style={styles.th}>{c}</th>)}</tr>
+                <tr>{columns.map(c => <th key={c} scope="col" className={c === 'Actions' || c === 'Action' ? 'agb-table-actions-cell' : undefined} style={{ ...styles.th, ...(compact ? styles.thCompact : {}) }}>{c}</th>)}</tr>
               </thead>
               <tbody>
                 {shown.map((row, ri) => (
                   <tr key={ri}>
-                    {row.map((cell, ci) => <td key={ci} className={columns[ci] === 'Actions' || columns[ci] === 'Action' ? 'agb-table-actions-cell' : undefined} style={styles.td}><Cell cell={cell} /></td>)}
+                    {row.map((cell, ci) => <td key={ci} className={columns[ci] === 'Actions' || columns[ci] === 'Action' ? 'agb-table-actions-cell' : undefined} style={{ ...styles.td, ...(compact ? styles.tdCompact : {}) }}><Cell cell={cell} /></td>)}
                   </tr>
                 ))}
               </tbody>
@@ -580,11 +585,11 @@ export function DataTable({ title, subtitle, columns, rows, emptyText, paginate 
 
           <div className="rp-cards">
             {shown.map((row, ri) => (
-              <div key={ri} style={styles.mCard}>
+              <div key={ri} style={{ ...styles.mCard, ...(compact ? styles.mCardCompact : {}) }}>
                 {row.map((cell, ci) => (
-                  <div key={ci} style={styles.mRow}>
-                    <span style={styles.mLabel}>{columns[ci]}</span>
-                    <div style={styles.mValue}><Cell cell={cell} /></div>
+                  <div key={ci} style={{ ...styles.mRow, ...(compact ? { alignItems: 'flex-start' } : {}) }}>
+                    <span style={{ ...styles.mLabel, ...(compact ? styles.mLabelCompact : {}) }}>{columns[ci]}</span>
+                    <div style={{ ...styles.mValue, ...(compact ? styles.mValueCompact : {}) }}><Cell cell={cell} /></div>
                   </div>
                 ))}
               </div>
@@ -593,18 +598,18 @@ export function DataTable({ title, subtitle, columns, rows, emptyText, paginate 
 
           {paginate && total > 0 && (
             <div className="agb-table-footer" style={styles.pager}>
-              <span style={styles.pagerInfo}>
+              <span style={{ ...styles.pagerInfo, ...(compact ? { color: C.mute } : {}) }}>
                 Showing {start + 1}–{Math.min(start + size, total)} of {total} records
               </span>
               <div className="agb-table-footer-controls" style={styles.pagerBtns}>
                 <select aria-label="Rows per page"
-                  value={pageSize}
-                  onChange={e => { setPageSize(Number(e.target.value)); setPage(1) }}
+                  value={size}
+                  onChange={e => { if (server) server.setPageSize(Number(e.target.value)); else { setPageSize(Number(e.target.value)); setPage(1) } }}
                   style={styles.pageSizeSelect}
                 >
                   {PAGE_SIZE_OPTIONS.map(s => <option key={s} value={s}>{s} / page</option>)}
                 </select>
-                <SharedPagination currentPage={safe} totalPages={pages} onPageChange={setPage} />
+                <SharedPagination currentPage={safe} totalPages={pages} onPageChange={server?.setPage ?? setPage} />
               </div>
             </div>
           )}
@@ -717,10 +722,15 @@ export const styles = {
   // Dashboard-matched card
   statCard: { fontFamily: SANS, background: C.card, border: `1px solid ${C.cardBorder}`, borderRadius: 14, padding: 'var(--rp-stat-padding, 20px 22px)', minHeight: 'var(--rp-stat-height, 120px)', minWidth: 0, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'center' },
   statCardClickable: { cursor: 'pointer', userSelect: 'none', transition: 'box-shadow .15s, transform .15s' },
-  statCardActive: { background: C.greenDeep, border: `1px solid ${C.green}`, boxShadow: `0 0 0 3px rgba(44,128,71,0.35)` },
+  statCardActive: { background: C.greenDeep, border: `1px solid ${C.green}`, boxShadow: `0 0 0 3px rgba(var(--agb-green-rgb), 0.35)` },
   statValue: { fontSize: 'var(--rp-stat-value-size, 30px)', fontWeight: 800, letterSpacing: '-0.02em', color: '#fff', lineHeight: 1, fontVariantNumeric: 'tabular-nums' },
   statLabel: { fontSize: 'var(--rp-stat-label-size, 13px)', fontWeight: 700, color: C.cardLabel, marginTop: 8, lineHeight: 1.35, overflowWrap: 'anywhere' },
   statFoot: { fontSize: 12, color: C.cardFoot, marginTop: 3 },
+  // Opt-in Overview presentation; other report roles/tabs keep their own cards.
+  statCardNeutral: { background: '#fff', border: `1px solid ${C.border}`, borderRadius: 10, padding: 'var(--rp-stat-padding, 16px 18px)', minHeight: 'var(--rp-stat-height, 112px)' },
+  statValueNeutral: { color: C.dark, fontSize: 'var(--rp-stat-value-size, 28px)', fontWeight: 700, lineHeight: 1.1 },
+  statLabelNeutral: { color: C.body, fontSize: 'var(--rp-stat-label-size, 12px)', fontWeight: 500, marginTop: 6 },
+  statFootNeutral: { color: C.mute, fontSize: 11, lineHeight: 1.4, marginTop: 5 },
 
   filterBar: { fontFamily: SANS, background: '#fff', border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 16px', display: 'flex', alignItems: 'flex-end', gap: 18, flexWrap: 'wrap' },
   field: { display: 'flex', flexDirection: 'column', gap: 6 },
@@ -728,7 +738,7 @@ export const styles = {
   input: { height: 38, padding: '0 10px', borderRadius: 8, border: '1px solid #dcdfd6', background: '#fff', fontFamily: SANS, fontSize: 13, color: C.ink },
   chips: { display: 'flex', gap: 6, flexWrap: 'wrap' },
   chip: { height: 38, padding: '0 12px', borderRadius: 8, border: '1px solid #e0e2d9', background: '#fafbf8', color: C.body, fontFamily: SANS, fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' },
-  chipActive: { border: `1px solid ${C.green}`, background: '#eaf3ec', color: C.greenDeep, fontWeight: 700 },
+  chipActive: { border: `1px solid ${C.green}`, background: GREEN.soft, color: C.greenDeep, fontWeight: 700 },
   filterRight: { display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' },
   clearBtn: { height: 38, padding: '0 14px', borderRadius: 8, border: '1px solid #dcdfd6', background: '#fff', color: C.mute, fontFamily: SANS, fontSize: 12.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' },
   countPill: { height: 38, display: 'flex', alignItems: 'center', padding: '0 14px', borderRadius: 8, background: C.bg, color: C.dark, fontFamily: SANS, fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap' },
@@ -795,6 +805,8 @@ export const styles = {
 
   th: { textAlign: 'left', padding: '12px 16px', fontSize: 13, fontWeight: 600, color: C.label, background: '#fafbf8', borderTop: '1px solid #eceee7', borderBottom: '1px solid #eceee7', whiteSpace: 'nowrap' },
   td: { padding: '13px 16px', fontSize: 12, color: C.body, borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle', whiteSpace: 'nowrap' },
+  thCompact: { padding: '10px 12px', fontSize: 12, color: C.body },
+  tdCompact: { padding: '11px 12px', fontSize: 12.5, lineHeight: 1.5, whiteSpace: 'normal', overflowWrap: 'anywhere' },
   cellStrong: { fontWeight: 600, color: C.dark },
   cellActions: { display: 'flex', gap: 8, flexWrap: 'wrap' },
   cellActionBtn: { appearance: 'none', background: '#fff', border: `1px solid #cfe0d3`, borderRadius: 7,
@@ -810,6 +822,9 @@ export const styles = {
   mRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
   mLabel: { fontSize: 13, fontWeight: 600, color: C.faint },
   mValue: { fontSize: 12, color: C.body, textAlign: 'right' },
+  mCardCompact: { borderRadius: 8, padding: '12px 14px', background: '#fff' },
+  mLabelCompact: { fontSize: 11.5, color: C.mute, flexShrink: 0, lineHeight: 1.5 },
+  mValueCompact: { minWidth: 0, fontSize: 12.5, lineHeight: 1.5, overflowWrap: 'anywhere' },
 
   pager: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginTop: 16 },
   pagerInfo: { fontSize: 12, color: C.faint },

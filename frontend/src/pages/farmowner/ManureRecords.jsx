@@ -1,5 +1,9 @@
+import { GREEN } from '../../theme/green'
 import { useState } from 'react'
 import FarmerLayout from '../../components/FarmerLayout'
+import FarmSelector from '../../components/FarmSelector'
+import ControlDocuments from '../../components/ControlDocuments'
+import CleanoutCompliance from '../../components/CleanoutCompliance'
 import TableScroll from '../../components/TableScroll'
 import SharedPagination from '../../components/Pagination'
 import api from '../../api/axios'
@@ -10,6 +14,7 @@ import { viewModalStyles as v } from '../../styles/viewModalStyles'
 import { SkeletonTable, BtnBusy } from '../../components/Loading'
 
 const responsiveCss = `
+  .mr-record-views { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
   .mr-tabs {
     display: flex;
     gap: 28px;
@@ -30,8 +35,12 @@ const responsiveCss = `
     white-space: nowrap;
   }
   .mr-tab-btn.active {
-    color: #1B4332;
-    border-bottom-color: #1B4332;
+    color: var(--agb-green);
+    border-bottom-color: var(--agb-green);
+  }
+  @media (max-width: 720px) {
+    .mr-tabs { gap: 14px; }
+    .mr-tab-btn { font-size: 12px; }
   }
 
   .mr-stats-grid {
@@ -102,12 +111,18 @@ const responsiveCss = `
 const RECENT_LIMIT = 5
 
 export default function ManureRecords() {
-  const { selectedFarmId, farmsLoading } = useSelectedFarm()
+  const { selectedFarmId } = useSelectedFarm()
+  const [activeTab, setActiveTab] = useState('cleanout')
+  return <FarmManureRecords key={selectedFarmId || 'no-farm'} activeTab={activeTab} setActiveTab={setActiveTab} />
+}
+
+function FarmManureRecords({ activeTab, setActiveTab }) {
+  const { selectedFarmId, selectedFarm, farmsLoading } = useSelectedFarm()
   const farmParams = { farm_id: selectedFarmId }
-  const { data: maintenance, loading: maintenanceLoading, refetch: refetchMaintenance } = useCachedFetch(selectedFarmId ? '/farmer/maintenance' : null, farmParams, { pollMs: BACKGROUND_POLL_MS })
+  const { data: maintenanceData, loading: maintenanceLoading, error: maintenanceErrorMessage, refetch: refetchMaintenance } = useCachedFetch(selectedFarmId ? '/farmer/maintenance' : null, farmParams, { pollMs: BACKGROUND_POLL_MS })
+  const maintenance = Number(maintenanceData?.farm_id) === Number(selectedFarmId) ? maintenanceData : null
   const { data: disposalRecords, loading: disposalLoading, refetch: refetchDisposal } = useCachedFetch(selectedFarmId ? '/farmer/disposal-records' : null, farmParams, { pollMs: BACKGROUND_POLL_MS })
 
-  const [activeTab, setActiveTab] = useState('cleanout') // 'cleanout' | 'disposal'
 
   const [showMaintenanceForm, setShowMaintenanceForm] = useState(false)
   const [maintenanceDate, setMaintenanceDate] = useState('')
@@ -212,53 +227,26 @@ export default function ManureRecords() {
     <FarmerLayout>
       <style>{responsiveCss}</style>
 
-      <h1 style={styles.title}>Manure Records</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}><h1 style={styles.title}>Manure Management</h1><FarmSelector inline align="right" /></div>
       <p style={styles.subtitle}>
-        Keep track of manure clean-outs and where the manure goes.
+        Record manure clean-outs, disposal and farm control documents.
       </p>
 
       <div className="mr-tabs">
         <button
-          className={`mr-tab-btn ${activeTab === 'cleanout' ? 'active' : ''}`}
+          className={`mr-tab-btn ${activeTab !== 'documents' ? 'active' : ''}`}
           onClick={() => setActiveTab('cleanout')}
         >
-          Clean-out Logs
+          Clean-out Records
         </button>
-        <button
-          className={`mr-tab-btn ${activeTab === 'disposal' ? 'active' : ''}`}
-          onClick={() => setActiveTab('disposal')}
-        >
-          Disposal Records
-        </button>
+        <button className={`mr-tab-btn ${activeTab === 'documents' ? 'active' : ''}`} onClick={() => setActiveTab('documents')}>Control Documents</button>
       </div>
 
-      {activeTab === 'cleanout' ? (
+      {activeTab !== 'documents' && <div className="mr-record-views"><button type="button" className="cd-button" aria-pressed={activeTab === 'cleanout'} onClick={() => setActiveTab('cleanout')}>Clean-out Logs</button><button type="button" className="cd-button" aria-pressed={activeTab === 'disposal'} onClick={() => setActiveTab('disposal')}>Disposal Records</button></div>}
+      {activeTab === 'documents' ? <ControlDocuments farm={selectedFarm} canUpload /> : activeTab === 'cleanout' ? (
         <>
-          <div className="mr-stats-grid">
-            <div style={styles.statCard}>
-              <div style={styles.statMiniLabel}>Last clean-out</div>
-              <div style={styles.statValueSm}>{maintenance?.status?.last_performed_at || 'Never'}</div>
-              <div style={styles.statSubLabel}>{maintenance?.status?.days_since ?? '—'} days ago</div>
-            </div>
-
-            <div style={styles.statCard}>
-              <div style={styles.statMiniLabel}>Recommended frequency</div>
-              <div style={styles.statValueSm}>
-                Every ~{maintenance?.status?.expected_interval_days ? Math.round(maintenance.status.expected_interval_days / 30) : '—'} mo.
-              </div>
-              <div style={styles.statSubLabel}>Based on your farm size</div>
-            </div>
-
-            <div style={styles.statCard}>
-              <div style={styles.statMiniLabel}>Status</div>
-              {maintenance?.status && (
-                <span style={{ ...styles.badge, ...maintBadgeStyle(maintenance.status.status) }}>
-                  <span style={{ ...styles.badgeDot, backgroundColor: maintBadgeStyle(maintenance.status.status).color }} />
-                  {maintenance.status.status}
-                </span>
-              )}
-            </div>
-          </div>
+          {maintenanceErrorMessage && <p role="alert">{maintenanceErrorMessage}</p>}
+          <CleanoutCompliance status={maintenance?.status} />
 
           <section style={styles.card}>
             <div className="mr-actions-row">
@@ -275,6 +263,7 @@ export default function ManureRecords() {
                     <thead>
                       <tr>
                         <th style={styles.th}>Date</th>
+                        <th style={styles.th}>Activity</th>
                         <th style={styles.th}>Notes</th>
                         <th className="agb-table-actions-cell" style={{ ...styles.th, textAlign: 'right' }}>Action</th>
                       </tr>
@@ -283,6 +272,7 @@ export default function ManureRecords() {
                       {recentMaintLogs.map(log => (
                         <tr key={log.id}>
                           <td style={styles.tdStrong}>{log.performed_at}</td>
+                          <td style={styles.td}>{log.maintenance_type || 'Not specified'}</td>
                           <td style={styles.td}>{log.notes || '—'}</td>
                           <td className="agb-table-actions-cell" style={{ ...styles.td, textAlign: 'right' }}>
                             <span className="agb-table-action" style={styles.viewBtn} onClick={() => setViewRecord({ type: 'cleanout', record: log })}>
@@ -373,8 +363,9 @@ export default function ManureRecords() {
       )}
 
       {showMaintenanceForm && (
-        <Modal title="Log a Clean-out" onClose={() => { setShowMaintenanceForm(false); setMaintenanceError('') }}>
+        <Modal title="Log a Full Manure Clean-out" onClose={() => { setShowMaintenanceForm(false); setMaintenanceError('') }}>
           <form onSubmit={handleMaintenanceSubmit} style={styles.form}>
+            <p style={styles.cardSub}>Record a full clean-out only. Partial removal and disposal do not reset the annual cycle.</p>
             {maintenanceError && <div style={styles.formError}>{maintenanceError}</div>}
 
             <label style={styles.formLabel}>Date performed *</label>
@@ -382,7 +373,8 @@ export default function ManureRecords() {
               type="date"
               value={maintenanceDate}
               onChange={e => setMaintenanceDate(e.target.value)}
-              max={new Date().toISOString().split('T')[0]}
+              max={maintenance?.status?.as_of_date}
+              min={maintenance?.status?.registration_date_raw}
               style={styles.formInput}
               required
             />
@@ -570,12 +562,6 @@ export default function ManureRecords() {
   )
 }
 
-function maintBadgeStyle(status) {
-  if (status === 'Non-Compliant') return { backgroundColor: '#fbeaea', color: '#b91c1c' }
-  if (status === 'Overdue') return { backgroundColor: '#fbf1e2', color: '#b45309' }
-  return { backgroundColor: '#eaf3ec', color: '#2c8047' } // 'Compliant'
-}
-
 function RecordDetailModal({ title, rows, photoUrl, onClose }) {
   // "Notes" is free text, not a fixed field — gets the larger bordered
   // notes box instead of sitting in the field grid like the rest.
@@ -659,7 +645,7 @@ const styles = {
   statCard: {
     display: 'flex', flexDirection: 'column', gap: '2px',
     borderRadius: '14px', padding: '16px 18px',
-    background: '#1B4332', fontFamily: SANS,
+    background: GREEN.primary, fontFamily: SANS,
   },
   statMiniLabel: { fontSize: '11.5px', fontWeight: 700, color: '#9dc4ac' },
   statValueSm: { fontSize: '16px', fontWeight: 800, color: '#fff', marginTop: '3px' },
@@ -668,7 +654,7 @@ const styles = {
   badge: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: 700, whiteSpace: 'nowrap', width: 'fit-content', marginTop: '5px' },
   badgeDot: { width: '6px', height: '6px', borderRadius: '50%' },
 
-  primaryBtnInline: { flexShrink: 0, padding: '12px 22px', borderRadius: '10px', border: 'none', background: '#1B4332', color: '#fff', fontFamily: SANS, fontSize: '14px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' },
+  primaryBtnInline: { flexShrink: 0, padding: '12px 22px', borderRadius: '10px', border: 'none', background: GREEN.primary, color: '#fff', fontFamily: SANS, fontSize: '14px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' },
 
   historyLabel: { fontSize: '11px', fontWeight: 700, color: '#8a968d', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '4px 0 8px' },
   emptyText: { fontSize: '13px', color: '#9aa79d', fontStyle: 'italic', margin: 0 },
@@ -701,7 +687,7 @@ const styles = {
   },
   pagerBtnActive: {
     minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px',
-    border: '1px solid #2c8047', backgroundColor: '#2c8047', color: '#fff',
+    border: '1px solid var(--agb-green)', backgroundColor: GREEN.primary, color: '#fff',
     fontSize: '12.5px', fontWeight: 600, fontFamily: SANS, cursor: 'default',
   },
 

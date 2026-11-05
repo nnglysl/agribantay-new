@@ -1,3 +1,4 @@
+import { GREEN } from '../theme/green'
 /**
  * The one loading kit for AgriBantay: a green spinner, page/section loaders,
  * skeleton placeholders shaped like the real content, and a busy label for
@@ -8,7 +9,7 @@
  * first ~150 ms so a fast response never flashes a placeholder.
  */
 
-export function Spinner({ size = 20, stroke = 2.5, color = '#2c8047', style }) {
+export function Spinner({ size = 20, stroke = 2.5, color = GREEN.primary, style }) {
   const s = `${size}px`
   return (
     <span

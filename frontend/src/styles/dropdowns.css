@@ -8,19 +8,19 @@ input:is([type='date'], [type='month'], [type='time'], [type='week'], [type='dat
   transition: border-color 150ms ease, outline-color 150ms ease;
 }
 select:not(:disabled):hover,
-input:is([type='date'], [type='month'], [type='time'], [type='week'], [type='datetime-local']):not(:disabled):hover { border-color: #166534 !important; }
+input:is([type='date'], [type='month'], [type='time'], [type='week'], [type='datetime-local']):not(:disabled):hover { border-color: var(--agb-green) !important; }
 select:focus-visible,
 input:is([type='date'], [type='month'], [type='time'], [type='week'], [type='datetime-local']):focus-visible {
-  border-color: #166534 !important;
-  outline: 2px solid #166534 !important;
+  border-color: var(--agb-green) !important;
+  outline: 2px solid var(--agb-green) !important;
   outline-offset: -2px;
 }
 select:disabled { cursor: not-allowed; }
 
 /* Progressive enhancement: some browser/OS pickers ignore option colors. */
 select:not(:disabled) option:not(:disabled) { cursor: pointer; transition: background-color 150ms ease, color 150ms ease; }
-select:not(:disabled) option:not(:disabled):checked { background-color: #d9efdf; color: #166534; }
-select:not(:disabled) option:not(:disabled):is(:hover, :focus) { background-color: #e8f5ec; color: #166534; }
+select:not(:disabled) option:not(:disabled):checked { background-color: #d9efdf; color: var(--agb-green); }
+select:not(:disabled) option:not(:disabled):is(:hover, :focus) { background-color: #e8f5ec; color: var(--agb-green); }
 
 /* Keep the original select elements and handlers, while styling their menus
    in browsers that support customizable native pickers. */
@@ -68,18 +68,18 @@ select:not(:disabled) option:not(:disabled):is(:hover, :focus) { background-colo
     white-space: normal;
     overflow-wrap: anywhere;
   }
-  select:not([multiple]):not([size]) option::checkmark { order: 1; margin-left: auto; color: #166534; }
-  select:not(:disabled):not([multiple]):not([size]) option:not(:disabled):checked { background: #d9efdf; color: #166534; }
-  select:not(:disabled):not([multiple]):not([size]) option:not(:disabled):is(:hover, :focus) { background: #e8f5ec; color: #166534; }
-  select:not([multiple]):not([size]) option:focus-visible { outline: 2px solid #166534; outline-offset: -2px; }
+  select:not([multiple]):not([size]) option::checkmark { order: 1; margin-left: auto; color: var(--agb-green); }
+  select:not(:disabled):not([multiple]):not([size]) option:not(:disabled):checked { background: #d9efdf; color: var(--agb-green); }
+  select:not(:disabled):not([multiple]):not([size]) option:not(:disabled):is(:hover, :focus) { background: #e8f5ec; color: var(--agb-green); }
+  select:not([multiple]):not([size]) option:focus-visible { outline: 2px solid var(--agb-green); outline-offset: -2px; }
   select:not([multiple]):not([size]) option:disabled { color: #9aa79d; cursor: not-allowed; }
 }
 
 /* The transparent native Handled By select needs a visible focus surface. */
-.agb-select-shell:hover .agb-select-face { border-color: #166534 !important; }
+.agb-select-shell:hover .agb-select-face { border-color: var(--agb-green) !important; }
 .agb-select-shell:focus-within .agb-select-face {
-  border-color: #166534 !important;
-  outline: 2px solid #166534;
+  border-color: var(--agb-green) !important;
+  outline: 2px solid var(--agb-green);
   outline-offset: -2px;
 }
 
@@ -115,20 +115,20 @@ select:not(:disabled) option:not(:disabled):is(:hover, :focus) { background-colo
 .agb-dropdown-label, .agb-dropdown-meta { transition: color 150ms ease; }
 .agb-dropdown-option[aria-current='true'] {
   background-color: #d9efdf !important;
-  color: #166534 !important;
-  box-shadow: inset 2px 0 #166534;
+  color: var(--agb-green) !important;
+  box-shadow: inset 2px 0 var(--agb-green);
 }
 .agb-dropdown-option:not(:disabled):not([aria-disabled='true']):is(:hover, :focus-visible, :active) {
   background-color: #e8f5ec !important;
-  color: #166534 !important;
+  color: var(--agb-green) !important;
 }
 .agb-dropdown-option:not(:disabled):not([aria-disabled='true']):is(:hover, :focus-visible, :active) :is(.agb-dropdown-label, .agb-dropdown-meta),
-.agb-dropdown-option[aria-current='true'] :is(.agb-dropdown-label, .agb-dropdown-meta) { color: #166534 !important; }
-.agb-dropdown-option:focus-visible { outline: 2px solid #166534; outline-offset: -2px; }
+.agb-dropdown-option[aria-current='true'] :is(.agb-dropdown-label, .agb-dropdown-meta) { color: var(--agb-green) !important; }
+.agb-dropdown-option:focus-visible { outline: 2px solid var(--agb-green); outline-offset: -2px; }
 .agb-dropdown-option:is(:disabled, [aria-disabled='true']) { cursor: not-allowed; }
-.agb-dropdown-trigger[data-selected='true'] { border-color: #166534 !important; }
-.agb-dropdown-trigger:focus-visible { outline: 2px solid #166534 !important; outline-offset: -2px; }
-.agb-dropdown-trigger:not([aria-disabled='true']):hover { border-color: #166534 !important; }
+.agb-dropdown-trigger[data-selected='true'] { border-color: var(--agb-green) !important; }
+.agb-dropdown-trigger:focus-visible { outline: 2px solid var(--agb-green) !important; outline-offset: -2px; }
+.agb-dropdown-trigger:not([aria-disabled='true']):hover { border-color: var(--agb-green) !important; }
 .agb-dropdown-value { min-width: 0; overflow-wrap: anywhere; }
 
 /* Keep complete farm/owner names readable within the existing menu width. */

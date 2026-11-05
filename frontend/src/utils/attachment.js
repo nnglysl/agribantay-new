@@ -50,9 +50,15 @@ export async function fetchAttachmentBlobUrl(requestId, attachmentId) {
 }
 
 export async function openAttachment(requestId, { download = false, attachmentId = null } = {}) {
-  const res = await api.get(attachmentUrl(requestId, attachmentId), {
+  return openPrivateFile(attachmentUrl(requestId, attachmentId), { download })
+}
+
+/** Shared authenticated transport for private record files. Never put tokens in URLs. */
+export async function openPrivateFile(path, { download = false, signal } = {}) {
+  const res = await api.get(path, {
     params: download ? { download: 1 } : undefined,
     responseType: 'blob',
+    ...(signal ? { signal } : {}),
   })
   const type = res.headers?.['content-type'] || res.data?.type || 'application/octet-stream'
   const blob = new Blob([res.data], { type })

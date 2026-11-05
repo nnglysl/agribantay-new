@@ -1,3 +1,4 @@
+import { GREEN } from '../../theme/green'
 import TableScroll from '../../components/TableScroll'
 import { useState } from 'react'
 import api from '../../api/axios'
@@ -133,7 +134,7 @@ export default function UserManagement() {
                     <td style={styles.td}>{v.email}</td>
                     <td style={styles.td}>{v.mobile_number}</td>
                     <td style={styles.td}>
-                      <span style={{ ...styles.badge, backgroundColor: v.status === 'active' ? '#2E7D32' : '#9ca3af' }}>
+                      <span style={{ ...styles.badge, backgroundColor: v.status === 'active' ? GREEN.primary : '#9ca3af' }}>
                         {v.status === 'active' ? 'Active' : 'Inactive'}
                       </span>
                     </td>
@@ -200,7 +201,7 @@ export default function UserManagement() {
                 style={{
                   ...modalStyles.submitBtn,
                   ...(isMobile ? modalStyles.btnFull : {}),
-                  backgroundColor: confirmAction.danger ? '#dc2626' : '#2E7D32',
+                  backgroundColor: confirmAction.danger ? '#dc2626' : GREEN.primary,
                 }}
               >
                 {actionBusy ? <BtnBusy label="Please wait…" /> : confirmAction.confirmLabel}
@@ -399,7 +400,7 @@ const styles = {
   title: { fontSize: '22px', fontWeight: '700', color: '#111827', margin: 0 },
   titleMobile: { fontSize: '18px' },
   subtitle: { fontSize: '13px', color: '#6b7280', marginTop: '4px' },
-  newBtn: { backgroundColor: '#2E7D32', color: 'white', border: 'none', borderRadius: '8px', padding: '10px 18px', fontSize: '14px', fontWeight: '600', cursor: 'pointer' },
+  newBtn: { backgroundColor: GREEN.primary, color: 'white', border: 'none', borderRadius: '8px', padding: '10px 18px', fontSize: '14px', fontWeight: '600', cursor: 'pointer' },
   btnFull: { width: '100%', boxSizing: 'border-box' },
   filters: { display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' },
   filtersMobile: { flexDirection: 'column' },
@@ -418,10 +419,10 @@ const styles = {
     padding: '5px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600',
     cursor: 'pointer', border: '1px solid transparent', whiteSpace: 'nowrap',
   },
-  editBtn: { color: '#2E7D32', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' },
+  editBtn: { color: GREEN.primary, backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' },
   resetBtn: { color: '#B45309', backgroundColor: '#fffbeb', border: '1px solid #fcd34d' },
   deactivateBtn: { color: '#dc2626', backgroundColor: '#fef2f2', border: '1px solid #fecaca' },
-  activateBtn: { color: '#2E7D32', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' },
+  activateBtn: { color: GREEN.primary, backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' },
   empty: { padding: '32px', textAlign: 'center', color: '#9ca3af', fontSize: '14px' },
   tempPasswordBox: {
     fontFamily: 'monospace', fontSize: '18px', fontWeight: '700', letterSpacing: '1px',
@@ -455,7 +456,7 @@ const modalStyles = {
   actionsMobile: { flexDirection: 'column-reverse' },
   btnFull: { width: '100%', boxSizing: 'border-box' },
   cancelBtn: { padding: '10px 18px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: 'white', fontSize: '14px', cursor: 'pointer' },
-  submitBtn: { padding: '10px 18px', borderRadius: '8px', border: 'none', backgroundColor: '#2E7D32', color: 'white', fontSize: '14px', fontWeight: '600', cursor: 'pointer' },
+  submitBtn: { padding: '10px 18px', borderRadius: '8px', border: 'none', backgroundColor: GREEN.primary, color: 'white', fontSize: '14px', fontWeight: '600', cursor: 'pointer' },
 }
 
 const confirmStyles = {

@@ -1,3 +1,4 @@
+import { GREEN } from '../theme/green'
 // Filter button/popover styles shared by FilterPopover and the pages that
 // render fields inside it (labels, selects, date inputs).
 const SANS = "'Inter', sans-serif"
@@ -10,10 +11,10 @@ export const filterStyles = {
     borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
     color: '#33413a', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: SANS, whiteSpace: 'nowrap',
   },
-  filterBtnActive: { border: '1px solid #2c8047', color: '#2c8047' },
+  filterBtnActive: { border: '1px solid var(--agb-green)', color: GREEN.primary },
   filterCount: {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: '#2c8047',
+    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: GREEN.primary,
     color: '#fff', fontSize: '11px', fontWeight: 700, padding: '0 4px',
   },
   filterPanel: {
@@ -41,6 +42,6 @@ export const filterStyles = {
   },
   filterApplyBtn: {
     flex: 1, padding: '9px 0', borderRadius: '10px', border: 'none',
-    backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
+    backgroundColor: GREEN.primary, color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
   },
 }

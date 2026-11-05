@@ -6,12 +6,12 @@ const navItems = [
   { label: 'Dashboard', path: '/farmowner/dashboard', icon: 'dashboard', section: 'Overview' },
   { label: 'Farm Readings', path: '/farmowner/readings', icon: 'dashboard', section: 'Overview' },
   { label: 'Inspections', path: '/farmowner/inspections', icon: 'inspections', section: 'Management' },
-  { label: 'Manure Records', path: '/farmowner/manure-records', icon: 'requests', section: 'Management' },
+  { label: 'Manure Management', path: '/farmowner/manure-records', icon: 'requests', section: 'Management' },
   { label: 'Service requests', path: '/farmowner/service-requests', icon: 'requests', section: 'Management' },
   { label: 'Settings', path: '/farmowner/settings', icon: 'settings', section: 'System' },
 ]
 
-function FarmerContent({ children, title }) {
+function FarmerContent({ children, title, description }) {
   const { farms, farmsLoading } = useSelectedFarm()
 
   // A farm_owner account with zero farms shouldn't be possible in normal
@@ -27,15 +27,15 @@ function FarmerContent({ children, title }) {
     )
   }
 
-  // The farm dropdown lives ONLY on the Dashboard, on the same row as its
-  // "Welcome back" heading (the Dashboard passes `title`). Every other
-  // farmer page renders without it — they still read the selected farm from
-  // FarmProvider, so switching farms on the Dashboard carries over.
+  // Pages with a title share the existing farm selector in their header.
   return (
     <>
       {title && (
         <div style={styles.headerRow}>
-          <h1 style={styles.title}>{title}</h1>
+          <div style={styles.headerCopy}>
+            <h1 style={styles.title}>{title}</h1>
+            {description && <p style={styles.description}>{description}</p>}
+          </div>
           <FarmSelector inline align="right" />
         </div>
       )}
@@ -50,10 +50,10 @@ function FarmerContent({ children, title }) {
 // (before rendering FarmerLayout) to know which farm to fetch data for.
 // Context only reaches descendants, so a provider placed here would be
 // invisible to the very pages that need it.
-export default function FarmerLayout({ children, title }) {
+export default function FarmerLayout({ children, title, description }) {
   return (
     <DashboardLayout navItems={navItems} roleLabel="Farm Owner" logoutRedirect="/" hideSidebarUserInfo>
-      <FarmerContent title={title}>{children}</FarmerContent>
+      <FarmerContent title={title} description={description}>{children}</FarmerContent>
     </DashboardLayout>
   )
 }
@@ -61,10 +61,12 @@ export default function FarmerLayout({ children, title }) {
 const styles = {
   headerRow: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px 16px',
-    flexWrap: 'wrap', marginBottom: '20px',
+    flexWrap: 'wrap', marginBottom: '18px',
   },
+  headerCopy: { minWidth: 0, flex: '1 1 250px' },
+  description: { margin: '5px 0 0', fontSize: '14px', lineHeight: 1.6, color: '#616a63' },
   title: {
-    fontSize: '25px', fontWeight: 800, letterSpacing: '-0.01em', color: '#16311d', margin: 0,
+    fontSize: '24px', fontWeight: 700, letterSpacing: '-0.01em', color: '#16311d', margin: 0,
     fontFamily: "'Inter', sans-serif",
   },
   emptyState: {

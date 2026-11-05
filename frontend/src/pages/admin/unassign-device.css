@@ -1,0 +1,96 @@
+.unassign-device-modal {
+  width: 420px;
+  max-width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 20px;
+  border-radius: 16px;
+  background: #fff;
+  color: #16311d;
+  font-family: 'Inter', sans-serif;
+}
+
+.unassign-device-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.unassign-device-header h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+#unassign-device-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  margin: -9px -10px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #6b7770;
+  font: 26px/1 'Inter', sans-serif;
+  cursor: pointer;
+}
+
+#unassign-device-close:hover:not(:disabled) { background: #f1f2ed; }
+#unassign-device-close:focus-visible { outline: 2px solid #6b7770 !important; outline-offset: 1px; }
+
+.unassign-device-message {
+  margin: 10px 0 0;
+  color: #33413a;
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.unassign-device-message strong { font-weight: 600; }
+
+.unassign-device-support {
+  margin: 6px 0 0;
+  color: #6b7770;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.unassign-device-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #e3e6dd;
+}
+
+.unassign-device-actions button {
+  min-height: 40px;
+  padding: 9px 16px;
+  border: 1px solid #dcdfd6;
+  border-radius: 10px;
+  background: #fff;
+  color: #33413a;
+  font: 600 13px/1.4 'Inter', sans-serif;
+  cursor: pointer;
+}
+
+.unassign-device-actions .unassign-device-confirm {
+  border-color: var(--agb-green);
+  background: var(--agb-green);
+  color: #fff;
+}
+
+.unassign-device-actions .unassign-device-confirm:hover:not(:disabled) { background: var(--agb-green-hover); border-color: var(--agb-green-hover); }
+.unassign-device-modal button:disabled { opacity: 0.6; cursor: wait; }
+
+@media (max-width: 480px) {
+  .unassign-device-modal { padding: 20px; }
+  .unassign-device-header h3 { font-size: 19px; }
+}

@@ -33,8 +33,7 @@ class FarmSmsAlertService
                 return null;
             }
 
-            $reading = SensorReading::where('farm_id', $farm->id)
-                ->whereIn('sensor_id', $deviceIds)->latest('id')->first();
+            $reading = app(CurrentMonitoringService::class)->forFarm($lockedFarm)->latest('id')->first();
             // An old Critical reading on an offline or rotated device does
             // not prove that the farm is still Critical now.
             if (! $reading || $reading->created_at->lte(now()->subMinutes(config('sensors.offline_after_minutes', 3)))) {
@@ -50,6 +49,25 @@ class FarmSmsAlertService
             if (! $state) {
                 $state = new FarmSmsAlertState(['farm_id' => $farm->id, 'safe_readings_count' => 0]);
                 $this->bootstrap($state, $lockedFarm, $status, $reading, $deviceIds->all());
+            }
+
+            // Keep the farm episode if ANY current visit had already supplied
+            // data when it was observed. Its last row may be from a different
+            // device that has since left. Losing that row alone must not erase
+            // the continuing houses' successful-send clocks or safe streak.
+            // No overlapping visit means a full rotation, not a recovery.
+            if ($state->exists && $state->last_reading_id !== null
+                && ! app(CurrentMonitoringService::class)->forFarm($lockedFarm)
+                    ->where('id', '<=', $state->last_reading_id)->exists()
+                && ! app(DeviceAssignmentService::class)->hasContinuousFarmAssignment($lockedFarm->id, (int) $state->last_reading_id)) {
+                foreach (['incident_token', 'incident_started_at', 'resolved_at', 'last_abnormal_status',
+                    'last_critical_sent_at', 'last_warning_sent_at', 'last_recovery_sent_at'] as $field) {
+                    $state->{$field} = null;
+                }
+                $state->safe_readings_count = 0;
+                if ($state->pending_outcome !== 'sending' && $state->pending_outcome !== SmsService::UNKNOWN) {
+                    $this->clearPending($state);
+                }
             }
 
             $this->recoverPending($state);
@@ -83,7 +101,7 @@ class FarmSmsAlertService
                     // Safe readings before this worker observes the newest ID.
                     // Reuse the history's confirmed streak instead of requiring
                     // three additional sync calls after history has recovered.
-                    $confirmedHistory = AlertHistory::where('farm_id', $farm->id)
+                    $confirmedHistory = app(CurrentMonitoringService::class)->incidents(AlertHistory::query(), $farm->id)
                         ->whereIn('sensor_type', config('sensors.alerting_metrics', ['ammonia']))
                         ->where(fn ($query) => $query->whereNull('sensor_id')->orWhereIn('sensor_id', $deviceIds))
                         ->where('resolved_at', '>=', $state->incident_started_at->copy()->startOfSecond())
@@ -235,7 +253,7 @@ class FarmSmsAlertService
 
     private function openIncidents(int $farmId, array $deviceIds)
     {
-        return AlertHistory::where('farm_id', $farmId)->whereNull('resolved_at')
+        return app(CurrentMonitoringService::class)->incidents(AlertHistory::query(), $farmId)->whereNull('resolved_at')
             ->whereIn('sensor_type', config('sensors.alerting_metrics', ['ammonia']))
             ->where(fn ($query) => $query->whereNull('sensor_id')->orWhereIn('sensor_id', $deviceIds));
     }
@@ -247,8 +265,7 @@ class FarmSmsAlertService
         // about another house whose last Critical sample has gone stale.
         $statusService = app(FarmStatusService::class);
         foreach ($farm->sensors()->where('status', 'Active')->get() as $sensor) {
-            $reading = SensorReading::where('farm_id', $farm->id)->where('sensor_id', $sensor->id)
-                ->orderByDesc('created_at')->orderByDesc('id')->first();
+            $reading = app(CurrentMonitoringService::class)->latest($sensor, $farm->id);
             if ($reading && $reading->created_at->gt(now()->subMinutes(config('sensors.offline_after_minutes', 3)))
                 && $statusService->computeStatus($reading) === $status) {
                 return true;

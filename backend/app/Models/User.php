@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
@@ -28,11 +29,35 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        'super_admin_slot',
     ];
 
     protected $casts = [
         'legal_acknowledged_at' => 'datetime',
     ];
+
+    protected static function booted(): void
+    {
+        // Ordinary ORM mutations must not remove the system's recovery/admin
+        // authority. Provisioning and database-level singleton enforcement
+        // require a separately approved procedure, not a model bypass flag.
+        static::updating(function (User $user) {
+            if ($user->getRawOriginal('role') === 'super_admin'
+                && (($user->isDirty('role') && $user->role !== 'super_admin')
+                    || ($user->isDirty('status') && $user->status !== 'active'))) {
+                throw ValidationException::withMessages([
+                    'account' => 'The Super Admin cannot be deactivated or have its role changed.',
+                ]);
+            }
+        });
+        static::deleting(function (User $user) {
+            if ($user->getRawOriginal('role') === 'super_admin') {
+                throw ValidationException::withMessages([
+                    'account' => 'The Super Admin account cannot be deleted.',
+                ]);
+            }
+        });
+    }
 
     public function getFullNameAttribute(): string
     {
@@ -70,5 +95,10 @@ class User extends Authenticatable
     public function farms()
     {
         return $this->hasMany(Farm::class);
+    }
+
+    public function uploadedControlDocuments()
+    {
+        return $this->hasMany(FarmControlDocument::class, 'uploaded_by');
     }
 }

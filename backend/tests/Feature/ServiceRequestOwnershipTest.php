@@ -82,7 +82,6 @@ class ServiceRequestOwnershipTest extends TestCase
     private function roles(): array
     {
         return [
-            'staff' => ['/api/admin/service-requests', $this->staff1, $this->staff2, 'Odor Control Request'],
             'vet' => ['/api/vet/vaccination-requests', $this->vet1, $this->vet2, 'Vaccine Request'],
         ];
     }
@@ -166,12 +165,13 @@ class ServiceRequestOwnershipTest extends TestCase
         }
     }
 
-    public function test_staff_cancel_of_an_accepted_visit_is_owner_only(): void
+    public function test_retired_staff_visits_cannot_be_cancelled_even_by_the_owner(): void
     {
         $sr = $this->request('Odor Control Request', 'Scheduled', ['accepted_by' => $this->staff1->id, 'scheduled_at' => now()->addDay()]);
-        $this->actingAs($this->staff2)->patchJson("/api/admin/service-requests/{$sr->id}/cancel")->assertStatus(403);
-        $this->actingAs($this->staff1)->patchJson("/api/admin/service-requests/{$sr->id}/cancel")->assertOk();
-        $this->assertSame('Cancelled', $sr->fresh()->status);
+        foreach ([$this->staff1, $this->staff2, $this->superAdmin] as $actor) {
+            $this->actingAs($actor)->patchJson("/api/admin/service-requests/{$sr->id}/cancel")->assertStatus(409);
+            $this->assertSame('Scheduled', $sr->fresh()->status);
+        }
     }
 
     /** Documented override: Super Admin may act on anyone's request via the API. */
@@ -237,10 +237,10 @@ class ServiceRequestOwnershipTest extends TestCase
     /** The API returns an ISO instant the browser converts once — no double shift. */
     public function test_api_returns_the_utc_instant_not_a_pre_shifted_value(): void
     {
-        $sr = $this->request('Odor Control Request');
-        $this->actingAs($this->staff1)->patchJson("/api/admin/service-requests/{$sr->id}/accept", ['scheduled_at' => '2027-04-10 09:00:00'])->assertOk();
+        $sr = $this->request('Vaccine Request');
+        $this->actingAs($this->vet1)->patchJson("/api/vet/vaccination-requests/{$sr->id}/accept", ['scheduled_at' => '2027-04-10 09:00:00'])->assertOk();
 
-        $row = collect($this->actingAs($this->staff1)->getJson('/api/admin/service-requests')->json('data'))->firstWhere('id', $sr->id);
+        $row = collect($this->actingAs($this->vet1)->getJson('/api/vet/vaccination-requests')->json('data.scheduled'))->firstWhere('id', $sr->id);
         // Serialised in UTC with a Z; the frontend's formatDateTime pins Asia/Manila and yields 9:00 AM.
         $this->assertStringStartsWith('2027-04-10T01:00:00', $row['scheduled_at']);
     }

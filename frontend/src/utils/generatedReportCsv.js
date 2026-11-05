@@ -20,6 +20,17 @@ export function generatedReportCsv(report) {
   const compP = s.compliance_period
 
   const summaryRows = [
+    ...(s.farm_overview?.monitoring_assessment_policy ? kv('Monitoring coverage at generation', {
+      'Fully assessed Safe': s.farm_overview.normal, 'Warning': s.farm_overview.warning, 'Critical': s.farm_overview.critical,
+      'Incomplete Data': s.farm_overview.incomplete_data, 'No Readings Yet': s.farm_overview.no_readings_yet,
+      'Offline': s.farm_overview.offline, 'Pending Setup': s.farm_overview.pending_setup,
+      'Incomplete primary coverage (overlaps severity)': s.farm_overview.incomplete_coverage,
+    }) : []),
+    ...(s.reading_data_completeness ? kv('Historical primary data completeness', {
+      'Complete readings': s.reading_data_completeness.complete_readings,
+      'Incomplete readings': s.reading_data_completeness.incomplete_readings,
+      'Both primary measurements unavailable': s.reading_data_completeness.no_primary_readings,
+    }) : []),
     ...(s.reporting_version >= 2 && s.vet_summary ? kv('Veterinary services', {
       'Total completed': s.vet_summary.total_completed,
       'Farms covered': s.vet_summary.farms_covered,
@@ -58,7 +69,7 @@ export function generatedReportCsv(report) {
     }) : []),
     ...(compP ? kv('Compliance', {
       'Compliant farms': compP.compliant,
-      'Overdue farms': compP.overdue,
+      ...(compP.policy ? { 'Undetermined farms': compP.undetermined } : { 'Overdue farms': compP.overdue }),
       'Non-compliant farms': compP.non_compliant,
       'Active farms assessed': compP.total_farms,
     }) : []),
@@ -68,7 +79,7 @@ export function generatedReportCsv(report) {
     ...summaryRows,
     ...(s.completed_inspections ?? []).map(i => ({ section: 'Inspection', name: i.farm_name, detail: i.inspection_type, date: i.completed_at, status: i.status || 'Completed' })),
     ...(s.alert_records ?? []).map(a => ({ section: 'Alert', name: a.farm_name, detail: a.sensor_type, date: a.triggered_at, status: a.status })),
-    ...(s.maintenance_overdue ?? []).map(f => ({ section: 'Overdue/Non-Compliant', name: f.farm_name, detail: `${f.days_overdue} days overdue`, date: f.last_performed_at, status: f.status })),
+    ...(s.maintenance_overdue ?? []).map(f => ({ section: 'Non-Compliant', name: f.farm_name, detail: `Due ${f.due_date || 'date unavailable'}; ${f.days_overdue} days overdue`, date: f.last_performed_at, status: f.status })),
     ...(s.maintenance_completed ?? []).map(m => ({ section: 'Clean-out', name: m.farm_name, detail: m.method, date: m.performed_at, status: 'Completed' })),
     ...(s.completed_services ?? []).map(r => ({ section: 'Service Request', name: r.farm_name, detail: r.service_type, date: r.completed_at, status: 'Completed' })),
     ...(s.vet_services ?? []).map(v => ({ section: 'Vet Service', name: v.farm_name, detail: `${v.service_type} (${v.vet_name})`, date: v.completed_at, status: 'Completed' })),

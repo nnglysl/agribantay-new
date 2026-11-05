@@ -1,3 +1,4 @@
+import { GREEN } from '../theme/green'
 import { useMemo, useState } from 'react'
 import { DISPLAY_TIME_ZONE } from '../utils/formatDate'
 import { Line } from 'react-chartjs-2'
@@ -43,7 +44,7 @@ const RANGES = [
 // Distinct enough to tell apart, and none of them reuse the red/amber that
 // mean Critical/Warning elsewhere — a line's colour here identifies a house,
 // not a severity.
-const SERIES_COLORS = ['#2c8047', '#2563eb', '#7c3aed', '#0891b2', '#b45309', '#be185d']
+const SERIES_COLORS = [GREEN.primary, '#2563eb', '#7c3aed', '#0891b2', '#b45309', '#be185d']
 
 function formatClock(iso) {
   const d = new Date(iso)
@@ -88,7 +89,7 @@ function describe(series, active) {
   return { now: fmt(now), min: fmt(min), max: fmt(max), direction }
 }
 
-export default function ReadingTrendChart({ data, loading, hours, onHoursChange }) {
+export default function ReadingTrendChart({ data, loading, hours, onHoursChange, showSummary = true, historical = false }) {
   // Ammonia, not temperature: it is the metric the system actually alerts on
   // and the one a vet assesses a flock against. Opening on temperature meant
   // the first thing shown was an advisory reading that raises no alert, which
@@ -119,16 +120,17 @@ export default function ReadingTrendChart({ data, loading, hours, onHoursChange 
         borderColor: color,
         backgroundColor: color,
         borderWidth: 2,
-        pointRadius: 0,
+        pointRadius: historical ? 2 : 0,
         pointHoverRadius: 4,
-        tension: 0.3,
-        spanGaps: true,
+        tension: historical ? 0 : 0.3,
+        spanGaps: !historical,
       }
     }),
-  }), [labels, devices, metric])
+  }), [labels, devices, metric, historical])
 
   const options = useMemo(() => ({
     responsive: true,
+    animation: historical ? false : undefined,
     maintainAspectRatio: false,
     interaction: { mode: 'index', intersect: false },
     plugins: {
@@ -153,9 +155,9 @@ export default function ReadingTrendChart({ data, loading, hours, onHoursChange 
         grid: { color: '#f0f1ec' },
       },
     },
-  }), [devices.length, active.unit])
+  }), [devices.length, active.unit, historical])
 
-  const hasPoints = devices.some(d => d.points.length > 0)
+  const hasPoints = devices.some(d => historical ? d.points.some(point => typeof point[metric] === 'number' && Number.isFinite(point[metric])) : d.points.length > 0)
 
   // Every house's readings for the selected metric, oldest first. Houses
   // report independently, so this is sorted rather than concatenated.
@@ -197,7 +199,7 @@ export default function ReadingTrendChart({ data, loading, hours, onHoursChange 
 
       {/* The chart in words, before the chart. Someone who never reads the
           axes still leaves knowing whether this farm is improving. */}
-      {!loading && summary && (
+      {showSummary && !loading && summary && (
         <p style={styles.summary}>
           {active.label} is <strong style={styles.summaryStrong}>{summary.now}</strong> now.
           {' '}Over the last {rangeLabel} it ranged from {summary.min} to {summary.max},
@@ -213,7 +215,7 @@ export default function ReadingTrendChart({ data, loading, hours, onHoursChange 
         </div>
       ) : (
         <div style={styles.canvasWrap}>
-          <Line data={chartData} options={options} />
+          <Line data={chartData} options={options} role="img" aria-label={historical ? 'Historical environmental readings' : 'Sensor readings over time'} />
         </div>
       )}
     </div>

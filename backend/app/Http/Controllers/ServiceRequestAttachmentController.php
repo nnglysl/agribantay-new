@@ -67,8 +67,9 @@ class ServiceRequestAttachmentController extends Controller
             'super_admin' => true,
             'vet'         => ServiceTypes::isVet($sr->service_type),
             'admin'       => ! ServiceTypes::isVet($sr->service_type),
-            'farm_owner'  => (int) $sr->requested_by === (int) $user->id
-                             || ($sr->farm && (int) $sr->farm->user_id === (int) $user->id),
+            'farm_owner'  => ServiceTypes::isVet($sr->service_type)
+                             && ((int) $sr->requested_by === (int) $user->id
+                             || ($sr->farm && (int) $sr->farm->user_id === (int) $user->id)),
             default       => false,
         };
     }

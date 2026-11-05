@@ -1,4 +1,6 @@
+import { GREEN } from '../theme/green'
 import { AMMONIA_UNIT } from '../utils/ammonia'
+import { assessPrimaryReading, isPrimaryValue } from '../utils/primaryMonitoring'
 
 /**
  * How a sensor reading is described to a FARM OWNER.
@@ -118,7 +120,9 @@ export const SENSOR_CONDITIONS = {
 }
 
 export const STATUS_TONE = {
-  Safe: { fg: '#1f7a3d', bg: '#e7f2ea', dot: '#2c8047' },
+  'Incomplete Data': { fg: '#775511', bg: '#fff5df', dot: '#aa8228' },
+  'No Readings Yet': { fg: '#6b7280', bg: '#f1f2ed', dot: '#9ca3af' },
+  Safe: { fg: GREEN.primary, bg: '#e7f2ea', dot: GREEN.primary },
   Warning: { fg: '#b45309', bg: '#fdf4e7', dot: '#d97706' },
   Critical: { fg: '#b91c1c', bg: '#fbeaea', dot: '#dc2626' },
   Offline: { fg: '#6b7280', bg: '#f1f2ed', dot: '#9ca3af' },
@@ -135,26 +139,19 @@ const SEVERITY = { Safe: 0, Warning: 1, Critical: 2 }
  *
  * Everything NOT in this list is advisory — measured, shown and fed to the
  * recommendations, but never badged and never counted towards a house's
- * overall status. Temperature, humidity and manure moisture are the
- * conditions that drive ammonia rather than hazards in their own right, and
- * their published bands come from temperate-climate studies that do not hold
- * in a San Jose layer house.
+ * overall status. Ammonia and manure moisture are primary; temperature and
+ * humidity provide supporting context. Completeness requires both primaries.
  */
-export const DEFAULT_ALERTING_METRICS = ['ammonia']
+export const DEFAULT_ALERTING_METRICS = ['ammonia', 'moisture']
 
 export function isAdvisory(metric, alerting = DEFAULT_ALERTING_METRICS) {
   return !alerting.includes(metric)
 }
 
 /** Worst of a house's ALERTING metrics — the same rule used across the system. */
-export function overallStatus(device, alerting = DEFAULT_ALERTING_METRICS) {
+export function overallStatus(device) {
   if (!device?.has_reading) return null
-
-  return METRICS.filter(m => alerting.includes(m)).reduce((acc, metric) => {
-    const status = device[`${metric}_status`]
-    if (!status || !(status in SEVERITY)) return acc
-    return SEVERITY[status] > SEVERITY[acc] ? status : acc
-  }, 'Safe')
+  return assessPrimaryReading(device).condition
 }
 
 /** Every ALERTING metric on this house that is not Safe, worst first. */
@@ -163,7 +160,7 @@ export function breachesOf(device, alerting = DEFAULT_ALERTING_METRICS) {
     .filter(metric => alerting.includes(metric))
     .filter(metric => {
       const status = device[`${metric}_status`]
-      return device[metric] !== null && (status === 'Warning' || status === 'Critical')
+      return isPrimaryValue(device[metric]) && (status === 'Warning' || status === 'Critical')
     })
     .map(metric => ({
       metric,

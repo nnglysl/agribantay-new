@@ -1,3 +1,4 @@
+import { GREEN } from '../theme/green'
 import { validatePassword } from '../utils/passwordValidation'
 
 export default function PasswordStrengthIndicator({ password }) {
@@ -6,7 +7,7 @@ export default function PasswordStrengthIndicator({ password }) {
   const strengthColor = {
     Weak: '#dc2626',
     Medium: '#f59e0b',
-    Strong: '#2E7D32',
+    Strong: GREEN.primary,
   }[strength]
 
   const strengthWidth = {
@@ -37,7 +38,7 @@ export default function PasswordStrengthIndicator({ password }) {
       <ul style={styles.list}>
         {requirements.map(req => (
           <li key={req.key} style={styles.item}>
-            <span style={{ color: checks[req.key] ? '#2E7D32' : '#9ca3af' }}>
+            <span style={{ color: checks[req.key] ? GREEN.primary : '#9ca3af' }}>
               {checks[req.key] ? '✓' : '○'}
             </span>
             <span style={{ color: checks[req.key] ? '#374151' : '#9ca3af' }}>{req.label}</span>

@@ -4,6 +4,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { serviceTypeBadgeStyle } from '../utils/serviceBadgeStyle'
+import { GREEN } from '../theme/green'
 
 delete L.Icon.Default.prototype._getIconUrl
 L.Icon.Default.mergeOptions({
@@ -162,6 +163,7 @@ export default function FarmMap({
         tooltip = isNeedsAttention
           ? `<strong>${farm.farm_name}</strong><br/>Owner: ${farm.owner_name || '—'}<br/>Location: ${farm.barangay || '—'}<br/>Status: ${farm.current_status || 'Unknown'}`
           : `${farm.farm_name} — ${farm.current_status || 'Unknown'}`
+        if (farm.monitoring_assessment?.incomplete_data) tooltip += ' — Incomplete Data'
       } else if (mode === 'inspection') {
         inspection = inspections.find(i => findFarm(i, farms)?.id === farm.id)
         color = inspection ? inspectionTypeColor(inspection.inspection_type) : '#d4d8cf'
@@ -348,6 +350,7 @@ export default function FarmMap({
                   >
                     <div style={styles.naItemText}>
                       <div style={styles.naItemTitle}>{f.farm_name}</div>
+                      {f.monitoring_assessment?.incomplete_data && <div style={styles.naItemSub}>Incomplete Data</div>}
                       {criticalSensors.length > 0 ? criticalSensors.map(sensor => (
                         <div key={sensor.type} style={styles.naItemSub}>{criticalSensorLabel(sensor)}</div>
                       )) : (
@@ -366,7 +369,7 @@ export default function FarmMap({
           <div style={styles.sideTabs}>
             <button onClick={() => setMode('alerts')} style={{ ...styles.sideTab, ...(mode === 'alerts' ? styles.sideTabActive : {}) }}>Alerts</button>
             <button onClick={() => setMode('inspection')} style={{ ...styles.sideTab, ...(mode === 'inspection' ? styles.sideTabActive : {}) }}>Inspections</button>
-            <button onClick={() => setMode('requests')} style={{ ...styles.sideTab, ...(mode === 'requests' ? styles.sideTabActive : {}) }}>Service Requests</button>
+            {onSeeAllServiceRequests && <button onClick={() => setMode('requests')} style={{ ...styles.sideTab, ...(mode === 'requests' ? styles.sideTabActive : {}) }}>Service Requests</button>}
           </div>
         </div>
 
@@ -437,6 +440,7 @@ export default function FarmMap({
                     <span style={styles.itemName}>{f.farm_name}</span>
                     <span style={{ ...styles.itemStatus, color }}>{f.critical_count} Critical</span>
                   </div>
+                  {f.monitoring_assessment?.incomplete_data && <div style={styles.naItemSub}>Incomplete Data</div>}
                   <div style={styles.sensorTableRow}>
                     {sensors.map(s => (
                       <div key={s.type} style={styles.sensorCell}>
@@ -530,7 +534,7 @@ const styles = {
   subTabsWrap: { padding: '0 12px 12px', borderBottom: '1px solid #eceee7' },
   sideTabs: { display: 'flex', gap: '3px', background: '#f3f4ef', borderRadius: '10px', padding: '3px' },
   sideTab: { flex: 1, border: 'none', background: 'transparent', color: '#6b7770', padding: '8px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' },
-  sideTabActive: { background: '#2c8047', color: '#fff' },
+  sideTabActive: { background: GREEN.primary, color: '#fff' },
 
   sideHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', padding: '14px 16px 10px' },
   sideHeadLeft: { minWidth: 0 },

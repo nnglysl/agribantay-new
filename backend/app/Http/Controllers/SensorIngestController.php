@@ -5,26 +5,35 @@ namespace App\Http\Controllers;
 use App\Models\Sensor;
 use App\Models\SensorReading;
 use App\Services\AlertHistoryService;
+use App\Services\CurrentMonitoringService;
+use App\Services\DeviceAssignmentService;
 use App\Services\FarmStatusService;
 use App\Services\MoistureThresholdService;
 use App\Services\SensorCalibrationService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class SensorIngestController extends Controller
 {
     public function store(Request $request)
     {
+        // Persist the five-field raw-sensor contract. Unconsumed diagnostic
+        // extras must not introduce dependencies on optional database columns.
         $request->validate([
             'device_key' => 'required|string',
             'ammonia_raw' => 'required|numeric',
-            // Optional diagnostic from a separate ADC conversion; legacy firmware omits it.
-            'ammonia_adc_mv' => 'nullable|integer|between:0,65535',
             'temperature' => 'required|numeric',
             'humidity' => 'required|numeric',
             'soil_raw' => 'required|numeric',
         ]);
 
-        $sensor = Sensor::where('device_key', $request->device_key)->first();
+        return DB::transaction(fn () => $this->ingestLocked($request), 3);
+    }
+
+    /** Called only within the transaction that holds the device row lock. */
+    private function ingestLocked(Request $request)
+    {
+        $sensor = Sensor::where('device_key', $request->device_key)->lockForUpdate()->first();
 
         if (! $sensor) {
             return response()->json(['success' => false, 'message' => 'Unknown device.'], 401);
@@ -43,6 +52,7 @@ class SensorIngestController extends Controller
         if (! $farm) {
             return response()->json(['success' => false, 'message' => 'Device is not assigned to a farm.'], 409);
         }
+        $provenance = app(DeviceAssignmentService::class)->provenance($sensor);
 
         $calibration = app(SensorCalibrationService::class);
 
@@ -82,6 +92,9 @@ class SensorIngestController extends Controller
         // exactly how the alert-history call below already treats it (the
         // running moisture incident, if any, is left open until real data
         // returns). The stored moisture value itself stays null.
+        // This compatibility ENUM is not evidence of a measured condition:
+        // MonitoringAssessmentService excludes its status whenever the value
+        // is missing, including from Safe/recovery assessments.
         $soilRaw = (int) $request->soil_raw;
         $soilFaulty = $soilRaw <= 0;
 
@@ -120,7 +133,7 @@ class SensorIngestController extends Controller
         $moisture = $soilFaulty ? null : round($moistureRaw, 2);
 
         if ($soilFaulty) {
-            $previous = SensorReading::where('farm_id', $farm->id)->latest()->value('moisture_status');
+            $previous = app(CurrentMonitoringService::class)->latest($sensor, $farm->id)?->moisture_status;
             $moistureStatus = $previous ?: 'Safe';
         } else {
             $moistureStatus = app(MoistureThresholdService::class)->classify($moistureRaw);
@@ -129,7 +142,7 @@ class SensorIngestController extends Controller
         // farm_id is copied from the device's CURRENT assignment at this
         // moment and never rewritten — when the device is later moved to
         // another farm, this reading stays with the farm it was collected at.
-        $reading = SensorReading::create([
+        $reading = new SensorReading([
             'farm_id' => $farm->id,
             'sensor_id' => $sensor->id,
             'ammonia' => $ammonia,
@@ -147,12 +160,6 @@ class SensorIngestController extends Controller
             // is calibrated, so without the raw count every past reading is
             // locked to whichever formula happened to be deployed that day.
             'ammonia_raw' => (int) $request->ammonia_raw,
-            // Preserve reported millivolts, including zero. Never infer historical
-            // voltage from raw counts or use this new field to change ppm yet.
-            'ammonia_adc_mv' => $request->input('ammonia_adc_mv') === null
-                ? null
-                : (int) $request->input('ammonia_adc_mv'),
-
             // Same reasoning, and moisture needs it more. The old placeholder
             // scale inverted cleanly, but neither the two-point nor the
             // polynomial conversion can be undone without the per-device
@@ -163,6 +170,7 @@ class SensorIngestController extends Controller
             // simply predates the column.
             'soil_raw' => $soilRaw,
         ]);
+        $reading->forceFill($provenance)->save();
 
         // Only an accepted reading counts as communication — rejected
         // requests above never reach this line. Drives Online / Offline.
@@ -194,7 +202,7 @@ class SensorIngestController extends Controller
             }
 
             if (in_array($metric, $alerting, true)) {
-                $alertHistory->recordReading($farm->id, $metric, $pair[0], $pair[1], null, $sensor->id);
+                $alertHistory->recordReading($farm->id, $metric, $pair[0], $pair[1], null, $sensor->id, $provenance);
 
                 continue;
             }

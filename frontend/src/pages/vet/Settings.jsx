@@ -1,3 +1,4 @@
+import { GREEN } from '../../theme/green'
 import { useEffect, useState, useRef } from 'react'
 import api from '../../api/axios'
 import VetLayout from '../../components/VetLayout'
@@ -505,7 +506,7 @@ const styles = {
   sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
   sectionTitle: { fontSize: '13px', fontWeight: '700', color: '#374151', margin: 0, marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.03em' },
   editBtn: {
-    backgroundColor: 'white', color: '#2E7D32', border: '1px solid #2E7D32',
+    backgroundColor: 'white', color: GREEN.primary, border: '1px solid var(--agb-green)',
     borderRadius: '8px', padding: '6px 14px', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
     display: 'inline-flex', alignItems: 'center', gap: '6px',
   },
@@ -517,20 +518,20 @@ const styles = {
   photoCircleWrap: { position: 'relative', flexShrink: 0 },
   photoCircleImg: { width: '84px', height: '84px', borderRadius: '50%', objectFit: 'cover', display: 'block' },
   photoCirclePlaceholder: {
-    width: '84px', height: '84px', borderRadius: '50%', backgroundColor: '#2E7D32',
+    width: '84px', height: '84px', borderRadius: '50%', backgroundColor: GREEN.primary,
     color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontSize: '26px', fontWeight: '700',
   },
   photoCameraBadge: {
     position: 'absolute', bottom: 0, right: 0, width: '26px', height: '26px', borderRadius: '50%',
-    backgroundColor: '#2E7D32', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: GREEN.primary, display: 'flex', alignItems: 'center', justifyContent: 'center',
     cursor: 'pointer', border: '2px solid white',
   },
   photoName: { fontSize: '17px', fontWeight: '700', color: '#111827' },
   photoRole: { fontSize: '13.5px', color: '#6b7280', marginTop: '3px' },
   photoMeta: { fontSize: '13px', color: '#374151', marginTop: '6px' },
   changePhotoBtn: {
-    backgroundColor: 'white', color: '#2E7D32', border: '1px solid #2E7D32',
+    backgroundColor: 'white', color: GREEN.primary, border: '1px solid var(--agb-green)',
     borderRadius: '8px', padding: '9px 16px', fontSize: '13.5px', fontWeight: '600', cursor: 'pointer',
     display: 'inline-flex', alignItems: 'center', gap: '7px', width: 'fit-content',
   },
@@ -552,7 +553,7 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
   saveBtn: {
-    backgroundColor: '#2E7D32', color: 'white', border: 'none', borderRadius: '8px',
+    backgroundColor: GREEN.primary, color: 'white', border: 'none', borderRadius: '8px',
     padding: '10px 20px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', marginTop: '4px',
   },
   cancelBtn: {
@@ -565,7 +566,7 @@ const styles = {
     padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '14px',
   },
   successBox: {
-    backgroundColor: '#f0fdf4', border: '1px solid #86efac', color: '#166534',
+    backgroundColor: '#f0fdf4', border: '1px solid #86efac', color: GREEN.primary,
     padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '14px',
   },
   mismatchText: { fontSize: '12px', color: '#dc2626', marginTop: '2px' },
@@ -584,7 +585,7 @@ const modalStyles = {
   previewWrap: { display: 'flex', justifyContent: 'center', marginBottom: '16px' },
   previewImg: { width: '110px', height: '110px', borderRadius: '50%', objectFit: 'cover' },
   previewPlaceholder: {
-    width: '110px', height: '110px', borderRadius: '50%', backgroundColor: '#2E7D32',
+    width: '110px', height: '110px', borderRadius: '50%', backgroundColor: GREEN.primary,
     color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontSize: '32px', fontWeight: '700',
   },

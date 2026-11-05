@@ -14,7 +14,7 @@
 }
 
 .agb-table-scroll::-webkit-scrollbar { display: none; }
-.agb-table-scroll:focus-visible { outline: 2px solid #2c8047; outline-offset: -2px; }
+.agb-table-scroll:focus-visible { outline: 2px solid var(--agb-green); outline-offset: -2px; }
 
 .agb-table-scroll-control {
   display: flex;

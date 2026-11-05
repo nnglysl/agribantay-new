@@ -10,20 +10,11 @@ use App\Services\ReadingHistoryService;
 use App\Support\LocalTime;
 use App\Support\ServiceTypes;
 
-/**
- * Read-only farm directory for the Vet role. Deliberately scoped to
- * farm/owner/location info only — no sensor readings, no current_status,
- * no maintenance/compliance data, and no edit/deactivate actions. This
- * exists so a vet can look up a farm's location/contact before or during
- * a scheduled visit, without exposing environmental monitoring data that
- * isn't relevant to their role. Compare to Admin\FarmController::index(),
- * which returns the full farm record with sensor/status data — this is
- * intentionally a much narrower subset of the same underlying data.
- */
 class FarmController extends Controller
 {
     public function index(Request $request)
     {
+        \App\Support\TableQuery::validate($request);
         $query = Farm::with('user')->where('status', 'Active');
 
         if ($request->barangay) {
@@ -51,7 +42,7 @@ class FarmController extends Controller
         if ($request->filled('per_page')) {
             $perPage = (int) $request->per_page;
             $perPage = in_array($perPage, [10, 25, 50, 100], true) ? $perPage : 10;
-            $paginator = $query->paginate($perPage, ['*'], 'page', max(1, (int) $request->input('page', 1)));
+            $paginator = \App\Support\TableQuery::paginate($query, $request);
             $rows = $paginator->getCollection();
         } else {
             $rows = $query->get();
@@ -77,6 +68,7 @@ class FarmController extends Controller
             return response()->json([
                 'success' => true,
                 'data'    => [
+                    'query_key' => $request->input('query_key'),
                     'items'     => $farms->values(),
                     'total'     => $paginator->total(),
                     'page'      => $paginator->currentPage(),
@@ -169,13 +161,16 @@ class FarmController extends Controller
                 // first name ends, so splitting it in the UI gets it wrong.
                 'owner_first_name'        => $farm->user?->first_name,
                 'owner_last_name'         => $farm->user?->last_name,
-                'mobile_number'           => $farm->mobile_number,
+                'owner_address'           => $farm->user?->address,
+                'mobile_number'           => $farm->user?->mobile_number ?: $farm->mobile_number,
                 'email'                   => $farm->user?->email,
                 'barangay'                => $farm->barangay,
                 'address'                 => $farm->address,
                 'farm_size'               => $farm->farm_size,
                 'status'                  => $farm->status,
                 'created_at'              => $farm->created_at,
+                'latitude'                => $farm->latitude,
+                'longitude'               => $farm->longitude,
                 'owner_profile_photo_url' => $farm->user?->profile_photo_path
                     ? asset('storage/' . $farm->user->profile_photo_path)
                     : null,
@@ -191,13 +186,12 @@ class FarmController extends Controller
     {
         Farm::findOrFail($id);
 
-        $perPage = min((int) $request->input('per_page', 10), 50);
-
-        $requests = ServiceRequest::where('farm_id', $id)
+        $query = ServiceRequest::where('farm_id', $id)
             ->whereIn('service_type', ServiceTypes::VET)
             ->with(['acceptedBy', 'attachments.uploader'])
-            ->orderByDesc('created_at')
-            ->paginate($perPage);
+            ;
+        \App\Support\TableFilters::history($query, $request, 'service');
+        $requests = \App\Support\TableQuery::paginate($query, $request);
 
         return response()->json([
             'success' => true,
@@ -217,6 +211,7 @@ class FarmController extends Controller
                     'completed_at'     => LocalTime::date($r->completed_at),
                     'completed_at_raw' => $r->completed_at,
                 ]),
+                'query_key' => $request->input('query_key'),
                 'current_page' => $requests->currentPage(),
                 'last_page'    => $requests->lastPage(),
                 'total'        => $requests->total(),

@@ -21,7 +21,7 @@ class DisposalController extends Controller
         }
 
         $records = ManureDisposalRecord::where('farm_id', $farm->id)
-            ->latest('disposal_date')
+            ->latest('disposal_date')->orderByDesc('id')
             ->limit(10)
             ->get()
             ->map(fn($r) => [

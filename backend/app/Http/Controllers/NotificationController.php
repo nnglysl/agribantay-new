@@ -24,12 +24,12 @@ class NotificationController extends Controller
         // Capped so a crafted request cannot ask for the whole table.
         $limit = min(max((int) $request->input('limit', 10), 1), 100);
 
-        $base = Notification::where('user_id', Auth::id());
+        $base = Notification::visibleTo(Auth::user());
 
         $total = (clone $base)->count();
 
         $notifications = (clone $base)
-            ->latest()
+            ->latest()->orderByDesc('id')
             ->limit($limit)
             ->get();
 
@@ -46,7 +46,7 @@ class NotificationController extends Controller
 
     public function markRead(int $id)
     {
-        $notification = Notification::where('user_id', Auth::id())->findOrFail($id);
+        $notification = Notification::visibleTo(Auth::user())->findOrFail($id);
         $notification->update(['is_read' => true]);
 
         return response()->json(['success' => true]);
@@ -54,7 +54,7 @@ class NotificationController extends Controller
 
     public function markAllRead()
     {
-        Notification::where('user_id', Auth::id())
+        Notification::visibleTo(Auth::user())
             ->where('is_read', false)
             ->update(['is_read' => true]);
 

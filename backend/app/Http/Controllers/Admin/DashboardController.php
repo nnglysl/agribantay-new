@@ -19,8 +19,10 @@ class DashboardController extends Controller
         $activeFarms       = Farm::where('status', 'Active')->count();
         $totalOwners       = User::where('role', 'farm_owner')->count();
         $totalVets         = User::where('role', 'vet')->count();
-        $activeRequests    = ServiceRequest::whereIn('status', ['Pending', 'Scheduled'])->count();
-        $resolvedRequests  = ServiceRequest::where('status', 'Completed')->count();
+        $activeRequests    = request()->user()?->role === 'super_admin'
+            ? ServiceRequest::operational()->whereIn('status', ['Pending', 'Scheduled'])->count() : 0;
+        $resolvedRequests  = request()->user()?->role === 'super_admin'
+            ? ServiceRequest::operational()->where('status', 'Completed')->count() : 0;
 
         $upcomingInspections = Inspection::with('farm')
             ->where('status', 'Scheduled')
@@ -36,42 +38,35 @@ class DashboardController extends Controller
                 'status'          => $i->status,
             ]);
 
-        $flyOdorTypes = ['Fly Control Request', 'Odor Control Request'];
-
-        $flyOdorSummary = [
-            'total'     => ServiceRequest::whereIn('service_type', $flyOdorTypes)->count(),
-            'pending'   => ServiceRequest::whereIn('service_type', $flyOdorTypes)
-                                ->whereIn('status', ['Pending', 'Scheduled'])->count(),
-            'resolved'  => ServiceRequest::whereIn('service_type', $flyOdorTypes)
-                                ->where('status', 'Completed')->count(),
-            'fly_count'  => ServiceRequest::where('service_type', 'Fly Control Request')->count(),
-            'odor_count' => ServiceRequest::where('service_type', 'Odor Control Request')->count(),
-        ];
-
         // Current alerts require a reporting device and a recent reading from
         // its current farm. Historical statuses and incidents stay unchanged.
         $statusService = app(FarmStatusService::class);
-        $alertingMetrics = config('sensors.alerting_metrics', ['ammonia']);
+        $alertingMetrics = \App\Services\MonitoringAssessmentService::PRIMARY;
         $rank = ['Safe' => 0, 'Warning' => 1, 'Critical' => 2];
         $freshAfter = now()->subMinutes(config('sensors.offline_after_minutes', 3));
         $reportingDevices = fn ($query) => $query
             ->where('status', 'Active')
             ->where('last_seen_at', '>', $freshAfter);
+        $includeMonitoringCount = request()->user()?->role === 'super_admin';
+        $monitoredFarms = 0;
 
         $criticalFarms = Farm::whereHas('sensors', $reportingDevices)
             ->with(['sensors' => $reportingDevices])
             ->get()
-            ->map(function ($farm) use ($statusService, $alertingMetrics, $rank, $freshAfter) {
-                // Check the device's latest row before checking its farm, so a
-                // reassigned device cannot revive a reading from an earlier stay.
-                $r = $farm->sensors
-                    ->map(fn (Sensor $sensor) => SensorReading::where('sensor_id', $sensor->id)
-                        ->orderByDesc('created_at')
-                        ->orderByDesc('id')
-                        ->first())
-                    ->filter(fn ($reading) => $reading
-                        && (int) $reading->farm_id === (int) $farm->id
-                        && $reading->created_at->gt($freshAfter))
+            ->map(function ($farm) use ($statusService, $alertingMetrics, $rank, $includeMonitoringCount, &$monitoredFarms) {
+                // A fresh row must belong to this farm AND this device visit.
+                $readings = app(\App\Services\CurrentMonitoringService::class)->latestPerDevice($farm, true);
+                // Reuse the current, assignment-scoped rows already needed for
+                // alerts. Count each farm once when any device has valid primary
+                // data, using the existing assessment policy (including partial
+                // primary coverage). Coordinates and historical farm status do
+                // not determine whether the farm is currently reporting.
+                if ($includeMonitoringCount && $readings->contains(fn (SensorReading $reading) =>
+                    app(\App\Services\MonitoringAssessmentService::class)->reading($reading)['severity'] !== null
+                )) {
+                    $monitoredFarms++;
+                }
+                $r = $readings
                     ->filter(fn (SensorReading $reading) => collect($alertingMetrics)->contains(
                         fn ($metric) => $reading->{$metric} !== null
                             && $reading->{$metric.'_status'} === 'Critical'
@@ -114,6 +109,7 @@ class DashboardController extends Controller
                 return [
                     'farm_id'          => $farm->id,
                     'farm_name'        => $farm->farm_name,
+                    'monitoring_assessment' => app(\App\Services\MonitoringAssessmentService::class)->farm($farm),
                     'all_sensors'      => $allSensors,
                     'critical_count'   => $criticalCount,
                     'ammonia'          => $r->ammonia,
@@ -129,13 +125,16 @@ class DashboardController extends Controller
             'success' => true,
             'data'    => [
                 'total_farms'         => $totalFarms,
+                ...($includeMonitoringCount ? ['monitored_farms' => $monitoredFarms] : []),
+                'cleanout_compliance' => app(\App\Services\MaintenanceStatusService::class)->summary(
+                    Farm::where('status', 'Active')->with('qualifyingCleanouts')->get()
+                ),
                 'active_farms'        => $activeFarms,
                 'total_owners'        => $totalOwners,
                 'total_vets'          => $totalVets,
                 'active_requests'     => $activeRequests,
                 'resolved_requests'   => $resolvedRequests,
                 'critical_alerts'     => $criticalAlerts,
-                'fly_odor_summary'    => $flyOdorSummary,
                 'upcoming_inspections'=> $upcomingInspections,
                 'critical_farms'      => $criticalFarms,
             ],

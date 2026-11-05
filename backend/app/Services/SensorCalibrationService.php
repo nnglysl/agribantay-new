@@ -3,12 +3,14 @@
 namespace App\Services;
 
 /**
- * Converts raw ADC counts using configured models.
+ * Turns raw ADC counts into real units, when the field measurements needed
+ * to do that honestly are available.
  *
- * Missing configuration returns null so callers can use their legacy fallback.
- * A non-null result is NOT evidence of physical accuracy. In particular, the
- * current ammonia coefficients and voltage mapping remain unvalidated; see
- * config/sensors.php. Presence/status flags are not validation certificates.
+ * Every method here returns null when its calibration is missing, and the
+ * caller falls back to the documented placeholder. That is deliberate: a
+ * half-calibrated conversion produces numbers that look like ppm or like a
+ * moisture percentage, get read as those things, and are wrong. Returning
+ * null keeps "we do not know yet" visible all the way to the screen.
  *
  * Calibration values live in config/sensors.php (from .env), so calibrating
  * a replacement sensor is a config change, not a deploy.
@@ -163,23 +165,25 @@ class SensorCalibrationService
     }
 
     /**
-     * Legacy ammonia estimate from an MQ-137 raw ADC count.
+     * Ammonia in ppm from an MQ-137 raw ADC count.
      *
-     * For a fixed measuring circuit, RL cancels out of the resistance ratio.
-     * This does not validate the slope, reference gas value or voltage mapping.
+     * The load resistor cancels out of the Rs/Ro ratio, so only a clean-air
+     * baseline is needed — not RL, which varies between modules and is
+     * rarely printed on them.
      *
      *   V     = raw * adc_vref / adc_max       raw counts back to volts
      *   Rs    ∝ (supply_volts - V) / V         for any fixed RL
      *   Ro    = Rs(clean air) / clean_air_ratio
      *   ppm   = 10 ^ ((log10(Rs/Ro) - intercept) / slope)
      *
-     * The current raw-to-voltage mapping is an unverified linear approximation.
-     * ADC_11db does not imply raw * 3.3 / 4095 is calibrated voltage. The reported
-     * single 10k series resistor also provides no fixed voltage-divider ratio.
+     * The raw count must become volts first. The MQ-137 module is supplied
+     * from the ESP32's VIN (5 V, as the datasheet's Vc = 5 V ± 0.1 requires)
+     * while the ADC on ADC_11db only spans ~3.3 V, so raw = adc_max means
+     * 3.3 V, NOT the 5 V supply. The older form (adc_max - raw) / raw
+     * silently assumed those were the same and computed Rs against 3.3 V.
      *
      * See config/sensors.php for the provenance of every constant used
-     * here. Current outputs are not validated ppm measurements; arithmetic is
-     * retained for compatibility until hardware and a replacement model are checked.
+     * here — clean_air_ratio in particular is assumed, not sourced.
      */
     public function ammoniaPpm(int $raw, ?string $deviceName = null): ?float
     {
@@ -231,10 +235,15 @@ class SensorCalibrationService
      *
      * This is the same power law as the fallback above, divided by itself at
      * the reference point. Doing so cancels Ro — and with it BOTH unsourced
-     * constants, clean_air_ratio and intercept. It does NOT establish slope.
-     * The old -0.311 derivation misread the supplied Hanwei specification:
-     * alpha(20/10) <= 0.65 is a bound, not an exact power-law coefficient.
-     * Passing through one anchor is an algebraic property, not an accuracy test.
+     * constants, clean_air_ratio and intercept. The only constant left is the
+     * slope, which the datasheet states ("NH3 Concentration Slope rate 0.65",
+     * read as Rs(200ppm)/Rs(50ppm), so log10(0.65)/log10(4) = -0.311).
+     *
+     * It is also what every published MQ-137 calibration actually does: fit
+     * the curve against a reference instrument rather than inherit numbers.
+     * Compare Petric et al. (2019), Environmental Engineering 6(1), 21-26,
+     * who measured up to 33% error at 100 ppm on an UNCALIBRATED MQ-137 and
+     * calibrated theirs against a Geotech GA5000.
      *
      * To supply a pair, take one simultaneous reading of this device's raw
      * count and a calibrated NH3 meter's ppm, in the poultry house, then:
@@ -299,9 +308,9 @@ class SensorCalibrationService
     }
 
     /**
-     * Legacy display ceiling. Clamping does not validate the result or establish
-     * a safe environment. Values below the published 5 ppm limit are also outside
-     * the supplied Hanwei datasheet's scope; this function does not censor them.
+     * Beyond the datasheet's rated 5-200 ppm detecting scope the curve is an
+     * extrapolation, not a measurement. Clamping keeps a noisy reading from
+     * reporting a level no poultry house could survive.
      */
     private function clampPpm(float $ppm, array $cfg): ?float
     {
@@ -391,8 +400,8 @@ class SensorCalibrationService
     }
 
     /**
-     * Legacy check for configured ammonia reference values, not a test of
-     * measurement accuracy, slope validity or hardware calibration.
+     * Whether this device's ammonia readings are real ppm rather than the
+     * placeholder scale.
      *
      * Pass the device name. Calibration is per device — AGB-D02 has had a
      * baseline since 27 Sep 2026 and AGB-D01 only since 5 Oct 2026, so a

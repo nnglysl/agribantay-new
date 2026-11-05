@@ -1,13 +1,15 @@
+import { GREEN } from '../../theme/green'
+import { useTableFetch } from '../../hooks/useTableFetch'
 import { useState } from 'react'
 import FarmerLayout from '../../components/FarmerLayout'
 import TableScroll from '../../components/TableScroll'
 import ScrollableTabs from '../../components/ScrollableTabs'
 import SharedPagination from '../../components/Pagination'
-import { useCachedFetch } from '../../hooks/useCachedFetch'
+
 import { LIVE_POLL_MS } from '../../constants/polling'
 import { useSelectedFarm } from '../../hooks/useSelectedFarm'
-import { viewModalStyles as v } from '../../styles/viewModalStyles'
-import { formatDate as formatDateFull, isWithinLocalDateRange, DISPLAY_TIME_ZONE } from '../../utils/formatDate'
+import InspectionDetailsModal from '../../components/InspectionDetailsModal'
+import { formatDate as formatDateFull, DISPLAY_TIME_ZONE } from '../../utils/formatDate'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import FilterPopover from '../../components/FilterPopover'
 import { filterStyles } from '../../styles/filterStyles'
@@ -35,8 +37,8 @@ const responsiveCss = `
     white-space: nowrap;
   }
   .insp-tab-btn.active {
-    color: #1B4332;
-    border-bottom-color: #1B4332;
+    color: var(--agb-green);
+    border-bottom-color: var(--agb-green);
   }
 
   .insp-table-wrap {
@@ -68,7 +70,7 @@ const RECENT_LIMIT = 10
 
 function statusBadgeStyle(status) {
   if (status === 'Scheduled') return { backgroundColor: '#e9eef6', color: '#2f5fa0' }
-  if (status === 'Completed') return { backgroundColor: '#eaf3ec', color: '#256b3d' }
+  if (status === 'Completed') return { backgroundColor: GREEN.soft, color: GREEN.hover }
   if (status === 'Cancelled') return { backgroundColor: '#eef0ea', color: '#6b7770' }
   return { backgroundColor: '#eef0ea', color: '#6b7770' }
 }
@@ -81,7 +83,6 @@ function formatDateTime(value) {
 
 export default function Inspections() {
   const { selectedFarmId, farmsLoading } = useSelectedFarm()
-  const { data, loading } = useCachedFetch(selectedFarmId ? '/farmer/inspections' : null, { farm_id: selectedFarmId }, { pollMs: LIVE_POLL_MS })
   const [activeTab, setActiveTab] = useState('upcoming') // 'upcoming' | 'past'
   const [viewInspection, setViewInspection] = useState(null)
   const isMobile = useIsMobile()
@@ -105,15 +106,12 @@ export default function Inspections() {
   const hasDate = !!(draftFrom || draftTo || fromDate || toDate)
   const activeFilterCount = (fromDate || toDate ? 1 : 0) + (typeFilter ? 1 : 0)
 
+  const { data, loading, error } = useTableFetch(selectedFarmId ? '/farmer/inspections' : null,
+    { farm_id: selectedFarmId, tab: activeTab, inspection_type: typeFilter, from: fromDate, to: toDate }, 1, RECENT_LIMIT, () => {}, { pollMs: LIVE_POLL_MS })
+  if (error) return <FarmerLayout><p>{error}</p></FarmerLayout>
   if (farmsLoading || loading || !data) return <FarmerLayout><SkeletonTable rows={6} columns={5} /></FarmerLayout>
-
-  const matches = (i) =>
-    isWithinLocalDateRange(i.scheduled_at, fromDate, toDate) &&
-    (!typeFilter || i.inspection_type === typeFilter)
-
-  const upcoming = (data?.upcoming || []).filter(matches).slice(0, RECENT_LIMIT)
-  const past = (data?.past || []).filter(matches).slice(0, RECENT_LIMIT)
-  const list = activeTab === 'upcoming' ? upcoming : past
+  const upcoming = { length: Math.min(RECENT_LIMIT, data?.counts?.upcoming || 0) }
+  const list = data?.items || []
   const isFiltered = activeFilterCount > 0
 
   return (
@@ -184,7 +182,7 @@ export default function Inspections() {
                         <span style={{ ...styles.badge, ...statusBadgeStyle(i.status) }}>{i.status}</span>
                       </td>
                       <td className="agb-table-actions-cell" style={{ ...styles.td, textAlign: 'right' }}>
-                        <span className="agb-table-action" style={styles.viewBtn} onClick={() => setViewInspection(i)}>View</span>
+                        <button type="button" className="agb-table-action" style={styles.viewBtn} onClick={() => setViewInspection(i)}>View</button>
                       </td>
                     </tr>
                   ))}
@@ -222,8 +220,8 @@ export default function Inspections() {
 function InspectionDetailModal({ inspection, onClose }) {
   const fieldRows = [
     { label: 'Inspection Type', value: inspection.inspection_type },
-    { label: 'Scheduled Date', value: formatDateTime(inspection.scheduled_at) },
-    { label: 'Scheduled By', value: inspection.scheduled_by },
+    { label: 'Scheduled Date and Time', value: formatDateTime(inspection.scheduled_at) },
+    { label: 'Assigned Staff', value: inspection.scheduled_by },
     { label: 'Status', value: inspection.status },
     ...(inspection.reschedule_reason
       ? [{ label: 'Reschedule Reason', value: inspection.reschedule_reason }]
@@ -234,40 +232,14 @@ function InspectionDetailModal({ inspection, onClose }) {
   ]
 
   return (
-    <div style={v.overlay} onClick={onClose}>
-      <div style={v.modal} onClick={e => e.stopPropagation()}>
-        <div style={v.header}>
-          <div style={v.headerTitleRow}>
-            <h3 style={v.title}>{inspection.inspection_number}</h3>
-            <span style={{ ...v.badge, ...statusBadgeStyle(inspection.status) }}>{inspection.status}</span>
-          </div>
-          <span style={v.close} onClick={onClose}>×</span>
-        </div>
-
-        <span style={v.sectionLabel}>Inspection Details</span>
-        <div style={v.grid}>
-          {fieldRows.map(r => (
-            <div key={r.label} style={v.fieldBox}>
-              <div style={v.fieldLabel}>{r.label}</div>
-              <div style={v.fieldValue}>{r.value ?? '—'}</div>
-            </div>
-          ))}
-        </div>
-
-        {(inspection.findings || inspection.notes) && (
-          <>
-            <span style={v.sectionLabel}>Notes / Findings</span>
-            <div style={v.notesBox}>
-              <p style={v.notes}>{inspection.findings || inspection.notes}</p>
-            </div>
-          </>
-        )}
-
-        <div style={v.actions}>
-          <button onClick={onClose} style={v.closeBtn}>Close</button>
-        </div>
-      </div>
-    </div>
+    <InspectionDetailsModal
+      inspectionNumber={inspection.inspection_number}
+      status={inspection.status}
+      badgeStyle={statusBadgeStyle(inspection.status)}
+      fields={fieldRows}
+      findings={inspection.findings || inspection.notes}
+      onClose={onClose}
+    />
   )
 }
 
@@ -322,7 +294,7 @@ const styles = {
   },
   pagerBtnActive: {
     minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px',
-    border: '1px solid #2c8047', backgroundColor: '#2c8047', color: '#fff',
+    border: '1px solid var(--agb-green)', backgroundColor: GREEN.primary, color: '#fff',
     fontSize: '12.5px', fontWeight: 600, fontFamily: SANS, cursor: 'default',
   },
 }

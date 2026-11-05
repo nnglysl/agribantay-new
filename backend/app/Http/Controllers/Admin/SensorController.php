@@ -2,13 +2,17 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Console\Commands\ProvisionDevice;
 use App\Http\Controllers\Controller;
-use App\Models\Sensor;
-use App\Models\Farm;
 use App\Models\ActivityLog;
+use App\Models\Farm;
+use App\Models\Sensor;
+use App\Services\DeviceAssignmentService;
+use App\Support\LocalTime;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use App\Support\LocalTime;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Sensor/device registration and farm assignment. device_key (the
@@ -23,12 +27,7 @@ use App\Support\LocalTime;
  * field in the system (Devices tab, Farm Information > Sensor & Monitoring,
  * the Farms list table) reads from this same Sensor record.
  *
- * Business model: each farm owner buys and owns the device installed on
- * their farm, so a device normally stays on one farm for its whole life.
- * A farm therefore holds at most ONE Active assigned device at a time —
- * enforced by assign(); registration always leaves a device Unassigned.
- * Inactive devices (damaged/retired but not yet unassigned) do not block a
- * replacement, matching how FarmStatusService only counts Active devices.
+ * A farm may have multiple active devices; each device has one current farm.
  *
  * A device's farm_id is only its CURRENT assignment. Readings copy the
  * farm_id at ingestion time, so assign()/unassign() never touch historical
@@ -43,11 +42,12 @@ class SensorController extends Controller
      */
     public function all()
     {
+        app(DeviceAssignmentService::class)->authorizeManager(Auth::user());
         $sensors = Sensor::with('farm:id,farm_name')
             ->orderBy('label')
-            ->orderBy('sensor_code')
+            ->orderBy('sensor_code')->orderBy('id')
             ->get()
-            ->map(fn($s) => $this->serialize($s));
+            ->map(fn ($s) => $this->serialize($s));
 
         return response()->json(['success' => true, 'data' => $sensors]);
     }
@@ -58,13 +58,15 @@ class SensorController extends Controller
      */
     public function index(int $farmId)
     {
+        app(DeviceAssignmentService::class)->authorizeManager(Auth::user());
         Farm::findOrFail($farmId);
 
         $sensors = Sensor::with('farm:id,farm_name')
             ->where('farm_id', $farmId)
             ->latest('installed_at')
+            ->orderByDesc('id')
             ->get()
-            ->map(fn($s) => $this->serialize($s));
+            ->map(fn ($s) => $this->serialize($s));
 
         return response()->json(['success' => true, 'data' => $sensors]);
     }
@@ -78,7 +80,7 @@ class SensorController extends Controller
      * O-for-0 is caught here, at registration, instead of silently producing
      * a device that can never authenticate.
      *
-     * @see \App\Console\Commands\ProvisionDevice
+     * @see ProvisionDevice
      */
     private const KEY_PATTERN = '/^AGB-[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{8}$/';
 
@@ -92,49 +94,49 @@ class SensorController extends Controller
      * already using it and the two must match for ingestion to work.
      *
      * A new device is always Unassigned. The LGU assigns it to a farm after
-     * turnover via assign(), which is where the one-Active-device-per-farm
-     * rule is enforced.
+     * turnover via assign().
      */
     public function store(Request $request)
     {
+        app(DeviceAssignmentService::class)->authorizeManager($request->user());
         $request->validate([
-            'device_key'   => [
+            'device_key' => [
                 'required', '',
-                'regex:' . self::KEY_PATTERN,
+                'regex:'.self::KEY_PATTERN,
                 'unique:sensors,device_key',
             ],
-            'label'        => 'nullable|string|max:50|unique:sensors,label',
+            'label' => 'nullable|string|max:50|unique:sensors,label',
             'installed_at' => 'nullable|date',
         ], [
-            'device_key.regex'  => 'The device key must look like AGB-XXXXXXXX, using capital letters and numbers only (no O, I, L, 0 or 1). Use the key from the provisioning command.',
+            'device_key.regex' => 'The device key must look like AGB-XXXXXXXX, using capital letters and numbers only (no O, I, L, 0 or 1). Use the key from the provisioning command.',
             'device_key.unique' => 'That device key is already registered to another device.',
         ]);
 
         $sensor = Sensor::create([
-            'farm_id'      => null,                            // always Unassigned
-            'device_key'   => $request->device_key,            // saved exactly as submitted
-            'label'        => $request->label ?: null,
+            'farm_id' => null,                            // always Unassigned
+            'device_key' => $request->device_key,            // saved exactly as submitted
+            'label' => $request->label ?: null,
             'installed_at' => $request->installed_at,
-            'status'       => 'Active',
+            'status' => 'Active',
             // sensor_code is auto-generated by Sensor::booted().
         ]);
 
         ActivityLog::create([
             'user_id' => Auth::id(),
-            'role'    => Auth::user()->role,
-            'action'  => 'Registered Sensor',
+            'role' => Auth::user()->role,
+            'action' => 'Registered Sensor',
             // The Device Name and sensor_code identify the unit well enough
             // here. The full device_key is a credential — anything holding it
             // can post readings as this device — so it never goes into the
             // Activity Logs, which are readable outside the Devices tab.
             'details' => "Registered device {$sensor->device_name} ({$sensor->sensor_code}) (unassigned)",
-            'type'    => 'Farm',
+            'type' => 'Farm',
         ]);
 
         return response()->json([
             'success' => true,
             'message' => 'Device registered successfully.',
-            'data'    => $this->serialize($sensor->load('farm:id,farm_name')),
+            'data' => $this->serialize($sensor->load('farm:id,farm_name')),
         ]);
     }
 
@@ -145,141 +147,94 @@ class SensorController extends Controller
      */
     public function update(Request $request, int $id)
     {
-        $sensor = Sensor::findOrFail($id);
+        $request->validate(['status' => 'required|in:Active,Inactive']);
+        $sensor = app(DeviceAssignmentService::class)->updateStatus($request->user(), $id, $request->status);
 
-        $request->validate([
-            'status' => 'required|in:Active,Inactive',
-        ]);
-
-        $sensor->update(['status' => $request->status]);
-
-        ActivityLog::create([
-            'user_id' => Auth::id(),
-            'role'    => Auth::user()->role,
-            'action'  => 'Updated Sensor',
-            'details' => "Updated device {$sensor->device_name}",
-            'type'    => 'Farm',
-        ]);
-
-        return response()->json(['success' => true, 'message' => 'Device updated successfully.']);
+        return response()->json(['success' => true, 'message' => 'Device updated successfully.', 'data' => $this->serialize($sensor)]);
     }
 
     /**
      * Assign a device to a farm — the device row is updated in place, never
      * recreated, so device_key and label are untouched.
      *
-     * Under the owner-buys-their-own-device model this is normally used to
-     * put a repaired or replacement device back on its own farm. It also
-     * still supports moving a device between farms, which the thesis data-
-     * collection rotation (2 devices across 10 farms) depends on. There is
-     * no Reassign button in the UI; this stays an Admin/Super Admin-only
-     * endpoint, so ordinary Farm Owners can never reach it.
-     *
-     * Rejected: assigning to the farm the device is already on, and
-     * assigning an Active device to a farm that already has one.
+     * Explicit house selection supports dedicated devices and research
+     * rotation, including a move between houses in the same farm.
      */
     public function assign(Request $request, int $id)
     {
-        $sensor = Sensor::findOrFail($id);
-
-        $request->validate([
-            'farm_id' => 'required|exists:farms,id',
-        ]);
-
-        $farm = Farm::findOrFail($request->farm_id);
-
-        if ($sensor->farm_id === $farm->id) {
-            return response()->json([
-                'success' => false,
-                'message' => "Device {$sensor->device_name} is already assigned to {$farm->farm_name}.",
-            ], 422);
-        }
-
-        // A farm may hold several devices at once: one poultry house gets one
-        // unit, and a farm can have several houses. An earlier rule allowed
-        // only one active device per farm and is deliberately gone — it made
-        // a multi-house farm impossible to monitor.
-        //
-        // What still holds: one device reports for one place. Two units in the
-        // same house would interleave into a single stream for that spot, and
-        // nothing here can tell them apart, so the LGU is responsible for
-        // installing one per house.
-
-        $previous = $sensor->farm;
-
-        $sensor->update(['farm_id' => $farm->id]);
-
-        ActivityLog::create([
-            'user_id' => Auth::id(),
-            'role'    => Auth::user()->role,
-            'action'  => $previous ? 'Reassigned Sensor' : 'Assigned Sensor',
-            'details' => $previous
-                ? "Moved device {$sensor->device_name} from {$previous->farm_name} to {$farm->farm_name}"
-                : "Assigned device {$sensor->device_name} to {$farm->farm_name}",
-            'type'    => 'Farm',
-        ]);
+        $data = $request->validate(['farm_id' => 'required|integer|min:1',
+            'poultry_house_id' => 'required|integer|min:1', 'expected_assignment_version' => 'required|integer|min:0']);
+        $sensor = app(DeviceAssignmentService::class)->assignHouse($request->user(), $id,
+            (int) $data['farm_id'], (int) $data['poultry_house_id'], (int) $data['expected_assignment_version']);
 
         return response()->json([
-            'success' => true,
-            'message' => "Device assigned to {$farm->farm_name}.",
-            'data'    => $this->serialize($sensor->fresh('farm:id,farm_name')),
+            'success' => true, 'message' => 'Device monitoring assignment saved.',
+            'data' => $this->serialize($sensor),
         ]);
     }
 
-    /**
-     * End the current farm assignment without deleting the device. The
-     * farm drops back to "Pending Setup"; the device keeps its key, name and
-     * history and can be assigned to the next farm via assign().
-     */
-    public function unassign(int $id)
+    public function unassign(Request $request, int $id)
     {
-        $sensor = Sensor::findOrFail($id);
-
-        if (!$sensor->farm_id) {
-            return response()->json([
-                'success' => false,
-                'message' => "Device {$sensor->device_name} is not assigned to any farm.",
-            ], 422);
-        }
-
-        $previous = $sensor->farm;
-
-        $sensor->update(['farm_id' => null]);
-
-        ActivityLog::create([
-            'user_id' => Auth::id(),
-            'role'    => Auth::user()->role,
-            'action'  => 'Unassigned Sensor',
-            'details' => "Removed device {$sensor->device_name} from {$previous->farm_name}",
-            'type'    => 'Farm',
-        ]);
+        $data = $request->validate(['expected_assignment_version' => 'required|integer|min:0']);
+        $sensor = app(DeviceAssignmentService::class)->unassign($request->user(), $id, (int) $data['expected_assignment_version']);
 
         return response()->json([
-            'success' => true,
-            'message' => "Device removed from {$previous->farm_name}.",
-            'data'    => $this->serialize($sensor->fresh('farm:id,farm_name')),
+            'success' => true, 'message' => 'Device removed from farm.',
+            'data' => $this->serialize($sensor),
         ]);
     }
 
+    /** Append-only assignment ledger for authorized device management. */
+    public function assignmentHistory(Request $request, int $id)
+    {
+        app(DeviceAssignmentService::class)->authorizeManager($request->user());
+        Sensor::findOrFail($id);
+        $events = DB::table('device_assignment_events')->where('sensor_id', $id)->orderByDesc('id')->get()
+            ->map(fn ($event) => [
+                'id' => $event->id,
+                'occurred_at' => LocalTime::dateTime($event->occurred_at),
+                'event_kind' => $event->event_kind ?: ($event->to_farm_id ? 'Assigned' : 'Unassigned'),
+                'from' => $event->from_farm_name ? $event->from_farm_name.($event->from_house_number ? ' · House '.$event->from_house_number : '') : 'Unassigned',
+                'to' => $event->to_farm_name ? $event->to_farm_name.($event->to_house_number ? ' · House '.$event->to_house_number : '') : 'Unassigned',
+            ])->values();
+
+        return response()->json(['success' => true, 'data' => ['device_id' => $id, 'events' => $events]]);
+    }
+
     /**
-     * The farm's current Active device, if any — one farm monitors with one
-     * device. Inactive devices are ignored so a damaged unit that has not
-     * been unassigned yet never blocks its own replacement.
+     * Serialize current device identity and connectivity without altering history.
      */
     private function serialize(Sensor $s): array
     {
-        return [
-            'id'           => $s->id,
-            'device_name'  => $s->device_name,
-            'label'        => $s->label,
-            'device_key'   => $s->device_key,
-            'sensor_code'  => $s->sensor_code,
-            'status'       => $s->status,
-            'farm_id'      => $s->farm_id,
-            'farm_name'    => $s->farm?->farm_name,
-            'connectivity' => $s->connectivity(),
-            'installed_at' => $s->installed_at?->format('M d, Y'),
-            'last_seen_at' => LocalTime::dateTime($s->last_seen_at),
-        ];
+        // Freeze the tuple and its version together. A concurrent move must
+        // not combine an old displayed destination with a newer version.
+        return DB::transaction(function () use ($s) {
+            $s = Sensor::with('farm:id,farm_name')->whereKey($s->id)->sharedLock()->firstOrFail();
+            $houseNumber = null;
+            if ($s->poultry_house_id && Schema::hasTable('poultry_houses')) {
+                $houseNumber = DB::table('poultry_houses as h')->join('device_assignment_events as e', 'e.to_house_id', '=', 'h.id')
+                    ->where('h.id', $s->poultry_house_id)->where('h.farm_id', $s->farm_id)
+                    ->where('e.id', $s->current_assignment_event_id)->where('e.sensor_id', $s->id)->where('e.to_farm_id', $s->farm_id)
+                    ->value('h.house_number');
+            }
+
+            return [
+                'id' => $s->id,
+                'device_name' => $s->device_name,
+                'label' => $s->label,
+                'device_key' => $s->device_key,
+                'sensor_code' => $s->sensor_code,
+                'status' => $s->status,
+                'farm_id' => $s->farm_id,
+                'farm_name' => $s->farm?->farm_name,
+                'poultry_house_id' => $s->poultry_house_id,
+                'house_name' => $houseNumber === null ? null : 'House '.$houseNumber,
+                'current_assignment_event_id' => $s->current_assignment_event_id,
+                'assignment_version' => app(DeviceAssignmentService::class)->version($s->id),
+                'connectivity' => $s->connectivity(),
+                'installed_at' => $s->installed_at?->format('M d, Y'),
+                'last_seen_at' => LocalTime::dateTime($s->last_seen_at),
+            ];
+        }, 3);
     }
 }

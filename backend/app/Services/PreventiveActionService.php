@@ -12,12 +12,10 @@ namespace App\Services;
  *    do themselves (litter, ventilation, drainage) — manure handling
  *    stays the farmer's own responsibility, not a municipal pickup.
  *
- *  - suggestServiceRequests(): when the diagnosed root cause matches a
- *    real municipal service (Odor Control, Fly Control), tells the
- *    farmer they can request it through Service Requests — this is
- *    the one place this layer points toward an LGU service rather
- *    than a self-directed action, since odor/fly control genuinely
- *    are things the Admin office handles, not the farmer alone.
+ *  - suggestServiceRequests(): legacy API suggestions naming the retired
+ *    Odor/Fly request types. These are not current request-form options.
+ *    Removal from the API needs a separate compatibility review; the active
+ *    environmental advice in suggestActions() must remain independent.
  */
 class PreventiveActionService
 {
@@ -35,11 +33,9 @@ class PreventiveActionService
             'No action needed — conditions are currently within a safe range.',
     ];
 
-    // Which municipal service(s), if any, are worth requesting given a
-    // diagnosed root cause — matches the exact service_type strings the
-    // farmer-side Service Requests form actually submits (see
-    // ServiceRequests.jsx), so a suggestion here can be acted on with
-    // one click rather than the farmer re-typing anything.
+    // Legacy service-request suggestions, retained pending API cleanup review.
+    // These strings are retired request types, not Control Document categories
+    // and not the environmental/manure-management actions above or below.
     private const ROOT_CAUSE_SERVICE_SUGGESTIONS = [
         'Manure buildup' => [
             ['type' => 'Odor Control Request', 'reason' => 'Rising ammonia is usually accompanied by a real odor problem.'],
@@ -111,9 +107,9 @@ class PreventiveActionService
     }
 
     /**
-     * Returns which municipal service(s) are worth requesting given the
-     * diagnosed root cause, each with a short reason — empty array for
-     * "Normal conditions" or any cause with no relevant service.
+     * Returns the current legacy API mapping, including retired request types.
+     * An empty array is returned for "Normal conditions" or an unknown cause.
+     * This lookup does not change suggestActions() or monitoring assessment.
      */
     public function suggestServiceRequests(string $rootCause): array
     {

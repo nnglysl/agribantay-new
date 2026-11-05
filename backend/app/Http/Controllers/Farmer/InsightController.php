@@ -4,13 +4,13 @@ namespace App\Http\Controllers\Farmer;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Farmer\Concerns\ResolvesFarm;
-use App\Models\Sensor;
 use App\Models\SensorReading;
 use App\Services\FarmStatusService;
 use App\Services\TrendAnalysisService;
 use App\Services\RootCauseService;
 use App\Services\PreventiveActionService;
 use App\Services\RecommendationExplanationService;
+use App\Services\CurrentMonitoringService;
 use Illuminate\Http\Request;
 
 /**
@@ -62,20 +62,15 @@ class InsightController extends Controller
         // whenever House 2 (perfectly fine) reported more recently. The alert
         // cards are per house and the recommendations sit directly beneath
         // them, so they have to agree.
-        $perDevice = Sensor::where('farm_id', $farm->id)
-            ->where('status', 'Active')
-            ->get()
-            ->map(fn (Sensor $sensor) => SensorReading::where('sensor_id', $sensor->id)
-                ->orderByDesc('created_at')
-                ->orderByDesc('id')
-                ->first())
-            ->filter()
-            ->sortByDesc(fn (SensorReading $r) => $this->severityOf($r))
-            ->values();
-
-        // Readings predating per-device attribution carry no sensor_id, so
-        // fall back to the farm-wide row rather than showing nothing.
-        $latestReading = $perDevice->first() ?? $farm->sensorReadings()->latest()->first();
+        $monitoring = app(CurrentMonitoringService::class);
+        $snapshot = $monitoring->capture($farm, function ($locked) use ($monitoring) {
+            return [
+                'reading' => $monitoring->latestPerDevice($locked, true)
+                    ->sortByDesc(fn (SensorReading $r) => $this->severityOf($r))->first(),
+                'trend' => app(TrendAnalysisService::class)->analyzeFarm($locked->id, true),
+            ];
+        });
+        $latestReading = $snapshot['data']['reading'] ?? null;
 
         if (!$latestReading) {
             return response()->json([
@@ -87,7 +82,7 @@ class InsightController extends Controller
             ]);
         }
 
-        $trend = app(TrendAnalysisService::class)->analyzeFarm($farm->id);
+        $trend = $snapshot['data']['trend'];
 
         $diagnosis = app(RootCauseService::class)->diagnose([
             'ammonia'     => $latestReading->ammonia,
@@ -101,6 +96,9 @@ class InsightController extends Controller
             $diagnosis['root_cause']
         );
 
+        // Legacy API field, separate from the valid environmental actions/tips.
+        // Keep its response contract until the retired-suggestion removal is
+        // reviewed; it is not an input to diagnosis, translation or monitoring.
         $serviceSuggestions = app(PreventiveActionService::class)->suggestServiceRequests(
             $diagnosis['root_cause']
         );
@@ -147,18 +145,24 @@ class InsightController extends Controller
             $preventiveActions['overall_action'] = $factual;
         }
 
-        // The only change in this file — farm_id lets
-        // RecommendationExplanationService gate Gemini calls to once
-        // per calendar day per farm (persisted in ai_recommendations),
-        // instead of calling Gemini on every single request.
+        // Keep the identity captured WITH these measurements, not an identity
+        // looked up later after a device could have moved away and returned.
         $translated = app(RecommendationExplanationService::class)->explain([
             'farm_id'            => $farm->id,
             'farm_name'          => $farm->farm_name,
+            'monitoring_context' => $snapshot['context'],
+            'monitoring_revision' => $snapshot['revision'],
             'root_cause'         => $diagnosis['root_cause'],
             'trend'              => $trend,
             'recommended_action' => $preventiveActions['overall_action'],
             'tips'               => $tips,
         ]);
+
+        if (! $monitoring->snapshotIsCurrent($farm->id, $snapshot)) {
+            return response()->json(['success' => true, 'data' => [
+                'available' => false, 'message' => 'Monitoring changed while recommendations were prepared. Please refresh.',
+            ]]);
+        }
 
         // MUST stay after explain(): that call reassigns $translated wholesale,
         // so nulling these beforehand had no effect at all.
@@ -200,11 +204,9 @@ class InsightController extends Controller
                 'main_action_fil' => $translated['main_action_fil'] ?? null,
                 'tips_fil'        => $translated['tips_fil'] ?? null,
 
-                // Municipal services worth requesting given this
-                // diagnosis — empty array when nothing applies (e.g.
-                // "Normal conditions"). Each item's 'type' matches the
-                // exact service_type value the farmer-side request form
-                // submits, so the frontend can prefill it directly.
+                // Compatibility field currently containing retired Odor/Fly
+                // request suggestions. These are not valid new request options
+                // or Control Document categories. Removal is a separate change.
                 'service_suggestions' => $serviceSuggestions,
             ],
         ]);

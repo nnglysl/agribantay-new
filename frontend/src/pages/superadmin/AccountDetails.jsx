@@ -1,3 +1,4 @@
+import { GREEN } from '../../theme/green'
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../../api/axios'
@@ -165,10 +166,10 @@ export default function AccountDetails() {
 
           <span style={{
             ...styles.statusPill,
-            color: isActive ? '#166534' : '#6b7280',
+            color: isActive ? GREEN.primary : '#6b7280',
             backgroundColor: isActive ? '#f0fdf4' : '#f3f4f6',
           }}>
-            <span style={{ ...styles.pillDot, backgroundColor: isActive ? '#2E7D32' : '#6b7280' }} />
+            <span style={{ ...styles.pillDot, backgroundColor: isActive ? GREEN.primary : '#6b7280' }} />
             {isActive ? 'Active' : 'Deactivated'}
           </span>
         </div>
@@ -374,7 +375,7 @@ const styles = {
   sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
   sectionTitle: { fontSize: '13px', fontWeight: '700', color: '#374151', margin: 0, marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.03em' },
   editBtn: {
-    backgroundColor: 'white', color: '#2E7D32', border: '1px solid #2E7D32',
+    backgroundColor: 'white', color: GREEN.primary, border: '1px solid var(--agb-green)',
     borderRadius: '8px', padding: '6px 14px', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
     display: 'inline-flex', alignItems: 'center', gap: '6px',
   },
@@ -383,7 +384,7 @@ const styles = {
   photoRowMobile: { gap: '14px' },
   photoInfo: { display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 },
   avatarCircle: {
-    width: '68px', height: '68px', borderRadius: '50%', backgroundColor: '#2E7D32', color: 'white',
+    width: '68px', height: '68px', borderRadius: '50%', backgroundColor: GREEN.primary, color: 'white',
     display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px', fontWeight: '700',
     flexShrink: 0, overflow: 'hidden',
   },
@@ -406,7 +407,7 @@ const styles = {
   inputDisabled: { backgroundColor: '#f9fafb', color: '#6b7280', cursor: 'not-allowed' },
 
   saveBtn: {
-    backgroundColor: '#2E7D32', color: 'white', border: 'none', borderRadius: '8px',
+    backgroundColor: GREEN.primary, color: 'white', border: 'none', borderRadius: '8px',
     padding: '10px 20px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', marginTop: '4px',
   },
   cancelBtn: {
@@ -420,7 +421,7 @@ const styles = {
     padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '14px',
   },
   successBox: {
-    backgroundColor: '#f0fdf4', border: '1px solid #86efac', color: '#166534',
+    backgroundColor: '#f0fdf4', border: '1px solid #86efac', color: GREEN.primary,
     padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '14px',
   },
 

@@ -31,13 +31,15 @@ export default function TableFooter({
   rangeEnd,
   totalItems,
   isMobile = false,
+  hideSinglePageNavigation = false,
+  itemNoun = '',
 }) {
   return (
     <div className="no-print agb-table-footer" style={{ ...styles.wrap, ...(isMobile ? styles.wrapMobile : {}) }}>
       <div style={styles.info}>
         {totalItems === 0
           ? 'No results'
-          : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}`}
+          : `Showing ${rangeStart}–${rangeEnd} of ${totalItems}${itemNoun ? ` ${itemNoun}` : ''}`}
       </div>
 
       <div className="agb-table-footer-controls" style={{ ...styles.controls, ...(isMobile ? styles.controlsMobile : {}) }}>
@@ -52,12 +54,12 @@ export default function TableFooter({
           ))}
         </select>
 
-        <SharedPagination
+        {(!hideSinglePageNavigation || totalPages > 1) && <SharedPagination
           currentPage={currentPage}
           totalPages={totalPages}
           onPageChange={onPageChange}
           isMobile={isMobile}
-        />
+        />}
       </div>
     </div>
   )

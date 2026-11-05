@@ -1,7 +1,9 @@
+import { GREEN } from '../../theme/green'
+import { useTableFetch } from '../../hooks/useTableFetch'
 import DropdownList from '../../components/DropdownList'
 import TableScroll from '../../components/TableScroll'
 import ScrollableTabs from '../../components/ScrollableTabs'
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useId, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
@@ -13,9 +15,12 @@ import { LIVE_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useMonthFilter } from '../../hooks/useMonthFilter'
 import { formatDate, formatDateTime, parseLocalDate, DISPLAY_TIME_ZONE } from '../../utils/formatDate'
-import { viewModalStyles as v } from '../../styles/viewModalStyles'
+import { manilaDay } from '../../utils/reportPeriod'
+import InspectionDetailsModal from '../../components/InspectionDetailsModal'
+import CompleteInspectionModal from '../../components/CompleteInspectionModal'
+import CancelInspectionModal from '../../components/CancelInspectionModal'
+import InspectionActionModal from '../../components/InspectionActionModal'
 import { SkeletonTable, BtnBusy } from '../../components/Loading'
-import { useBusyAction } from '../../hooks/useBusyAction'
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
@@ -26,7 +31,7 @@ function inspectionTypeStyle(type) {
   const isFollowUp = type === 'Follow-up'
   return {
     label: isFollowUp ? 'Follow-up Inspection' : 'General Inspection',
-    bg: isFollowUp ? '#b45309' : '#2c8047',
+    bg: isFollowUp ? '#b45309' : GREEN.primary,
     text: '#ffffff',
   }
 }
@@ -39,15 +44,22 @@ function responsibleStaff(i) {
 }
 
 function sameDay(a, b) {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+  return !!a && !!b && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+}
+
+// Grid cells are calendar dates represented in the browser's local timezone.
+// Convert API instants to their office date before comparing them to a cell.
+function officeCalendarDate(value = new Date()) {
+  return parseLocalDate(manilaDay(value))
+}
+
+function calendarDay(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
 function isPastDate(date) {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const check = new Date(date)
-  check.setHours(0, 0, 0, 0)
-  return check < today
+  const day = typeof date === 'string' ? manilaDay(date) : calendarDay(date)
+  return !!day && day < manilaDay()
 }
 
 // Overdue is DERIVED, not stored: a Scheduled inspection whose calendar date
@@ -63,13 +75,7 @@ function displayStatus(i) {
   return isOverdue(i) ? 'Overdue' : i.status
 }
 
-function matchesInspectionSearch(inspection, search) {
-  const query = search.trim().toLowerCase()
-  return !query || [
-    inspection.inspection_number, inspection.farm_name, inspection.owner_name,
-    inspection.inspection_type, responsibleStaff(inspection), displayStatus(inspection),
-  ].some(value => String(value ?? '').toLowerCase().includes(query))
-}
+
 
 export default function Inspections() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -84,18 +90,21 @@ export default function Inspections() {
   const [modalDate, setModalDate] = useState(null)
   const [prefillFarm, setPrefillFarm] = useState(null)
   const [confirmCancel, setConfirmCancel] = useState(null)
-  const [cancelReason, setCancelReason] = useState('')
-  const [cancelError, setCancelError] = useState('')
-  const [actionBusy, runAction] = useBusyAction()
   const [completeInspection, setCompleteInspection] = useState(null)
+  const [inspectionMessage, setInspectionMessage] = useState('')
   const [viewInspection, setViewInspection] = useState(null)
   const [rescheduleInspection, setRescheduleInspection] = useState(null)
   const isMobile = useIsMobile()
 
-  const { data: inspectionsData, loading: loadingInspections, error: errorInspections, refetch: refetchInspections } = useCachedFetch('/admin/inspections', {}, { pollMs: LIVE_POLL_MS })
+  const [appliedFromDate, setAppliedFromDate] = useState('')
+  const [appliedToDate, setAppliedToDate] = useState('')
+  const [appliedType, setAppliedType] = useState('')
+
+  const { data: inspectionsData, loading: loadingInspections, error: errorInspections, refetch: fetchCalendar } = useCachedFetch('/admin/inspections', { calendar_month: viewDate.getMonth() + 1, calendar_year: viewDate.getFullYear(), summary_from: appliedFromDate, summary_to: appliedToDate, summary_type: appliedType }, { pollMs: LIVE_POLL_MS })
+  const refetchInspections = () => { invalidateCache('/admin/inspections'); fetchCalendar() }
   const { data: farmsData, loading: loadingFarms, error: errorFarms, refetch: refetchFarms } = useCachedFetch('/admin/farms')
 
-  const inspections = inspectionsData || []
+  const inspections = inspectionsData?.calendar || []
   const farms = farmsData || []
   const loading = loadingInspections || loadingFarms
   const error = errorInspections || errorFarms
@@ -126,54 +135,17 @@ export default function Inspections() {
     refetchFarms()
   }
 
-  const handleCancel = (inspection) => {
-    setCancelReason('')
-    setCancelError('')
-    setConfirmCancel(inspection)
-  }
-
-  const confirmCancelAction = async () => {
-    const reason = cancelReason.trim()
-
-    // Checked here too so an empty box never reaches the API, but the server
-    // enforces the same rule — this is convenience, not the guarantee.
-    if (!reason) {
-      setCancelError('A cancellation reason is required.')
-      return
-    }
-
-    setCancelError('')
-
-    try {
-      await api.patch(`/admin/inspections/${confirmCancel.id}/cancel`, { reason })
-    } catch (err) {
-      // Left open with the typed reason intact so it can be corrected and
-      // resubmitted, and nothing is refreshed as though it had worked.
-      setCancelError(err.response?.data?.message || 'Could not cancel this inspection. Please try again.')
-      return
-    }
-
-    setConfirmCancel(null)
-    setCancelReason('')
-    // The farm owner's own inspection views show this record too.
-    invalidateCache('/farmer/inspections')
-    refetchInspections()
-  }
-
   const closeScheduleModal = () => {
     setModalDate(null)
     setPrefillFarm(null)
   }
 
-  const statusColor = { Scheduled: '#b45309', Overdue: '#b91c1c', Completed: '#256b3d', Cancelled: '#6b7280' }
+  const statusColor = { Scheduled: '#b45309', Overdue: '#b91c1c', Completed: GREEN.hover, Cancelled: '#6b7280' }
 
   // One shared From/To date-range filter for the whole page (summary cards +
   // Scheduled/Completed/History tables). Independent from the Schedule
   // tab's calendar (viewDate), which keeps its own navigation untouched.
   const [filterOpen, setFilterOpen] = useState(false)
-  const [appliedFromDate, setAppliedFromDate] = useState('')
-  const [appliedToDate, setAppliedToDate] = useState('')
-  const [appliedType, setAppliedType] = useState('')
   const [draftFromDate, setDraftFromDate] = useState('')
   const [draftToDate, setDraftToDate] = useState('')
   const [draftType, setDraftType] = useState('')
@@ -223,37 +195,10 @@ export default function Inspections() {
       ? `${fmtPeriodDate(appliedFromDate)} – ${fmtPeriodDate(appliedToDate)}`
       : appliedFromDate ? `From ${fmtPeriodDate(appliedFromDate)}` : `Up to ${fmtPeriodDate(appliedToDate)}`
 
-  const periodInspections = useMemo(() => {
-    let list = inspections
-    if (appliedFromDate || appliedToDate) {
-      list = list.filter(i => {
-        if (!i.scheduled_at) return false
-        const d = new Date(i.scheduled_at)
-        const dOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate())
-        // parseLocalDate: "YYYY-MM-DD" as LOCAL midnight — new Date("YYYY-MM-DD")
-        // is UTC and shifted a July 13 inspection out of a July 13–21 range.
-        if (appliedFromDate && dOnly < parseLocalDate(appliedFromDate)) return false
-        if (appliedToDate && dOnly > parseLocalDate(appliedToDate)) return false
-        return true
-      })
-    }
-    if (appliedType) {
-      list = list.filter(i => i.inspection_type === appliedType)
-    }
-    return list
-  }, [inspections, appliedFromDate, appliedToDate, appliedType])
-
-  const scheduled = periodInspections.filter(i => i.status === 'Scheduled' && !isOverdue(i))
-  const overdue = periodInspections.filter(isOverdue)
-  const completed = periodInspections.filter(i => i.status === 'Completed')
-  const history = periodInspections.filter(i => i.status === 'Completed' || i.status === 'Cancelled')
-
-  // Summary cards mirror the same active work the tables show — Scheduled
-  // + Completed — so a Cancelled inspection never inflates the counts.
-  const activeInspections = periodInspections.filter(i => i.status !== 'Cancelled')
-  const totalThisMonth = activeInspections.length
-  const followUpThisMonth = activeInspections.filter(i => i.inspection_type === 'Follow-up').length
+  const totalThisMonth = inspectionsData?.summary?.total || 0
+  const followUpThisMonth = inspectionsData?.summary?.follow_up || 0
   const generalThisMonth = totalThisMonth - followUpThisMonth
+  const tableFilters = { tab, search, from: appliedFromDate, to: appliedToDate, inspection_type: appliedType }
 
   return (
     <AdminLayout>
@@ -263,6 +208,8 @@ export default function Inspections() {
           <p style={styles.subtitle}>Schedule, manage, and monitor farm inspections</p>
         </div>
       </div>
+
+      {inspectionMessage && <p className="inspection-completion-feedback" role="status">{inspectionMessage}</p>}
 
       <div style={{ ...styles.summaryGrid, ...(isMobile ? styles.summaryGridMobile : {}) }}>
         <SummaryCard label="Total Inspections" value={totalThisMonth} sub={periodLabel} variant="green" isMobile={isMobile} />
@@ -375,9 +322,9 @@ export default function Inspections() {
 
       {!loading && !error && tab === 'scheduled' && (
         <InspectionList
-          list={scheduled.filter(i => matchesInspectionSearch(i, search))}
+          filters={tableFilters}
           statusColor={statusColor}
-          onCancel={handleCancel}
+          onCancel={setConfirmCancel}
           onComplete={setCompleteInspection}
           onReschedule={setRescheduleInspection}
           isMobile={isMobile}
@@ -386,9 +333,9 @@ export default function Inspections() {
 
       {!loading && !error && tab === 'overdue' && (
         <InspectionList
-          list={overdue.filter(i => matchesInspectionSearch(i, search))}
+          filters={tableFilters}
           statusColor={statusColor}
-          onCancel={handleCancel}
+          onCancel={setConfirmCancel}
           onComplete={setCompleteInspection}
           onReschedule={setRescheduleInspection}
           isMobile={isMobile}
@@ -396,12 +343,12 @@ export default function Inspections() {
       )}
 
       {!loading && !error && tab === 'completed' && (
-        <InspectionList list={completed.filter(i => matchesInspectionSearch(i, search))} statusColor={statusColor} onView={setViewInspection} isMobile={isMobile} />
+        <InspectionList filters={tableFilters} statusColor={statusColor} onView={setViewInspection} isMobile={isMobile} />
       )}
 
       {!loading && !error && tab === 'history' && (
         <InspectionList
-          list={history.filter(i => matchesInspectionSearch(i, search))}
+          filters={tableFilters}
           statusColor={statusColor}
           onView={setViewInspection}
           isMobile={isMobile}
@@ -416,16 +363,19 @@ export default function Inspections() {
           onClose={closeScheduleModal}
           onSuccess={() => { closeScheduleModal(); refetchInspections() }}
           isMobile={isMobile}
-          existingInspections={inspections}
+          existingInspections={inspectionsData?.summary?.active_inspections || []}
         />
       )}
 
       {completeInspection && (
-        <CompleteModal
+        <CompleteInspectionModal
           inspection={completeInspection}
           onClose={() => setCompleteInspection(null)}
-          onSuccess={() => { setCompleteInspection(null); refetchInspections() }}
-          isMobile={isMobile}
+          onSuccess={() => {
+            setInspectionMessage(`${completeInspection.inspection_number} marked as completed.`)
+            setCompleteInspection(null)
+            refetchInspections()
+          }}
         />
       )}
 
@@ -434,7 +384,6 @@ export default function Inspections() {
           inspection={rescheduleInspection}
           onClose={() => setRescheduleInspection(null)}
           onSuccess={() => { setRescheduleInspection(null); refetchInspections() }}
-          isMobile={isMobile}
         />
       )}
 
@@ -443,98 +392,40 @@ export default function Inspections() {
         const fields = [
           { label: 'Farm', value: viewInspection.farm_name },
           ...(viewInspection.owner_name ? [{ label: 'Farm Owner', value: viewInspection.owner_name }] : []),
-          { label: 'Type', value: viewInspection.inspection_type },
-          { label: 'Staff', value: responsibleStaff(viewInspection) },
-          { label: 'Scheduled', value: formatDateTime(viewInspection.scheduled_at) },
+          { label: 'Inspection Type', value: viewInspection.inspection_type },
+          { label: 'Assigned Staff', value: responsibleStaff(viewInspection) },
+          { label: 'Scheduled Date and Time', value: formatDateTime(viewInspection.scheduled_at) },
           // Shown only on a cancelled record, where it is the point of the row.
           ...(viewInspection.status === 'Cancelled' && viewInspection.cancellation_reason
             ? [{ label: 'Cancellation Reason', value: viewInspection.cancellation_reason }]
             : []),
-          ...(viewInspection.completed_at ? [{ label: 'Completed', value: formatDateTime(viewInspection.completed_at) }] : []),
+          ...(viewInspection.completed_at ? [{ label: 'Completed Date and Time', value: formatDateTime(viewInspection.completed_at) }] : []),
         ]
-        const hasText = viewInspection.notes || viewInspection.findings
         return (
-          <div style={v.overlay} onClick={() => setViewInspection(null)}>
-            <div style={{ ...v.modal, ...(isMobile ? v.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
-              <div style={v.header}>
-                <div style={v.headerTitleRow}>
-                  <h3 style={v.title}>{viewInspection.inspection_number}</h3>
-                  <span style={{ ...v.badge, color: c, backgroundColor: badgeBg(displayStatus(viewInspection)) }}>{displayStatus(viewInspection)}</span>
-                </div>
-                <span style={v.close} onClick={() => setViewInspection(null)}>×</span>
-              </div>
-
-              <span style={v.sectionLabel}>Inspection Information</span>
-              <div style={hasText ? v.grid : v.gridLast}>
-                {fields.map(f => (
-                  <div key={f.label} style={v.fieldBox}>
-                    <div style={v.fieldLabel}>{f.label}</div>
-                    <div style={v.fieldValue}>{f.value || '—'}</div>
-                  </div>
-                ))}
-              </div>
-
-              {viewInspection.notes && (
-                <>
-                  <span style={v.sectionLabel}>Notes</span>
-                  <div style={{ ...v.notesBox, marginBottom: '18px' }}>
-                    <p style={v.notes}>{viewInspection.notes}</p>
-                  </div>
-                </>
-              )}
-              {viewInspection.findings && (
-                <>
-                  <span style={v.sectionLabel}>Findings</span>
-                  <div style={v.notesBox}>
-                    <p style={v.notes}>{viewInspection.findings}</p>
-                  </div>
-                </>
-              )}
-
-              <div style={v.actions}>
-                <button onClick={() => setViewInspection(null)} style={v.closeBtn}>Close</button>
-              </div>
-            </div>
-          </div>
+          <InspectionDetailsModal
+            inspectionNumber={viewInspection.inspection_number}
+            status={displayStatus(viewInspection)}
+            badgeStyle={{ color: c, backgroundColor: badgeBg(displayStatus(viewInspection)) }}
+            fields={fields.map(field => ({ ...field, value: field.value || '—' }))}
+            notes={viewInspection.notes}
+            findings={viewInspection.findings}
+            onClose={() => setViewInspection(null)}
+          />
         )
       })()}
 
       {confirmCancel && (
-        <div style={modalStyles.overlay} onClick={() => setConfirmCancel(null)}>
-          <div style={{ ...confirmStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
-            <h3 style={confirmStyles.title}>Cancel Inspection</h3>
-            <p style={confirmStyles.message}>
-              Cancel {confirmCancel.inspection_number} for {confirmCancel.farm_name}?
-              The farm owner will be notified, and the reason below is sent to them.
-            </p>
-
-            <label style={styles.label}>Cancellation Reason *</label>
-            <textarea
-              value={cancelReason}
-              onChange={e => { setCancelReason(e.target.value); if (cancelError) setCancelError('') }}
-              placeholder="Why is this inspection being cancelled?"
-              rows={3}
-              style={{ ...styles.input, resize: 'vertical', ...(cancelError ? { borderColor: '#d98a8a', backgroundColor: '#fdf7f7' } : {}) }}
-              autoFocus
-            />
-            {cancelError && <div style={confirmStyles.fieldError}>{cancelError}</div>}
-            <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
-              <button
-                onClick={() => setConfirmCancel(null)}
-                style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
-              >
-                Keep it
-              </button>
-              <button
-                onClick={() => runAction(confirmCancelAction)}
-                disabled={actionBusy || !cancelReason.trim()}
-                style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}), backgroundColor: '#b91c1c', ...(actionBusy ? { opacity: 0.7, cursor: 'wait' } : {}) }}
-              >
-                Cancel Inspection
-              </button>
-            </div>
-          </div>
-        </div>
+        <CancelInspectionModal
+          inspection={confirmCancel}
+          onClose={() => setConfirmCancel(null)}
+          onSuccess={() => {
+            setInspectionMessage(`${confirmCancel.inspection_number} cancelled.`)
+            setConfirmCancel(null)
+            // Keep the existing owner-view invalidation and inspection refresh.
+            invalidateCache('/farmer/inspections')
+            refetchInspections()
+          }}
+        />
       )}
     </AdminLayout>
   )
@@ -563,41 +454,44 @@ function SummaryCard({ label, value, sub, variant, isMobile }) {
 }
 
 function badgeBg(status) {
-  if (status === 'Completed') return '#eaf3ec'
+  if (status === 'Completed') return GREEN.soft
   if (status === 'Overdue') return '#fdecec'
   if (status === 'Scheduled') return '#fbf1e2'
   return '#eef1ea'
 }
 
-function InspectionList({ list, statusColor, onCancel, onComplete, onReschedule, onView, isMobile }) {
+function InspectionList({ filters, statusColor, onCancel, onComplete, onReschedule, onView, isMobile }) {
 
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
 
-  useEffect(() => { setCurrentPage(1) }, [list, pageSize])
+  const { data, loading, error } = useTableFetch('/admin/inspections', filters, currentPage, pageSize, setCurrentPage, { pollMs: LIVE_POLL_MS })
+  const list = data?.items || []
+  if (loading) return <SkeletonTable rows={6} columns={8} />
+  if (error) return <div style={styles.tableEmpty}>{error}</div>
 
   if (list.length === 0) return <div style={styles.tableEmpty}>No inspections here yet.</div>
 
-  const totalItems = list.length
-  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
+  const totalItems = data?.total || 0
+  const totalPages = data?.last_page || 1
   const start = (currentPage - 1) * pageSize
-  const paginated = list.slice(start, start + pageSize)
+  const paginated = list
   const rangeStart = totalItems === 0 ? 0 : start + 1
   const rangeEnd = Math.min(currentPage * pageSize, totalItems)
 
   const rowActions = (i) => (
     <div className="agb-table-actions" style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
       {onView && (
-        <span className="agb-table-action" style={{ ...styles.actionBtn, ...styles.viewLink }} onClick={() => onView(i)}>View</span>
+        <button type="button" className="agb-table-action" style={{ ...styles.actionBtn, ...styles.viewLink }} onClick={() => onView(i)}>View</button>
       )}
       {i.status === 'Scheduled' && onComplete && (
-        <span className="agb-table-action" style={{ ...styles.actionBtn, ...styles.completeLink }} onClick={() => onComplete(i)}>Complete</span>
+        <button type="button" className="agb-table-action" style={{ ...styles.actionBtn, ...styles.completeLink }} onClick={() => onComplete(i)}>Complete</button>
       )}
       {i.status === 'Scheduled' && onReschedule && (
-        <span className="agb-table-action" style={{ ...styles.actionBtn, ...styles.rescheduleLink }} onClick={() => onReschedule(i)}>Reschedule</span>
+        <button type="button" className="agb-table-action" style={{ ...styles.actionBtn, ...styles.rescheduleLink }} onClick={() => onReschedule(i)}>Reschedule</button>
       )}
       {i.status === 'Scheduled' && onCancel && (
-        <span className="agb-table-action" style={{ ...styles.actionBtn, ...styles.cancelLink }} onClick={() => onCancel(i)}>Cancel</span>
+        <button type="button" className="agb-table-action" style={{ ...styles.actionBtn, ...styles.cancelLink }} onClick={() => onCancel(i)}>Cancel</button>
       )}
     </div>
   )
@@ -681,7 +575,7 @@ function Pagination({ currentPage, totalPages, pageSize, onPageChange, onPageSiz
 function CalendarView({ inspections, currentUserId, viewDate, setViewDate, onAddSchedule, onViewEvent, isMobile }) {
   const year = viewDate.getFullYear()
   const month = viewDate.getMonth()
-  const today = new Date()
+  const today = officeCalendarDate()
   const [selectedDate, setSelectedDate] = useState(null)
 
   const daysInMonth = new Date(year, month + 1, 0).getDate()
@@ -700,7 +594,8 @@ function CalendarView({ inspections, currentUserId, viewDate, setViewDate, onAdd
     if (!day) return []
     return inspections.filter(i => {
       if (i.status === 'Cancelled') return false
-      const d = new Date(i.scheduled_at)
+      const d = officeCalendarDate(i.scheduled_at)
+      if (!d) return false
       return d.getFullYear() === year && d.getMonth() === month && d.getDate() === day
     })
   }
@@ -716,7 +611,15 @@ function CalendarView({ inspections, currentUserId, viewDate, setViewDate, onAdd
 
   const handleEventClick = (e, insp) => {
     e.stopPropagation()
+    e.currentTarget.focus()
     onViewEvent(insp)
+  }
+
+  const handleEventKeyDown = (event, inspection) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      handleEventClick(event, inspection)
+    }
   }
 
   const selectDay = (date) => setSelectedDate(date)
@@ -736,12 +639,12 @@ function CalendarView({ inspections, currentUserId, viewDate, setViewDate, onAdd
     ? inspections.find(i =>
         i.assigned_to_id === currentUserId
         && (i.status === 'Scheduled' || i.status === 'Completed')
-        && sameDay(new Date(i.scheduled_at), selectedDate))
+        && sameDay(officeCalendarDate(i.scheduled_at), selectedDate))
     : null
 
   const panelInspections = selectedDate
     ? inspections
-        .filter(i => i.status !== 'Cancelled' && sameDay(new Date(i.scheduled_at), selectedDate))
+        .filter(i => i.status !== 'Cancelled' && sameDay(officeCalendarDate(i.scheduled_at), selectedDate))
         .slice()
         .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
     : []
@@ -802,6 +705,10 @@ function CalendarView({ inspections, currentUserId, viewDate, setViewDate, onAdd
                                 key={i}
                                 style={{ ...styles.calendarEventMobile, backgroundColor: t.bg, color: t.text }}
                                 onClick={(e) => handleEventClick(e, insp)}
+                                role="button"
+                                tabIndex={0}
+                                className="inspection-details-trigger"
+                                onKeyDown={e => handleEventKeyDown(e, insp)}
                                 title={`${t.label} — ${insp.farm_name}`}
                               >
                                 {insp.farm_name}
@@ -824,6 +731,10 @@ function CalendarView({ inspections, currentUserId, viewDate, setViewDate, onAdd
                               key={i}
                               style={{ ...styles.calendarEvent, backgroundColor: t.bg, color: t.text }}
                               onClick={(e) => handleEventClick(e, insp)}
+                              role="button"
+                              tabIndex={0}
+                              className="inspection-details-trigger"
+                              onKeyDown={e => handleEventKeyDown(e, insp)}
                             >
                               <div style={styles.calendarEventType}>{t.label}</div>
                               <div style={{ ...styles.calendarEventFarm, color: t.text }}>{insp.farm_name}</div>
@@ -848,7 +759,7 @@ function CalendarView({ inspections, currentUserId, viewDate, setViewDate, onAdd
         </div>
 
         <div style={{ ...styles.legend, ...(isMobile ? styles.legendMobile : {}) }}>
-          <span style={styles.legendItem}><span style={{ ...styles.legendDot, backgroundColor: '#2c8047' }} /> General Inspection</span>
+          <span style={styles.legendItem}><span style={{ ...styles.legendDot, backgroundColor: GREEN.primary }} /> General Inspection</span>
           <span style={styles.legendItem}><span style={{ ...styles.legendDot, backgroundColor: '#b45309' }} /> Follow-up Inspection</span>
         </div>
       </div>
@@ -857,7 +768,7 @@ function CalendarView({ inspections, currentUserId, viewDate, setViewDate, onAdd
         <div style={styles.sidePanelHead}>
           <div style={styles.sidePanelKicker}>Selected date</div>
           <div style={styles.sidePanelDate}>
-            {selectedDate ? formatDate(selectedDate) : 'Pick a date'}
+            {selectedDate ? formatDate(calendarDay(selectedDate)) : 'Pick a date'}
           </div>
         </div>
 
@@ -896,7 +807,7 @@ function CalendarView({ inspections, currentUserId, viewDate, setViewDate, onAdd
             panelInspections.map(insp => {
               const t = inspectionTypeStyle(insp.inspection_type)
               return (
-                <div key={insp.id} style={styles.selectedItem} onClick={() => onViewEvent(insp)}>
+                <div key={insp.id} style={styles.selectedItem} role="button" tabIndex={0} className="inspection-details-trigger" onClick={e => handleEventClick(e, insp)} onKeyDown={e => handleEventKeyDown(e, insp)}>
                   <span style={{ ...styles.selectedItemType, backgroundColor: t.bg, color: t.text }}>{t.label}</span>
                   <div style={styles.selectedItemFarm}>{insp.farm_name}</div>
                   <div style={styles.selectedItemTime}>
@@ -1089,82 +1000,20 @@ function ScheduleModal({ date, farms, prefillFarm, onClose, onSuccess, isMobile,
   )
 }
 
-function CompleteModal({ inspection, onClose, onSuccess, isMobile }) {
-  const [findings, setFindings] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    setError('')
-
-    if (!findings.trim()) {
-      setError('Please enter your findings for this inspection.')
-      return
-    }
-
-    setLoading(true)
-    try {
-      await api.patch(`/admin/inspections/${inspection.id}/complete`, { findings })
-      onSuccess()
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to complete inspection.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <div style={modalStyles.overlay} onClick={onClose}>
-      <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
-        <div style={modalStyles.header}>
-          <h3 style={modalStyles.title}>Complete Inspection</h3>
-          <span style={modalStyles.close} onClick={onClose}>×</span>
-        </div>
-        <p style={modalStyles.dateLabel}>{inspection.inspection_number} — {inspection.farm_name}</p>
-
-        <form onSubmit={handleSubmit}>
-          {error && <div style={modalStyles.errorBox}>{error}</div>}
-
-          <label style={modalStyles.label}>Findings *</label>
-          <textarea
-            value={findings}
-            onChange={e => setFindings(e.target.value)}
-            style={{ ...modalStyles.input, minHeight: '100px', resize: 'vertical' }}
-            placeholder="e.g. All systems normal. No violations observed."
-          />
-
-          <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
-            <button
-              type="button"
-              onClick={onClose}
-              style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
-            >
-              {loading ? <BtnBusy label="Saving…" /> : 'Mark as Completed'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
-function RescheduleModal({ inspection, onClose, onSuccess, isMobile }) {
+function RescheduleModal({ inspection, onClose, onSuccess }) {
   const [date, setDate] = useState('')
   const [time, setTime] = useState('09:00')
   const [reason, setReason] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const pending = useRef(false)
+  const fieldId = useId()
+  const errorId = useId()
+  const requestClose = () => { if (!pending.current) onClose() }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (pending.current) return
     setError('')
 
     if (!date) {
@@ -1176,6 +1025,7 @@ function RescheduleModal({ inspection, onClose, onSuccess, isMobile }) {
       return
     }
 
+    pending.current = true
     setLoading(true)
     try {
       await api.patch(`/admin/inspections/${inspection.id}/reschedule`, {
@@ -1186,69 +1036,59 @@ function RescheduleModal({ inspection, onClose, onSuccess, isMobile }) {
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to reschedule inspection.')
     } finally {
+      pending.current = false
       setLoading(false)
     }
   }
 
   return (
-    <div style={modalStyles.overlay} onClick={onClose}>
-      <div style={{ ...modalStyles.modal, ...(isMobile ? modalStyles.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
-        <div style={modalStyles.header}>
-          <h3 style={modalStyles.title}>Reschedule Inspection</h3>
-          <span style={modalStyles.close} onClick={onClose}>×</span>
-        </div>
-        <p style={modalStyles.dateLabel}>
-          {inspection.inspection_number} — {inspection.farm_name} · Currently scheduled {formatDateTime(inspection.scheduled_at)}
+    <InspectionActionModal
+      title="Reschedule Inspection"
+      subtitle={`${inspection.inspection_number} — ${inspection.farm_name} · Currently scheduled ${formatDateTime(inspection.scheduled_at)}`}
+      busy={loading}
+      onClose={requestClose}
+      onSubmit={handleSubmit}
+      actions={<>
+        <button type="button" className="inspection-action-secondary" disabled={loading} onClick={requestClose}>Cancel</button>
+        <button type="submit" className="inspection-action-primary" disabled={loading}>
+          {loading ? <BtnBusy label="Saving…" /> : 'Reschedule Inspection'}
+        </button>
+      </>}
+    >
+      {inspection.previous_scheduled_at && (
+        <p className="inspection-action-context">
+          Already rescheduled once, from {formatDateTime(inspection.previous_scheduled_at)}
+          {inspection.reschedule_reason ? ` — ${inspection.reschedule_reason}` : ''}
         </p>
+      )}
 
-        {inspection.previous_scheduled_at && (
-          <p style={modalStyles.contextNote}>
-            Already rescheduled once, from {formatDateTime(inspection.previous_scheduled_at)}
-            {inspection.reschedule_reason ? ` — ${inspection.reschedule_reason}` : ''}
-          </p>
-        )}
+      {error && <p id={errorId} className="inspection-action-error" role="alert">{error}</p>}
 
-        <form onSubmit={handleSubmit}>
-          {error && <div style={modalStyles.errorBox}>{error}</div>}
+      <label className="inspection-action-label" htmlFor={`${fieldId}-reason`}>Reason for Rescheduling *</label>
+      <textarea
+        id={`${fieldId}-reason`}
+        className="inspection-action-input"
+        data-initial-focus
+        required
+        rows={3}
+        value={reason}
+        readOnly={loading}
+        aria-describedby={error ? errorId : undefined}
+        onChange={e => setReason(e.target.value)}
+        placeholder="Example: Farm was unavailable on the originally scheduled date."
+      />
 
-          <label style={modalStyles.label}>Reason for Rescheduling *</label>
-          <textarea
-            value={reason}
-            onChange={e => setReason(e.target.value)}
-            style={{ ...modalStyles.input, minHeight: '80px', resize: 'vertical' }}
-            placeholder="Example: Farm was unavailable on the originally scheduled date."
-          />
-
-          <div style={{ ...modalStyles.row, ...(isMobile ? modalStyles.rowMobile : {}) }}>
-            <div>
-              <label style={modalStyles.label}>New Date *</label>
-              <input type="date" value={date} onChange={e => setDate(e.target.value)} style={modalStyles.input} />
-            </div>
-            <div>
-              <label style={modalStyles.label}>New Time *</label>
-              <input type="time" value={time} onChange={e => setTime(e.target.value)} style={modalStyles.input} />
-            </div>
-          </div>
-
-          <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
-            <button
-              type="button"
-              onClick={onClose}
-              style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}
-            >
-              {loading ? <BtnBusy label="Saving…" /> : 'Reschedule Inspection'}
-            </button>
-          </div>
-        </form>
+      <div className="inspection-action-row">
+        <div>
+          <label className="inspection-action-label" htmlFor={`${fieldId}-date`}>New Date *</label>
+          <input id={`${fieldId}-date`} className="inspection-action-input" type="date" required readOnly={loading} value={date} onChange={e => setDate(e.target.value)} />
+        </div>
+        <div>
+          <label className="inspection-action-label" htmlFor={`${fieldId}-time`}>New Time *</label>
+          <input id={`${fieldId}-time`} className="inspection-action-input" type="time" required readOnly={loading} value={time} onChange={e => setTime(e.target.value)} />
+        </div>
       </div>
-    </div>
+    </InspectionActionModal>
   )
 }
 
@@ -1264,16 +1104,16 @@ const styles = {
 
   summaryGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '14px', marginBottom: '22px' },
   summaryGridMobile: { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '11px' },
-  summaryCard: { backgroundColor: '#234A35', border: '1px solid #1b3a29', borderRadius: '14px', padding: '20px 22px' },
+  summaryCard: { backgroundColor: GREEN.primary, border: '1px solid var(--agb-green-hover)', borderRadius: '14px', padding: '20px 22px' },
   summaryValue: { fontSize: '30px', fontWeight: 800, lineHeight: 1, letterSpacing: '-0.02em', color: '#ffffff' },
-  summaryLabel: { fontSize: '12px', fontWeight: 700, marginTop: '8px', textTransform: 'uppercase', letterSpacing: '0.04em', color: '#eaf3ec' },
+  summaryLabel: { fontSize: '12px', fontWeight: 700, marginTop: '8px', textTransform: 'uppercase', letterSpacing: '0.04em', color: GREEN.soft },
   summarySub: { fontSize: '11.5px', marginTop: '3px', color: '#a9c6b3' },
 
   summaryCardPhone: {
-    position: 'relative', overflow: 'hidden', backgroundColor: '#234A35', border: '1px solid #1b3a29',
+    position: 'relative', overflow: 'hidden', backgroundColor: GREEN.primary, border: '1px solid var(--agb-green-hover)',
     borderRadius: '14px', padding: '16px 14px 18px', minHeight: '118px',
   },
-  summaryPhoneLabel: { fontSize: '13px', fontWeight: 700, color: '#eaf3ec' },
+  summaryPhoneLabel: { fontSize: '13px', fontWeight: 700, color: GREEN.soft },
   summaryPhoneValue: { fontSize: '26px', fontWeight: 800, lineHeight: 1, letterSpacing: '-0.02em', marginTop: '10px', color: '#ffffff' },
   summaryPhoneSub: { fontSize: '10px', fontWeight: 600, marginTop: '6px', color: '#a9c6b3' },
 
@@ -1291,7 +1131,7 @@ const styles = {
   // sideways instead of scrolling inside itself.
   tabs: { display: 'flex', gap: '4px', overflowX: 'auto', minWidth: 0, maxWidth: '100%', flexWrap: 'nowrap', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', },
   tab: { padding: '10px 16px', fontSize: '14px', fontWeight: 700, color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap', flexShrink: 0, },
-  tabActive: { color: '#2c8047', borderBottom: '2px solid #2c8047' },
+  tabActive: { color: GREEN.primary, borderBottom: '2px solid var(--agb-green)' },
 
   filterAnchor: { position: 'relative', flexShrink: 0 },
   filterBtn: {
@@ -1299,10 +1139,10 @@ const styles = {
     borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
     color: '#33413a', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
   },
-  filterBtnActive: { borderColor: '#2c8047', color: '#2c8047' },
+  filterBtnActive: { borderColor: GREEN.primary, color: GREEN.primary },
   filterCount: {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: '#2c8047',
+    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: GREEN.primary,
     color: '#fff', fontSize: '11px', fontWeight: 700, padding: '0 4px',
   },
   filterPanel: {
@@ -1328,7 +1168,7 @@ const styles = {
   },
   filterApplyBtn: {
     flex: 1, padding: '9px 0', borderRadius: '10px', border: 'none',
-    backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+    backgroundColor: GREEN.primary, color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
   },
 
   criticalBanner: {
@@ -1362,7 +1202,7 @@ const styles = {
     padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600,
     cursor: 'pointer', border: '1px solid #e3e6dd', backgroundColor: '#fff', whiteSpace: 'nowrap',
   },
-  completeLink: { color: '#2c8047' },
+  completeLink: { color: GREEN.primary },
   rescheduleLink: { color: '#2f6bb0' },
   cancelLink: { color: '#b91c1c' },
   viewLink: { color: '#4b5a50' },
@@ -1390,10 +1230,10 @@ const styles = {
   calendarCellEmpty: { cursor: 'default', backgroundColor: 'transparent', border: '1px solid transparent' },
   calendarCellPast: { backgroundColor: '#fafaf8', opacity: 0.55 },
   calendarCellToday: { backgroundColor: '#eef5ef', border: '1px solid #bcd8c4' },
-  calendarCellSelected: { backgroundColor: '#f4faf5', border: '1px solid #2c8047', boxShadow: '0 0 0 1px #2c8047 inset' },
+  calendarCellSelected: { backgroundColor: '#f4faf5', border: '1px solid var(--agb-green)', boxShadow: '0 0 0 1px var(--agb-green) inset' },
   calendarDayNum: { fontSize: '12.5px', fontWeight: 700, color: '#374151', marginBottom: '5px' },
   calendarDayNumMobile: { fontSize: '11px', marginBottom: '2px', textAlign: 'center' },
-  calendarDayNumToday: { color: '#1f5a34' },
+  calendarDayNumToday: { color: GREEN.hover },
 
   calendarEvent: { borderRadius: '6px', padding: '4px 6px', marginBottom: '3px', cursor: 'pointer', lineHeight: '1.25' },
   calendarEventType: { fontSize: '9.5px', fontWeight: 700 },
@@ -1422,7 +1262,7 @@ const styles = {
 
   addInspectionBtn: {
     width: '100%', boxSizing: 'border-box', padding: '11px', borderRadius: '10px', border: 'none',
-    backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer',
+    backgroundColor: GREEN.primary, color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer',
   },
   addInspectionBtnDisabled: { backgroundColor: '#e7e8e0', color: '#9aa79d', cursor: 'not-allowed', boxShadow: 'none' },
   limitNote: { fontSize: '12px', color: '#8a6a2f', backgroundColor: '#fdf8f0', border: '1px solid #f0e2cf', borderRadius: '10px', padding: '9px 11px', marginTop: '8px', lineHeight: 1.55 },
@@ -1458,7 +1298,7 @@ const paginationStyles = {
   navBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '13px', cursor: 'pointer' },
   navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
-  pageBtnActive: { backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff' },
+  pageBtnActive: { backgroundColor: GREEN.primary, borderColor: GREEN.primary, color: '#fff' },
   ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
 }
 
@@ -1487,7 +1327,7 @@ const modalStyles = {
   actionsMobile: { flexDirection: 'column-reverse' },
   btnFull: { width: '100%', boxSizing: 'border-box' },
   cancelBtn: { padding: '10px 18px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff', fontSize: '14px', fontWeight: 600, color: '#33413a', cursor: 'pointer' },
-  submitBtn: { padding: '10px 18px', borderRadius: '10px', border: 'none', backgroundColor: '#2c8047', color: '#fff', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
+  submitBtn: { padding: '10px 18px', borderRadius: '10px', border: 'none', backgroundColor: GREEN.primary, color: '#fff', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
   submitBtnDisabled: { opacity: 0.5, cursor: 'not-allowed' },
   dropdownList: {
     position: 'absolute', top: '100%', left: 0, right: 0,
@@ -1497,11 +1337,4 @@ const modalStyles = {
   },
   dropdownItem: { padding: '10px 14px', fontSize: '14px', cursor: 'pointer', color: '#33413a' },
   dropdownEmpty: { padding: '10px 14px', fontSize: '13px', color: '#9aa79d' },
-}
-
-const confirmStyles = {
-  modal: { backgroundColor: '#fff', borderRadius: '16px', padding: '28px', width: '400px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto' },
-  title: { fontSize: '17px', fontWeight: 800, color: '#16311d', marginTop: 0, marginBottom: '10px' },
-  message: { fontSize: '14px', color: '#6b7770', lineHeight: '1.5', marginBottom: '14px' },
-  fieldError: { color: '#b91c1c', fontSize: '12px', marginTop: '6px' },
 }

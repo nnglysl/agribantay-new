@@ -14,15 +14,20 @@ class MaintenanceController extends Controller
 {
     public function overdue(Request $request)
     {
+        \App\Support\TableQuery::validate($request);
         $service = app(MaintenanceStatusService::class);
 
-        $overdueFarms = Farm::where('status', 'Active')
-            ->with('latestCleanout')
-            ->get()
+        $query = Farm::where('status', 'Active')->with('qualifyingCleanouts');
+        foreach (['barangay', 'farm_size'] as $filter) {
+            if ($request->filled($filter)) $query->where($filter, $request->input($filter));
+        }
+        \App\Support\TableQuery::search($query, $request, ['id', 'owner_name', 'farm_name']);
+        $overdueFarms = $query->get()
             ->map(function ($farm) use ($service) {
                 $status = $service->getStatus($farm);
 
                 return [
+                    ...$status,
                     'farm_id'           => $farm->id,
                     'farm_name'         => $farm->farm_name,
                     'owner_name'        => $farm->owner_name,
@@ -33,7 +38,7 @@ class MaintenanceController extends Controller
                     'last_performed_at' => $status['last_performed_at'],
                 ];
             })
-            ->filter(fn($f) => in_array($f['status'], ['Overdue', 'Non-Compliant'], true));
+            ->filter(fn($f) => $f['status'] === 'Non-Compliant');
 
         if ($request->search) {
             $s = strtolower($request->search);
@@ -45,11 +50,12 @@ class MaintenanceController extends Controller
             });
         }
 
-        $overdueFarms = $overdueFarms->sortByDesc('days_overdue')->values();
+        $overdueFarms = $overdueFarms->sortBy([['days_overdue', 'desc'], ['farm_id', 'desc']])->values();
+        $overdueFarms = \App\Support\TableQuery::derived($overdueFarms, $request);
 
         return response()->json([
             'success' => true,
-            'data' => $overdueFarms,
+            'data' => \App\Support\TableQuery::payload($request, $overdueFarms),
         ]);
     }
 
@@ -58,12 +64,6 @@ class MaintenanceController extends Controller
         $farm = Farm::findOrFail($farmId);
 
         $status = app(MaintenanceStatusService::class)->getStatus($farm);
-
-        $graceStatus = match ($status['status']) {
-            'Overdue'       => 'Within 30-day grace period',
-            'Non-Compliant' => 'Grace period exceeded',
-            default         => 'Not applicable',
-        };
 
         $notifications = MaintenanceNotification::with('smsLog')
             ->where('farm_id', $farmId)
@@ -74,12 +74,7 @@ class MaintenanceController extends Controller
                     ? 'Overdue Reminder'
                     : 'Non-Compliance Notice',
 
-                // Mirrors the exact SMS body CheckMaintenanceCompliance
-                // sends for each event — not invented copy, the real
-                // message content the farmer actually received.
-                'description' => $n->event === 'overdue_reminder'
-                    ? 'Your manure clean-out is overdue. Please clean and properly dispose of accumulated manure and update your manure record.'
-                    : 'Your manure clean-out is still overdue and has exceeded the 30-day grace period. Please complete the required clean-out and update your manure record.',
+                'description' => $n->smsLog?->message ?? 'No linked SMS message is available for this historical event.',
 
                 'sent_at' => LocalTime::dateTime($n->sent_at),
 
@@ -93,10 +88,6 @@ class MaintenanceController extends Controller
             ->map(fn($log) => [
                 'performed_at' => $log->performed_at->format('M d, Y'),
                 'notes'        => $log->notes,
-
-                // Only the farm owner ever logs their own clean-outs
-                // today — no separate "recorded by" field exists on
-                // maintenance_logs.
                 'recorded_by'  => $farm->owner_name,
             ]);
 
@@ -114,13 +105,7 @@ class MaintenanceController extends Controller
                     'created_at'    => LocalTime::date($farm->created_at),
                 ],
 
-                'maintenance' => [
-                    'due_date'          => $status['due_date'],
-                    'last_performed_at' => $status['last_performed_at'] ?? 'Never logged',
-                    'days_overdue'      => $status['days_overdue'],
-                    'status'            => $status['status'],
-                    'grace_status'      => $graceStatus,
-                ],
+                'maintenance' => $status,
 
                 'notifications' => $notifications,
 

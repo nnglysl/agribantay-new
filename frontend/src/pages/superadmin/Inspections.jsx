@@ -1,3 +1,5 @@
+import { GREEN } from '../../theme/green'
+import { useTableFetch } from '../../hooks/useTableFetch'
 import ScrollableTabs from '../../components/ScrollableTabs'
 import TableScroll from '../../components/TableScroll'
 import { useState, useEffect, useMemo, useRef } from 'react'
@@ -9,8 +11,8 @@ import { useCachedFetch } from '../../hooks/useCachedFetch'
 import { LIVE_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useMonthFilter, filterByMonth } from '../../hooks/useMonthFilter'
-import { formatDate, formatDateTime, parseLocalDate, DISPLAY_TIME_ZONE } from '../../utils/formatDate'
-import { viewModalStyles as v } from '../../styles/viewModalStyles'
+import { formatDate, formatDateTime, DISPLAY_TIME_ZONE } from '../../utils/formatDate'
+import InspectionDetailsModal from '../../components/InspectionDetailsModal'
 import { SkeletonTable } from '../../components/Loading'
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -22,17 +24,11 @@ function inspectionTypeStyle(type) {
   const isFollowUp = type === 'Follow-up'
   return {
     label: isFollowUp ? 'Follow-up Inspection' : 'General Inspection',
-    bg: isFollowUp ? '#b45309' : '#2c8047',
+    bg: isFollowUp ? '#b45309' : GREEN.primary,
     text: '#ffffff',
   }
 }
 
-function matchesSearch(i, search) {
-  if (!search) return true
-  const q = search.toLowerCase()
-  const haystack = [i.farm_name, i.inspection_type, i.scheduled_by_name].filter(Boolean).join(' ').toLowerCase()
-  return haystack.includes(q)
-}
 
 function sameDay(a, b) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
@@ -58,17 +54,9 @@ function displayStatus(i) {
 }
 
 // Inclusive calendar-date range check. Date inputs give "YYYY-MM-DD", which
-// must be parsed as LOCAL midnight (parseLocalDate) — new Date("YYYY-MM-DD")
+// must be parsed as LOCAL midnight () — new Date("YYYY-MM-DD")
 // is UTC and shifted a July 13 inspection out of a July 13–21 range.
-function inDateRange(dateValue, from, to) {
-  if (!from && !to) return true
-  const d = new Date(dateValue)
-  if (isNaN(d.getTime())) return false
-  const dOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate())
-  if (from && dOnly < parseLocalDate(from)) return false
-  if (to && dOnly > parseLocalDate(to)) return false
-  return true
-}
+
 
 /**
  * Super Admin's Inspections page is view-only monitoring/oversight — no
@@ -191,63 +179,20 @@ export default function SuperAdminInspections() {
     ? [historyFarm, historyStatus, historyFrom, historyTo].filter(Boolean).length
     : 0
 
-  const { data: inspectionsData, loading, error } = useCachedFetch('/admin/inspections', {}, { pollMs: LIVE_POLL_MS })
+  const { data: inspectionsData, loading, error } = useCachedFetch('/admin/inspections', { calendar_month: viewDate.getMonth() + 1, calendar_year: viewDate.getFullYear() }, { pollMs: LIVE_POLL_MS })
 
-  const inspections = useMemo(() => inspectionsData || [], [inspectionsData])
+  const inspections = useMemo(() => inspectionsData?.calendar || [], [inspectionsData])
 
-  const scheduled = inspections.filter(i => i.status === 'Scheduled' && !isOverdue(i))
-  const overdue = inspections.filter(isOverdue)
-  const completed = inspections.filter(i => i.status === 'Completed')
-  const historyList = inspections.filter(i => i.status === 'Completed' || i.status === 'Cancelled')
-
-  const farmOptions = useMemo(
-    () => [...new Set(inspections.map(i => i.farm_name).filter(Boolean))].sort(),
-    [inspections]
-  )
-
-  const scheduledByOptions = useMemo(
-    () => [...new Set(inspections.map(i => i.scheduled_by_name?.trim()).filter(Boolean))].sort(),
-    [inspections]
-  )
-
-  const filteredScheduled = useMemo(() => {
-    return scheduled.filter(i => {
-      if (schedFarm && i.farm_name !== schedFarm) return false
-      if (schedType && i.inspection_type !== schedType) return false
-      if (schedScheduledBy && (i.scheduled_by_name?.trim() || '') !== schedScheduledBy) return false
-      if (!inDateRange(i.scheduled_at, schedFrom, schedTo)) return false
-      return matchesSearch(i, search)
-    })
-  }, [scheduled, schedFarm, schedType, schedScheduledBy, schedFrom, schedTo, search])
-
-  const filteredOverdue = useMemo(() => {
-    return overdue.filter(i => {
-      if (schedFarm && i.farm_name !== schedFarm) return false
-      if (schedType && i.inspection_type !== schedType) return false
-      if (schedScheduledBy && (i.scheduled_by_name?.trim() || '') !== schedScheduledBy) return false
-      if (!inDateRange(i.scheduled_at, schedFrom, schedTo)) return false
-      return matchesSearch(i, search)
-    })
-  }, [overdue, schedFarm, schedType, schedScheduledBy, schedFrom, schedTo, search])
-
-  const filteredCompleted = useMemo(() => {
-    return completed.filter(i => {
-      if (complFarm && i.farm_name !== complFarm) return false
-      if (complType && i.inspection_type !== complType) return false
-      if (complScheduledBy && (i.scheduled_by_name?.trim() || '') !== complScheduledBy) return false
-      if (!inDateRange(i.scheduled_at, complFrom, complTo)) return false
-      return matchesSearch(i, search)
-    })
-  }, [completed, complFarm, complType, complScheduledBy, complFrom, complTo, search])
-
-  const filteredHistory = useMemo(() => {
-    return historyList.filter(i => {
-      if (historyFarm && i.farm_name !== historyFarm) return false
-      if (historyStatus && i.status !== historyStatus) return false
-      if (!inDateRange(i.scheduled_at, historyFrom, historyTo)) return false
-      return matchesSearch(i, search)
-    })
-  }, [historyList, historyFarm, historyStatus, historyFrom, historyTo, search])
+  const farmOptions = inspectionsData?.summary?.farm_options || []
+  const scheduledByOptions = inspectionsData?.summary?.staff_options || []
+  const tableFilters = { tab, search,
+    farm_name: schedLike ? schedFarm : tab === 'completed' ? complFarm : historyFarm,
+    inspection_type: schedLike ? schedType : tab === 'completed' ? complType : '',
+    scheduled_by_name: schedLike ? schedScheduledBy : tab === 'completed' ? complScheduledBy : '',
+    status: tab === 'history' ? historyStatus : '',
+    from: schedLike ? schedFrom : tab === 'completed' ? complFrom : historyFrom,
+    to: schedLike ? schedTo : tab === 'completed' ? complTo : historyTo,
+  }
 
   const monthInspections = filterByMonth(inspections, viewDate)
   const totalThisMonth = monthInspections.length
@@ -412,7 +357,7 @@ export default function SuperAdminInspections() {
 
       {!loading && !error && tab === 'scheduled' && (
         <InspectionTable
-          list={filteredScheduled}
+          filters={tableFilters}
           columns={SCHEDULED_COLUMNS}
           actionLabel="View"
           onView={setViewInspection}
@@ -427,7 +372,7 @@ export default function SuperAdminInspections() {
 
       {!loading && !error && tab === 'overdue' && (
         <InspectionTable
-          list={filteredOverdue}
+          filters={tableFilters}
           columns={SCHEDULED_COLUMNS}
           actionLabel="View"
           onView={setViewInspection}
@@ -442,7 +387,7 @@ export default function SuperAdminInspections() {
 
       {!loading && !error && tab === 'completed' && (
         <InspectionTable
-          list={filteredCompleted}
+          filters={tableFilters}
           columns={COMPLETED_COLUMNS}
           actionLabel="View"
           onView={setViewInspection}
@@ -457,7 +402,7 @@ export default function SuperAdminInspections() {
 
       {!loading && !error && tab === 'history' && (
         <InspectionTable
-          list={filteredHistory}
+          filters={tableFilters}
           columns={HISTORY_COLUMNS}
           actionLabel="View"
           onView={setViewInspection}
@@ -475,55 +420,21 @@ export default function SuperAdminInspections() {
         const fields = [
           { label: 'Farm', value: viewInspection.farm_name },
           ...(viewInspection.owner_name ? [{ label: 'Farm Owner', value: viewInspection.owner_name }] : []),
-          { label: 'Type', value: viewInspection.inspection_type },
-          { label: 'Staff', value: responsibleStaff(viewInspection) },
-          { label: 'Scheduled', value: formatDateTime(viewInspection.scheduled_at) },
-          ...(viewInspection.completed_at ? [{ label: 'Completed', value: formatDateTime(viewInspection.completed_at) }] : []),
+          { label: 'Inspection Type', value: viewInspection.inspection_type },
+          { label: 'Assigned Staff', value: responsibleStaff(viewInspection) },
+          { label: 'Scheduled Date and Time', value: formatDateTime(viewInspection.scheduled_at) },
+          ...(viewInspection.completed_at ? [{ label: 'Completed Date and Time', value: formatDateTime(viewInspection.completed_at) }] : []),
         ]
-        const hasText = viewInspection.notes || viewInspection.findings
         return (
-          <div style={v.overlay} onClick={() => setViewInspection(null)}>
-            <div style={{ ...v.modal, ...(isMobile ? v.modalMobile : {}) }} onClick={e => e.stopPropagation()}>
-              <div style={v.header}>
-                <div style={v.headerTitleRow}>
-                  <h3 style={v.title}>{viewInspection.inspection_number}</h3>
-                  <span style={{ ...v.badge, color: c, backgroundColor: badgeBg(displayStatus(viewInspection)) }}>{displayStatus(viewInspection)}</span>
-                </div>
-                <span style={v.close} onClick={() => setViewInspection(null)}>×</span>
-              </div>
-
-              <span style={v.sectionLabel}>Inspection Information</span>
-              <div style={hasText ? v.grid : v.gridLast}>
-                {fields.map(f => (
-                  <div key={f.label} style={v.fieldBox}>
-                    <div style={v.fieldLabel}>{f.label}</div>
-                    <div style={v.fieldValue}>{f.value || '—'}</div>
-                  </div>
-                ))}
-              </div>
-
-              {viewInspection.notes && (
-                <>
-                  <span style={v.sectionLabel}>Notes</span>
-                  <div style={{ ...v.notesBox, marginBottom: '18px' }}>
-                    <p style={v.notes}>{viewInspection.notes}</p>
-                  </div>
-                </>
-              )}
-              {viewInspection.findings && (
-                <>
-                  <span style={v.sectionLabel}>Findings</span>
-                  <div style={v.notesBox}>
-                    <p style={v.notes}>{viewInspection.findings}</p>
-                  </div>
-                </>
-              )}
-
-              <div style={v.actions}>
-                <button onClick={() => setViewInspection(null)} style={v.closeBtn}>Close</button>
-              </div>
-            </div>
-          </div>
+          <InspectionDetailsModal
+            inspectionNumber={viewInspection.inspection_number}
+            status={displayStatus(viewInspection)}
+            badgeStyle={{ color: c, backgroundColor: badgeBg(displayStatus(viewInspection)) }}
+            fields={fields.map(field => ({ ...field, value: field.value || '—' }))}
+            notes={viewInspection.notes}
+            findings={viewInspection.findings}
+            onClose={() => setViewInspection(null)}
+          />
         )
       })()}
     </AdminLayout>
@@ -550,10 +461,10 @@ function SummaryCard({ label, value, sub, isMobile }) {
   )
 }
 
-const STATUS_COLOR = { Scheduled: '#b45309', Overdue: '#b91c1c', Completed: '#256b3d', Cancelled: '#6b7280' }
+const STATUS_COLOR = { Scheduled: '#b45309', Overdue: '#b91c1c', Completed: GREEN.hover, Cancelled: '#6b7280' }
 
 function badgeBg(status) {
-  if (status === 'Completed') return '#eaf3ec'
+  if (status === 'Completed') return GREEN.soft
   if (status === 'Overdue') return '#fdecec'
   if (status === 'Scheduled') return '#fbf1e2'
   return '#eef1ea'
@@ -606,19 +517,22 @@ const HISTORY_COLUMNS = [
   { header: 'Date Completed', render: i => formatDate(i.completed_at) },
 ]
 
-function InspectionTable({ list, columns, actionLabel, onView, isMobile, emptyText }) {
+function InspectionTable({ filters, columns, actionLabel, onView, isMobile, emptyText }) {
 
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
 
-  useEffect(() => { setCurrentPage(1) }, [list, pageSize])
+  const { data, loading, error } = useTableFetch('/admin/inspections', filters, currentPage, pageSize, setCurrentPage, { pollMs: LIVE_POLL_MS })
+  const list = data?.items || []
+  if (loading) return <SkeletonTable rows={6} columns={6} />
+  if (error) return <div style={styles.tableEmpty}>{error}</div>
 
   if (list.length === 0) return <div style={styles.tableEmpty}>{emptyText}</div>
 
-  const totalItems = list.length
-  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
+  const totalItems = data?.total || 0
+  const totalPages = data?.last_page || 1
   const start = (currentPage - 1) * pageSize
-  const paginated = list.slice(start, start + pageSize)
+  const paginated = list
   const rangeStart = totalItems === 0 ? 0 : start + 1
   const rangeEnd = Math.min(currentPage * pageSize, totalItems)
 
@@ -637,7 +551,7 @@ function InspectionTable({ list, columns, actionLabel, onView, isMobile, emptyTe
               <tr key={i.id}>
                 {columns.map(c => <td key={c.header} style={styles.td}>{c.render(i)}</td>)}
                 <td className="agb-table-actions-cell" style={{ ...styles.td, textAlign: 'right' }}>
-                  <span className="agb-table-action" style={{ ...styles.actionBtn, ...styles.viewLink }} onClick={() => onView(i)}>{actionLabel}</span>
+                  <button type="button" className="agb-table-action" style={{ ...styles.actionBtn, ...styles.viewLink }} onClick={() => onView(i)}>{actionLabel}</button>
                 </td>
               </tr>
             ))}
@@ -714,7 +628,15 @@ function CalendarView({ inspections, viewDate, setViewDate, onViewEvent, isMobil
 
   const handleEventClick = (e, insp) => {
     e.stopPropagation()
+    e.currentTarget.focus()
     onViewEvent(insp)
+  }
+
+  const handleEventKeyDown = (event, inspection) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      handleEventClick(event, inspection)
+    }
   }
 
   const selectDay = (date) => setSelectedDate(date)
@@ -785,6 +707,10 @@ function CalendarView({ inspections, viewDate, setViewDate, onViewEvent, isMobil
                                 key={i}
                                 style={{ ...styles.calendarEventMobile, backgroundColor: t.bg, color: t.text }}
                                 onClick={(e) => handleEventClick(e, insp)}
+                                role="button"
+                                tabIndex={0}
+                                className="inspection-details-trigger"
+                                onKeyDown={e => handleEventKeyDown(e, insp)}
                                 title={`${t.label} — ${insp.farm_name}`}
                               >
                                 {insp.farm_name}
@@ -807,6 +733,10 @@ function CalendarView({ inspections, viewDate, setViewDate, onViewEvent, isMobil
                               key={i}
                               style={{ ...styles.calendarEvent, backgroundColor: t.bg, color: t.text }}
                               onClick={(e) => handleEventClick(e, insp)}
+                              role="button"
+                              tabIndex={0}
+                              className="inspection-details-trigger"
+                              onKeyDown={e => handleEventKeyDown(e, insp)}
                             >
                               <div style={styles.calendarEventType}>{t.label}</div>
                               <div style={{ ...styles.calendarEventFarm, color: t.text }}>{insp.farm_name}</div>
@@ -831,7 +761,7 @@ function CalendarView({ inspections, viewDate, setViewDate, onViewEvent, isMobil
         </div>
 
         <div style={{ ...styles.legend, ...(isMobile ? styles.legendMobile : {}) }}>
-          <span style={styles.legendItem}><span style={{ ...styles.legendDot, backgroundColor: '#2c8047' }} /> General Inspection</span>
+          <span style={styles.legendItem}><span style={{ ...styles.legendDot, backgroundColor: GREEN.primary }} /> General Inspection</span>
           <span style={styles.legendItem}><span style={{ ...styles.legendDot, backgroundColor: '#b45309' }} /> Follow-up Inspection</span>
         </div>
       </div>
@@ -858,7 +788,7 @@ function CalendarView({ inspections, viewDate, setViewDate, onViewEvent, isMobil
                 <div style={styles.selectedItemType}>{insp.inspection_type}</div>
                 <div style={styles.selectedItemMeta}>Scheduled By: {insp.scheduled_by_name?.trim() || '—'}</div>
                 <div style={styles.selectedItemMeta}>Status: {insp.status}</div>
-                <span style={styles.selectedItemLink} onClick={() => onViewEvent(insp)}>View Inspection Details</span>
+                <button type="button" style={{ ...styles.selectedItemLink, border: 0, padding: 0, background: 'transparent' }} onClick={() => onViewEvent(insp)}>View Inspection Details</button>
               </div>
             ))
           )}
@@ -880,16 +810,16 @@ const styles = {
 
   summaryGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '14px', marginBottom: '22px' },
   summaryGridMobile: { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '11px' },
-  summaryCard: { backgroundColor: '#234A35', border: '1px solid #1b3a29', borderRadius: '14px', padding: '20px 22px' },
+  summaryCard: { backgroundColor: GREEN.primary, border: '1px solid var(--agb-green-hover)', borderRadius: '14px', padding: '20px 22px' },
   summaryValue: { fontSize: '30px', fontWeight: 800, lineHeight: 1, letterSpacing: '-0.02em', color: '#ffffff' },
-  summaryLabel: { fontSize: '12px', fontWeight: 700, marginTop: '8px', textTransform: 'uppercase', letterSpacing: '0.04em', color: '#eaf3ec' },
+  summaryLabel: { fontSize: '12px', fontWeight: 700, marginTop: '8px', textTransform: 'uppercase', letterSpacing: '0.04em', color: GREEN.soft },
   summarySub: { fontSize: '11.5px', marginTop: '3px', color: '#a9c6b3' },
 
   summaryCardPhone: {
-    position: 'relative', overflow: 'hidden', backgroundColor: '#234A35', border: '1px solid #1b3a29',
+    position: 'relative', overflow: 'hidden', backgroundColor: GREEN.primary, border: '1px solid var(--agb-green-hover)',
     borderRadius: '14px', padding: '16px 14px 18px', minHeight: '118px',
   },
-  summaryPhoneLabel: { fontSize: '13px', fontWeight: 700, color: '#eaf3ec' },
+  summaryPhoneLabel: { fontSize: '13px', fontWeight: 700, color: GREEN.soft },
   summaryPhoneValue: { fontSize: '26px', fontWeight: 800, lineHeight: 1, letterSpacing: '-0.02em', marginTop: '10px', color: '#ffffff' },
   summaryPhoneSub: { fontSize: '10px', fontWeight: 600, marginTop: '6px', color: '#a9c6b3' },
 
@@ -903,7 +833,7 @@ const styles = {
   // sideways instead of scrolling inside itself.
   tabs: { display: 'flex', gap: '4px', overflowX: 'auto', minWidth: 0, maxWidth: '100%', flexWrap: 'nowrap', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', },
   tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap', flexShrink: 0, },
-  tabActive: { color: '#2c8047', fontWeight: 700, borderBottom: '2px solid #2c8047' },
+  tabActive: { color: GREEN.primary, fontWeight: 700, borderBottom: '2px solid var(--agb-green)' },
 
   toolbarRight: { display: 'flex', alignItems: 'center', gap: '10px', paddingBottom: '10px' },
   toolbarRightMobile: { paddingBottom: '2px' },
@@ -929,10 +859,10 @@ const styles = {
     borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
     color: '#33413a', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: SANS, whiteSpace: 'nowrap',
   },
-  filterBtnActive: { borderColor: '#2c8047', color: '#2c8047' },
+  filterBtnActive: { borderColor: GREEN.primary, color: GREEN.primary },
   filterCount: {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: '#2c8047',
+    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: GREEN.primary,
     color: '#fff', fontSize: '11px', fontWeight: 700, padding: '0 4px',
   },
   filterPanel: {
@@ -958,7 +888,7 @@ const styles = {
   },
   filterApplyBtn: {
     flex: 1, padding: '9px 0', borderRadius: '10px', border: 'none',
-    backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
+    backgroundColor: GREEN.primary, color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
   },
   dateRangeStack: { display: 'flex', flexDirection: 'column', gap: '6px' },
   dateRangeSep: { fontSize: '11.5px', color: '#8a968d', textAlign: 'center' },
@@ -1012,10 +942,10 @@ const styles = {
   calendarCellEmpty: { cursor: 'default', backgroundColor: 'transparent', border: '1px solid transparent' },
   calendarCellPast: { backgroundColor: '#fafaf8', opacity: 0.55 },
   calendarCellToday: { backgroundColor: '#eef5ef', border: '1px solid #bcd8c4' },
-  calendarCellSelected: { backgroundColor: '#f4faf5', border: '1px solid #2c8047', boxShadow: '0 0 0 1px #2c8047 inset' },
+  calendarCellSelected: { backgroundColor: '#f4faf5', border: '1px solid var(--agb-green)', boxShadow: '0 0 0 1px var(--agb-green) inset' },
   calendarDayNum: { fontSize: '12.5px', fontWeight: 700, color: '#374151', marginBottom: '5px' },
   calendarDayNumMobile: { fontSize: '11px', marginBottom: '2px', textAlign: 'center' },
-  calendarDayNumToday: { color: '#1f5a34' },
+  calendarDayNumToday: { color: GREEN.hover },
 
   calendarEvent: { borderRadius: '6px', padding: '4px 6px', marginBottom: '3px', cursor: 'pointer', lineHeight: '1.25' },
   calendarEventType: { fontSize: '9.5px', fontWeight: 700 },
@@ -1052,7 +982,7 @@ const styles = {
   selectedItemMeta: { fontSize: '12px', color: '#8a968d', marginTop: '6px' },
   selectedItemLink: {
     display: 'inline-block', marginTop: '10px', fontSize: '12.5px', fontWeight: 700,
-    color: '#2c8047', cursor: 'pointer',
+    color: GREEN.primary, cursor: 'pointer',
   },
 
   legend: { display: 'flex', gap: '20px', marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #f2f3ed' },
@@ -1071,6 +1001,6 @@ const paginationStyles = {
   navBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '13px', cursor: 'pointer' },
   navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
-  pageBtnActive: { backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff' },
+  pageBtnActive: { backgroundColor: GREEN.primary, borderColor: GREEN.primary, color: '#fff' },
   ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
 }

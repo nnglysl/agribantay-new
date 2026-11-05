@@ -1,0 +1,14 @@
+{
+  "kind": "MANUALLY_RESTORED_CALIBRATION_RECHECK",
+  "checkpoint_utc": "2026-11-04T00:24:41.054Z",
+  "file": "backend/app/Services/SensorCalibrationService.php",
+  "captured_sha256": "2a29799dc83f364f5d527eebde20c709a038a052d4f8c443dc0a8a7bf0274a3d",
+  "current_sha256": "6aae56c44e0dee9baae28db7c1bb8ca6f83f7ec167755b770781282fe9eed85c",
+  "captured_bytes": 16328,
+  "current_bytes": 16704,
+  "byte_identical": false,
+  "equal_after_crlf_to_lf_only": false,
+  "captured_crlf": 0,
+  "current_crlf": 0,
+  "calibration_source_modified_by_agent": false
+}

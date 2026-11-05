@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\AlertHistoryController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\FarmController;
 use App\Http\Controllers\Admin\FarmOwnerController;
+use App\Http\Controllers\Admin\FarmPrintController;
 use App\Http\Controllers\Admin\GeneratedReportController;
 use App\Http\Controllers\Admin\InspectionController;
 use App\Http\Controllers\Admin\MaintenanceController as AdminMaintenanceController;
@@ -12,6 +13,7 @@ use App\Http\Controllers\Admin\ReportController;
 use App\Http\Controllers\Admin\SensorController;
 use App\Http\Controllers\Admin\ServiceRequestController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\FarmControlDocumentController;
 use App\Http\Controllers\Farmer\DashboardController as FarmerDashboardController;
 use App\Http\Controllers\Farmer\DisposalController as FarmerDisposalController;
 use App\Http\Controllers\Farmer\FarmController as FarmerFarmController;
@@ -20,8 +22,10 @@ use App\Http\Controllers\Farmer\InspectionController as FarmerInspectionControll
 use App\Http\Controllers\Farmer\MaintenanceController as FarmerMaintenanceController;
 use App\Http\Controllers\Farmer\ReadingHistoryController as FarmerReadingHistoryController;
 use App\Http\Controllers\Farmer\ServiceRequestController as FarmerServiceRequestController;
+use App\Http\Controllers\HouseMonitoringController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PasswordResetController;
+use App\Http\Controllers\PoultryHouseController;
 use App\Http\Controllers\SensorIngestController;
 use App\Http\Controllers\ServiceRequestAttachmentController;
 use App\Http\Controllers\SettingsController;
@@ -33,13 +37,13 @@ use App\Http\Controllers\Vet\ReportController as VetReportController;
 use App\Http\Controllers\Vet\VaccinationRequestController;
 use Illuminate\Support\Facades\Route;
 
-Route::post('/login', [AuthController::class, 'login']);
+Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:auth-login');
 Route::post('/sensor-readings', [SensorIngestController::class, 'store']);
-Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+Route::post('/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:otp-send');
 
-Route::post('/password/otp/request', [PasswordResetController::class, 'requestOtp']);
-Route::post('/password/otp/verify', [PasswordResetController::class, 'verifyOtp']);
-Route::post('/password/reset', [PasswordResetController::class, 'resetPassword']);
+Route::post('/password/otp/request', [PasswordResetController::class, 'requestOtp'])->middleware('throttle:otp-send');
+Route::post('/password/otp/verify', [PasswordResetController::class, 'verifyOtp'])->middleware('throttle:otp-verify');
+Route::post('/password/reset', [PasswordResetController::class, 'resetPassword'])->middleware('throttle:auth-sensitive');
 
 // 'active' re-reads users.status from the database on every authenticated
 // request, so an account deactivated mid-session loses access immediately
@@ -47,14 +51,14 @@ Route::post('/password/reset', [PasswordResetController::class, 'resetPassword']
 Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
-    Route::post('/change-password', [AuthController::class, 'changePassword']);
+    Route::post('/change-password', [AuthController::class, 'changePassword'])->middleware('throttle:auth-sensitive');
     Route::post('/acknowledge-legal', [AuthController::class, 'acknowledgeLegal']);
 
     Route::get('/settings', [SettingsController::class, 'show']);
     Route::put('/settings/profile', [SettingsController::class, 'updateProfile']);
-    Route::put('/settings/password', [SettingsController::class, 'updatePassword']);
-    Route::post('/settings/email/otp/request', [SettingsController::class, 'requestEmailOtp']);
-    Route::post('/settings/email/otp/verify', [SettingsController::class, 'verifyEmailOtp']);
+    Route::put('/settings/password', [SettingsController::class, 'updatePassword'])->middleware('throttle:auth-sensitive');
+    Route::post('/settings/email/otp/request', [SettingsController::class, 'requestEmailOtp'])->middleware('throttle:otp-send');
+    Route::post('/settings/email/otp/verify', [SettingsController::class, 'verifyEmailOtp'])->middleware('throttle:otp-verify');
 
     Route::get('/notifications', [NotificationController::class, 'index']);
     Route::patch('/notifications/{id}/read', [NotificationController::class, 'markRead']);
@@ -64,6 +68,22 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     // disk). Role/ownership check is inside the controller.
     Route::get('/service-requests/{id}/attachment', [ServiceRequestAttachmentController::class, 'show']);
     Route::get('/service-requests/{id}/attachments/{attachmentId}', [ServiceRequestAttachmentController::class, 'show'])->whereNumber('attachmentId');
+
+    Route::get('/farms/{farmId}/poultry-houses', [PoultryHouseController::class, 'index'])->whereNumber('farmId');
+    Route::get('/farms/{farmId}/house-monitoring', [HouseMonitoringController::class, 'index'])->whereNumber('farmId');
+    Route::get('/farms/{farmId}/house-readings', [HouseMonitoringController::class, 'history'])->whereNumber('farmId');
+    Route::middleware('role:admin,super_admin')->group(function () {
+        Route::post('/farms/{farmId}/poultry-houses', [PoultryHouseController::class, 'store'])->whereNumber('farmId');
+        Route::patch('/farms/{farmId}/poultry-houses/{houseId}/deactivate', [PoultryHouseController::class, 'deactivate'])
+            ->whereNumber('farmId')->whereNumber('houseId');
+        Route::patch('/farms/{farmId}/poultry-houses/{houseId}/reactivate', [PoultryHouseController::class, 'reactivate'])
+            ->whereNumber('farmId')->whereNumber('houseId');
+    });
+
+    Route::middleware('role:farm_owner,admin,super_admin')->group(function () {
+        Route::get('/farms/{farmId}/control-documents', [FarmControlDocumentController::class, 'index']);
+        Route::get('/farms/{farmId}/control-documents/{documentId}/file', [FarmControlDocumentController::class, 'file'])->whereNumber('documentId');
+    });
 
     /*
     |--------------------------------------------------------------------------
@@ -99,6 +119,7 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     |--------------------------------------------------------------------------
     */
     Route::middleware('role:farm_owner')->prefix('farmer')->group(function () {
+        Route::post('/farms/{farmId}/control-documents', [FarmControlDocumentController::class, 'store']);
         Route::get('/farms', [FarmerFarmController::class, 'index']);
         Route::get('/dashboard', [FarmerDashboardController::class, 'index']);
         Route::get('/inspections', [FarmerInspectionController::class, 'index']);
@@ -110,8 +131,6 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::post('/maintenance', [FarmerMaintenanceController::class, 'store']);
         Route::get('/disposal-records', [FarmerDisposalController::class, 'index']);
         Route::post('/disposal-records', [FarmerDisposalController::class, 'store']);
-        Route::get('/farm-owners', [FarmOwnerController::class, 'index']);
-        Route::post('/farm-owners', [FarmOwnerController::class, 'store']);
     });
 
     /*
@@ -126,6 +145,7 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'index']);
 
         Route::get('/farm-owners', [FarmOwnerController::class, 'index']);
+        Route::post('/farm-owners/validate', [FarmOwnerController::class, 'validateOwner']);
         Route::post('/farm-owners', [FarmOwnerController::class, 'store']);
 
         Route::get('/farms', [FarmController::class, 'index']);
@@ -133,16 +153,19 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::post('/farms/check-location', [FarmController::class, 'checkLocation']);
         Route::post('/farms', [FarmController::class, 'store']);
         Route::get('/farms/{id}', [FarmController::class, 'show']);
+        Route::get('/farms/{id}/print-options', [FarmPrintController::class, 'options'])->whereNumber('id');
+        Route::post('/farms/{id}/print-preview', [FarmPrintController::class, 'preview'])->whereNumber('id');
+        Route::post('/farms/{id}/print-batch', [FarmPrintController::class, 'batch'])->whereNumber('id');
         Route::get('/farms/{id}/trend', [FarmController::class, 'trend']);
         Route::get('/farms/{id}/readings-history', [FarmController::class, 'readingsHistory']);
         Route::get('/farms/{id}/readings-summary', [FarmController::class, 'readingsSummary']);
         Route::get('/farms/{id}/root-cause', [FarmController::class, 'rootCause']);
         Route::put('/farms/{id}', [FarmController::class, 'update']);
-        Route::post('/farms/{id}/email/otp/request', [FarmController::class, 'requestOwnerEmailOtp']);
-        Route::post('/farms/{id}/email/otp/verify', [FarmController::class, 'verifyOwnerEmailOtp']);
+        Route::post('/farms/{id}/email/otp/request', [FarmController::class, 'requestOwnerEmailOtp'])->middleware('throttle:otp-send');
+        Route::post('/farms/{id}/email/otp/verify', [FarmController::class, 'verifyOwnerEmailOtp'])->middleware('throttle:otp-verify');
         Route::patch('/farms/{id}/deactivate', [FarmController::class, 'deactivate']);
         Route::patch('/farms/{id}/activate', [FarmController::class, 'activate']);
-        Route::post('/farms/{userId}/resend-sms', [FarmController::class, 'resendSms']);
+        Route::post('/farms/{userId}/resend-sms', [FarmController::class, 'resendSms'])->middleware('throttle:auth-sensitive');
         Route::get('/farms/{id}/maintenance-logs', [FarmController::class, 'maintenanceLogs']);
         Route::get('/farms/{id}/disposal-records', [FarmController::class, 'disposalRecords']);
         Route::get('/farms/{id}/inspection-records', [FarmController::class, 'inspectionRecords']);
@@ -156,6 +179,7 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::get('/sensors', [SensorController::class, 'all']);
         Route::post('/sensors', [SensorController::class, 'store']);
         Route::put('/sensors/{id}', [SensorController::class, 'update']);
+        Route::get('/sensors/{id}/assignment-history', [SensorController::class, 'assignmentHistory']);
         // Device rotation: the same physical unit moves between farms.
         // Both endpoints only change the device's CURRENT farm_id — readings
         // already stored keep the farm_id stamped at ingestion time.
@@ -203,17 +227,17 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::get('/accounts/{id}', [AccountController::class, 'show']);
         Route::post('/accounts', [AccountController::class, 'store']);
         Route::put('/accounts/{id}', [AccountController::class, 'update']);
-        Route::post('/accounts/{id}/email/otp/request', [AccountController::class, 'requestAccountEmailOtp']);
-        Route::post('/accounts/{id}/email/otp/verify', [AccountController::class, 'verifyAccountEmailOtp']);
+        Route::post('/accounts/{id}/email/otp/request', [AccountController::class, 'requestAccountEmailOtp'])->middleware('throttle:otp-send');
+        Route::post('/accounts/{id}/email/otp/verify', [AccountController::class, 'verifyAccountEmailOtp'])->middleware('throttle:otp-verify');
         Route::patch('/accounts/{id}/activate', [AccountController::class, 'activate']);
         Route::patch('/accounts/{id}/deactivate', [AccountController::class, 'deactivate']);
-        Route::post('/accounts/{id}/reset-password', [AccountController::class, 'resetPassword']);
+        Route::post('/accounts/{id}/reset-password', [AccountController::class, 'resetPassword'])->middleware('throttle:auth-sensitive');
 
         Route::get('/activity-logs', [ActivityLogController::class, 'index']);
 
         // Permanent farm deletion — Deactivated farms only, gated by an emailed
         // verification code (see SuperAdmin\FarmDeletionController).
-        Route::post('/farms/{id}/delete/otp/request', [FarmDeletionController::class, 'requestOtp']);
-        Route::delete('/farms/{id}', [FarmDeletionController::class, 'destroy']);
+        Route::post('/farms/{id}/delete/otp/request', [FarmDeletionController::class, 'requestOtp'])->middleware('throttle:otp-send');
+        Route::delete('/farms/{id}', [FarmDeletionController::class, 'destroy'])->middleware('throttle:auth-sensitive');
     });
 });

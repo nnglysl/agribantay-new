@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\SensorReading;
 use App\Services\AlertHistoryService;
 use App\Services\FarmStatusService;
 use Illuminate\Database\Schema\Blueprint;
@@ -43,16 +44,10 @@ class AmmoniaVoltageTelemetryTest extends TestCase
             $t->boolean('is_mock')->default(false);
             $t->timestamps();
         });
-        // Apply the real migration to an old schema/row: no history is invented.
+        // Deliberately leave out the optional column, matching the local schema.
         DB::table('sensor_readings')->insert([
             'farm_id' => 1, 'sensor_id' => 1, 'ammonia_raw' => 429, 'ammonia' => 1.56,
         ]);
-        $migration = require database_path('migrations/2026_10_10_120000_add_ammonia_adc_mv_to_sensor_readings_table.php');
-        $migration->up();
-        $migration->up(); // Safe if the column was already added.
-        $this->assertNull(DB::table('sensor_readings')->value('ammonia_adc_mv'));
-        $this->assertEquals(1.56, DB::table('sensor_readings')->value('ammonia'));
-
         DB::table('farms')->insert(['id' => 1]);
         DB::table('sensors')->insert([
             'id' => 1, 'farm_id' => 1, 'label' => 'AGB-TEST',
@@ -71,29 +66,62 @@ class AmmoniaVoltageTelemetryTest extends TestCase
         ]);
     }
 
-    public function test_old_and_new_firmware_store_distinct_voltage_samples_without_changing_ppm(): void
+    public function test_five_field_ingestion_does_not_require_the_optional_voltage_column(): void
     {
-        $old = $this->postJson('/api/sensor-readings', $this->payload())->assertOk();
-        $old->assertJsonPath('data.ammonia_adc_mv', null);
-        $legacyPpm = $old->json('data.ammonia');
-        foreach ([433, 0] as $millivolts) {
+        $before = (array) DB::table('sensor_readings')->where('id', 1)->first();
+        $this->assertFalse(Schema::hasColumn('sensor_readings', 'ammonia_adc_mv'));
+        $this->postJson('/api/sensor-readings', $this->payload())->assertOk()
+            ->assertJsonMissingPath('data.ammonia_adc_mv')->assertJsonPath('data.ammonia', 8.89);
+        $this->assertSame($before, (array) DB::table('sensor_readings')->where('id', 1)->first());
+        $this->assertSame(364, (int) DB::table('sensor_readings')->latest('id')->value('ammonia_raw'));
+        $this->assertFalse(Schema::hasColumn('sensor_readings', 'ammonia_adc_mv'));
+    }
+
+    public function test_unused_voltage_extras_are_ignored_and_do_not_change_results(): void
+    {
+        $baseline = $this->postJson('/api/sensor-readings', $this->payload())->assertOk()->json('data');
+        foreach ([433, 0, -1, '433mV', ['unused']] as $extra) {
             $response = $this->postJson('/api/sensor-readings', $this->payload() + [
-                'ammonia_adc_mv' => $millivolts,
+                'ammonia_adc_mv' => $extra,
             ])->assertOk();
-            $response->assertJsonPath('data.ammonia_adc_mv', $millivolts);
-            $this->assertSame($legacyPpm, $response->json('data.ammonia'));
-            $row = DB::table('sensor_readings')->where('id', $response->json('data.id'))->first();
-            $this->assertSame(364, (int) $row->ammonia_raw);
-            $this->assertSame($millivolts, (int) $row->ammonia_adc_mv);
+            $response->assertJsonMissingPath('data.ammonia_adc_mv');
+            foreach (['ammonia', 'ammonia_status', 'moisture', 'moisture_status', 'temperature', 'humidity'] as $field) {
+                $this->assertSame($baseline[$field], $response->json('data.'.$field));
+            }
         }
     }
 
-    public function test_invalid_voltage_is_rejected_without_inserting_a_reading(): void
+    public function test_previously_stored_voltage_is_preserved_but_new_uploads_do_not_write_it(): void
+    {
+        // Simulate a deployment where the optional column already exists. Do
+        // not run or delete the pending migration as part of this task.
+        Schema::table('sensor_readings', fn (Blueprint $t) => $t->unsignedSmallInteger('ammonia_adc_mv')->nullable());
+        DB::table('sensor_readings')->where('id', 1)->update(['ammonia_adc_mv' => 433]);
+        $before = (array) DB::table('sensor_readings')->where('id', 1)->first();
+        $this->postJson('/api/sensor-readings', $this->payload() + ['ammonia_adc_mv' => 999])->assertOk();
+        $this->assertNull(DB::table('sensor_readings')->latest('id')->value('ammonia_adc_mv'));
+        $this->assertSame($before, (array) DB::table('sensor_readings')->where('id', 1)->first());
+        $this->assertSame(433, (int) SensorReading::findOrFail(1)->ammonia_adc_mv);
+    }
+
+    public function test_reference_pair_conversion_still_uses_raw_counts_with_or_without_voltage(): void
+    {
+        config(['sensors.calibration.ammonia.raw_ref' => 754, 'sensors.calibration.ammonia.ppm_ref' => 22.0]);
+        $payload = array_replace($this->payload(), ['ammonia_raw' => 754]);
+        $first = $this->postJson('/api/sensor-readings', $payload)->assertOk();
+        $second = $this->postJson('/api/sensor-readings', $payload + ['ammonia_adc_mv' => 0])->assertOk();
+        $this->assertEquals(22.0, $first->json('data.ammonia'));
+        $this->assertSame($first->json('data.ammonia'), $second->json('data.ammonia'));
+        $this->assertSame($first->json('data.ammonia_status'), $second->json('data.ammonia_status'));
+    }
+
+    public function test_the_five_required_fields_still_reject_incomplete_uploads(): void
     {
         $before = DB::table('sensor_readings')->count();
-        foreach ([-1, 65536, 433.5, '433mV', ['bad']] as $value) {
-            $this->postJson('/api/sensor-readings', $this->payload() + ['ammonia_adc_mv' => $value])
-                ->assertUnprocessable()->assertJsonValidationErrors('ammonia_adc_mv');
+        foreach (array_keys($this->payload()) as $field) {
+            $payload = $this->payload();
+            unset($payload[$field]);
+            $this->postJson('/api/sensor-readings', $payload)->assertUnprocessable()->assertJsonValidationErrors($field);
         }
         $this->assertSame($before, DB::table('sensor_readings')->count());
     }

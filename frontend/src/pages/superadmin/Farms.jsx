@@ -1,7 +1,10 @@
+import { GREEN } from '../../theme/green'
+import { useTableFetch } from '../../hooks/useTableFetch'
+import { validateOwnerDetails, registerOwnerWithFarms, addFarmsToOwner } from '../../utils/farmRegistration'
 import ScrollableTabs from '../../components/ScrollableTabs'
 import DropdownList from '../../components/DropdownList'
 import TableScroll from '../../components/TableScroll'
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { AMMONIA_UNIT } from '../../utils/ammonia'
 import { useNavigate } from 'react-router-dom'
 import api from '../../api/axios'
@@ -55,6 +58,7 @@ function emptyFarm() {
     localId: nextFarmLocalId(),
     farm_name: '',
     farm_size: '',
+    house_count: 1,
     barangay: '',
     lot_number: '',
     street: '',
@@ -193,10 +197,8 @@ export default function SuperAdminFarms() {
   params.dir = current.sortDirection
   // Server-side pagination: only the current page comes back, with totals
   // computed over the complete (filtered) dataset.
-  params.per_page = current.pageSize
-  params.page = current.currentPage
 
-  const { data: farms, loading, error, refetch } = useCachedFetch('/admin/farms', params, { pollMs: BACKGROUND_POLL_MS })
+  const { data: farms, loading, error, refetch } = useTableFetch('/admin/farms', params, current.currentPage, current.pageSize, page => updateCurrent({ currentPage: page }), { pollMs: BACKGROUND_POLL_MS })
   // Other pages' edits (activate/deactivate/register) must not leave a stale
   // cached page behind, so mutations invalidate every /admin/farms key.
   const reloadFarms = () => { invalidateCache('/admin/farms'); refetch() }
@@ -207,9 +209,9 @@ export default function SuperAdminFarms() {
 
   const handleSort = (field) => {
     if (current.sortField === field) {
-      updateCurrent({ sortDirection: current.sortDirection === 'asc' ? 'desc' : 'asc' })
+      updateCurrent({ sortDirection: current.sortDirection === 'asc' ? 'desc' : 'asc', currentPage: 1 })
     } else {
-      updateCurrent({ sortField: field, sortDirection: 'asc' })
+      updateCurrent({ sortField: field, sortDirection: 'asc', currentPage: 1 })
     }
   }
 
@@ -220,10 +222,6 @@ export default function SuperAdminFarms() {
 
   // A filter/search can shrink the result set below the page we were on;
   // step back to the last real page instead of showing an empty one.
-  useEffect(() => {
-    if (current.currentPage > totalPages) updateCurrent({ currentPage: totalPages })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current.currentPage, totalPages])
 
   const rangeStart = totalItems === 0 ? 0 : (safePage - 1) * current.pageSize + 1
   const rangeEnd = Math.min(safePage * current.pageSize, totalItems)
@@ -259,8 +257,8 @@ export default function SuperAdminFarms() {
     })
   }
 
-  const monitoringColor = { Safe: '#256b3d', Warning: '#b45309', Critical: '#b91c1c', 'Pending Setup': '#6b7280', Offline: '#6b7280' }
-  const monitoringBg = { Safe: '#eaf3ec', Warning: '#fbf1e2', Critical: '#fbeaea', 'Pending Setup': '#eef1ea', Offline: '#eef1ea' }
+  const monitoringColor = { Safe: GREEN.hover, Warning: '#b45309', Critical: '#b91c1c', 'Pending Setup': '#6b7280', Offline: '#6b7280' }
+  const monitoringBg = { Safe: GREEN.soft, Warning: '#fbf1e2', Critical: '#fbeaea', 'Pending Setup': '#eef1ea', Offline: '#eef1ea' }
   const activeFilterCount = [current.barangayFilter, current.sizeFilter, current.monitoringFilter, current.filterFromDate || current.filterToDate].filter(Boolean).length
 
   return (
@@ -514,7 +512,7 @@ export default function SuperAdminFarms() {
               <button
                 onClick={() => runAction(confirmAction.onConfirm)}
                 disabled={actionBusy}
-                style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}), backgroundColor: confirmAction.danger ? '#b91c1c' : '#2c8047' }}
+                style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}), backgroundColor: confirmAction.danger ? '#b91c1c' : GREEN.primary }}
               >
                 {actionBusy ? <BtnBusy label="Please wait…" /> : confirmAction.confirmLabel}
               </button>
@@ -612,16 +610,14 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
     first_name: '', last_name: '', mobile_number: '', email: '', address: '',
   })
   const [profilePhoto, setProfilePhoto] = useState(null)
-  const [ownerId, setOwnerId] = useState(null)
   const [ownerError, setOwnerError] = useState('')
   const [ownerFieldErrors, setOwnerFieldErrors] = useState({})
   const [ownerLoading, setOwnerLoading] = useState(false)
-  const [smsWarning, setSmsWarning] = useState('')
-  const [delivery, setDelivery] = useState(null)
 
   const [farmsList, setFarmsList] = useState([emptyFarm()])
   const [farmsError, setFarmsError] = useState('')
   const [farmsLoading, setFarmsLoading] = useState(false)
+  const saveInFlight = useRef(false)
   const [confirmClose, setConfirmClose] = useState(false)
 
   // The modal is unmounted by the parent on close, which is what resets it.
@@ -629,10 +625,8 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
   // any field holds a value. The backdrop never closes this modal.
   const farmHasInput = (f) =>
     [f.farm_name, f.farm_size, f.barangay, f.lot_number, f.street, f.landmark].some(v => String(v ?? '').trim() !== '')
-    || f.latitude != null || f.longitude != null
-  const isDirty = step === 'owner'
-    ? profilePhoto != null || Object.values(ownerForm).some(v => String(v ?? '').trim() !== '')
-    : farmsList.some(farmHasInput)
+    || String(f.house_count) !== '1' || f.latitude != null || f.longitude != null
+  const isDirty = profilePhoto != null || Object.values(ownerForm).some(v => String(v ?? '').trim() !== '') || farmsList.some(farmHasInput)
   const requestClose = () => {
     if (isDirty) setConfirmClose(true)
     else onClose()
@@ -650,29 +644,7 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
     setOwnerFieldErrors({})
     setOwnerLoading(true)
     try {
-      const formData = new FormData()
-      formData.append('first_name', ownerForm.first_name)
-      formData.append('last_name', ownerForm.last_name)
-      formData.append('mobile_number', ownerForm.mobile_number)
-      if (ownerForm.email) formData.append('email', ownerForm.email)
-      if (ownerForm.address) formData.append('address', ownerForm.address)
-      if (profilePhoto) formData.append('profile_photo', profilePhoto)
-
-      const res = await api.post('/admin/farm-owners', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-      setOwnerId(res.data.id)
-      // Kept for the confirmation after the farms are saved. The backend
-      // sends email when the owner has one and SMS otherwise, so the
-      // channel cannot be assumed — it has to be reported.
-      setDelivery({ method: res.data.contact_method, ok: res.data.delivered !== false })
-      if (res.data.delivered === false) {
-        // Named for the channel that was actually used — telling someone to
-        // check for a text when the password went to email sends them
-        // hunting for a message that was never sent.
-        const how = res.data.contact_method === 'email' ? 'email' : 'SMS'
-        setSmsWarning(`Owner account created, but the ${how} with the temporary password failed to send.`)
-      }
+      await validateOwnerDetails(api, ownerForm, profilePhoto)
       setStep('farms')
     } catch (err) {
       const errors = err.response?.data?.errors
@@ -694,11 +666,16 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
 
   const handleFarmsSubmit = async (e) => {
     e.preventDefault()
+    if (saveInFlight.current) return
     setFarmsError('')
 
     for (const f of farmsList) {
       if (!f.farm_name || !f.farm_size || !f.barangay) {
         setFarmsError('Please complete every required field for each farm.')
+        return
+      }
+      if (!Number.isInteger(Number(f.house_count)) || Number(f.house_count) < 1 || Number(f.house_count) > 1000) {
+        setFarmsError('Enter a whole number of poultry houses from 1 to 1,000 for each farm.')
         return
       }
       if (f.latitude == null || f.longitude == null) {
@@ -721,36 +698,32 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
       }
     }
 
+    saveInFlight.current = true
     setFarmsLoading(true)
     try {
-      await Promise.all(
-        farmsList.map(f =>
-          api.post('/admin/farms', {
-            farm_owner_id: ownerId,
-            farm_name: f.farm_name,
-            farm_size: f.farm_size,
-            barangay: f.barangay,
-            lot_number: f.lot_number,
-            street: f.street,
-            landmark: f.landmark,
-            latitude: f.latitude,
-            longitude: f.longitude,
-          })
-        )
-      )
+      const res = await registerOwnerWithFarms(api, ownerForm, profilePhoto, farmsList)
+      const delivery = { method: res.data.contact_method, ok: res.data.delivered === true }
       // Names the owner, the farm count, and how the temporary password went
       // out — the last of which leaves no trace anywhere on screen.
       const owner = `${ownerForm.first_name} ${ownerForm.last_name}`.trim()
       const where = delivery?.method === 'email' ? ownerForm.email : ownerForm.mobile_number
       const how = delivery?.method === 'email' ? 'email' : 'SMS'
-      const sent = delivery?.ok === false
+      const sent = res.data.delivery_pending ? 'Temporary password delivery is pending.' : delivery.ok === false
         ? `The temporary password could NOT be sent by ${how}.`
         : `The temporary password was sent by ${how} to ${where}.`
 
       onSuccess(`${owner} registered with ${farmCountLabel(farmsList.length)}. ${sent}`)
     } catch (err) {
-      setFarmsError(err.response?.data?.message || 'Failed to save one or more farms.')
+      const errors = err.response?.data?.errors
+      if (errors && ['first_name', 'last_name', 'mobile_number', 'email', 'address', 'profile_photo'].some(field => errors[field])) {
+        setOwnerFieldErrors(errors)
+        setOwnerError(err.response.data.message || 'Please check the owner details.')
+        setStep('owner')
+      } else {
+        setFarmsError(err.response?.data?.message || 'Failed to save one or more farms.')
+      }
     } finally {
+      saveInFlight.current = false
       setFarmsLoading(false)
     }
   }
@@ -845,13 +818,13 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
             <FieldError errors={ownerFieldErrors} field="address" />
 
             <p style={modalStyles.hint}>
-              A temporary password will be sent to the owner's mobile number or email address. The owner must change it on their first login. After that, they can log in using their mobile number or email address, if provided. Register the owner once, then add their farm details in the next step.
+              A temporary password will be sent to the owner's mobile number or email address. The owner must change it on their first login. After that, they can log in using their mobile number or email address, if provided. Check the owner details first, then add the farms. The account and farms are saved together when you finish.
             </p>
 
             <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
               <button type="button" onClick={requestClose} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>Cancel</button>
               <button type="submit" disabled={ownerLoading} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>
-                {ownerLoading ? <BtnBusy label="Creating Owner…" /> : 'Next: Add Farm(s) →'}
+                {ownerLoading ? <BtnBusy label="Checking Details…" /> : 'Next: Add Farm(s) →'}
               </button>
             </div>
           </form>
@@ -859,7 +832,6 @@ function RegisterModal({ onClose, onSuccess, isMobile }) {
 
         {step === 'farms' && (
           <form onSubmit={handleFarmsSubmit}>
-            {smsWarning && <div style={modalStyles.warnBox}>{smsWarning}</div>}
             {farmsError && <div style={modalStyles.errorBox}>{farmsError}</div>}
 
             <div style={modalStyles.ownerBanner}>
@@ -918,6 +890,7 @@ function AddFarmModal({ onClose, onSuccess, isMobile }) {
   const [farmsList, setFarmsList] = useState([emptyFarm()])
   const [farmsError, setFarmsError] = useState('')
   const [farmsLoading, setFarmsLoading] = useState(false)
+  const saveInFlight = useRef(false)
 
   const handleOwnerQueryChange = (value) => {
     setOwnerQuery(value)
@@ -946,11 +919,16 @@ function AddFarmModal({ onClose, onSuccess, isMobile }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (saveInFlight.current) return
     setFarmsError('')
 
     for (const f of farmsList) {
       if (!f.farm_name || !f.farm_size || !f.barangay) {
         setFarmsError('Please complete every required field for each farm.')
+        return
+      }
+      if (!Number.isInteger(Number(f.house_count)) || Number(f.house_count) < 1 || Number(f.house_count) > 1000) {
+        setFarmsError('Enter a whole number of poultry houses from 1 to 1,000 for each farm.')
         return
       }
       if (f.latitude == null || f.longitude == null) {
@@ -973,29 +951,17 @@ function AddFarmModal({ onClose, onSuccess, isMobile }) {
       }
     }
 
+    saveInFlight.current = true
     setFarmsLoading(true)
     try {
-      await Promise.all(
-        farmsList.map(f =>
-          api.post('/admin/farms', {
-            farm_owner_id: selectedOwner.id,
-            farm_name: f.farm_name,
-            farm_size: f.farm_size,
-            barangay: f.barangay,
-            lot_number: f.lot_number,
-            street: f.street,
-            landmark: f.landmark,
-            latitude: f.latitude,
-            longitude: f.longitude,
-          })
-        )
-      )
+      await addFarmsToOwner(api, selectedOwner.id, farmsList)
       // No new account here, so no password to report — just what was added
       // and to whom.
       onSuccess(`${farmCountLabel(farmsList.length)} added for ${selectedOwner.first_name} ${selectedOwner.last_name}.`)
     } catch (err) {
       setFarmsError(err.response?.data?.message || 'Failed to save one or more farms.')
     } finally {
+      saveInFlight.current = false
       setFarmsLoading(false)
     }
   }
@@ -1095,6 +1061,9 @@ function AddFarmModal({ onClose, onSuccess, isMobile }) {
  */
 function DeleteFarmModal({ farm, isMobile, onClose, onDeleted }) {
   const [step, setStep] = useState('confirm')
+  const [permanentlyDiscontinued, setPermanentlyDiscontinued] = useState(false)
+  const [acknowledgeLoss, setAcknowledgeLoss] = useState(false)
+  const confirmations = { permanently_discontinued: permanentlyDiscontinued, acknowledge_permanent_loss: acknowledgeLoss }
   const [code, setCode] = useState('')
   const [sentTo, setSentTo] = useState('')
   const [error, setError] = useState('')
@@ -1106,7 +1075,7 @@ function DeleteFarmModal({ farm, isMobile, onClose, onDeleted }) {
     setError('')
     setInfo('')
     try {
-      const res = await api.post(`/superadmin/farms/${farm.id}/delete/otp/request`)
+      const res = await api.post(`/superadmin/farms/${farm.id}/delete/otp/request`, confirmations)
       setSentTo(res.data?.message || 'A verification code has been sent to your email.')
       setStep('otp')
       return true
@@ -1133,7 +1102,7 @@ function DeleteFarmModal({ farm, isMobile, onClose, onDeleted }) {
     setError('')
     setInfo('')
     try {
-      const res = await api.delete(`/superadmin/farms/${farm.id}`, { data: { code: code.trim() } })
+      const res = await api.delete(`/superadmin/farms/${farm.id}`, { data: { code: code.trim(), ...confirmations } })
       onDeleted(res.data?.message || `${farm.farm_name} has been permanently deleted.`)
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to delete the farm. No changes were made.')
@@ -1156,10 +1125,19 @@ function DeleteFarmModal({ farm, isMobile, onClose, onDeleted }) {
                 : 'This is the Farm Owner\x27s only remaining farm, so deleting it will also delete the associated Farm Owner account.'}
             </p>
             <p style={{ ...confirmStyles.message, fontWeight: 600, color: '#16311d' }}>{farm.farm_name} — {farm.owner_name}</p>
+            <p style={confirmStyles.message}>All houses must be Inactive and verified. Explicitly unassign every Active and Inactive device first. Protected records can prevent deletion.</p>
+            <label style={{ display: 'block', marginBottom: 12 }}>
+              <input type="checkbox" checked={permanentlyDiscontinued} onChange={e => setPermanentlyDiscontinued(e.target.checked)} disabled={busy} />{' '}
+              I have verified that this farm is permanently discontinued and all poultry houses are out of use.
+            </label>
+            <label style={{ display: 'block', marginBottom: 12 }}>
+              <input type="checkbox" checked={acknowledgeLoss} onChange={e => setAcknowledgeLoss(e.target.checked)} disabled={busy} />{' '}
+              I acknowledge the permanent loss of the farm and its operational records.
+            </label>
             {error && <div style={modalStyles.errorBox}>{error}</div>}
             <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
               <button type="button" onClick={onClose} disabled={busy} style={{ ...modalStyles.cancelBtn, ...(isMobile ? modalStyles.btnFull : {}) }}>Cancel</button>
-              <button type="button" onClick={requestCode} disabled={busy} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}), backgroundColor: '#b91c1c' }}>
+              <button type="button" onClick={requestCode} disabled={busy || !permanentlyDiscontinued || !acknowledgeLoss} style={{ ...modalStyles.submitBtn, ...(isMobile ? modalStyles.btnFull : {}), backgroundColor: '#b91c1c' }}>
                 {busy ? <BtnBusy label="Sending code…" /> : 'Continue'}
               </button>
             </div>
@@ -1191,11 +1169,11 @@ function DeleteFarmModal({ farm, isMobile, onClose, onDeleted }) {
 }
 
 const deleteStyles = {
-  notice: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', backgroundColor: '#f0f7f2', border: '1px solid #cfe5d6', color: '#2c8047', borderRadius: '10px', padding: '10px 14px', fontSize: '13px', fontWeight: 600, marginBottom: '14px' },
+  notice: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', backgroundColor: '#f0f7f2', border: '1px solid #cfe5d6', color: GREEN.primary, borderRadius: '10px', padding: '10px 14px', fontSize: '13px', fontWeight: 600, marginBottom: '14px' },
   noticeClose: { cursor: 'pointer', fontSize: '18px', lineHeight: 1, color: '#6b7770' },
-  infoBox: { fontSize: '12.5px', color: '#2c8047', backgroundColor: '#f0f7f2', border: '1px solid #cfe5d6', borderRadius: '8px', padding: '8px 12px', marginTop: '8px' },
+  infoBox: { fontSize: '12.5px', color: GREEN.primary, backgroundColor: '#f0f7f2', border: '1px solid #cfe5d6', borderRadius: '8px', padding: '8px 12px', marginTop: '8px' },
   resendRow: { fontSize: '12.5px', color: '#6b7770', marginTop: '12px', textAlign: 'center' },
-  resendLink: { color: '#2c8047', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' },
+  resendLink: { color: GREEN.primary, fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' },
   resendDisabled: { opacity: 0.5, cursor: 'default' },
 }
 
@@ -1309,6 +1287,9 @@ function FarmEntry({ index, farm, isMobile, canRemove, onChange, onRemove }) {
         </div>
       </div>
 
+      <label style={modalStyles.label} htmlFor={`house-count-${farm.localId}`}>Number of Poultry Houses <span style={modalStyles.requiredMark}>*</span></label>
+      <input id={`house-count-${farm.localId}`} type="number" min="1" max="1000" step="1" value={farm.house_count} onChange={e => onChange('house_count', e.target.value)} style={modalStyles.inputFull} required />
+      <p style={modalStyles.mapHint}>Houses will be named House 1, House 2, and so on.</p>
       <Label text="Barangay" required />
       <select value={farm.barangay} onChange={e => handleBarangayChange(e.target.value)} style={modalStyles.inputFull} required>
         <option value="">-- Select Barangay --</option>
@@ -1429,9 +1410,7 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
   const [disposalPage, setDisposalPage] = useState(1)
   const [inspectionPage, setInspectionPage] = useState(1)
 
-  // Sort/filter state — these apply to the currently loaded page of each tab
-  // (see note above: these endpoints paginate server-side, so sorting only
-  // reorders what's already fetched, not the farm's entire history).
+  // Filters and sorting are applied to the full farm history on the server.
   const [cleanoutSort, setCleanoutSort] = useState('desc')
   const [cleanoutViewLog, setCleanoutViewLog] = useState(null)
 
@@ -1445,82 +1424,29 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
   const [inspectionSearch, setInspectionSearch] = useState('')
   const [inspectionViewRecord, setInspectionViewRecord] = useState(null)
 
-  const { data: cleanoutData, loading: cleanoutLoading } = useCachedFetch(
-    activeTab === 'cleanout' ? `/admin/farms/${farmId}/maintenance-logs` : null, { page: cleanoutPage }
+  const { data: cleanoutData, loading: cleanoutLoading } = useTableFetch(
+    activeTab === 'cleanout' ? `/admin/farms/${farmId}/maintenance-logs` : null, { dir: cleanoutSort }, cleanoutPage, 10, setCleanoutPage
   )
-  const { data: disposalData, loading: disposalLoading } = useCachedFetch(
-    activeTab === 'disposal' ? `/admin/farms/${farmId}/disposal-records` : null, { page: disposalPage }
+  const { data: disposalData, loading: disposalLoading } = useTableFetch(
+    activeTab === 'disposal' ? `/admin/farms/${farmId}/disposal-records` : null, { sort: disposalSort.field, dir: disposalSort.dir, disposal_method: disposalMethodFilter, search: disposalSearch }, disposalPage, 10, setDisposalPage
   )
-  const { data: inspectionData, loading: inspectionLoading } = useCachedFetch(
-    activeTab === 'inspections' ? `/admin/farms/${farmId}/inspection-records` : null, { page: inspectionPage }
+  const { data: inspectionData, loading: inspectionLoading } = useTableFetch(
+    activeTab === 'inspections' ? `/admin/farms/${farmId}/inspection-records` : null, { sort: inspectionSort.field, dir: inspectionSort.dir, status: inspectionStatusFilter, search: inspectionSearch }, inspectionPage, 10, setInspectionPage
   )
 
-  const sortedCleanoutLogs = useMemo(() => {
-    const list = cleanoutData?.logs || []
-    return [...list].sort((a, b) => {
-      const da = new Date(a.performed_at || 0)
-      const db = new Date(b.performed_at || 0)
-      return cleanoutSort === 'asc' ? da - db : db - da
-    })
-  }, [cleanoutData, cleanoutSort])
+  const sortedCleanoutLogs = cleanoutData?.logs || []
 
-  const disposalMethods = useMemo(() => {
-    const list = disposalData?.records || []
-    return [...new Set(list.map(r => r.disposal_method).filter(Boolean))]
-  }, [disposalData])
+  const disposalMethods = disposalData?.disposal_methods || []
 
-  const filteredSortedDisposal = useMemo(() => {
-    let list = disposalData?.records || []
-    if (disposalMethodFilter) list = list.filter(r => r.disposal_method === disposalMethodFilter)
-    if (disposalSearch.trim()) {
-      const q = disposalSearch.trim().toLowerCase()
-      list = list.filter(r => [r.buyer_name, r.notes].filter(Boolean).join(' ').toLowerCase().includes(q))
-    }
-    return [...list].sort((a, b) => {
-      let av, bv
-      if (disposalSort.field === 'quantity') {
-        av = Number(a.quantity) || 0
-        bv = Number(b.quantity) || 0
-      } else {
-        av = new Date(a.disposal_date || 0)
-        bv = new Date(b.disposal_date || 0)
-      }
-      const result = av > bv ? 1 : av < bv ? -1 : 0
-      return disposalSort.dir === 'asc' ? result : -result
-    })
-  }, [disposalData, disposalMethodFilter, disposalSort])
+  const filteredSortedDisposal = disposalData?.records || []
 
   const toggleDisposalSort = (field) => {
     setDisposalSort(s => (s.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' }))
   }
 
-  const inspectionStatuses = useMemo(() => {
-    const list = inspectionData?.inspections || []
-    return [...new Set(list.map(i => i.status).filter(Boolean))]
-  }, [inspectionData])
+  const inspectionStatuses = ['Scheduled', 'Completed', 'Cancelled']
 
-  const inspectionDateValue = (i) => i.completed_at || i.scheduled_at || null
-
-    const filteredSortedInspections = useMemo(() => {
-    let list = inspectionData?.inspections || []
-    if (inspectionStatusFilter) list = list.filter(i => i.status === inspectionStatusFilter)
-    if (inspectionSearch.trim()) {
-      const q = inspectionSearch.trim().toLowerCase()
-      list = list.filter(i => (i.inspection_type || '').toLowerCase().includes(q))
-    }
-    return [...list].sort((a, b) => {
-      let av, bv
-      if (inspectionSort.field === 'type') {
-        av = a.inspection_type || ''
-        bv = b.inspection_type || ''
-      } else {
-        av = new Date(inspectionDateValue(a) || 0)
-        bv = new Date(inspectionDateValue(b) || 0)
-      }
-      const result = av > bv ? 1 : av < bv ? -1 : 0
-      return inspectionSort.dir === 'asc' ? result : -result
-    })
-  }, [inspectionData, inspectionStatusFilter, inspectionSearch, inspectionSort])
+  const filteredSortedInspections = inspectionData?.inspections || []
 
   const toggleInspectionSort = (field) => {
     setInspectionSort(s => (s.field === field ? { field, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' }))
@@ -1537,7 +1463,7 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
   )
 
   const STATUS = {
-    Safe:     { color: '#256b3d', bg: '#eaf3ec', border: '#cfe0d3' },
+    Safe:     { color: GREEN.hover, bg: GREEN.soft, border: '#cfe0d3' },
     Warning:  { color: '#b45309', bg: '#fbf1e2', border: '#f0e2cf' },
     Critical: { color: '#b91c1c', bg: '#fbeaea', border: '#f0c9c9' },
     'Pending Setup': { color: '#6b7280', bg: '#eef1ea', border: '#e0e3da' },
@@ -1576,10 +1502,10 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
               </div>
               <span style={{
                 ...profileStyles.statusPill,
-                color: isActive ? '#2c8047' : '#6b7280',
-                backgroundColor: isActive ? '#eaf3ec' : '#f0f1ec',
+                color: isActive ? GREEN.primary : '#6b7280',
+                backgroundColor: isActive ? GREEN.soft : '#f0f1ec',
               }}>
-                <span style={{ ...profileStyles.pillDot, backgroundColor: isActive ? '#2c8047' : '#6b7280' }} />
+                <span style={{ ...profileStyles.pillDot, backgroundColor: isActive ? GREEN.primary : '#6b7280' }} />
                 {farm.status}
               </span>
               <button style={profileStyles.closeBtn} onClick={onClose} aria-label="Close">×</button>
@@ -1618,10 +1544,10 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                         <div style={profileStyles.infoLabel}>Sensor Status</div>
                         <span style={{
                           ...profileStyles.miniPill,
-                          color: isSensorOnline ? '#2c8047' : '#9ca3af',
-                          backgroundColor: isSensorOnline ? '#eaf3ec' : '#f0f1ec',
+                          color: isSensorOnline ? GREEN.primary : '#9ca3af',
+                          backgroundColor: isSensorOnline ? GREEN.soft : '#f0f1ec',
                         }}>
-                          <span style={{ ...profileStyles.pillDot, backgroundColor: isSensorOnline ? '#2c8047' : '#9ca3af' }} />
+                          <span style={{ ...profileStyles.pillDot, backgroundColor: isSensorOnline ? GREEN.primary : '#9ca3af' }} />
                           {isSensorOnline ? 'Online' : 'Offline'}
                         </span>
                       </div>
@@ -1679,7 +1605,8 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                 <Section title="Manure Clean-out" badge={farm.maintenance_status?.status} badgeColor={maintBadgeColor(farm.maintenance_status?.status)}>
                   <div style={profileStyles.infoGrid}>
                     <InfoCell label="Last Logged" value={farm.maintenance_status?.last_performed_at || 'No clean-out logged yet'} />
-                    <InfoCell label="Days Since" value={farm.maintenance_status ? `${farm.maintenance_status.days_since} of ~${farm.maintenance_status.expected_interval_days} expected` : null} />
+                    <InfoCell label="Next Full Clean-out Due" value={farm.maintenance_status?.due_date || 'Undetermined'} />
+                    <InfoCell label="Required Interval" value="12 Calendar Months" />
                   </div>
 
                   {cleanoutLoading && <SectionLoader />}
@@ -1850,8 +1777,8 @@ function ViewFarmModal({ farmId, onClose, isMobile }) {
                                   <td style={tableStyles.td}>
                                     <span style={{
                                       ...profileStyles.miniPill,
-                                      color: done ? '#256b3d' : '#b45309',
-                                      backgroundColor: done ? '#eaf3ec' : '#fbf1e2',
+                                      color: done ? GREEN.hover : '#b45309',
+                                      backgroundColor: done ? GREEN.soft : '#fbf1e2',
                                     }}>{i.status}</span>
                                   </td>
                                   <td style={tableStyles.td}>{done ? i.completed_at : i.scheduled_at}</td>
@@ -1961,8 +1888,8 @@ function DevicesTab({ farmId }) {
                   <span style={devicesStyles.deviceName}>{s.sensor_code}</span>
                   <span style={{
                     ...devicesStyles.statusPill,
-                    color: s.status === 'Active' ? '#2c8047' : '#6b7280',
-                    backgroundColor: s.status === 'Active' ? '#eaf3ec' : '#f0f1ec',
+                    color: s.status === 'Active' ? GREEN.primary : '#6b7280',
+                    backgroundColor: s.status === 'Active' ? GREEN.soft : '#f0f1ec',
                   }}>
                     {s.status}
                   </span>
@@ -2180,7 +2107,7 @@ function InfoRow({ children, last }) {
 function maintBadgeColor(status) {
   if (status === 'Non-Compliant') return '#b91c1c'
   if (status === 'Overdue') return '#b45309'
-  return '#2c8047'
+  return status === 'Compliant' ? GREEN.primary : '#6b7280'
 }
 
 function InfoCell({ label, value }) {
@@ -2215,20 +2142,20 @@ const styles = {
   title: { fontSize: '24px', fontWeight: 800, letterSpacing: '-0.015em', color: '#16311d', margin: 0 },
   titleMobile: { fontSize: '20px' },
   subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px' },
-  newBtn: { display: 'inline-flex', alignItems: 'center', gap: '7px', backgroundColor: '#2c8047', color: '#fff', border: 'none', borderRadius: '10px', padding: '10px 18px', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer' },
-  secondaryBtn: { display: 'inline-flex', alignItems: 'center', gap: '7px', backgroundColor: '#fff', color: '#2c8047', border: '1px solid #cfe0d3', borderRadius: '10px', padding: '10px 16px', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer' },
+  newBtn: { display: 'inline-flex', alignItems: 'center', gap: '7px', backgroundColor: GREEN.primary, color: '#fff', border: 'none', borderRadius: '10px', padding: '10px 18px', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer' },
+  secondaryBtn: { display: 'inline-flex', alignItems: 'center', gap: '7px', backgroundColor: '#fff', color: GREEN.primary, border: '1px solid #cfe0d3', borderRadius: '10px', padding: '10px 16px', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer' },
   btnFull: { width: '100%', boxSizing: 'border-box', justifyContent: 'center' },
 
   successBanner: {
     display: 'flex', alignItems: 'flex-start', gap: '10px',
-    backgroundColor: '#eaf3ec', border: '1px solid #cfe0d3', color: '#1f5a34',
+    backgroundColor: GREEN.soft, border: '1px solid #cfe0d3', color: GREEN.hover,
     borderRadius: '10px', padding: '11px 14px', fontSize: '13px',
     marginBottom: '14px', lineHeight: 1.55, fontFamily: 'inherit',
   },
   successCheck: { fontWeight: 800, flexShrink: 0 },
   successClose: {
     marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer',
-    color: '#1f5a34', fontSize: '17px', lineHeight: 1, padding: 0, flexShrink: 0,
+    color: GREEN.hover, fontSize: '17px', lineHeight: 1, padding: 0, flexShrink: 0,
   },
   toolbar: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -2238,7 +2165,7 @@ const styles = {
 
   statusTabs: { display: 'flex', gap: '4px', overflowX: 'auto', minWidth: 0, maxWidth: '100%', flexWrap: 'nowrap', WebkitOverflowScrolling: 'touch' },
   statusTab: { padding: '10px 18px', fontSize: '14px', fontWeight: 700, color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap' },
-  statusTabActive: { color: '#2c8047', borderBottom: '2px solid #2c8047' },
+  statusTabActive: { color: GREEN.primary, borderBottom: '2px solid var(--agb-green)' },
 
   toolbarRight: { display: 'flex', alignItems: 'center', gap: '10px', paddingBottom: '10px' },
   toolbarRightMobile: { paddingBottom: '2px' },
@@ -2264,10 +2191,10 @@ const styles = {
     borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
     color: '#33413a', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
   },
-  filterBtnActive: { border: '1px solid #2c8047', color: '#2c8047' },
+  filterBtnActive: { border: '1px solid var(--agb-green)', color: GREEN.primary },
   filterCount: {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: '#2c8047',
+    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: GREEN.primary,
     color: '#fff', fontSize: '11px', fontWeight: 700, padding: '0 4px',
   },
   filterPanel: {
@@ -2293,7 +2220,7 @@ const styles = {
   },
   filterApplyBtn: {
     flex: 1, padding: '9px 0', borderRadius: '10px', border: 'none',
-    backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+    backgroundColor: GREEN.primary, color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
   },
 
   tableCard: { backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden', padding: 0 },
@@ -2303,10 +2230,10 @@ const styles = {
   tableMinWidth: { minWidth: '1000px' },
   th: { textAlign: 'left', padding: '13px 20px', fontSize: '13px', fontWeight: 600, color: '#8a968d', borderBottom: '1px solid #eceee7', whiteSpace: 'nowrap', backgroundColor: '#fafbf8' },
   thSortable: { cursor: 'pointer', userSelect: 'none' },
-  sortArrow: { color: '#2c8047', fontSize: '10px' },
+  sortArrow: { color: GREEN.primary, fontSize: '10px' },
   tr: {},
   td: { padding: '13px 20px', fontSize: '12px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle' },
-  avatar: { width: '38px', height: '38px', borderRadius: '10px', backgroundColor: '#eaf3ec', color: '#2c8047', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 700, flexShrink: 0, textTransform: 'uppercase' },
+  avatar: { width: '38px', height: '38px', borderRadius: '10px', backgroundColor: GREEN.soft, color: GREEN.primary, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 700, flexShrink: 0, textTransform: 'uppercase' },
   ownerAvatarImg: { width: '38px', height: '38px', borderRadius: '10px', objectFit: 'cover', display: 'block' },
   badge: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 11px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap' },
   badgeDot: { width: '6px', height: '6px', borderRadius: '50%', flexShrink: 0 },
@@ -2321,9 +2248,9 @@ const styles = {
   tdActions: { position: 'sticky', right: 0, zIndex: 1, backgroundColor: '#fff', boxShadow: '-6px 0 6px -6px rgba(22,49,29,0.18)' },
   actionBtn: { padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer', border: '1px solid #e3e6dd', backgroundColor: '#fff', whiteSpace: 'nowrap' },
   viewBtn: { color: '#4b5a50' },
-  editBtn: { color: '#2c8047' },
+  editBtn: { color: GREEN.primary },
   deactivateBtn: { color: '#b91c1c' },
-  activateBtn: { color: '#2c8047' },
+  activateBtn: { color: GREEN.primary },
   deleteBtn: { color: '#fff', backgroundColor: '#b91c1c', border: '1px solid #b91c1c' },
   empty: { padding: '32px', textAlign: 'center', color: '#9aa79d', fontSize: '14px' },
 }
@@ -2338,7 +2265,7 @@ const paginationStyles = {
   navBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '13px', cursor: 'pointer' },
   navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
-  pageBtnActive: { backgroundColor: '#2c8047', border: '1px solid #2c8047', color: '#fff' },
+  pageBtnActive: { backgroundColor: GREEN.primary, border: '1px solid var(--agb-green)', color: '#fff' },
   ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
 }
 
@@ -2349,7 +2276,7 @@ const tableStyles = {
   thSortable: { cursor: 'pointer', userSelect: 'none' },
   td: { padding: '11px 14px', fontSize: '12px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'top' },
   truncate: { display: 'block', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  viewLink: { fontSize: '12px', fontWeight: 700, color: '#2c8047', cursor: 'pointer' },
+  viewLink: { fontSize: '12px', fontWeight: 700, color: GREEN.primary, cursor: 'pointer' },
   filterRow: { display: 'flex', gap: '10px', alignItems: 'center', marginTop: '14px', marginBottom: '4px', flexWrap: 'wrap' },
   filterSelect: { padding: '7px 10px', borderRadius: '8px', border: '1px solid #dcdfd6', fontSize: '12.5px', color: '#33413a', backgroundColor: '#fff', fontFamily: 'inherit' },
 }
@@ -2381,12 +2308,12 @@ const modalStyles = {
   stepper: { display: 'flex', alignItems: 'center', marginBottom: '20px' },
   stepperLine: { flex: 1, height: '2px', backgroundColor: '#e7e8e0', margin: '0 8px' },
   stepPill: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#9aa79d', fontWeight: 600 },
-  stepPillActive: { color: '#2c8047' },
-  stepPillDone: { color: '#2c8047' },
+  stepPillActive: { color: GREEN.primary },
+  stepPillDone: { color: GREEN.primary },
   stepPillNum: { width: '22px', height: '22px', borderRadius: '50%', backgroundColor: '#eef1ea', color: '#9aa79d', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, flexShrink: 0 },
-  stepPillNumActive: { backgroundColor: '#2c8047', color: '#fff' },
+  stepPillNumActive: { backgroundColor: GREEN.primary, color: '#fff' },
 
-  ownerBanner: { backgroundColor: '#eaf3ec', border: '1px solid #cfe0d3', color: '#1f5a34', padding: '8px 12px', borderRadius: '10px', fontSize: '12.5px', marginBottom: '16px' },
+  ownerBanner: { backgroundColor: GREEN.soft, border: '1px solid #cfe0d3', color: GREEN.hover, padding: '8px 12px', borderRadius: '10px', fontSize: '12.5px', marginBottom: '16px' },
 
   sectionLabel: { fontSize: '11px', fontWeight: 700, color: '#9aa79d', marginTop: '16px', marginBottom: '8px', letterSpacing: '0.5px' },
   row: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '10px', marginBottom: '10px' },
@@ -2406,40 +2333,40 @@ const modalStyles = {
   mapHint: { fontSize: '11.5px', color: '#9aa79d', margin: '-6px 0 8px', lineHeight: '1.4' },
   locationStatusRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginTop: '10px', flexWrap: 'wrap' },
   locationStatusLoading: { fontSize: '12px', color: '#8a968d' },
-  locationStatusFound: { fontSize: '12.5px', color: '#2c8047', fontWeight: 600 },
+  locationStatusFound: { fontSize: '12.5px', color: GREEN.primary, fontWeight: 600 },
   locationStatusNotFound: { fontSize: '12px', color: '#b45309' },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' },
   actionsMobile: { flexDirection: 'column-reverse' },
   btnFull: { width: '100%', boxSizing: 'border-box' },
   cancelBtn: { padding: '10px 18px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: 'white', fontSize: '14px', fontWeight: 600, color: '#33413a', cursor: 'pointer' },
-  submitBtn: { padding: '10px 18px', borderRadius: '10px', border: 'none', backgroundColor: '#2c8047', color: 'white', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
+  submitBtn: { padding: '10px 18px', borderRadius: '10px', border: 'none', backgroundColor: GREEN.primary, color: 'white', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
 
   farmBlock: { border: '1px solid #e7e8e0', borderRadius: '12px', padding: '16px', marginBottom: '14px', backgroundColor: '#fafbf8' },
   farmBlockHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' },
-  farmBlockTitle: { fontSize: '13px', fontWeight: 700, color: '#2c8047' },
+  farmBlockTitle: { fontSize: '13px', fontWeight: 700, color: GREEN.primary },
   removeFarmBtn: { fontSize: '12px', color: '#b91c1c', fontWeight: 600, cursor: 'pointer' },
-  addFarmBtn: { display: 'block', width: '100%', padding: '10px', borderRadius: '10px', border: '1px dashed #2c8047', backgroundColor: 'white', color: '#2c8047', fontSize: '13px', fontWeight: 600, cursor: 'pointer', marginBottom: '4px' },
+  addFarmBtn: { display: 'block', width: '100%', padding: '10px', borderRadius: '10px', border: '1px dashed var(--agb-green)', backgroundColor: 'white', color: GREEN.primary, fontSize: '13px', fontWeight: 600, cursor: 'pointer', marginBottom: '4px' },
 
   dropdownList: { position: 'absolute', top: '100%', left: 0, right: 0, backgroundColor: 'white', border: '1px solid #dcdfd6', borderRadius: '10px', marginTop: '-6px', maxHeight: '180px', overflowY: 'auto', zIndex: 10, boxShadow: '0 4px 12px rgba(20,48,28,0.12)' },
   dropdownItem: { padding: '10px 14px', fontSize: '13px', cursor: 'pointer', color: '#33413a' },
   geocodeSpinner: { position: 'absolute', right: '12px', top: '11px', fontSize: '11px', color: '#9aa79d' },
   geocodeError: { fontSize: '12px', color: '#b91c1c', marginTop: '8px' },
-  geotagConfirmed: { fontSize: '12px', color: '#2c8047', fontWeight: 600, marginTop: '2px' },
+  geotagConfirmed: { fontSize: '12px', color: GREEN.primary, fontWeight: 600, marginTop: '2px' },
 
   ownerResultsList: { border: '1px solid #dcdfd6', borderRadius: '10px', marginTop: '-6px', marginBottom: '10px', maxHeight: '220px', overflowY: 'auto' },
   ownerResultItem: { padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #f2f3ed' },
   ownerResultName: { fontSize: '13.5px', fontWeight: 700, color: '#16311d' },
   ownerResultMeta: { fontSize: '12px', color: '#6b7770', marginTop: '2px' },
   ownerEmptyResult: { fontSize: '12.5px', color: '#9aa79d', padding: '10px 2px', marginTop: '-6px' },
-  changeOwnerLink: { color: '#2c8047', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' },
+  changeOwnerLink: { color: GREEN.primary, fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' },
 
   photoUploadWrap: { display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '16px', padding: '12px', backgroundColor: '#fafbf8', borderRadius: '12px', border: '1px solid #eceee7' },
-  photoPreview: { width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#eaf3ec', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, overflow: 'hidden', border: '2px dashed #cfe0d3' },
+  photoPreview: { width: '56px', height: '56px', borderRadius: '50%', backgroundColor: GREEN.soft, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, overflow: 'hidden', border: '2px dashed #cfe0d3' },
   photoPreviewImg: { width: '100%', height: '100%', objectFit: 'cover' },
-  photoPlaceholder: { fontSize: '22px', color: '#2c8047', fontWeight: 700 },
+  photoPlaceholder: { fontSize: '22px', color: GREEN.primary, fontWeight: 700 },
   photoUploadLabel: { fontSize: '13px', fontWeight: 700, color: '#16311d' },
   photoUploadHint: { fontSize: '11.5px', color: '#9aa79d', marginTop: '2px' },
-  photoUploadBtn: { fontSize: '12px', fontWeight: 700, color: '#2c8047', cursor: 'pointer', marginTop: '4px', display: 'inline-block' },
+  photoUploadBtn: { fontSize: '12px', fontWeight: 700, color: GREEN.primary, cursor: 'pointer', marginTop: '4px', display: 'inline-block' },
 }
 
 const confirmStyles = {
@@ -2455,9 +2382,9 @@ const profileStyles = {
   stateMsg: { padding: '48px 24px', textAlign: 'center', color: '#6b7770', fontSize: '14px' },
 
   header: { display: 'flex', alignItems: 'center', gap: '18px', padding: '24px 28px', borderBottom: '1px solid #f0efe8', flexShrink: 0 },  headerMobile: { padding: '18px 18px', gap: '12px' },
-  avatarWrap: { width: '84px', height: '84px', borderRadius: '50%', flexShrink: 0, overflow: 'hidden', backgroundColor: '#eaf3ec', border: '1px solid #d6e5da', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  avatarWrap: { width: '84px', height: '84px', borderRadius: '50%', flexShrink: 0, overflow: 'hidden', backgroundColor: GREEN.soft, border: '1px solid #d6e5da', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   avatarImg: { width: '100%', height: '100%', objectFit: 'cover' },
-  avatarInitials: { fontSize: '26px', fontWeight: 700, color: '#2c8047', letterSpacing: '0.02em' },
+  avatarInitials: { fontSize: '26px', fontWeight: 700, color: GREEN.primary, letterSpacing: '0.02em' },
   headerText: { flex: 1, minWidth: 0 },
   ownerNameLarge: { color: '#16311d', fontSize: '19px', fontWeight: 800, letterSpacing: '-0.01em', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   farmNameRow: { color: '#7b8a80', fontSize: '13px', marginTop: '3px' },
@@ -2470,7 +2397,7 @@ const profileStyles = {
   // sideways instead of scrolling inside itself.
   tabsRow: { display: 'flex', gap: '26px', padding: '0 28px', borderBottom: '1px solid #f0efe8', overflowX: 'auto', flexShrink: 0, minWidth: 0, flexWrap: 'nowrap', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', },
   tab: { border: 'none', background: 'none', padding: '14px 0 12px', fontFamily: 'inherit', fontSize: '13px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', color: '#8a968d', borderBottom: '2px solid transparent', marginBottom: '-1px', flexShrink: 0, },
-  tabActive: { color: '#2c8047', borderBottom: '2px solid #2c8047' },
+  tabActive: { color: GREEN.primary, borderBottom: '2px solid var(--agb-green)' },
 
   body: { padding: '4px 28px 8px', flex: 1, overflowY: 'auto' },
 
@@ -2535,16 +2462,16 @@ const devicesStyles = {
   editBtn: { flexShrink: 0, padding: '6px 13px', borderRadius: '8px', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer', border: '1px solid #e3e6dd', backgroundColor: '#fff', color: '#4b5a50' },
   hint: { fontSize: '11.5px', color: '#9aa79d', margin: '4px 0 10px', lineHeight: 1.4 },
   successBox: {
-    backgroundColor: '#eaf3ec', border: '1px solid #cfe0d3', borderRadius: '12px',
+    backgroundColor: GREEN.soft, border: '1px solid #cfe0d3', borderRadius: '12px',
     padding: '18px', textAlign: 'center', marginBottom: '6px',
   },
   successLabel: { fontSize: '11px', fontWeight: 700, color: '#5c8a6b', textTransform: 'uppercase', letterSpacing: '0.05em' },
-  successCode: { fontSize: '24px', fontWeight: 800, color: '#1f5a34', fontFamily: 'monospace', margin: '8px 0', letterSpacing: '0.03em' },
+  successCode: { fontSize: '24px', fontWeight: 800, color: GREEN.hover, fontFamily: 'monospace', margin: '8px 0', letterSpacing: '0.03em' },
   successHint: { fontSize: '12px', color: '#4b5a50', lineHeight: 1.5, margin: 0 },
   successTop: { display: 'flex', alignItems: 'center', gap: '12px', margin: '4px 0 14px' },
   successMark: {
     width: '34px', height: '34px', borderRadius: '50%', flexShrink: 0,
-    backgroundColor: '#e7f2ea', color: '#2c8047', display: 'flex',
+    backgroundColor: '#e7f2ea', color: GREEN.primary, display: 'flex',
     alignItems: 'center', justifyContent: 'center', fontSize: '17px', fontWeight: 700,
   },
   successHeadline: { fontSize: '14.5px', fontWeight: 700, color: '#16311d' },

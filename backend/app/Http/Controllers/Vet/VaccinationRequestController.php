@@ -30,6 +30,12 @@ class VaccinationRequestController extends Controller
     // Enough for the 3-page form plus two supporting photos.
     public const ATTACHMENT_MAX_FILES = 5;
 
+    private function assertOperational(ServiceRequest $request): void
+    {
+        abort_if(ServiceTypes::isRetired($request->service_type), 409,
+            'Odor/Fly service requests are retired historical records and cannot be changed.');
+    }
+
     private function isSuperAdmin(): bool
     {
         return Auth::user()?->role === 'super_admin';
@@ -58,12 +64,6 @@ class VaccinationRequestController extends Controller
         ], 403);
     }
 
-    /**
-     * The modals submit a Philippine wall-clock time with no timezone. Parsed
-     * on the application clock (UTC) it was stored as-is, so "09:00" came back
-     * as 5:00 PM. Interpreted in the office timezone and stored as the UTC
-     * instant. Eloquent does not convert a zoned Carbon on save, hence ->utc().
-     */
     private function localToUtc(string $value): Carbon
     {
         return Carbon::parse($value, LocalTime::timezone())->utc();
@@ -91,6 +91,7 @@ class VaccinationRequestController extends Controller
 
     public function index(Request $request)
     {
+        \App\Support\TableQuery::validate($request);
         // Shared list: every Veterinarian sees every Vaccine and Blood Test
         // request, whoever accepted it. Ownership is carried on each row
         // (accepted_by / accepted_by_id) and enforced by the action endpoints,
@@ -104,10 +105,8 @@ class VaccinationRequestController extends Controller
             ->whereIn('service_type', self::VET_TYPES);
         HandledByFilter::apply($query, $request->handled_by, (int) Auth::id());
 
-        $requests = $query
-            ->oldest()
-            ->get()
-            ->map(fn($r) => [
+        \App\Support\TableFilters::requests($query, $request);
+        $requests = \App\Support\TableQuery::rows($query, $request)->map(fn($r) => [
                     'id'             => $r->id,
                     'request_number' => $r->request_number,
                     'service_type'   => $r->service_type,
@@ -130,6 +129,8 @@ class VaccinationRequestController extends Controller
                     'created_at'     => $r->created_at,
                     'updated_at'     => $r->updated_at,
                 ]);
+
+        if ($request->filled('per_page')) return response()->json(['success' => true, 'data' => \App\Support\TableQuery::payload($request, $requests)]);
 
         return response()->json([
             'success' => true,
@@ -157,6 +158,7 @@ class VaccinationRequestController extends Controller
         // committed row, so this does not depend on isolation level.
         $result = DB::transaction(function () use ($id, $scheduledAtUtc) {
             $sr = ServiceRequest::with('acceptedBy')->lockForUpdate()->findOrFail($id);
+            $this->assertOperational($sr);
 
             if (! in_array($sr->service_type, self::VET_TYPES, true)) {
                 return ['blocked' => response()->json([
@@ -220,6 +222,7 @@ class VaccinationRequestController extends Controller
         ]);
 
         $sr = ServiceRequest::findOrFail($id);
+        $this->assertOperational($sr);
 
         // Declining is a response to a Pending request. Once another Vet has
         // accepted it, it is their visit.
@@ -290,6 +293,7 @@ class VaccinationRequestController extends Controller
         ));
 
         $sr = ServiceRequest::findOrFail($id);
+        $this->assertOperational($sr);
 
         // Only an accepted, scheduled visit can be completed — never a
         // Pending, Cancelled or already-Completed request, even via the API.
@@ -455,6 +459,7 @@ class VaccinationRequestController extends Controller
     public function removeAttachment(int $id, int $attachmentId)
     {
         $sr = ServiceRequest::findOrFail($id);
+        $this->assertOperational($sr);
 
         if ($sr->status !== 'Scheduled') {
             return response()->json([
@@ -519,6 +524,7 @@ class VaccinationRequestController extends Controller
     public function reopen(int $id)
     {
         $sr = ServiceRequest::findOrFail($id);
+        $this->assertOperational($sr);
 
         if ($sr->status !== 'Completed') {
             return response()->json([
@@ -587,6 +593,7 @@ class VaccinationRequestController extends Controller
         ]);
 
         $sr = ServiceRequest::findOrFail($id);
+        $this->assertOperational($sr);
 
         if ($sr->status !== 'Scheduled') {
             return response()->json([

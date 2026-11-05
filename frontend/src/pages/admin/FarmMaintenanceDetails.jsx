@@ -1,3 +1,4 @@
+import { GREEN } from '../../theme/green'
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
@@ -6,8 +7,8 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 import { PageLoader } from '../../components/Loading'
 import { formatDate } from '../../utils/formatDate'
 
-const STATUS_COLOR = { Overdue: '#b45309', 'Non-Compliant': '#b91c1c' }
-const STATUS_BG = { Overdue: '#fbf1e2', 'Non-Compliant': '#fbeaea' }
+const STATUS_COLOR = { Compliant: GREEN.hover, 'Non-Compliant': '#b91c1c', Undetermined: '#6b7280' }
+const STATUS_BG = { Compliant: '#e8f5eb', 'Non-Compliant': '#fbeaea', Undetermined: '#f0f2f1' }
 
 const RECENT_NOTIFICATIONS_LIMIT = 3
 
@@ -19,8 +20,8 @@ export default function FarmMaintenanceDetails() {
 
   const { data, loading, error } = useCachedFetch(`/admin/maintenance/${farmId}/details`)
 
-  const farm = data?.farm
-  const m = data?.maintenance
+  const farm = Number(data?.farm?.id) === Number(farmId) ? data.farm : null
+  const m = farm ? data?.maintenance : null
   const notifications = data?.notifications || []
   const recentNotifications = notifications.slice(0, RECENT_NOTIFICATIONS_LIMIT)
 
@@ -75,17 +76,17 @@ export default function FarmMaintenanceDetails() {
             </div>
 
             <div style={styles.infoColumn}>
-              <Card title="Maintenance Overview" badge={m.status} badgeColor={STATUS_COLOR[m.status] || '#6b7280'}>
+              <Card title="Manure Clean-out Compliance" badge={m.status} badgeColor={STATUS_COLOR[m.status] || '#6b7280'}>
                 <div style={{ ...acctStyles.row, ...(isMobile ? acctStyles.rowMobile : {}) }}>
-                  <InfoField label="Expected Clean-out Date" value={m.due_date} />
-                  <InfoField label="Last Clean-out Date" value={m.last_performed_at} />
+                  <InfoField label="Next Full Clean-out Due Date" value={m.due_date || 'Undetermined'} />
+                  <InfoField label="Last Full Clean-out" value={m.last_full_cleanout_date || 'No recorded full clean-out'} />
                 </div>
                 <div style={{ ...acctStyles.row, ...(isMobile ? acctStyles.rowMobile : {}) }}>
                   <InfoField
-                    label="Days Overdue"
-                    value={m.days_overdue === 0 ? 'Due Today' : `${m.days_overdue} day${m.days_overdue === 1 ? '' : 's'}`}
+                    label={m.status === 'Non-Compliant' ? 'Days Overdue' : 'Days Remaining'}
+                    value={(m.status === 'Non-Compliant' ? m.days_overdue : m.days_remaining) ?? 'Undetermined'}
                   />
-                  <InfoField label="Grace Period Status" value={m.grace_status} />
+                  <InfoField label="Required Clean-out Interval" value="12 Calendar Months" />
                 </div>
               </Card>
 
@@ -99,7 +100,7 @@ export default function FarmMaintenanceDetails() {
                         <div style={{ minWidth: 0, flex: 1 }}>
                           <div style={panelStyles.notifTopRow}>
                             <span style={panelStyles.notifTitle}>{n.event}</span>
-                            <span style={{ ...panelStyles.notifStatus, color: n.status === 'Sent' ? '#256b3d' : '#b91c1c' }}>
+                            <span style={{ ...panelStyles.notifStatus, color: n.status === 'Sent' ? GREEN.hover : '#b91c1c' }}>
                               {n.status}
                             </span>
                           </div>
@@ -132,7 +133,7 @@ export default function FarmMaintenanceDetails() {
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <div style={panelStyles.notifTopRow}>
                           <span style={panelStyles.notifTitle}>{n.event}</span>
-                          <span style={{ ...panelStyles.notifStatus, color: n.status === 'Sent' ? '#256b3d' : '#b91c1c' }}>
+                          <span style={{ ...panelStyles.notifStatus, color: n.status === 'Sent' ? GREEN.hover : '#b91c1c' }}>
                             {n.status}
                           </span>
                         </div>
@@ -174,7 +175,7 @@ function InfoField({ label, value }) {
   return (
     <div style={acctStyles.fieldGroup}>
       <label style={acctStyles.label}>{label}</label>
-      <input value={value || '—'} disabled style={{ ...acctStyles.input, ...acctStyles.inputDisabled }} />
+      <input value={value ?? '—'} disabled style={{ ...acctStyles.input, ...acctStyles.inputDisabled }} />
     </div>
   )
 }
@@ -242,7 +243,7 @@ const panelStyles = {
   viewAllBtn: {
     display: 'block', width: '100%', textAlign: 'center', marginTop: '10px', padding: '9px 0',
     border: '1px solid #e3e6dd', borderRadius: '8px', backgroundColor: '#fff',
-    fontSize: '12.5px', fontWeight: 600, color: '#2c8047', cursor: 'pointer', fontFamily: SANS,
+    fontSize: '12.5px', fontWeight: 600, color: GREEN.primary, cursor: 'pointer', fontFamily: SANS,
   },
 }
 

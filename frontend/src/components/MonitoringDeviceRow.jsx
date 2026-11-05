@@ -1,8 +1,9 @@
+import { GREEN } from '../theme/green'
 import { AMMONIA_UNIT } from '../utils/ammonia'
 import { formatDateTime } from '../utils/formatDate'
 
 const CONDITION = {
-  Safe: { color: '#256b3d', bg: '#eaf3ec' },
+  Safe: { color: GREEN.hover, bg: GREEN.soft },
   Warning: { color: '#b45309', bg: '#fbf1e2' },
   Critical: { color: '#b91c1c', bg: '#fbeaea' },
 }

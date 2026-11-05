@@ -71,7 +71,6 @@ class ServiceRequestWorkflowTest extends TestCase
     private static function roles(): array
     {
         return [
-            'admin' => ['/api/admin/service-requests', 'Odor Control Request'],
             'vet'   => ['/api/vet/vaccination-requests', 'Vaccine Request'],
         ];
     }
@@ -125,20 +124,14 @@ class ServiceRequestWorkflowTest extends TestCase
 
     public function test_complete_stores_completion_notes_separately(): void
     {
-        // Admin: notes optional.
-        $sr = $this->request('Odor Control Request', 'Scheduled', ['scheduled_at' => now()->subDay(), 'accepted_by' => $this->admin->id]);
-        $this->actingAs($this->admin)->patchJson("/api/admin/service-requests/{$sr->id}/complete", [])->assertStatus(200);
-        $sr->refresh();
-        $this->assertSame('Completed', $sr->status);
-        $this->assertNotNull($sr->completed_at);
-        $this->assertNull($sr->completion_notes);
-        $this->assertSame('Original farmer notes', $sr->notes);
-
-        $sr2 = $this->request('Fly Control Request', 'Scheduled', ['scheduled_at' => now()->subDay(), 'accepted_by' => $this->admin->id]);
-        $this->actingAs($this->admin)->patchJson("/api/admin/service-requests/{$sr2->id}/complete", ['completion_notes' => 'Sprayed the coop'])->assertStatus(200);
-        $sr2->refresh();
-        $this->assertSame('Sprayed the coop', $sr2->completion_notes);
-        $this->assertSame('Original farmer notes', $sr2->notes);
+        // Retired Staff requests preserve their original notes and status.
+        foreach (['Odor Control Request', 'Fly Control Request'] as $type) {
+            $sr = $this->request($type, 'Scheduled', ['scheduled_at' => now()->subDay(), 'accepted_by' => $this->admin->id]);
+            $this->actingAs($this->admin)->patchJson("/api/admin/service-requests/{$sr->id}/complete", ['completion_notes' => 'New notes'])->assertStatus(409);
+            $this->assertSame('Scheduled', $sr->fresh()->status);
+            $this->assertNull($sr->fresh()->completion_notes);
+            $this->assertSame('Original farmer notes', $sr->fresh()->notes);
+        }
 
         // Vet: notes required.
         $sr3 = $this->request('Vaccine Request', 'Scheduled', ['scheduled_at' => now()->subDay(), 'accepted_by' => $this->vet->id]);
@@ -223,14 +216,14 @@ class ServiceRequestWorkflowTest extends TestCase
 
     public function test_farmer_duplicate_rule_unchanged(): void
     {
-        $this->request('Odor Control Request', 'Scheduled', ['scheduled_at' => now()->addDay()]);
+        $this->request('Blood Test Request', 'Scheduled', ['scheduled_at' => now()->addDay()]);
         $this->actingAs($this->farmer)
-            ->postJson('/api/farmer/service-requests', ['service_type' => 'Odor Control Request', 'farm_id' => $this->farm->id])
+            ->postJson('/api/farmer/service-requests', ['service_type' => 'Blood Test Request', 'farm_id' => $this->farm->id])
             ->assertStatus(422);
 
         ServiceRequest::where('farm_id', $this->farm->id)->update(['status' => 'Completed', 'completed_at' => now()]);
         $this->actingAs($this->farmer)
-            ->postJson('/api/farmer/service-requests', ['service_type' => 'Odor Control Request', 'farm_id' => $this->farm->id])
+            ->postJson('/api/farmer/service-requests', ['service_type' => 'Blood Test Request', 'farm_id' => $this->farm->id])
             ->assertStatus(200);
     }
 

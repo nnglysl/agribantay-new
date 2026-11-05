@@ -1,3 +1,4 @@
+import { GREEN } from '../theme/green'
 import { HANDLED_BY_OPTIONS } from '../utils/handledBy'
 
 /**
@@ -57,7 +58,7 @@ const s = {
     borderRadius: '10px', borderWidth: '1px', borderStyle: 'solid', borderColor: '#dcdfd6', backgroundColor: '#fff',
     color: '#33413a', fontSize: '13px', fontWeight: 600, fontFamily: SANS, whiteSpace: 'nowrap', lineHeight: 1.2,
   },
-  faceActive: { borderColor: '#2c8047', color: '#2c8047' },
+  faceActive: { borderColor: GREEN.primary, color: GREEN.primary },
   text: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' },
   label: { color: 'inherit' },
   value: { fontWeight: 700 },

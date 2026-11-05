@@ -274,6 +274,7 @@ class FarmGeographyTest extends TestCase
                 'first_name'    => 'Stray',
                 'last_name'     => 'Owner',
                 'mobile_number' => $mobile,
+                'address'       => 'Synthetic owner address',
                 'farm_name'     => 'New Farm',
                 'farm_size'     => 'Small',
                 'barangay'      => 'Calansayan',

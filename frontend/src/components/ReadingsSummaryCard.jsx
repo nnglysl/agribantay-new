@@ -1,3 +1,4 @@
+import { GREEN } from '../theme/green'
 import TableScroll from './TableScroll'
 import TableFooter from './TableFooter'
 import { SectionLoader } from './Loading'
@@ -36,6 +37,7 @@ export default function ReadingsSummaryCard({
   onPageChange,
   onPageSizeChange,
   isMobile,
+  ammoniaUnit = AMMONIA_UNIT,
 }) {
   const deployments = data?.deployments || []
   const open = deployments.find(d => d.assignment_key === openSummary) || null
@@ -136,8 +138,8 @@ export default function ReadingsSummaryCard({
                           timeZone: DISPLAY_TIME_ZONE,
                         }) || row.date}
                       </td>
-                      <td style={styles.td}>{formatAmmonia(row.ammonia_avg)}</td>
-                      <td style={styles.td}>{formatAmmonia(row.ammonia_peak)}</td>
+                      <td style={styles.td}>{formatAmmonia(row.ammonia_avg, ammoniaUnit)}</td>
+                      <td style={styles.td}>{formatAmmonia(row.ammonia_peak, ammoniaUnit)}</td>
                       <td style={styles.td}>{formatMoisture(row.moisture_avg)}</td>
                       <td style={styles.td}>{formatMoisture(row.moisture_peak)}</td>
                       <td style={styles.td}>{row.reading_count.toLocaleString()}</td>
@@ -149,6 +151,7 @@ export default function ReadingsSummaryCard({
                         }}>
                           {row.status === 'Safe' ? 'Normal' : row.status}
                         </span>
+                        {row.incomplete_data && ['Warning', 'Critical'].includes(row.status) && <div style={styles.muted}>Incomplete Data</div>}
                       </td>
                     </tr>
                   )
@@ -187,8 +190,8 @@ export default function ReadingsSummaryCard({
   )
 }
 
-const formatAmmonia = value =>
-  value == null ? '—' : `${value}${AMMONIA_UNIT ? ` ${AMMONIA_UNIT}` : ''}`
+const formatAmmonia = (value, unit) =>
+  value == null ? '—' : `${value}${unit ? ` ${unit}` : ''}`
 
 const formatMoisture = value =>
   value == null ? '—' : `${value}%`
@@ -197,7 +200,7 @@ const SANS = "'Inter', sans-serif"
 
 // Same palette the rest of the system uses for these three words.
 const STATUS = {
-  Safe: { color: '#256b3d', bg: '#eaf3ec' },
+  Safe: { color: GREEN.hover, bg: GREEN.soft },
   Warning: { color: '#b45309', bg: '#fbf1e2' },
   Critical: { color: '#b91c1c', bg: '#fbeaea' },
   Offline: { color: '#6b7280', bg: '#eef1ea' },
@@ -210,7 +213,7 @@ const styles = {
   cardHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '14px' },
   cardTitle: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 800, color: '#16311d' },
   backBtn: { border: '1px solid #e7e8e0', backgroundColor: '#fff', borderRadius: '8px', padding: '6px 12px', fontSize: '12px', fontWeight: 700, color: '#16311d', cursor: 'pointer', fontFamily: SANS, whiteSpace: 'nowrap' },
-  viewBtn: { border: '1px solid #cfe0d3', backgroundColor: '#eaf3ec', borderRadius: '8px', padding: '5px 14px', fontSize: '12px', fontWeight: 700, color: '#256b3d', cursor: 'pointer', fontFamily: SANS },
+  viewBtn: { border: '1px solid #cfe0d3', backgroundColor: GREEN.soft, borderRadius: '8px', padding: '5px 14px', fontSize: '12px', fontWeight: 700, color: GREEN.hover, cursor: 'pointer', fontFamily: SANS },
   openMeta: { fontSize: '11.5px', color: '#8a968d', marginBottom: '12px' },
   tableWrap: { width: '100%' },
   table: { width: '100%', borderCollapse: 'collapse', fontFamily: SANS },

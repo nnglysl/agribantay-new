@@ -1,3 +1,4 @@
+import MonitoringCoverageSummary from './MonitoringCoverageSummary'
 import TableScroll from './TableScroll'
 import { formatDateTime } from '../utils/formatDate'
 import ReportLetterhead from './ReportLetterhead'
@@ -93,6 +94,7 @@ export default function GeneratedReportView({ report }) {
         </>
       )}
 
+      <MonitoringCoverageSummary counts={s.farm_overview} readings={s.reading_data_completeness} snapshot />
       <ReportPeriodSections
         snapshot={s}
         periodLabel={report.period_label}
@@ -172,14 +174,14 @@ export default function GeneratedReportView({ report }) {
           {!activity && (
             <tr><th>Clean-outs completed this period</th><td>{orCount(maint.completed_this_month)}</td></tr>
           )}
-          <tr><th>Farms overdue</th><td>{orCount(maint.overdue)}</td></tr>
+          <tr><th>{maint.policy ? 'Farms undetermined' : 'Farms overdue'}</th><td>{orCount(maint.policy ? maint.undetermined : maint.overdue)}</td></tr>
           <tr><th>Farms non-compliant</th><td>{orCount(maint.non_compliant)}</td></tr>
         </tbody>
       </table>
       </TableScroll>
 
       <div className="print-section-title">
-        Service request summary <span className="print-scope">(all-time, odor and fly control)</span>
+        Legacy service request summary <span className="print-scope">(historical odor and fly control; original statuses)</span>
       </div>
       <TableScroll hint={false}>
       <table className="print-table print-kv">
@@ -217,24 +219,24 @@ export default function GeneratedReportView({ report }) {
       )}
 
       <div className="print-section-title">
-        Overdue and non-compliant farms{' '}
+        Non-Compliant farms{' '}
         <span className="print-scope">(as of {statusAsOf || 'generation'})</span>
       </div>
       {overdueFarms.length === 0 ? (
-        <p className="print-empty">No farms were overdue or non-compliant at this cutoff.</p>
+        <p className="print-empty">No farms were Non-Compliant at this cutoff.</p>
       ) : (
         <TableScroll hint={false}>
         <table className="print-table">
           <colgroup>
-            <col style={{ width: '22%' }} /><col style={{ width: '20%' }} /><col style={{ width: '17%' }} />
-            <col style={{ width: '16%' }} /><col style={{ width: '12%' }} /><col style={{ width: '13%' }} />
+            <col style={{ width: '19%' }} /><col style={{ width: '17%' }} /><col style={{ width: '14%' }} />
+            <col style={{ width: '15%' }} /><col style={{ width: '13%' }} /><col style={{ width: '11%' }} /><col style={{ width: '11%' }} />
           </colgroup>
-          <thead><tr><th>Farm</th><th>Owner</th><th>Barangay</th><th>Last clean-out</th><th>Overdue by</th><th>Status</th></tr></thead>
+          <thead><tr><th>Farm</th><th>Owner</th><th>Barangay</th><th>Last clean-out</th><th>Due date</th><th>Overdue by</th><th>Status</th></tr></thead>
           <tbody>
             {overdueFarms.map((f, idx) => (
               <tr key={idx}>
                 <td>{orDash(f.farm_name)}</td><td>{orDash(f.owner_name)}</td><td>{orDash(f.barangay)}</td>
-                <td>{orText(f.last_performed_at, 'Not recorded')}</td><td>{orDays(f.days_overdue)}</td><td>{orDash(f.status)}</td>
+                <td>{orText(f.last_performed_at, 'Not recorded')}</td><td>{orText(f.due_date, 'Undetermined')}</td><td>{orDays(f.days_overdue)}</td><td>{orDash(f.status)}</td>
               </tr>
             ))}
           </tbody>

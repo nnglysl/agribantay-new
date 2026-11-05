@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Models\AlertHistory;
+use App\Models\Sensor;
+use Carbon\Carbon;
 
 /**
  * Objective 5.2 — Persisted Alert History.
@@ -38,8 +40,9 @@ class AlertHistoryService
      * AlertHistoryBackfillSeeder), so backfilled incidents get their
      * actual date instead of the moment the seeder happened to run.
      */
-    public function recordReading(int $farmId, string $sensorType, string $status, float $value, ?\Carbon\Carbon $timestamp = null, ?int $sensorId = null): void
+    public function recordReading(int $farmId, string $sensorType, string $status, float $value, ?Carbon $timestamp = null, ?int $sensorId = null, array $provenance = []): void
     {
+        $historical = $timestamp !== null;
         $timestamp = $timestamp ?? now();
 
         // Scoped to the DEVICE, not just the farm. One incident per house per
@@ -48,11 +51,25 @@ class AlertHistoryService
         // other's row. $sensorId is nullable so the backfill seeder — which
         // replays readings that predate per-device tracking — still works;
         // those fall back to the old farm-wide behaviour.
-        $openIncident = AlertHistory::where('farm_id', $farmId)
+        $query = AlertHistory::where('farm_id', $farmId)
             ->where('sensor_type', $sensorType)
-            ->when($sensorId !== null, fn($q) => $q->where('sensor_id', $sensorId))
-            ->whereNull('resolved_at')
-            ->first();
+            ->when($sensorId !== null, fn ($q) => $q->where('sensor_id', $sensorId))
+            ->whereNull('resolved_at');
+        if (! $historical && $sensorId !== null) {
+            $sensor = Sensor::find($sensorId);
+            if (! $sensor || (int) $sensor->farm_id !== $farmId
+                || ! app(CurrentMonitoringService::class)->boundary($sensor)) {
+                return;
+            }
+            $query = app(CurrentMonitoringService::class)->scopeDeviceIncidents($query, $sensor);
+            if ($sensor->poultry_house_id) {
+                abort_unless(($provenance['poultry_house_id'] ?? null) === (int) $sensor->poultry_house_id
+                    && ($provenance['assignment_event_id'] ?? null) === (int) $sensor->current_assignment_event_id, 409,
+                    'Current house assignment provenance is required for live incidents.');
+                $query->where('poultry_house_id', $provenance['poultry_house_id'])->where('assignment_event_id', $provenance['assignment_event_id']);
+            }
+        }
+        $openIncident = $query->first();
 
         // Legacy incidents opened before per-device tracking have no sensor_id,
         // so the scoped lookup above can never find them again — they would sit
@@ -62,7 +79,7 @@ class AlertHistoryService
         // Closing them here is the honest reading: the incident as recorded
         // ended when the tracking model changed. If the condition is genuinely
         // still bad, a per-device row opens for it below, so nothing is lost.
-        if ($sensorId !== null) {
+        if ($historical && $sensorId !== null) {
             AlertHistory::where('farm_id', $farmId)
                 ->where('sensor_type', $sensorType)
                 ->whereNull('sensor_id')
@@ -89,15 +106,16 @@ class AlertHistoryService
 
                 $openIncident->update($updates);
             } else {
-                AlertHistory::create([
-                    'farm_id'              => $farmId,
-                    'sensor_id'            => $sensorId,
-                    'sensor_type'          => $sensorType,
-                    'status'               => $status,
-                    'value'                => $value,
-                    'triggered_at'         => $timestamp,
-                    'safe_readings_count'  => 0,
+                $incident = new AlertHistory([
+                    'farm_id' => $farmId,
+                    'sensor_id' => $sensorId,
+                    'sensor_type' => $sensorType,
+                    'status' => $status,
+                    'value' => $value,
+                    'triggered_at' => $timestamp,
+                    'safe_readings_count' => 0,
                 ]);
+                $incident->forceFill($historical ? [] : $provenance)->save();
             }
         } else {
             // Back to Normal — only close the incident once we've seen
@@ -107,8 +125,8 @@ class AlertHistoryService
 
                 if ($safeCount >= self::RESOLVE_AFTER_CONSECUTIVE_SAFE_READINGS) {
                     $openIncident->update([
-                        'resolved_at'          => $timestamp,
-                        'safe_readings_count'  => $safeCount,
+                        'resolved_at' => $timestamp,
+                        'safe_readings_count' => $safeCount,
                     ]);
                 } else {
                     $openIncident->update(['safe_readings_count' => $safeCount]);
@@ -128,14 +146,21 @@ class AlertHistoryService
      * row is closed rather than deleted: it really did happen, and the
      * farm's history should still show it.
      */
-    public function closeOpenIncidents(int $farmId, string $sensorType, ?int $sensorId = null, ?\Carbon\Carbon $timestamp = null): void
+    public function closeOpenIncidents(int $farmId, string $sensorType, ?int $sensorId = null, ?Carbon $timestamp = null): void
     {
-        AlertHistory::where('farm_id', $farmId)
+        $query = AlertHistory::where('farm_id', $farmId)
             ->where('sensor_type', $sensorType)
             ->whereNull('resolved_at')
             ->when($sensorId !== null, fn ($q) => $q->where(
                 fn ($w) => $w->where('sensor_id', $sensorId)->orWhereNull('sensor_id')
-            ))
-            ->update(['resolved_at' => $timestamp ?? now()]);
+            ));
+        if ($timestamp === null && $sensorId !== null) {
+            $sensor = Sensor::find($sensorId);
+            if (! $sensor || (int) $sensor->farm_id !== $farmId) {
+                return;
+            }
+            $query = app(CurrentMonitoringService::class)->scopeDeviceIncidents($query, $sensor);
+        }
+        $query->update(['resolved_at' => $timestamp ?? now()]);
     }
 }

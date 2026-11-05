@@ -54,6 +54,12 @@ class CurrentDashboardAlertsTest extends TestCase
             $table->timestamp('last_seen_at')->nullable();
             $table->timestamps();
         });
+        // Dashboards now include annual compliance alongside sensor health.
+        Schema::create('maintenance_logs', function (Blueprint $table) {
+            $table->id(); $table->unsignedBigInteger('farm_id');
+            $table->string('maintenance_type'); $table->date('performed_at');
+            $table->timestamps();
+        });
         Schema::create('sensor_readings', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('farm_id');
@@ -83,6 +89,12 @@ class CurrentDashboardAlertsTest extends TestCase
             $table->timestamp('resolved_at')->nullable();
         });
         Schema::create('sms_logs', fn (Blueprint $table) => $table->id());
+        Schema::create('activity_logs', function (Blueprint $table) {
+            $table->id(); $table->unsignedBigInteger('user_id')->nullable();
+            foreach (['role', 'action', 'details', 'type'] as $field) $table->text($field)->nullable();
+            $table->timestamps();
+        });
+        (require database_path('migrations/2026_10_30_000000_create_device_assignment_events_table.php'))->up();
 
         $this->actingAs(User::create(['role' => 'super_admin', 'status' => 'active']), 'sanctum');
     }
@@ -101,7 +113,7 @@ class CurrentDashboardAlertsTest extends TestCase
         ]);
         $incident = DB::table('alert_history')->first();
 
-        $device->update(['farm_id' => $currentFarm->id]);
+        app(\App\Services\DeviceAssignmentService::class)->change($device->id, $currentFarm->id);
         $this->reading($currentFarm, $device, now(), ['ammonia_status' => 'Critical']);
 
         $response = $this->getJson('/api/admin/dashboard')->assertOk()
@@ -126,7 +138,7 @@ class CurrentDashboardAlertsTest extends TestCase
         $currentFarm = Farm::create(['farm_name' => 'New Farm']);
         $device = $this->device($oldFarm);
         $this->reading($oldFarm, $device, now());
-        $device->update(['farm_id' => $currentFarm->id]);
+        app(\App\Services\DeviceAssignmentService::class)->change($device->id, $currentFarm->id);
 
         $this->assertNoCurrentAlerts();
     }
@@ -137,7 +149,9 @@ class CurrentDashboardAlertsTest extends TestCase
         $otherFarm = Farm::create(['farm_name' => 'Other Farm']);
         $device = $this->device($currentFarm);
         $this->reading($currentFarm, $device, now()->subMinute());
+        app(\App\Services\DeviceAssignmentService::class)->change($device->id, $otherFarm->id);
         $this->reading($otherFarm, $device, now());
+        app(\App\Services\DeviceAssignmentService::class)->change($device->id, $currentFarm->id);
 
         $this->assertNoCurrentAlerts();
     }
@@ -206,6 +220,114 @@ class CurrentDashboardAlertsTest extends TestCase
             ->assertJsonPath('data.critical_farms.0.all_sensors.3.critical', false);
     }
 
+    public function test_monitored_farms_counts_unique_reporting_farms_without_requiring_map_coordinates(): void
+    {
+        foreach (['Safe', 'Warning', 'Critical'] as $status) {
+            $farm = Farm::create(['farm_name' => $status.' Farm']);
+            $first = $this->device($farm);
+            $this->reading($farm, $first, now(), ['ammonia_status' => $status, 'moisture_status' => $status]);
+            $second = $this->device($farm);
+            $this->reading($farm, $second, now(), ['ammonia_status' => $status, 'moisture_status' => $status]);
+        }
+        Farm::create(['farm_name' => 'Inactive Registered Farm', 'status' => 'Inactive']);
+
+        $queries = [];
+        DB::listen(function ($query) use (&$queries) { $queries[] = $query->sql; });
+        $this->getJson('/api/admin/dashboard')->assertOk()
+            ->assertJsonPath('data.total_farms', 4)
+            ->assertJsonPath('data.monitored_farms', 3);
+        $this->assertCount(0, array_filter($queries, fn ($sql) => preg_match('/^\s*(insert|update|delete|replace|alter|create|drop|truncate)\b/i', $sql)));
+        $this->assertSame(6, SensorReading::count());
+    }
+
+    public function test_monitored_farms_excludes_offline_inactive_unassigned_stale_and_invalid_readings(): void
+    {
+        foreach (['offline', 'inactive', 'stale', 'none', 'no-primary', 'invalid-status', 'unassigned'] as $case) {
+            $farm = Farm::create(['farm_name' => $case]);
+            $device = $case === 'unassigned'
+                ? Sensor::create(['label' => 'Unassigned fixture', 'status' => 'Active', 'last_seen_at' => now()])
+                : $this->device($farm);
+            if ($case === 'offline') $device->update(['last_seen_at' => now()->subMinutes(3)]);
+            if ($case === 'inactive') $device->update(['status' => 'Inactive']);
+            if ($case === 'none') continue;
+            $values = match ($case) {
+                'no-primary' => ['ammonia' => null, 'moisture' => null],
+                'invalid-status' => ['ammonia_status' => 'Unknown', 'moisture_status' => 'Unknown'],
+                default => [],
+            };
+            $this->reading($farm, $device, $case === 'stale' ? now()->subMinutes(3) : now(), $values);
+        }
+
+        $this->getJson('/api/admin/dashboard')->assertOk()
+            ->assertJsonPath('data.total_farms', 7)
+            ->assertJsonPath('data.monitored_farms', 0);
+    }
+
+    public function test_monitored_farms_uses_latest_valid_visit_without_reviving_rotation_history(): void
+    {
+        $first = Farm::create(['farm_name' => 'First visit']);
+        $second = Farm::create(['farm_name' => 'Second visit']);
+        $device = $this->device($first);
+        $historical = $this->reading($first, $device, now());
+        $original = $historical->fresh()->getAttributes();
+        $this->getJson('/api/admin/dashboard')->assertOk()->assertJsonPath('data.monitored_farms', 1);
+
+        app(\App\Services\DeviceAssignmentService::class)->change($device->id, $second->id);
+        $this->getJson('/api/admin/dashboard')->assertOk()->assertJsonPath('data.monitored_farms', 0);
+        $this->reading($second, $device, now());
+        $this->getJson('/api/admin/dashboard')->assertOk()->assertJsonPath('data.monitored_farms', 1);
+
+        app(\App\Services\DeviceAssignmentService::class)->change($device->id, $first->id);
+        $this->getJson('/api/admin/dashboard')->assertOk()->assertJsonPath('data.monitored_farms', 0);
+        $this->assertSame($original, $historical->fresh()->getAttributes());
+    }
+
+    public function test_monitored_farms_uses_existing_primary_validity_and_never_falls_back_to_old_values(): void
+    {
+        $farm = Farm::create(['farm_name' => 'Primary completeness']);
+        $device = $this->device($farm);
+        $this->reading($farm, $device, now(), ['ammonia' => 0, 'moisture' => null, 'ammonia_status' => 'Safe']);
+        // The existing reporting_devices/has_current_primary policy includes
+        // partial valid primary data; it never labels that coverage complete.
+        $this->getJson('/api/admin/dashboard')->assertOk()->assertJsonPath('data.monitored_farms', 1);
+        $this->reading($farm, $device, now(), ['ammonia' => null, 'moisture' => null]);
+        $this->getJson('/api/admin/dashboard')->assertOk()->assertJsonPath('data.monitored_farms', 0);
+        $this->reading($farm, $device, now()->addMinute());
+        $this->getJson('/api/admin/dashboard')->assertOk()->assertJsonPath('data.monitored_farms', 0);
+    }
+
+    public function test_dashboard_keeps_authoritative_annual_compliance_and_all_registered_farm_total(): void
+    {
+        $this->travelTo(\Illuminate\Support\Carbon::parse('2026-11-03 04:00:00', 'UTC'));
+        $compliant = Farm::create(['farm_name' => 'Compliant on anniversary']);
+        $nonCompliant = Farm::create(['farm_name' => 'Past annual deadline']);
+        $undetermined = Farm::create(['farm_name' => 'Unknown registration']);
+        $inactive = Farm::create(['farm_name' => 'Inactive registration', 'status' => 'Inactive']);
+        DB::table('farms')->where('id', $compliant->id)->update(['created_at' => '2025-11-03 04:00:00']);
+        DB::table('farms')->where('id', $nonCompliant->id)->update(['created_at' => '2025-11-02 04:00:00']);
+        DB::table('farms')->where('id', $undetermined->id)->update(['created_at' => null]);
+        DB::table('farms')->where('id', $inactive->id)->update(['created_at' => '2024-01-01 04:00:00']);
+        $expected = app(\App\Services\MaintenanceStatusService::class)->summary(
+            Farm::where('status', 'Active')->with('qualifyingCleanouts')->get()
+        );
+
+        $response = $this->getJson('/api/admin/dashboard')->assertOk()
+            ->assertJsonPath('data.total_farms', 4)
+            ->assertJsonPath('data.cleanout_compliance.compliant', 1)
+            ->assertJsonPath('data.cleanout_compliance.non_compliant', 1)
+            ->assertJsonPath('data.cleanout_compliance.undetermined', 1);
+        $this->assertSame($expected, $response->json('data.cleanout_compliance'));
+    }
+
+    public function test_monitored_farms_aggregate_preserves_staff_response_and_dashboard_role_authorization(): void
+    {
+        $this->actingAs(User::create(['role' => 'admin', 'status' => 'active']), 'sanctum');
+        $response = $this->getJson('/api/admin/dashboard')->assertOk();
+        $this->assertArrayNotHasKey('monitored_farms', $response->json('data'));
+        $this->actingAs(User::create(['role' => 'vet', 'status' => 'active']), 'sanctum');
+        $this->getJson('/api/admin/dashboard')->assertForbidden();
+    }
+
     private function assertNoCurrentAlerts(): void
     {
         $this->getJson('/api/admin/dashboard')->assertOk()
@@ -215,12 +337,14 @@ class CurrentDashboardAlertsTest extends TestCase
 
     private function device(Farm $farm, array $overrides = []): Sensor
     {
-        return Sensor::create(array_merge([
-            'farm_id' => $farm->id,
+        $device = Sensor::create([
             'label' => 'AGB-TEST-'.(Sensor::count() + 1),
             'status' => 'Active',
             'last_seen_at' => now(),
-        ], $overrides));
+        ]);
+        $device = app(\App\Services\DeviceAssignmentService::class)->change($device->id, $farm->id);
+        $device->update($overrides);
+        return $device;
     }
 
     private function reading(Farm $farm, Sensor $device, $at, array $overrides = []): SensorReading

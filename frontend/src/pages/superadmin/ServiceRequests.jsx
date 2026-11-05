@@ -1,27 +1,25 @@
+import { GREEN } from '../../theme/green'
+import { useTableFetch } from '../../hooks/useTableFetch'
 import ScrollableTabs from '../../components/ScrollableTabs'
 import TableScroll from '../../components/TableScroll'
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
 import SharedPagination from '../../components/Pagination'
-import { useCachedFetch } from '../../hooks/useCachedFetch'
+
 import { LIVE_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { formatDateTime } from '../../utils/formatDate'
 import { viewModalStyles as v } from '../../styles/viewModalStyles'
 import { BADGE_SHAPE, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../../utils/serviceBadgeStyle'
-import { isRequestOverdue, requestDisplayStatus } from '../../utils/serviceRequestStatus'
-import { ALL_TYPES as ALL_SERVICE_TYPES } from '../../constants/serviceTypes'
+import { requestDisplayStatus } from '../../utils/serviceRequestStatus'
+import { VET_TYPES, isRetiredService } from '../../constants/serviceTypes'
 import AttachmentSummary from '../../components/AttachmentSummary'
 import { SkeletonTable } from '../../components/Loading'
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 
-// Super Admin has system-wide oversight — sees every service request type,
-// including the two Vet-only ones that Admin's own Service Requests page
-// (pages/admin/ServiceRequests.jsx) deliberately excludes.
-// Every stored value, including the retired Vaccine type, so old rows stay filterable.
-const ALL_TYPES = ALL_SERVICE_TYPES
+// Super Admin oversees current Vet services, including historical Vaccine rows.
 
 const SORT_OPTIONS = [
   { value: 'oldest', label: 'Oldest Request First (Default)' },
@@ -30,11 +28,8 @@ const SORT_OPTIONS = [
 
 /**
  * Super Admin's Service Requests page is view-only monitoring/oversight —
- * no accept/decline/complete actions. Operational handling of Odor/Fly
- * Control stays exclusive to Admin's own page; Vaccine/Blood Test stay
- * exclusive to the Veterinarian's own module. Kept as a fully separate file
- * (not a shared component with role flags) so permissions never risk
- * bleeding into each other.
+ * no accept/decline/complete actions. Backend role/type scopes remain authoritative;
+ * authorized Vet handling stays in the existing Veterinarian module.
  */
 export default function SuperAdminServiceRequests() {
   // Deep links (e.g. from a Super Admin dashboard notification) can preset
@@ -46,6 +41,7 @@ export default function SuperAdminServiceRequests() {
   const [typeFilter, setTypeFilter] = useState('')
   const [sortMode, setSortMode] = useState('oldest')
   const [currentPage, setCurrentPage] = useState(1)
+  const changeTab = next => { setTab(next); setTypeFilter(''); setCurrentPage(1) }
   const [pageSize, setPageSize] = useState(10)
   const [viewRequest, setViewRequest] = useState(null)
   const isMobile = useIsMobile()
@@ -86,40 +82,13 @@ export default function SuperAdminServiceRequests() {
   const params = { sort: sortMode }
   if (typeFilter) params.service_type = typeFilter
 
-  const { data, loading, error } = useCachedFetch('/admin/service-requests', params, { pollMs: LIVE_POLL_MS })
-  const allRequests = data || []
+  const { data, loading, error } = useTableFetch('/admin/service-requests', { ...params, tab, search }, currentPage, pageSize, setCurrentPage, { pollMs: LIVE_POLL_MS })
+  const allRequests = (data?.items || []).filter(request => !isRetiredService(request.service_type))
 
-  const filtered = allRequests.filter(r => {
-    if (tab === 'pending' && r.status !== 'Pending') return false
-    // Overdue is the past-due slice of Scheduled (derived, not stored).
-    if (tab === 'scheduled' && (r.status !== 'Scheduled' || isRequestOverdue(r))) return false
-    if (tab === 'overdue' && !isRequestOverdue(r)) return false
-    if (tab === 'history' && !(r.status === 'Completed' || r.status === 'Cancelled')) return false
 
-    if (search) {
-      const q = search.toLowerCase()
-      const haystack = [
-        r.request_number, r.service_type, r.farm_name, r.farm_owner_name, r.requested_by,
-      ].filter(Boolean).join(' ').toLowerCase()
-      if (!haystack.includes(q)) return false
-    }
-
-    return true
-  })
-
-  useEffect(() => { setCurrentPage(1) }, [tab, pageSize, typeFilter, sortMode, search])
-
-  const totalItems = filtered.length
-  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
-
-  useEffect(() => {
-    if (currentPage > totalPages) setCurrentPage(totalPages)
-  }, [totalPages, currentPage])
-
-  const list = useMemo(() => {
-    const start = (currentPage - 1) * pageSize
-    return filtered.slice(start, start + pageSize)
-  }, [filtered, currentPage, pageSize])
+  const totalItems = data?.total || 0
+  const totalPages = data?.last_page || 1
+  const list = allRequests
 
   const rangeStart = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1
   const rangeEnd = Math.min(currentPage * pageSize, totalItems)
@@ -127,20 +96,20 @@ export default function SuperAdminServiceRequests() {
   return (
     <AdminLayout>
       <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Service Requests</h1>
-      <p style={styles.subtitle}>Monitor all service requests across registered farms.</p>
+      <p style={styles.subtitle}>Monitor authorized Vet service requests across registered farms.</p>
 
       <div className="no-print" style={{ ...styles.toolbar, ...(isMobile ? styles.toolbarMobile : {}) }}>
         <ScrollableTabs style={styles.tabs} isMobile={isMobile} label="Service request tabs">
-          <div className="agb-ui-tab" style={{ ...styles.tab, ...(tab === 'pending' ? styles.tabActive : {}) }} onClick={() => setTab('pending')}>
+          <div className="agb-ui-tab" style={{ ...styles.tab, ...(tab === 'pending' ? styles.tabActive : {}) }} onClick={() => changeTab('pending')}>
             Pending
           </div>
-          <div className="agb-ui-tab" style={{ ...styles.tab, ...(tab === 'scheduled' ? styles.tabActive : {}) }} onClick={() => setTab('scheduled')}>
+          <div className="agb-ui-tab" style={{ ...styles.tab, ...(tab === 'scheduled' ? styles.tabActive : {}) }} onClick={() => changeTab('scheduled')}>
             Scheduled
           </div>
-          <div className="agb-ui-tab" style={{ ...styles.tab, ...(tab === 'overdue' ? styles.tabActive : {}) }} onClick={() => setTab('overdue')}>
+          <div className="agb-ui-tab" style={{ ...styles.tab, ...(tab === 'overdue' ? styles.tabActive : {}) }} onClick={() => changeTab('overdue')}>
             Overdue
           </div>
-          <div className="agb-ui-tab" style={{ ...styles.tab, ...(tab === 'history' ? styles.tabActive : {}) }} onClick={() => setTab('history')}>
+          <div className="agb-ui-tab" style={{ ...styles.tab, ...(tab === 'history' ? styles.tabActive : {}) }} onClick={() => changeTab('history')}>
             History
           </div>
         </ScrollableTabs>
@@ -187,7 +156,7 @@ export default function SuperAdminServiceRequests() {
                 <label style={styles.filterLabel}>Request Type</label>
                 <select value={draftType} onChange={e => setDraftType(e.target.value)} style={styles.filterSelect}>
                   <option value="">All Types</option>
-                  {ALL_TYPES.map(t => (
+                  {VET_TYPES.map(t => (
                     <option key={t} value={t}>{t.replace(' Request', '')}</option>
                   ))}
                 </select>
@@ -403,7 +372,7 @@ const styles = {
   // sideways instead of scrolling inside itself.
   tabs: { display: 'flex', gap: '4px', overflowX: 'auto', minWidth: 0, maxWidth: '100%', flexWrap: 'nowrap', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', },
   tab: { padding: '10px 16px', fontSize: '14px', color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap', flexShrink: 0, },
-  tabActive: { color: '#2c8047', fontWeight: 700, borderBottom: '2px solid #2c8047' },
+  tabActive: { color: GREEN.primary, fontWeight: 700, borderBottom: '2px solid var(--agb-green)' },
 
   toolbarRight: { display: 'flex', alignItems: 'center', gap: '10px', paddingBottom: '10px' },
   toolbarRightMobile: { paddingBottom: '2px' },
@@ -429,10 +398,10 @@ const styles = {
     borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
     color: '#33413a', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: SANS, whiteSpace: 'nowrap',
   },
-  filterBtnActive: { borderColor: '#2c8047', color: '#2c8047' },
+  filterBtnActive: { borderColor: GREEN.primary, color: GREEN.primary },
   filterCount: {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: '#2c8047',
+    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: GREEN.primary,
     color: '#fff', fontSize: '11px', fontWeight: 700, padding: '0 4px',
   },
   filterPanel: {
@@ -457,7 +426,7 @@ const styles = {
   },
   filterApplyBtn: {
     flex: 1, padding: '9px 0', borderRadius: '10px', border: 'none',
-    backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
+    backgroundColor: GREEN.primary, color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
   },
 
   tableCard: { backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden' },
@@ -496,6 +465,6 @@ const paginationStyles = {
   navBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '13px', cursor: 'pointer' },
   navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
-  pageBtnActive: { backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff' },
+  pageBtnActive: { backgroundColor: GREEN.primary, borderColor: GREEN.primary, color: '#fff' },
   ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
 }

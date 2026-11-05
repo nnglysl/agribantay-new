@@ -248,6 +248,7 @@ export default function VetReports() {
 
           {tab === 'Service History' && (
             <DataTable
+                resetKey={`${fromDate}:${toDate}`}
               title="Completed veterinary services"
               subtitle={rangeLabel}
               columns={['Request No.', 'Type', 'Farm', 'Owner', 'Barangay', 'Date', 'Notes', 'Status']}

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\ActivityLog;
+use App\Models\AlertHistory;
 use App\Models\Farm;
 use App\Models\Inspection;
 use App\Models\Notification;
@@ -10,6 +11,7 @@ use App\Models\Sensor;
 use App\Models\SensorReading;
 use App\Models\ServiceRequest;
 use App\Models\User;
+use Carbon\Carbon;
 
 class FarmStatusService
 {
@@ -34,7 +36,13 @@ class FarmStatusService
 
         $farm->update(['current_status' => $newStatus]);
 
-        $this->notify($farm, $newStatus);
+        // A previous visit's cached Critical value is not evidence of a
+        // recovery in this visit. Establish a Safe baseline silently when
+        // there has been no abnormal incident in the current assignments.
+        if ($newStatus !== 'Safe' || app(CurrentMonitoringService::class)
+            ->incidents(AlertHistory::query(), $farm->id)->exists()) {
+            $this->notify($farm, $newStatus);
+        }
 
         // The stored explanation describes the farm's CONDITION, so it is
         // wrong the moment that condition changes — not only when it worsens.
@@ -79,10 +87,10 @@ class FarmStatusService
         foreach ($admins as $admin) {
             Notification::create([
                 'user_id' => $admin->id,
-                'title'   => 'Critical Condition Detected',
+                'title' => 'Critical Condition Detected',
                 'message' => "Critical condition detected at \"{$farm->farm_name}\" ({$farm->owner_name}). Please review and schedule an inspection.",
-                'type'    => 'Sensor Alert',
-                'link'    => "/admin/farms/{$farm->id}",
+                'type' => 'Sensor Alert',
+                'link' => "/admin/farms/{$farm->id}",
                 'is_read' => false,
             ]);
         }
@@ -121,10 +129,10 @@ class FarmStatusService
         foreach ($vets as $vet) {
             Notification::create([
                 'user_id' => $vet->id,
-                'title'   => 'Critical Farm Alert',
+                'title' => 'Critical Farm Alert',
                 'message' => "\"{$farm->farm_name}\" has a Critical ammonia level that may require veterinary attention.",
-                'type'    => 'Sensor Alert',
-                'link'    => "/vet/farms/{$farm->id}",
+                'type' => 'Sensor Alert',
+                'link' => "/vet/farms/{$farm->id}",
                 'is_read' => false,
             ]);
         }
@@ -139,7 +147,7 @@ class FarmStatusService
     public function hasActiveDevice(Farm $farm): bool
     {
         return $farm->relationLoaded('sensors')
-            ? $farm->sensors->contains(fn($s) => $s->status === 'Active')
+            ? $farm->sensors->contains(fn ($s) => $s->status === 'Active')
             : $farm->sensors()->where('status', 'Active')->exists();
     }
 
@@ -149,25 +157,14 @@ class FarmStatusService
      * when a real sensor reading comes in — so a brand-new farm with no
      * device yet, or a device that hasn't sent its first reading yet, was
      * previously indistinguishable from a genuinely healthy farm. This
-     * overrides that default with "Pending Setup" in both of those cases.
-     * Never touches current_status itself or how Safe/Warning/Critical are
-     * computed from real readings (computeStatus() above is unchanged).
+     * shows Pending Setup without a device, No Readings Yet without a verified
+     * current-period sample, and Offline when current-period samples are stale.
+     * Severity uses available measured primary values and their recorded
+     * classifications. Completeness is evaluated separately, without writes.
      */
     public function displayStatus(Farm $farm): string
     {
-        if (!$this->hasActiveDevice($farm)) {
-            return 'Pending Setup';
-        }
-
-        $hasReading = $farm->relationLoaded('sensorReadings')
-            ? $farm->sensorReadings->isNotEmpty()
-            : $farm->sensorReadings()->exists();
-
-        if (!$hasReading) {
-            return 'Pending Setup';
-        }
-
-        return $farm->current_status;
+        return app(MonitoringAssessmentService::class)->farm($farm)['condition'];
     }
 
     /**
@@ -193,7 +190,7 @@ class FarmStatusService
             return 'Pending Setup';
         }
 
-        return $active->contains(fn($s) => $s->isOnline()) ? 'Online' : 'Offline';
+        return $active->contains(fn ($s) => $s->isOnline()) ? 'Online' : 'Offline';
     }
 
     /**
@@ -201,10 +198,10 @@ class FarmStatusService
      * Active devices — the "Last Synchronization" shown next to
      * connectivity(). Null while Pending Setup or before the first reading.
      */
-    public function lastSeenAt(Farm $farm): ?\Carbon\Carbon
+    public function lastSeenAt(Farm $farm): ?Carbon
     {
         return $this->activeSensors($farm)
-            ->filter(fn($s) => $s->last_seen_at)
+            ->filter(fn ($s) => $s->last_seen_at)
             ->max('last_seen_at');
     }
 
@@ -214,7 +211,7 @@ class FarmStatusService
             ? $farm->sensors
             : $farm->sensors()->get();
 
-        return $sensors->filter(fn($s) => $s->status === 'Active');
+        return $sensors->filter(fn ($s) => $s->status === 'Active');
     }
 
     /**
@@ -225,22 +222,7 @@ class FarmStatusService
      */
     public function statusBreakdown(): array
     {
-        $farms = Farm::with(['sensors', 'sensorReadings' => function ($q) {
-            $q->latest()->limit(1);
-        }])->get();
-
-        $breakdown = ['normal' => 0, 'warning' => 0, 'critical' => 0, 'pending_setup' => 0];
-
-        foreach ($farms as $farm) {
-            match ($this->displayStatus($farm)) {
-                'Safe' => $breakdown['normal']++,
-                'Warning' => $breakdown['warning']++,
-                'Critical' => $breakdown['critical']++,
-                default => $breakdown['pending_setup']++,
-            };
-        }
-
-        return $breakdown;
+        return app(MonitoringAssessmentService::class)->breakdown(Farm::all());
     }
 
     /**
@@ -262,59 +244,23 @@ class FarmStatusService
      */
     private function farmStatus(Farm $farm): ?string
     {
-        $latestPerDevice = Sensor::where('farm_id', $farm->id)
-            ->where('status', 'Active')
-            ->get()
-            // id DESC as the tiebreaker: two readings can land in the same
-            // second, and created_at alone then picks between them
-            // arbitrarily — which made the farm's status depend on row order
-            // rather than on the actual newest reading.
-            ->map(fn(Sensor $sensor) => SensorReading::where('sensor_id', $sensor->id)
-                ->orderByDesc('created_at')
-                ->orderByDesc('id')
-                ->first())
-            ->filter();
-
-        // No active device has ever reported — or the farm's readings predate
-        // per-device tracking, in which case fall back to the newest row.
-        if ($latestPerDevice->isEmpty()) {
-            $fallback = SensorReading::where('farm_id', $farm->id)->latest()->first();
-            return $fallback ? $this->computeStatus($fallback) : null;
+        // Incomplete normal readings cannot prove recovery. Abnormal valid
+        // primary measurements still retain their existing alert severity.
+        $assessment = app(MonitoringAssessmentService::class)->farm($farm);
+        if ($assessment['severity'] === 'Safe' && $assessment['incomplete_data']) {
+            return null;
         }
 
-        $rank = ['Safe' => 0, 'Warning' => 1, 'Critical' => 2];
-
-        return $latestPerDevice
-            ->map(fn(SensorReading $r) => $this->computeStatus($r))
-            ->sortByDesc(fn(string $status) => $rank[$status] ?? 0)
-            ->first();
+        return $assessment['severity'];
     }
 
     /**
-     * A reading's severity, from the alerting metrics only.
-     *
-     * Temperature, humidity and manure moisture are still measured and shown,
-     * but they are conditions that drive ammonia rather than hazards in their
-     * own right, and their published thresholds come from other climates.
-     * config('sensors.alerting_metrics') is the single place that decides
-     * which ones count - see that file for the reasoning.
+     * A recorded reading's condition under the approved ammonia/moisture
+     * completeness policy. Supporting temperature/humidity do not set severity.
      */
     public function computeStatus(SensorReading $reading): string
     {
-        $statuses = collect(config('sensors.alerting_metrics', ['ammonia']))
-            ->map(fn (string $metric) => $reading->{$metric . '_status'})
-            ->filter()
-            ->all();
-
-        if (in_array('Critical', $statuses)) {
-            return 'Critical';
-        }
-
-        if (in_array('Warning', $statuses)) {
-            return 'Warning';
-        }
-
-        return 'Safe';
+        return app(MonitoringAssessmentService::class)->reading($reading)['condition'];
     }
 
     private function notify(Farm $farm, string $status): void

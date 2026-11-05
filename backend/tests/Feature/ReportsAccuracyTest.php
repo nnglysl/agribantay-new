@@ -178,7 +178,7 @@ class ReportsAccuracyTest extends TestCase
         }
     }
 
-    public function test_inspections_and_services_use_completion_dates_and_scheduled_dates_as_appropriate(): void
+    public function test_inspections_use_completion_dates_and_scheduled_dates_as_appropriate(): void
     {
         $completed = $this->inspection();
         $this->inspection(['scheduled_at' => '2001-02-05 01:00:00', 'completed_at' => '2001-03-05 01:00:00']);
@@ -193,14 +193,12 @@ class ReportsAccuracyTest extends TestCase
         $this->assertSame(1, $data['inspection_summary']['completed']);
         $this->assertSame(1, $data['inspection_summary']['scheduled']);
         $this->assertSame([$completed->id], array_column($data['completed_inspections'], 'id'));
-        $this->assertSame(3, $data['service_summary']['total']);
-        $this->assertSame(1, $data['service_summary']['completed']);
-        $this->assertSame(1, $data['service_summary']['pending']);
-        $this->assertCount(1, $data['completed_services']);
+        $this->assertArrayNotHasKey('service_summary', $data);
+        $this->assertArrayNotHasKey('completed_services', $data);
+        $this->assertArrayNotHasKey('service_records', $data);
         $snapshot = app(GeneratedReportService::class)->buildSnapshot(
             LocalTime::startOfLocalDay('2001-02-01'), LocalTime::endOfLocalDay('2001-02-28'));
         $this->assertSame($data['inspection_summary']['completed'], $snapshot['inspection_period']['completed']);
-        $this->assertSame($data['service_summary']['completed'], $snapshot['service_summary']['completed']);
     }
 
     public function test_veterinary_filters_preserve_own_assignee_scope_and_super_admin_oversight(): void
@@ -215,7 +213,7 @@ class ReportsAccuracyTest extends TestCase
         $this->assertSame(1, $own['total_completed']);
         $this->assertCount(1, $own['completed_services']);
         $this->asUser($this->head)->getJson($url)->assertOk()->assertJsonPath('data.total_completed', 2);
-        $this->assertSame(0, $this->report()['service_summary']['total']);
+        $this->assertArrayNotHasKey('service_summary', $this->report());
         $this->asUser($vet)->getJson('/api/admin/reports')->assertForbidden();
         $this->asUser($this->user('admin'))->getJson('/api/vet/reports')->assertForbidden();
         $this->asUser($this->farm->user)->getJson('/api/admin/reports')->assertForbidden();

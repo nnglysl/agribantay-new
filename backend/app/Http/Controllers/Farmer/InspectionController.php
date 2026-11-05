@@ -13,13 +13,13 @@ class InspectionController extends Controller
 
     public function index(Request $request)
     {
+        \App\Support\TableQuery::validate($request);
         $farm = $this->resolveFarmOrFail($request);
 
-        $inspections = Inspection::with(['assignedTo', 'scheduledBy'])
-            ->where('farm_id', $farm->id)
-            ->orderByDesc('scheduled_at')
-            ->get()
-            ->map(fn($i) => [
+        $query = Inspection::with(['assignedTo', 'scheduledBy'])
+            ->where('farm_id', $farm->id);
+        \App\Support\TableFilters::inspections($query, $request, 'desc');
+        $inspections = \App\Support\TableQuery::rows($query, $request)->map(fn($i) => [
                 'id'                => $i->id,
                 'inspection_number' => $i->inspection_number,
                 'inspection_type'   => $i->inspection_type,
@@ -34,6 +34,8 @@ class InspectionController extends Controller
                 'completed_at'      => $i->completed_at,
                 'created_at'        => $i->created_at,
             ]);
+
+        if ($request->filled('per_page')) return response()->json(['success' => true, 'data' => \App\Support\TableQuery::payload($request, $inspections)]);
 
         return response()->json([
             'success' => true,

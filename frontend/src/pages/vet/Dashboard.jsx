@@ -1,3 +1,4 @@
+import { GREEN } from '../../theme/green'
 import { useEffect, useMemo, useState, useRef, useLayoutEffect, useCallback } from 'react'
 import VetLayout from '../../components/VetLayout'
 import VetScheduleMap from '../../components/VetScheduleMap'
@@ -190,11 +191,11 @@ const styles = {
   statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '20px', marginBottom: '28px' },
   statsGridMobile: { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '12px', marginBottom: '20px' },
 
-  statCard: { fontFamily: SANS, background: '#234A35', border: '1px solid #1c3c2b', borderRadius: '14px', padding: '20px 22px' },
+  statCard: { fontFamily: SANS, background: GREEN.primary, border: '1px solid var(--agb-green-hover)', borderRadius: '14px', padding: '20px 22px' },
   statCardMobile: { padding: '16px' },
   statValue: { fontSize: '30px', fontWeight: 800, letterSpacing: '-0.02em', color: '#ffffff', lineHeight: 1 },
   statValueMobile: { fontSize: '24px' },
-  statLabel: { fontSize: '13px', fontWeight: 700, color: '#eaf3ec', marginTop: '8px' },
+  statLabel: { fontSize: '13px', fontWeight: 700, color: GREEN.soft, marginTop: '8px' },
   statFoot: { fontSize: '12px', color: 'rgba(234,243,236,0.7)', marginTop: '3px' },
 
   mapTitle: { fontFamily: SANS, fontSize: '15px', fontWeight: 700, color: '#16311d', margin: '0 0 4px' },
@@ -214,12 +215,12 @@ const styles = {
     flex: 1, fontFamily: SANS, fontSize: '12.5px', fontWeight: 700, color: '#6b7770', cursor: 'pointer',
     background: 'transparent', border: 'none', borderRadius: '8px', padding: '8px', textAlign: 'center',
   },
-  tabActive: { background: '#2c8047', color: '#fff' },
+  tabActive: { background: GREEN.primary, color: '#fff' },
 
   panelHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', padding: '14px 16px 10px', flexShrink: 0 },
   panelHeadLeft: { minWidth: 0 },
   panelTitle: { fontSize: '13px', fontWeight: 800, color: '#16311d' },
-  panelCount: { fontSize: '11px', fontWeight: 700, color: '#2c8047', background: '#eaf3ec', borderRadius: '999px', padding: '3px 9px', flexShrink: 0 },
+  panelCount: { fontSize: '11px', fontWeight: 700, color: GREEN.primary, background: GREEN.soft, borderRadius: '999px', padding: '3px 9px', flexShrink: 0 },
 
   panelBody: { overflowY: 'auto', padding: '0 8px', flex: 1, minHeight: 0 },
   emptyText: { padding: '18px 8px', textAlign: 'center', fontSize: '12.5px', color: '#9aa79d' },
@@ -231,5 +232,5 @@ const styles = {
     borderRadius: '999px', fontSize: '11.5px', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0,
   },
 
-  seeAll: { border: 'none', borderTop: '1px solid #eceee7', background: 'transparent', color: '#2c8047', fontSize: '12px', fontWeight: 700, padding: '12px', cursor: 'pointer', fontFamily: SANS, flexShrink: 0 },
+  seeAll: { border: 'none', borderTop: '1px solid #eceee7', background: 'transparent', color: GREEN.primary, fontSize: '12px', fontWeight: 700, padding: '12px', cursor: 'pointer', fontFamily: SANS, flexShrink: 0 },
 }

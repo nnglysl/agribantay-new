@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\AlertHistory;
 use App\Support\LocalTime;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 /**
  * One row per day per device: what a farm's week actually looked like.
@@ -55,9 +56,11 @@ class ReadingSummaryService
 
         $start = $deployment['range_start'] ? Carbon::parse($deployment['range_start']) : null;
         $end = Carbon::parse($deployment['range_end']);
-        $days = app(MonitoringDeploymentService::class)->readings($farmId, $sensorId, $start, $end)
+        $days = app(MonitoringDeploymentService::class)->readings($farmId, $sensorId, $start, $end, $deployment['reading_after_id'] ?? null, $deployment['reading_through_id'] ?? null)
             ->selectRaw("{$localDay} as day")
             ->selectRaw('COUNT(*) as reading_count')
+            ->selectRaw('SUM(CASE WHEN ammonia IS NULL OR moisture IS NULL THEN 1 ELSE 0 END) as incomplete_readings')
+            ->selectRaw('SUM(CASE WHEN ammonia IS NOT NULL OR moisture IS NOT NULL THEN 1 ELSE 0 END) as valid_primary_readings')
             ->selectRaw('MAX(ammonia) as ammonia_peak, AVG(ammonia) as ammonia_avg')
             ->selectRaw('MAX(moisture) as moisture_peak, AVG(moisture) as moisture_avg')
             ->selectRaw('MAX(temperature) as temperature_peak, AVG(temperature) as temperature_avg')
@@ -65,15 +68,15 @@ class ReadingSummaryService
             // The day's worst status per metric, taken from the stored
             // *_status columns rather than recomputed here, so the table can
             // never disagree with the alert that was actually raised.
-            ->selectRaw("SUM(CASE WHEN ammonia_status = 'Critical' THEN 1 ELSE 0 END) as ammonia_critical")
-            ->selectRaw("SUM(CASE WHEN ammonia_status = 'Warning' THEN 1 ELSE 0 END) as ammonia_warning")
-            ->selectRaw("SUM(CASE WHEN moisture_status = 'Critical' THEN 1 ELSE 0 END) as moisture_critical")
-            ->selectRaw("SUM(CASE WHEN moisture_status = 'Warning' THEN 1 ELSE 0 END) as moisture_warning")
+            ->selectRaw("SUM(CASE WHEN ammonia IS NOT NULL AND ammonia_status = 'Critical' THEN 1 ELSE 0 END) as ammonia_critical")
+            ->selectRaw("SUM(CASE WHEN ammonia IS NOT NULL AND ammonia_status = 'Warning' THEN 1 ELSE 0 END) as ammonia_warning")
+            ->selectRaw("SUM(CASE WHEN moisture IS NOT NULL AND moisture_status = 'Critical' THEN 1 ELSE 0 END) as moisture_critical")
+            ->selectRaw("SUM(CASE WHEN moisture IS NOT NULL AND moisture_status = 'Warning' THEN 1 ELSE 0 END) as moisture_warning")
             ->groupByRaw($localDay)
             ->orderByRaw("{$localDay} DESC")
             ->get();
 
-        $alertsByDay = $this->alertCountsByDay($farmId, $sensorId, $start, $end);
+        $alertsByDay = $this->alertCountsByDay($farmId, $sensorId, $start, $end, $deployment['alert_after_id'] ?? null, $deployment['alert_through_id'] ?? null);
 
         $rows = $days->map(function ($day) use ($alertsByDay) {
             // Local-zoned, so ->startOfDay()/->endOfDay() below bound the
@@ -93,6 +96,8 @@ class ReadingSummaryService
                 'humidity_avg' => $this->round($day->humidity_avg, 0),
                 'alerts_raised' => $alertsByDay[$date->toDateString()] ?? 0,
                 'status' => $this->dayStatus($day),
+                'incomplete_data' => (int) $day->incomplete_readings > 0,
+                'incomplete_readings' => (int) $day->incomplete_readings,
             ];
         })->all();
 
@@ -107,7 +112,7 @@ class ReadingSummaryService
      * from Critical readings. A single incident spans many readings while it
      * stays unresolved; counting rows would report one breach as hundreds.
      */
-    private function alertCountsByDay(int $farmId, int $sensorId, ?Carbon $start, Carbon $end): array
+    private function alertCountsByDay(int $farmId, int $sensorId, ?Carbon $start, Carbon $end, ?int $afterId, ?int $throughId): array
     {
         // Grouped on the same local day as the readings above, or an alert
         // raised after 4 PM Manila would be counted against the next row.
@@ -116,8 +121,10 @@ class ReadingSummaryService
         return AlertHistory::query()
             ->where('farm_id', $farmId)
             ->where('sensor_id', $sensorId)
-            ->when($start, fn ($query) => $query->where('triggered_at', '>=', $start))
-            ->where('triggered_at', '<', $end)
+            ->when($afterId !== null, fn ($q) => $q->where('id', '>', $afterId),
+                fn ($q) => $q->when($start, fn ($w) => $w->where('triggered_at', '>=', $start)))
+            ->when($throughId !== null, fn ($q) => $q->where('id', '<=', $throughId),
+                fn ($q) => $q->where('triggered_at', $afterId === null ? '<' : '<=', $end))
             ->selectRaw("{$localDay} as day, COUNT(*) as total")
             ->groupByRaw($localDay)
             ->pluck('total', 'day')
@@ -155,6 +162,9 @@ class ReadingSummaryService
             Carbon::now(LocalTime::timezone())->getOffset() / 60
         );
 
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            return "DATE({$column}, '{$minutes} minutes')";
+        }
         if ($minutes === 0) {
             return "DATE({$column})";
         }
@@ -170,7 +180,7 @@ class ReadingSummaryService
      */
     private function dayStatus($day): string
     {
-        $alerting = config('sensors.alerting_metrics', ['ammonia']);
+        $alerting = MonitoringAssessmentService::PRIMARY;
 
         $critical = 0;
         $warning = 0;
@@ -184,7 +194,11 @@ class ReadingSummaryService
             return 'Critical';
         }
 
-        return $warning > 0 ? 'Warning' : 'Safe';
+        if (! (int) $day->valid_primary_readings) {
+            return 'No Readings Yet';
+        }
+
+        return $warning > 0 ? 'Warning' : ((int) $day->incomplete_readings ? 'Incomplete Data' : 'Safe');
     }
 
     private function round($value, int $decimals): ?float

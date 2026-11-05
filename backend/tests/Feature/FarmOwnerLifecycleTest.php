@@ -6,12 +6,12 @@ use App\Mail\OtpCodeMail;
 use App\Models\Farm;
 use App\Models\SensorReading;
 use App\Models\User;
-use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
-use Tests\TestCase;
+use Laravel\Sanctum\PersonalAccessToken;
+use Tests\Support\FarmDeletionFixtureTestCase;
 
 /**
  * The Farm Owner account lifecycle around permanent farm deletion.
@@ -21,14 +21,10 @@ use Tests\TestCase;
  * REMAINING FARM COUNT decides — never the status of the farm that was
  * deleted, and never the fact that a deletion happened.
  *
- * Same MySQL-only caveat as the other feature tests; run with:
- *
- *   DB_CONNECTION=mysql DB_DATABASE=db_agribantay php artisan test --filter=FarmOwnerLifecycleTest
+ * All records live in a guarded disposable native fixture.
  */
-class FarmOwnerLifecycleTest extends TestCase
+class FarmOwnerLifecycleTest extends FarmDeletionFixtureTestCase
 {
-    use DatabaseTransactions;
-
     private const OWNER_PASSWORD = 'Own3r!pass';
 
     private User $superAdmin;
@@ -36,10 +32,6 @@ class FarmOwnerLifecycleTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-
-        if (config('database.default') !== 'mysql') {
-            $this->markTestSkipped('Run with: DB_CONNECTION=mysql DB_DATABASE=db_agribantay php artisan test --filter=FarmOwnerLifecycleTest');
-        }
 
         Mail::fake();
         Http::fake();
@@ -54,28 +46,32 @@ class FarmOwnerLifecycleTest extends TestCase
         } while (User::where('mobile_number', $mobile)->exists());
 
         return User::create([
-            'first_name'    => 'Juan',
-            'last_name'     => 'Dela '.Str::random(5),
+            'first_name' => 'Juan',
+            'last_name' => 'Dela '.Str::random(5),
             'mobile_number' => $mobile,
-            'password'      => bcrypt(self::OWNER_PASSWORD),
-            'role'          => 'farm_owner',
-            'status'        => 'active',
+            'password' => bcrypt(self::OWNER_PASSWORD),
+            'role' => 'farm_owner',
+            'status' => 'active',
+            'must_change_password' => false,
         ]);
     }
 
     private function farmFor(User $owner, string $status = 'Deactivated'): Farm
     {
         $farm = Farm::create([
-            'user_id'       => $owner->id,
-            'farm_name'     => 'Farm '.Str::random(5),
-            'owner_name'    => $owner->full_name,
+            'user_id' => $owner->id,
+            'farm_name' => 'Farm '.Str::random(5),
+            'owner_name' => $owner->full_name,
             'mobile_number' => $owner->mobile_number,
-            'barangay'      => 'Calansayan',
-            'address'       => 'Test',
-            'farm_size'     => 'Small',
-            'status'        => $status,
-            'latitude'      => 13.8550,
-            'longitude'     => 121.0930,
+            'barangay' => 'Calansayan',
+            'municipality' => 'San Jose',
+            'province' => 'Occidental Mindoro',
+            'current_status' => 'Safe',
+            'address' => 'Test',
+            'farm_size' => 'Small',
+            'status' => $status,
+            'latitude' => 13.8550,
+            'longitude' => 121.0930,
         ]);
 
         SensorReading::create([
@@ -84,26 +80,30 @@ class FarmOwnerLifecycleTest extends TestCase
             'humidity_status' => 'Safe', 'moisture_status' => 'Safe',
         ]);
 
+        $this->verifyEmptyFixtureInventory($farm);
+
         return $farm;
     }
 
     /** Runs the real OTP flow, reading the code out of the faked email. */
     private function deleteFarm(Farm $farm)
     {
+        $this->verifyEmptyFixtureInventory($farm);
         $this->app['auth']->forgetGuards();
 
         $this->actingAs($this->superAdmin)
-            ->postJson("/api/superadmin/farms/{$farm->id}/delete/otp/request")
+            ->postJson("/api/superadmin/farms/{$farm->id}/delete/otp/request", $this->deletionData())
             ->assertOk();
 
         $code = null;
         Mail::assertSent(OtpCodeMail::class, function (OtpCodeMail $mail) use (&$code) {
             $code = $mail->code;
+
             return $mail->purpose === 'farm_deletion';
         });
 
         return $this->actingAs($this->superAdmin)
-            ->deleteJson("/api/superadmin/farms/{$farm->id}", ['code' => $code]);
+            ->deleteJson("/api/superadmin/farms/{$farm->id}", $this->deletionData(['code' => $code]));
     }
 
     private function login(User $owner, string $password = self::OWNER_PASSWORD)
@@ -111,7 +111,7 @@ class FarmOwnerLifecycleTest extends TestCase
         $this->app['auth']->forgetGuards();
 
         return $this->postJson('/api/login', [
-            'login'    => $owner->mobile_number,
+            'login' => $owner->mobile_number,
             'password' => $password,
         ]);
     }
@@ -188,7 +188,7 @@ class FarmOwnerLifecycleTest extends TestCase
     public function test_deleting_the_only_farm_deletes_the_owner_account(): void
     {
         $owner = $this->owner();
-        $farm  = $this->farmFor($owner);
+        $farm = $this->farmFor($owner);
 
         $this->deleteFarm($farm)
             ->assertOk()
@@ -214,7 +214,7 @@ class FarmOwnerLifecycleTest extends TestCase
     public function test_a_live_session_stops_working_once_the_account_is_deleted(): void
     {
         $owner = $this->owner();
-        $farm  = $this->farmFor($owner);
+        $farm = $this->farmFor($owner);
 
         $token = $this->login($owner)->assertOk()->json('token');
 
@@ -229,14 +229,14 @@ class FarmOwnerLifecycleTest extends TestCase
         $this->app['auth']->forgetGuards();
         $this->withToken($token)->getJson('/api/farmer/farms')->assertStatus(401);
 
-        $this->assertSame(0, \Laravel\Sanctum\PersonalAccessToken::where('tokenable_id', $owner->id)
+        $this->assertSame(0, PersonalAccessToken::where('tokenable_id', $owner->id)
             ->where('tokenable_type', User::class)->count(), 'tokens were left behind');
     }
 
     public function test_deleted_owner_cannot_log_in_again(): void
     {
         $owner = $this->owner();
-        $farm  = $this->farmFor($owner);
+        $farm = $this->farmFor($owner);
 
         $this->deleteFarm($farm)->assertOk();
 
@@ -250,15 +250,15 @@ class FarmOwnerLifecycleTest extends TestCase
     public function test_a_wrong_code_cancels_everything(): void
     {
         $owner = $this->owner();
-        $farm  = $this->farmFor($owner);
+        $farm = $this->farmFor($owner);
 
         $this->app['auth']->forgetGuards();
         $this->actingAs($this->superAdmin)
-            ->postJson("/api/superadmin/farms/{$farm->id}/delete/otp/request")
+            ->postJson("/api/superadmin/farms/{$farm->id}/delete/otp/request", $this->deletionData())
             ->assertOk();
 
         $this->actingAs($this->superAdmin)
-            ->deleteJson("/api/superadmin/farms/{$farm->id}", ['code' => '000000'])
+            ->deleteJson("/api/superadmin/farms/{$farm->id}", $this->deletionData(['code' => '000000']))
             ->assertStatus(422);
 
         // Neither the farm nor the owner may be touched by a failed attempt.
@@ -271,7 +271,7 @@ class FarmOwnerLifecycleTest extends TestCase
 
     public function test_farm_list_reports_the_owners_farm_count(): void
     {
-        $solo  = $this->owner();
+        $solo = $this->owner();
         $this->farmFor($solo, 'Active');
 
         $multi = $this->owner();
@@ -281,7 +281,7 @@ class FarmOwnerLifecycleTest extends TestCase
         $this->app['auth']->forgetGuards();
         $rows = collect($this->actingAs($this->superAdmin)->getJson('/api/admin/farms')->assertOk()->json('data'));
 
-        $soloRow  = $rows->firstWhere('owner_name', $solo->full_name);
+        $soloRow = $rows->firstWhere('owner_name', $solo->full_name);
         $multiRow = $rows->firstWhere('owner_name', $multi->full_name);
 
         $this->assertSame(1, $soloRow['owner_farm_count']);
@@ -295,17 +295,20 @@ class FarmOwnerLifecycleTest extends TestCase
         // A farm pointed at a non-farm_owner account must never take that
         // account with it, whatever the remaining count says.
         $staff = User::where('role', 'admin')->firstOrFail();
-        $farm  = Farm::create([
-            'user_id'       => $staff->id,
-            'farm_name'     => 'Misattributed '.Str::random(4),
-            'owner_name'    => $staff->full_name,
+        $farm = Farm::create([
+            'user_id' => $staff->id,
+            'farm_name' => 'Misattributed '.Str::random(4),
+            'owner_name' => $staff->full_name,
             'mobile_number' => $staff->mobile_number,
-            'barangay'      => 'Calansayan',
-            'address'       => 'Test',
-            'farm_size'     => 'Small',
-            'status'        => 'Deactivated',
-            'latitude'      => 13.8550,
-            'longitude'     => 121.0930,
+            'barangay' => 'Calansayan',
+            'municipality' => 'San Jose',
+            'province' => 'Occidental Mindoro',
+            'current_status' => 'Safe',
+            'address' => 'Test',
+            'farm_size' => 'Small',
+            'status' => 'Deactivated',
+            'latitude' => 13.8550,
+            'longitude' => 121.0930,
         ]);
 
         $this->deleteFarm($farm)->assertOk()->assertJsonPath('owner_deleted', false);

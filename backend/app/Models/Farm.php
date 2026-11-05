@@ -87,6 +87,12 @@ class Farm extends Model
         );
     }
 
+    /** Explicitly classified full clean-outs; other maintenance never resets the cycle. */
+    public function qualifyingCleanouts()
+    {
+        return $this->hasMany(MaintenanceLog::class)->where('maintenance_type', \App\Services\MaintenanceStatusService::FULL_CLEANOUT);
+    }
+
     public function aiRecommendations()
     {
         return $this->hasMany(AiRecommendation::class);
@@ -100,5 +106,10 @@ class Farm extends Model
     public function manureDisposalRecords()
     {
         return $this->hasMany(ManureDisposalRecord::class);
+    }
+
+    public function controlDocuments()
+    {
+        return $this->hasMany(FarmControlDocument::class);
     }
 }

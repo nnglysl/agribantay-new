@@ -1,3 +1,4 @@
+import { GREEN } from '../theme/green'
 import { serviceTypeBadgeStyle } from './serviceBadgeStyle'
 
 const NEUTRAL = { color: '#6b7280', backgroundColor: '#eef1ea' }
@@ -9,7 +10,7 @@ const SERVICE_TYPES = new Set([
 
 const CATEGORY_STYLE = {
   Request: { color: '#7c3aed', backgroundColor: '#f3ecfd' },
-  Farm: { color: '#256b3d', backgroundColor: '#eaf3ec' },
+  Farm: { color: GREEN.hover, backgroundColor: GREEN.soft },
   Account: { color: '#2f5fa0', backgroundColor: '#e9eef6' },
   Service: { color: '#4338ca', backgroundColor: '#eeecfb' },
   Inspection: { color: '#b45309', backgroundColor: '#fbf1e2' },

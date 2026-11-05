@@ -1,0 +1,249 @@
+{
+  "document_kind": "PROPOSED_PRIVILEGE_AND_DEFINER_PLAN_NOT_PERMISSION_TO_APPLY",
+  "plan_id": "20261104-ph-existing-dba-scoped-runtime-v1",
+  "status": "AWAITING_EXPLICIT_IDENTITY_GRANT_AND_CONFIG_APPROVAL",
+  "operational_actions_performed": false,
+  "strategy": "Use the existing trusted local DBA identity as the explicitly approved durable installer/trigger/procedure creator; replace application use of that DBA with one narrowly granted runtime account before resumption. Do not introduce a new SUPER grant or change binary logging/trust settings.",
+  "durable_creator": {
+    "existing_account": true,
+    "principal_sha256": "0a44f8735cbc275f1efcdf43159dcd20e54a1c994d0daeb92d04c389078057b5",
+    "current_privileged_capabilities_observed": {
+      "CREATE": true,
+      "ALTER": true,
+      "INDEX": true,
+      "INSERT": true,
+      "SELECT": true,
+      "REFERENCES": true,
+      "TRIGGER": true,
+      "CREATE ROUTINE": true,
+      "EXECUTE": true,
+      "SUPER": true
+    },
+    "no_account_deletion_or_auto_revoke": true,
+    "risk": "The existing DBA remains an administrative trust boundary; an exact-file wrapper is not a database privilege sandbox."
+  },
+  "mysql_logging": {
+    "log_bin": 1,
+    "binlog_format": "ROW",
+    "log_bin_trust_function_creators": 0,
+    "changes_authorized": false
+  },
+  "runtime_account": {
+    "proposed_username": "agribantay_ph_runtime",
+    "host": "localhost",
+    "expected_principal_sha256": "178aa580717b6835c80593339ff8f00faacdf72487d8e4f72db3e86bb5d807e1",
+    "created": false,
+    "credential_created": false,
+    "required_active_roles": "NONE",
+    "no_global_privileges": true,
+    "no_grant_option": true,
+    "no_proxy_or_role_grants": true
+  },
+  "runtime_table_grants": {
+    "activity_logs": [
+      "SELECT",
+      "INSERT"
+    ],
+    "ai_recommendations": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "alert_history": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "cache": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "cache_locks": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "device_assignment_events": [
+      "SELECT",
+      "INSERT"
+    ],
+    "email_verification_otps": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "failed_jobs": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "farm_control_documents": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "farm_sms_alert_states": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "farms": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "generated_reports": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "inspections": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "job_batches": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "jobs": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "maintenance_logs": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "maintenance_notifications": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "manure_disposal_records": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "migrations": [
+      "SELECT"
+    ],
+    "notifications": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "password_reset_otps": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "password_reset_tokens": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "personal_access_tokens": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "poultry_house_initializations": [
+      "SELECT",
+      "INSERT"
+    ],
+    "poultry_houses": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "sensor_readings": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "sensors": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "service_request_attachments": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "service_requests": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "sessions": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "sms_logs": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "users": [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ]
+  },
+  "runtime_procedure_grants": {
+    "agribantay_house_safeguards_v1": [
+      "EXECUTE"
+    ]
+  },
+  "installer_automatically_creates_or_grants_accounts": false,
+  "installer_automatically_edits_environment": false,
+  "separately_approved_admin_steps": [
+    "Approve the existing durable DBA principal and this exact table/procedure grant matrix",
+    "Create the runtime identity and a fresh protected credential through an approved administrator; no passwords in commands/repository/reports",
+    "Grant exact table rights after objects exist, with SELECT-only migration history and SELECT/INSERT-only retained evidence; grant only metadata-procedure EXECUTE",
+    "Keep the existing DBA as the common durable creator; do not change SUPER, trust-creators or logging to force creation",
+    "Explicitly approve/stage the runtime environment/configuration switch and bind both pre-switch and post-switch release hashes",
+    "After schema/procedure verification, verify current runtime principal, exact SHOW GRANTS/no roles, application mapping, metadata readiness, original rows/history and foreign keys before operator resumption"
+  ],
+  "validation_required": [
+    "Native isolated MySQL 8.0.46 with binary logging ON/ROW and trust-creators 0",
+    "Actual unchanged four migrations, genuine journaling and exact procedure under the intended creator arrangement",
+    "Restricted runtime positive readiness and rejected DDL/TRIGGER/account/grant/role/proxy escape",
+    "Trigger activation/locking behavior and lost/wrong-definer refusal; source never used as a test fixture"
+  ],
+  "validation_in_this_turn": "Pure synthetic metadata/guard/orchestration tests and SQLite application regressions only; no native migrations, identities or grants executed."
+}

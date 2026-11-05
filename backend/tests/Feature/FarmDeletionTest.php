@@ -10,31 +10,26 @@ use App\Models\Sensor;
 use App\Models\SensorReading;
 use App\Models\ServiceRequest;
 use App\Models\User;
-use Illuminate\Foundation\Testing\DatabaseTransactions;
+use App\Services\DeviceAssignmentService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
-use Tests\TestCase;
+use Tests\Support\FarmDeletionFixtureTestCase;
 
 /**
  * Permanent farm deletion: Super Admin only, Deactivated only, emailed OTP.
  *
- *   DB_CONNECTION=mysql DB_DATABASE=db_agribantay php artisan test --filter=FarmDeletionTest
+ * Uses a guarded disposable native fixture; never select the operational DB.
  */
-class FarmDeletionTest extends TestCase
+class FarmDeletionTest extends FarmDeletionFixtureTestCase
 {
-    use DatabaseTransactions;
-
     private User $superAdmin;
+
     private User $admin;
 
     protected function setUp(): void
     {
         parent::setUp();
-
-        if (config('database.default') !== 'mysql') {
-            $this->markTestSkipped('Run with: DB_CONNECTION=mysql DB_DATABASE=db_agribantay php artisan test --filter=FarmDeletionTest');
-        }
 
         Mail::fake();
         $this->superAdmin = User::where('role', 'super_admin')->whereNotNull('email')->firstOrFail();
@@ -44,25 +39,29 @@ class FarmDeletionTest extends TestCase
     private function makeFarm(string $status = 'Deactivated'): Farm
     {
         $owner = User::create([
-            'first_name'    => 'Del',
-            'last_name'     => Str::random(6),
-            'mobile_number' => '09' . random_int(100000000, 999999999),
-            'password'      => bcrypt('password'),
-            'role'          => 'farm_owner',
-            'status'        => 'active',
+            'first_name' => 'Del',
+            'last_name' => Str::random(6),
+            'mobile_number' => '09'.random_int(100000000, 999999999),
+            'password' => bcrypt('password'),
+            'role' => 'farm_owner',
+            'status' => 'active',
+            'must_change_password' => false,
         ]);
 
         $farm = Farm::create([
-            'user_id'       => $owner->id,
-            'farm_name'     => 'Doomed Farm ' . Str::random(4),
-            'owner_name'    => $owner->full_name,
+            'user_id' => $owner->id,
+            'farm_name' => 'Doomed Farm '.Str::random(4),
+            'owner_name' => $owner->full_name,
             'mobile_number' => $owner->mobile_number,
-            'barangay'      => 'Calansayan',
-            'address'       => 'Test',
-            'farm_size'     => 'Small',
-            'status'        => $status,
-            'latitude'      => 13.8550,
-            'longitude'     => 121.0930,
+            'barangay' => 'Calansayan',
+            'municipality' => 'San Jose',
+            'province' => 'Occidental Mindoro',
+            'current_status' => 'Safe',
+            'address' => 'Test',
+            'farm_size' => 'Small',
+            'status' => $status,
+            'latitude' => 13.8550,
+            'longitude' => 121.0930,
         ]);
 
         SensorReading::create([
@@ -70,13 +69,15 @@ class FarmDeletionTest extends TestCase
             'ammonia_status' => 'Safe', 'temperature_status' => 'Safe', 'humidity_status' => 'Safe', 'moisture_status' => 'Safe',
         ]);
         Inspection::create([
-            'inspection_number' => 'INS-T' . random_int(10000, 99999), 'farm_id' => $farm->id, 'scheduled_by' => $this->admin->id,
+            'inspection_number' => 'INS-T'.random_int(10000, 99999), 'farm_id' => $farm->id, 'scheduled_by' => $this->admin->id,
             'inspection_type' => 'Follow-up', 'status' => 'Scheduled', 'scheduled_at' => now()->addDay(),
         ]);
         ServiceRequest::create([
-            'request_number' => 'SR-T' . random_int(10000, 99999), 'farm_id' => $farm->id, 'requested_by' => $owner->id,
+            'request_number' => 'SR-T'.random_int(10000, 99999), 'farm_id' => $farm->id, 'requested_by' => $owner->id,
             'service_type' => 'Vaccine Request', 'status' => 'Pending', 'priority' => 'High',
         ]);
+
+        $this->verifyEmptyFixtureInventory($farm);
 
         return $farm;
     }
@@ -85,13 +86,14 @@ class FarmDeletionTest extends TestCase
     private function requestCodeFor(Farm $farm): string
     {
         $this->actingAs($this->superAdmin)
-            ->postJson("/api/superadmin/farms/{$farm->id}/delete/otp/request")
+            ->postJson("/api/superadmin/farms/{$farm->id}/delete/otp/request", $this->deletionData())
             ->assertStatus(200)
             ->assertJsonPath('success', true);
 
         $code = null;
         Mail::assertSent(OtpCodeMail::class, function (OtpCodeMail $mail) use (&$code) {
             $code = $mail->code;
+
             return $mail->purpose === 'farm_deletion' && $mail->hasTo($this->superAdmin->email);
         });
 
@@ -126,7 +128,7 @@ class FarmDeletionTest extends TestCase
 
         // No code requested yet → "expired".
         $this->actingAs($this->superAdmin)
-            ->deleteJson("/api/superadmin/farms/{$farm->id}", ['code' => '000000'])
+            ->deleteJson("/api/superadmin/farms/{$farm->id}", $this->deletionData(['code' => '000000']))
             ->assertStatus(422)
             ->assertJsonPath('message', 'Verification code has expired. Please request a new code.');
 
@@ -134,7 +136,7 @@ class FarmDeletionTest extends TestCase
         $wrong = $code === '111111' ? '222222' : '111111';
 
         $this->actingAs($this->superAdmin)
-            ->deleteJson("/api/superadmin/farms/{$farm->id}", ['code' => $wrong])
+            ->deleteJson("/api/superadmin/farms/{$farm->id}", $this->deletionData(['code' => $wrong]))
             ->assertStatus(422)
             ->assertJsonPath('message', 'Invalid verification code.');
 
@@ -150,7 +152,7 @@ class FarmDeletionTest extends TestCase
         $this->travel(11)->minutes();
 
         $this->actingAs($this->superAdmin)
-            ->deleteJson("/api/superadmin/farms/{$farm->id}", ['code' => $code])
+            ->deleteJson("/api/superadmin/farms/{$farm->id}", $this->deletionData(['code' => $code]))
             ->assertStatus(422)
             ->assertJsonPath('message', 'Verification code has expired. Please request a new code.');
 
@@ -166,12 +168,12 @@ class FarmDeletionTest extends TestCase
 
         if ($first !== $second) {
             $this->actingAs($this->superAdmin)
-                ->deleteJson("/api/superadmin/farms/{$farm->id}", ['code' => $first])
+                ->deleteJson("/api/superadmin/farms/{$farm->id}", $this->deletionData(['code' => $first]))
                 ->assertStatus(422);
         }
 
         $this->actingAs($this->superAdmin)
-            ->deleteJson("/api/superadmin/farms/{$farm->id}", ['code' => $second])
+            ->deleteJson("/api/superadmin/farms/{$farm->id}", $this->deletionData(['code' => $second]))
             ->assertStatus(200);
     }
 
@@ -182,7 +184,7 @@ class FarmDeletionTest extends TestCase
         $code = $this->requestCodeFor($farmA);
 
         $this->actingAs($this->superAdmin)
-            ->deleteJson("/api/superadmin/farms/{$farmB->id}", ['code' => $code])
+            ->deleteJson("/api/superadmin/farms/{$farmB->id}", $this->deletionData(['code' => $code]))
             ->assertStatus(422);
 
         $this->assertDatabaseHas('farms', ['id' => $farmB->id]);
@@ -192,11 +194,12 @@ class FarmDeletionTest extends TestCase
     {
         $farm = $this->makeFarm();
         $ownerId = $farm->user_id;
-        $sensor = Sensor::create(['farm_id' => $farm->id, 'device_key' => 'AGB-T-' . Str::upper(Str::random(5)), 'label' => 'AGB-T', 'status' => 'active']);
+        $sensor = Sensor::create(['farm_id' => $farm->id, 'device_key' => 'AGB-T-'.Str::upper(Str::random(5)), 'label' => 'AGB-T', 'status' => 'Active']);
+        app(DeviceAssignmentService::class)->change($sensor->id, null);
         $code = $this->requestCodeFor($farm);
 
         $this->actingAs($this->superAdmin)
-            ->deleteJson("/api/superadmin/farms/{$farm->id}", ['code' => $code])
+            ->deleteJson("/api/superadmin/farms/{$farm->id}", $this->deletionData(['code' => $code]))
             ->assertStatus(200)
             ->assertJsonPath('success', true);
 
@@ -204,7 +207,7 @@ class FarmDeletionTest extends TestCase
         $this->assertDatabaseMissing('sensor_readings', ['farm_id' => $farm->id]);
         $this->assertDatabaseMissing('inspections', ['farm_id' => $farm->id]);
         $this->assertDatabaseMissing('service_requests', ['farm_id' => $farm->id]);
-        // Devices are detached, not destroyed — they outlive the farm.
+        // Devices were explicitly unassigned before deletion and survive it.
         $this->assertDatabaseHas('sensors', ['id' => $sensor->id, 'farm_id' => null]);
 
         // makeFarm() gives this owner exactly one farm, so deleting it leaves
@@ -221,7 +224,7 @@ class FarmDeletionTest extends TestCase
 
         // Single-use: the same code can't be replayed (farm is gone → 404).
         $this->actingAs($this->superAdmin)
-            ->deleteJson("/api/superadmin/farms/{$farm->id}", ['code' => $code])
+            ->deleteJson("/api/superadmin/farms/{$farm->id}", $this->deletionData(['code' => $code]))
             ->assertStatus(404);
         $this->assertNull(Cache::get("farm-delete-otp:{$this->superAdmin->id}:{$farm->id}"));
     }

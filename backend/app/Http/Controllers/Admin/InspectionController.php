@@ -21,19 +21,43 @@ class InspectionController extends Controller
 {
     public function index(Request $request)
     {
+        \App\Support\TableQuery::validate($request);
         $query = Inspection::with(['farm', 'assignedTo', 'scheduledBy']);
 
         if ($request->status) {
             $query->where('status', $request->status);
         }
 
-        $inspections = $query->orderBy('scheduled_at')->get()->map(fn($i) => [
+        $calendar = $request->filled('calendar_month');
+        $calendarMeta = [];
+        if ($calendar) {
+            $request->validate(['calendar_month' => 'required|integer|between:1,12', 'calendar_year' => 'required|integer|between:1900,2200',
+                'summary_from' => 'nullable|date_format:Y-m-d', 'summary_to' => 'nullable|date_format:Y-m-d', 'summary_type' => 'nullable|string|max:255']);
+            $summary = clone $query;
+            $summaryRequest = new Request(['from' => $request->summary_from, 'to' => $request->summary_to]);
+            \App\Support\TableQuery::dates($summary, $summaryRequest, 'scheduled_at');
+            if ($request->filled('summary_type')) $summary->where('inspection_type', $request->summary_type);
+            $summary->where('status', '!=', 'Cancelled');
+            $start = \Carbon\Carbon::create($request->calendar_year, $request->calendar_month, 1, 0, 0, 0, LocalTime::timezone());
+            $query->whereBetween('scheduled_at', [$start->copy()->utc(), $start->copy()->endOfMonth()->utc()]);
+            $calendarMeta = [
+                'total' => (clone $summary)->count(),
+                'follow_up' => (clone $summary)->where('inspection_type', 'Follow-up')->count(),
+                'active_inspections' => Inspection::where('status', 'Scheduled')->orderBy('id')
+                    ->get(['farm_id', 'status', 'inspection_number', 'scheduled_at']),
+                'farm_options' => Farm::whereHas('inspections')->distinct()->orderBy('farm_name')->pluck('farm_name'),
+                'staff_options' => User::whereIn('id', Inspection::whereNotNull('scheduled_by')->select('scheduled_by'))
+                    ->get(['first_name', 'last_name'])->map(fn ($u) => trim($u->full_name))->unique()->sort()->values(),
+            ];
+        }
+
+        \App\Support\TableFilters::inspections($query, $request);
+        $inspections = \App\Support\TableQuery::rows($query, $request)->map(fn($i) => [
             'id'                => $i->id,
             'inspection_number' => $i->inspection_number,
             'farm_id'           => $i->farm_id,
             'farm_name'         => $i->farm->farm_name,
             'owner_name'        => $i->farm->owner_name,
-            // Kept for existing consumers; now null-safe instead of a bare " ".
             'assigned_to'       => $i->assignedTo ? trim($i->assignedTo->first_name.' '.$i->assignedTo->last_name) : null,
             'assigned_to_id'    => $i->assigned_to,
             'assigned_to_name'  => $i->assignedTo ? trim($i->assignedTo->first_name.' '.$i->assignedTo->last_name) : null,
@@ -50,7 +74,9 @@ class InspectionController extends Controller
             'completed_at'      => $i->completed_at,
         ]);
 
-        return response()->json(['success' => true, 'data' => $inspections]);
+        return response()->json(['success' => true, 'data' => $calendar
+            ? ['calendar' => $inspections, 'summary' => $calendarMeta]
+            : \App\Support\TableQuery::payload($request, $inspections)]);
     }
 
     public function store(Request $request)
@@ -65,12 +91,6 @@ class InspectionController extends Controller
             'notes'           => 'nullable|string',
         ]);
 
-        // The modal submits the wall-clock time the Staff member picked, with no
-        // timezone attached. That is a Philippine local time. Parsing it on the
-        // application clock (UTC) stored "09:00" as 09:00Z, which the UI then
-        // rendered as 5:00 PM. It is parsed in the office timezone and stored
-        // as the UTC instant it actually represents. Note that Eloquent does NOT
-        // convert a zoned Carbon on save — the explicit ->utc() is required.
         $scheduledLocal = \Carbon\Carbon::parse($request->scheduled_at, LocalTime::timezone());
         $scheduledAtUtc = $scheduledLocal->copy()->utc();
 
@@ -87,61 +107,20 @@ class InspectionController extends Controller
         // Rule 2 — one ACTIVE inspection per farm. A farm with an inspection in
         // 'Scheduled' status (including one that is overdue) cannot be booked
         // again until that inspection is Completed or Cancelled.
-        //
-        // This replaces the earlier "one inspection per day, system-wide" rule.
-        // That rule assumed a single scheduler and a single site visit per day;
-        // with several Staff members each visiting different farms it blocked
-        // legitimate same-day scheduling, while never stopping the same farm
-        // being booked twice on different days (which is how farm 36 came to
-        // hold two open inspections). A per-farm limit is the property that
-        // actually matters: each farm gets at most one pending visit.
-        //
-        // The scheduler IS the responsible Staff member. assigned_to is kept
-        // (older records and reports read it) and always mirrors scheduled_by
-        // for anything scheduled from here on.
+
         $farmId     = (int) $request->farm_id;
         $assignedTo = Auth::id();
 
-        // The check-then-insert is done under a lock on the farm row, which is
-        // the natural mutex for "this farm's schedule": two Staff members
-        // submitting for the same farm at the same instant are serialised, and
-        // the second one sees the first one's row. Locking the farm rather than
-        // the (possibly non-existent) inspection rows is what makes this hold
-        // even when there is nothing to lock yet.
-        // Isolation matters here. MySQL defaults to REPEATABLE READ, under which a
-        // transaction reads from a snapshot taken at its FIRST non-locking read.
-        // If that read ever happened before the lock below, a Staff member who
-        // arrived a moment later would keep seeing "no active inspection" even
-        // after the first one committed — and create a duplicate. Today the lock
-        // is the first statement, so the snapshot is taken after it; READ
-        // COMMITTED for this one transaction removes the dependence on that
-        // ordering entirely, so a future query added above the lock cannot
-        // silently reopen the race. Applies to the next transaction only.
-        //
-        // MySQL refuses to change isolation while a transaction is already open
-        // (error 1568), which is the case under the test suite's
-        // DatabaseTransactions wrapper. There the guard still holds because the
-        // lock is the first statement; in a real request the level is 0 and the
-        // stronger setting applies.
         if (DB::transactionLevel() === 0) {
             DB::statement('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
         }
 
-        // The requested LOCAL calendar day, as the UTC window the column is
-        // stored in. Comparing on the raw timestamp would put an 8am Manila
-        // visit in the previous UTC day and let a second farm through.
         $dayStartUtc = LocalTime::startOfLocalDay($scheduledLocal->toDateString());
         $dayEndUtc   = LocalTime::endOfLocalDay($scheduledLocal->toDateString());
 
         $result = DB::transaction(function () use ($request, $farmId, $assignedTo, $scheduledAtUtc, $dayStartUtc, $dayEndUtc) {
             Farm::lockForUpdate()->findOrFail($farmId);
 
-            // Locked in the same order every time (farm, then staff member),
-            // so two requests can never take them in opposite orders and
-            // deadlock. This row is the mutex for "this person's day": two
-            // farms booked for the same Staff member at the same instant lock
-            // different farm rows, so the farm lock alone would let both
-            // through.
             User::lockForUpdate()->find($assignedTo);
 
             $active = Inspection::where('farm_id', $farmId)
@@ -268,12 +247,6 @@ class InspectionController extends Controller
                 ? "/vet/farms/{$inspection->farm_id}"
                 : '/admin/inspections';
 
-            // Addressed to the person who scheduled it, because assigned_to is
-            // set to the scheduler (see store(): "The scheduler IS the
-            // responsible Staff member"). Nobody hands an inspection to anyone
-            // here, so "you have been assigned" described a workflow the system
-            // does not have — and told the reader they had been given work when
-            // they had just created it themselves.
             Notification::create([
                 'user_id' => $inspection->assigned_to,
                 'title'   => 'Inspection Scheduled',

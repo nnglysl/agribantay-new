@@ -31,9 +31,11 @@ class TrendAnalysisService
     private const SAMPLE_SIZE = 10;
     private const STABLE_SLOPE_EPSILON = 0.01; // per-hour rate below this counts as "Stable"
 
-    public function analyzeFarm(int $farmId): array
+    public function analyzeFarm(int $farmId, bool $currentOnly = false): array
     {
-        $readings = SensorReading::where('farm_id', $farmId)
+        $readings = ($currentOnly
+            ? app(CurrentMonitoringService::class)->forFarm(\App\Models\Farm::findOrFail($farmId))
+            : SensorReading::where('farm_id', $farmId))
             // The device is needed to know which ammonia scale these
             // readings are on; without this it is a query per reading.
             ->with('sensor')

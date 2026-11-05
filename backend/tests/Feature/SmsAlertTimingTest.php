@@ -60,7 +60,8 @@ class SmsAlertTimingTest extends TestCase
     {
         $owner ??= User::create(['first_name' => 'Test', 'last_name' => 'Farmer', 'mobile_number' => '09123456789', 'role' => 'farm_owner', 'status' => 'active']);
         $farm = Farm::create(['user_id' => $owner->id, 'farm_name' => 'Farm '.Str::random(6), 'owner_name' => 'Test Farmer', 'mobile_number' => $owner->mobile_number]);
-        Sensor::create(['farm_id' => $farm->id, 'device_key' => (string) Str::uuid(), 'label' => 'Test device', 'status' => 'Active']);
+        $sensor = Sensor::create(['device_key' => (string) Str::uuid(), 'label' => 'Test device', 'status' => 'Active']);
+        app(\App\Services\DeviceAssignmentService::class)->change($sensor->id, $farm->id);
 
         return $farm;
     }
@@ -422,7 +423,9 @@ class SmsAlertTimingTest extends TestCase
     {
         $farm = $this->farm();
         $sensor = $farm->sensors()->first();
-        $reading = SensorReading::create(['farm_id' => $farm->id, 'sensor_id' => $sensor->id, 'ammonia_status' => 'Critical']);
+        $reading = SensorReading::create(['farm_id' => $farm->id, 'sensor_id' => $sensor->id,
+            'ammonia' => 40, 'ammonia_status' => 'Critical', 'moisture' => 10, 'moisture_status' => 'Safe']);
+        $sensor->update(['last_seen_at' => now()]);
         app(AlertHistoryService::class)->recordReading($farm->id, 'ammonia', 'Critical', 40, null, $sensor->id);
         $farm->update(['current_status' => 'Critical']);
         SmsLog::create(['farm_id' => $farm->id, 'phone_number' => $farm->mobile_number, 'message' => FarmSmsAlertService::message($farm, 'Critical'), 'type' => 'Farm Status', 'status' => 'Sent']);
@@ -481,7 +484,8 @@ class SmsAlertTimingTest extends TestCase
         app(AlertHistoryService::class)->recordReading($farm->id, 'moisture', 'Critical', 40, null, $sensor->id);
         for ($i = 0; $i < 3; $i++) {
             $this->travel(1)->minutes();
-            SensorReading::create(['farm_id' => $farm->id, 'sensor_id' => $sensor->id, 'ammonia_status' => 'Safe', 'moisture_status' => 'Safe']);
+            SensorReading::create(['farm_id' => $farm->id, 'sensor_id' => $sensor->id, 'ammonia' => 10, 'moisture' => 10, 'ammonia_status' => 'Safe', 'moisture_status' => 'Safe']);
+            $sensor->update(['last_seen_at' => now()]);
             app(AlertHistoryService::class)->recordReading($farm->id, 'ammonia', 'Safe', 10, null, $sensor->id);
             app(FarmStatusService::class)->syncSmsAlerts($farm->fresh());
         }
@@ -496,7 +500,8 @@ class SmsAlertTimingTest extends TestCase
         $sensor = $farm->sensors()->first();
         for ($i = 0; $i < 3; $i++) {
             $this->travel(1)->minutes();
-            SensorReading::create(['farm_id' => $farm->id, 'sensor_id' => $sensor->id, 'ammonia_status' => 'Safe', 'moisture_status' => 'Safe']);
+            SensorReading::create(['farm_id' => $farm->id, 'sensor_id' => $sensor->id, 'ammonia' => 10, 'moisture' => 10, 'ammonia_status' => 'Safe', 'moisture_status' => 'Safe']);
+            $sensor->update(['last_seen_at' => now()]);
             app(AlertHistoryService::class)->recordReading($farm->id, 'ammonia', 'Safe', 10, null, $sensor->id);
         }
         app(FarmStatusService::class)->syncSmsAlerts($farm->fresh());
@@ -574,7 +579,8 @@ class SmsAlertTimingTest extends TestCase
     {
         $farm = $this->farm();
         $critical = $farm->sensors()->first();
-        $safe = Sensor::create(['farm_id' => $farm->id, 'device_key' => (string) Str::uuid(), 'status' => 'Active']);
+        $safe = Sensor::create(['device_key' => (string) Str::uuid(), 'status' => 'Active']);
+        $safe = app(\App\Services\DeviceAssignmentService::class)->change($safe->id, $farm->id);
         $this->record($farm, 'Critical', $critical);
         $this->travel(1)->minutes();
         $this->record($farm, 'Safe', $safe);
@@ -642,7 +648,8 @@ class SmsAlertTimingTest extends TestCase
     {
         $farm = $this->farm();
         $critical = $farm->sensors()->first();
-        $healthy = Sensor::create(['farm_id' => $farm->id, 'device_key' => (string) Str::uuid(), 'status' => 'Active']);
+        $healthy = Sensor::create(['device_key' => (string) Str::uuid(), 'status' => 'Active']);
+        $healthy = app(\App\Services\DeviceAssignmentService::class)->change($healthy->id, $farm->id);
         $this->record($farm, 'Critical', $critical);
         $this->atLocal('2026-10-09 12:00:00');
         $this->record($farm, 'Safe', $healthy);
@@ -657,8 +664,8 @@ class SmsAlertTimingTest extends TestCase
 
     public function test_initial_critical_before_seven_covers_the_morning_reminder(): void
     {
-        $farm = $this->farm();
         $this->atLocal('2026-10-09 06:55:00');
+        $farm = $this->farm();
         $this->record($farm, 'Critical');
         $this->atLocal('2026-10-09 07:00:00');
         $this->record($farm, 'Critical');
@@ -672,8 +679,8 @@ class SmsAlertTimingTest extends TestCase
 
     public function test_schedule_uses_manila_dates_across_utc_midnight(): void
     {
-        $farm = $this->farm();
         $this->atLocal('2026-10-09 17:10:00');
+        $farm = $this->farm();
         $this->record($farm, 'Critical');
         $this->atLocal('2026-10-09 23:59:00');
         $this->record($farm, 'Critical');
@@ -689,8 +696,8 @@ class SmsAlertTimingTest extends TestCase
 
     public function test_recent_alert_does_not_get_an_immediate_duplicate_at_noon(): void
     {
-        $farm = $this->farm();
         $this->atLocal('2026-10-09 11:59:00');
+        $farm = $this->farm();
         $this->record($farm, 'Critical');
         foreach (['12:00:00', '12:28:00'] as $time) {
             $this->atLocal('2026-10-09 '.$time);
@@ -704,8 +711,8 @@ class SmsAlertTimingTest extends TestCase
 
     public function test_missed_reminder_windows_do_not_create_late_catch_up_messages(): void
     {
-        $farm = $this->farm();
         $this->atLocal('2026-10-09 06:30:00');
+        $farm = $this->farm();
         $this->record($farm, 'Critical');
         foreach (['12:30:00', '17:30:00', '20:00:00'] as $time) {
             $this->atLocal('2026-10-09 '.$time);
@@ -780,8 +787,8 @@ class SmsAlertTimingTest extends TestCase
 
     public function test_first_critical_escalation_at_night_is_still_immediate(): void
     {
-        $farm = $this->farm();
         $this->atLocal('2026-10-09 22:00:00');
+        $farm = $this->farm();
         $this->record($farm, 'Warning');
         $this->travel(1)->minutes();
         $this->record($farm, 'Critical');
@@ -823,8 +830,8 @@ class SmsAlertTimingTest extends TestCase
     public function test_schedule_can_be_changed_without_changing_the_app_timezone(): void
     {
         config(['sms_alerts.critical_reminder_times' => ['08:00', '12:00', '16:00']]);
-        $farm = $this->farm();
         $this->atLocal('2026-10-08 17:00:00');
+        $farm = $this->farm();
         $this->record($farm, 'Critical');
         $this->atLocal('2026-10-09 07:00:00');
         $this->record($farm, 'Critical');

@@ -15,10 +15,12 @@ export const VACCINE_LEGACY = 'Vaccine Request'
 export const VET_TYPES = [FARM_BIOSECURITY, BLOOD_TEST, VACCINE_LEGACY]
 /** The Vet's current services — what filters and new requests offer. */
 export const VET_ACTIVE_TYPES = [FARM_BIOSECURITY, BLOOD_TEST]
-/** Handled by LGU Staff. */
+/** Retired Staff types, retained for historical filtering. */
 export const STAFF_TYPES = [ODOR_CONTROL, FLY_CONTROL]
 /** What a farmer may submit today. */
-export const REQUESTABLE_TYPES = [FARM_BIOSECURITY, BLOOD_TEST, ODOR_CONTROL, FLY_CONTROL]
+export const REQUESTABLE_TYPES = [FARM_BIOSECURITY, BLOOD_TEST]
+export const RETIRED_TYPES = [ODOR_CONTROL, FLY_CONTROL]
+export const isRetiredService = type => RETIRED_TYPES.includes(type)
 /** Every value that can appear on a row, for pages that list all history. */
 export const ALL_TYPES = [ODOR_CONTROL, FLY_CONTROL, FARM_BIOSECURITY, BLOOD_TEST, VACCINE_LEGACY]
 

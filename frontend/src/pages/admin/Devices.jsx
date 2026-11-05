@@ -1,23 +1,19 @@
-import DropdownList from '../../components/DropdownList'
+import { GREEN } from '../../theme/green'
+import DeviceAssignmentDialog from '../../components/DeviceAssignmentDialog'
 import TableScroll from '../../components/TableScroll'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import DeviceKeyField from '../../components/DeviceKeyField'
+import FarmIcon from '../../components/farm-details/FarmIcon'
+import './device-details.css'
+import './unassign-device.css'
 import TableFooter from '../../components/TableFooter'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { SkeletonTable } from '../../components/Loading'
 import { invalidateCache } from '../../hooks/useCachedFetch'
 
-// Inventory view for every unit the LGU owns, assigned or not. Registration
-// lives here rather than inside a farm because minting a device is an
-// inventory action — a new unit belongs to the LGU before it belongs
-// anywhere. Assignment stays a separate, reversible step, which is what the
-// weekly rotation between farms actually does.
-//
-// The Devices tab inside Farm Details is NOT replaced by this: that answers
-// "what is installed at this farm", which is a different question from "where
-// are all our units".
+// Registered physical devices retain their identity across monitoring assignments.
 
 const KEY_PATTERN = /^AGB-[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{8}$/
 const POLL_MS = 45000
@@ -32,7 +28,7 @@ const STATES = ['Active', 'Inactive']
 
 function StatusPill({ device }) {
   const map = {
-    Online: { bg: '#e7f2ea', fg: '#1f5a34', dot: '#2c8047' },
+    Online: { bg: '#e7f2ea', fg: GREEN.hover, dot: GREEN.primary },
     Offline: { bg: '#fdf4e7', fg: '#8a5a12', dot: '#c98a1e' },
     'Pending Setup': { bg: '#f1f2ed', fg: '#6b7770', dot: '#9aa79d' },
   }
@@ -198,33 +194,16 @@ export default function Devices() {
     setBusyId(device.id)
     setBanner(null)
     try {
-      await api.patch(`/admin/sensors/${device.id}/unassign`)
+      await api.patch(`/admin/sensors/${device.id}/unassign`, { expected_assignment_version: device.assignment_version ?? 0 })
       setBanner({
         tone: 'ok',
-        text: `${device.device_name} is now unassigned. It keeps the same Device Name and Device Key, so it does not have to be reflashed before its next farm.`,
+        text: `${device.device_name} is now unassigned. Its software monitoring assignment has ended. Device identity and ownership are unchanged.`,
       })
       setUnassigning(null)
       refreshFarmViews()
       await load({ quiet: true })
     } catch (err) {
       setBanner({ tone: 'error', text: err.response?.data?.message || 'Could not unassign that device.' })
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  const handleAssign = async (device, farmId) => {
-    setBusyId(device.id)
-    setBanner(null)
-    try {
-      const farm = farms.find(f => String(f.id) === String(farmId))
-      await api.patch(`/admin/sensors/${device.id}/assign`, { farm_id: farmId })
-      setBanner({ tone: 'ok', text: `${device.device_name} assigned to ${farm?.farm_name || 'the farm'}.` })
-      setAssigning(null)
-      refreshFarmViews()
-      await load({ quiet: true })
-    } catch (err) {
-      setBanner({ tone: 'error', text: err.response?.data?.message || 'Could not assign that device.' })
     } finally {
       setBusyId(null)
     }
@@ -237,7 +216,7 @@ export default function Devices() {
       <div style={{ ...s.head, ...(isMobile ? s.headMobile : {}) }}>
         <div>
           <h1 style={{ ...s.title, ...(isMobile ? s.titleMobile : {}) }}>Devices</h1>
-          <p style={s.subtitle}>Every monitoring unit the LGU owns, and where it is installed.</p>
+          <p style={s.subtitle}>Registered monitoring devices and their current assignments.</p>
         </div>
         <button type="button" style={s.primaryBtn} onClick={() => setShowRegister(true)}>
           + Register Device
@@ -326,6 +305,7 @@ export default function Devices() {
                 <tr>
                   <th style={s.th}>Device Name</th>
                   <th style={s.th}>Assigned Farm</th>
+                  <th style={s.th}>Poultry House</th>
                   <th style={s.th}>Connectivity</th>
                   <th style={s.th}>Last Seen</th>
                   <th style={s.th}>Installed</th>
@@ -344,6 +324,7 @@ export default function Devices() {
                         ? <span style={s.metaStrong}>{d.farm_name}</span>
                         : <span style={s.metaMuted}>Unassigned</span>}
                     </td>
+                    <td style={s.td}>{d.house_name || (d.farm_id ? 'House not selected (legacy)' : '—')}</td>
                     <td style={s.td}><StatusPill device={d} /></td>
                     <td style={s.td}>{d.last_seen_at || '—'}</td>
                     <td style={s.td}>{d.installed_at || '—'}</td>
@@ -351,14 +332,14 @@ export default function Devices() {
                       <div className="agb-table-actions" style={s.actionGroup}>
                       <button className="agb-table-action" type="button" style={s.ghostBtn} onClick={() => setViewing(d)}>View</button>
                       {d.farm_id ? (
-                        <button className="agb-table-action"
+                        <><button type="button" className="agb-table-action" style={s.ghostBtn} onClick={() => setAssigning(d)}>Change Assignment</button><button className="agb-table-action"
                           type="button"
                           style={s.ghostBtn}
                           disabled={busyId === d.id}
                           onClick={() => setUnassigning(d)}
                         >
                           {busyId === d.id ? 'Working…' : 'Unassign'}
-                        </button>
+                        </button></>
                       ) : (
                         <button className="agb-table-action"
                           type="button"
@@ -366,7 +347,7 @@ export default function Devices() {
                           disabled={busyId === d.id}
                           onClick={() => { setBanner(null); setAssigning(d) }}
                         >
-                          Assign to farm
+                          Assign Device
                         </button>
                       )}
                       </div>
@@ -402,36 +383,16 @@ export default function Devices() {
       )}
 
       {viewing && (
-        <DeviceDetailsModal device={viewing} onClose={() => setViewing(null)} />
+        <DeviceDetailsModal device={devices.find(device => device.id === viewing.id) || viewing} onClose={() => setViewing(null)} />
       )}
 
       {unassigning && (
-        <div style={m.overlay} onClick={() => setUnassigning(null)}>
-          <div style={m.modal} onClick={e => e.stopPropagation()}>
-            <h3 style={m.title}>Unassign Device?</h3>
-            <p style={m.lead}>
-              Are you sure you want to unassign <strong>{unassigning.device_name}</strong> from{' '}
-              <strong>{unassigning.farm_name || 'its current farm'}</strong>? The device will become
-              Unassigned and will no longer contribute new readings to this farm.
-            </p>
-            <p style={m.hint}>
-              Readings already collected stay with the farm they were recorded at, and the unit keeps
-              its Device Name and Device Key, so it does not have to be reflashed.
-            </p>
-
-            <div style={m.actions}>
-              <button type="button" onClick={() => setUnassigning(null)} style={m.cancelBtn}>Cancel</button>
-              <button
-                type="button"
-                disabled={busyId === unassigning.id}
-                onClick={() => handleUnassign(unassigning)}
-                style={{ ...m.submitBtn, ...(busyId === unassigning.id ? m.submitBtnOff : {}) }}
-              >
-                {busyId === unassigning.id ? 'Unassigning…' : 'Unassign Device'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <UnassignDeviceModal
+          device={unassigning}
+          busy={busyId === unassigning.id}
+          onClose={() => setUnassigning(null)}
+          onConfirm={() => handleUnassign(unassigning)}
+        />
       )}
 
       {showRegister && (
@@ -442,12 +403,11 @@ export default function Devices() {
       )}
 
       {assigning && (
-        <AssignModal
+        <DeviceAssignmentDialog
           device={assigning}
           farms={farms}
-          busy={busyId === assigning.id}
-          onClose={() => setAssigning(null)}
-          onConfirm={farmId => handleAssign(assigning, farmId)}
+          onClose={() => { setAssigning(null); load({ quiet: true }) }}
+          onSuccess={() => { setAssigning(null); refreshFarmViews(); load({ quiet: true }) }}
         />
       )}
     </AdminLayout>
@@ -455,15 +415,57 @@ export default function Devices() {
 }
 
 
-/**
- * The poultry house a unit sits in, editable in place.
- *
- * This is the only name a farm owner ever sees for their building, but it is
- * the LGU that installs the unit and knows which house it went into — so it
- * is set here rather than on the owner's side. Editing inline keeps it a
- * two-second correction instead of a modal; devices are usually named once,
- * right after installation, and then left alone.
- */
+function UnassignDeviceModal({ device, busy, onClose, onConfirm }) {
+  const dialog = useRef(null)
+  const submitting = useRef(false)
+  useEffect(() => {
+    const previous = document.activeElement
+    const overflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    dialog.current?.querySelector('[data-unassign-cancel]')?.focus()
+    return () => {
+      document.body.style.overflow = overflow
+      if (previous?.isConnected) previous.focus()
+    }
+  }, [])
+  useEffect(() => {
+    if (!busy && document.activeElement === dialog.current) dialog.current?.querySelector('[data-unassign-cancel]')?.focus()
+  }, [busy])
+
+  const dismiss = () => { if (!busy && !submitting.current) onClose() }
+  const confirm = async () => {
+    if (busy || submitting.current) return
+    submitting.current = true
+    dialog.current?.focus()
+    try { await onConfirm() } finally { submitting.current = false }
+  }
+  const handleKeyDown = event => {
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dismiss(); return }
+    if (event.key !== 'Tab') return
+    const controls = [...dialog.current.querySelectorAll('button:not(:disabled)')]
+    const first = controls[0], last = controls.at(-1)
+    if (!controls.length) { event.preventDefault(); return }
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) { event.preventDefault(); last.focus() }
+    else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog.current)) { event.preventDefault(); first.focus() }
+  }
+
+  return (
+    <div style={m.overlay} onClick={dismiss}>
+      <div ref={dialog} className="unassign-device-modal" role="alertdialog" aria-modal="true" aria-labelledby="unassign-device-title" aria-describedby="unassign-device-message unassign-device-support" aria-busy={busy} tabIndex={-1} onClick={event => event.stopPropagation()} onKeyDown={handleKeyDown}>
+        <div className="unassign-device-header">
+          <h3 id="unassign-device-title">Unassign Device?</h3>
+          <button id="unassign-device-close" type="button" aria-label="Close Unassign Device" disabled={busy} onClick={dismiss}>&times;</button>
+        </div>
+        <p id="unassign-device-message" className="unassign-device-message">Unassign <strong>{device.device_name}</strong> from <strong>{device.farm_name || 'its current farm'}</strong>?</p>
+        <p id="unassign-device-support" className="unassign-device-support">Previous readings will remain with this farm.</p>
+        <div className="unassign-device-actions">
+          <button type="button" data-unassign-cancel disabled={busy} onClick={dismiss}>Cancel</button>
+          <button type="button" className="unassign-device-confirm" disabled={busy} onClick={confirm}>{busy ? 'Unassigning…' : 'Unassign'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 /**
  * Everything the LGU holds about one unit, including its Device Key.
@@ -476,50 +478,66 @@ export default function Devices() {
  * when genuinely needed, and out of sight the rest of the time.
  */
 function DeviceDetailsModal({ device, onClose }) {
+  const dialog = useRef(null)
+  useEffect(() => {
+    const previous = document.activeElement
+    const overflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    dialog.current?.querySelector('button')?.focus()
+    return () => {
+      document.body.style.overflow = overflow
+      if (previous?.isConnected) previous.focus()
+    }
+  }, [])
+
+  const handleKeyDown = event => {
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose(); return }
+    if (event.key !== 'Tab') return
+    const controls = [...dialog.current.querySelectorAll('button:not(:disabled)')]
+    const first = controls[0], last = controls.at(-1)
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+  }
+
   return (
     <div style={m.overlay} onClick={onClose}>
-      <div style={m.modal} onClick={e => e.stopPropagation()}>
-        <h3 style={m.title}>{device.device_name}</h3>
-        <p style={m.lead}>Registered monitoring unit.</p>
-
-        <div style={m.detailCard}>
-          <div style={m.detailRow}>
-            <span style={m.detailLabel}>Device Name</span>
-            <span style={m.detailValue}>{device.device_name}</span>
+      <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby="device-details-title" className="device-details-modal" onClick={e => e.stopPropagation()} onKeyDown={handleKeyDown}>
+        <div className="device-details-header">
+          <div style={{ minWidth: 0 }}>
+            <h3 id="device-details-title">{device.device_name}</h3>
+            <p>Device Details</p>
           </div>
-          <div style={m.detailRow}>
-            <span style={m.detailLabel}>Assigned Farm</span>
-            <span style={device.farm_id ? m.detailValue : m.detailMuted}>
-              {device.farm_name || 'Unassigned'}
-            </span>
-          </div>
-          <div style={m.detailRow}>
-            <span style={m.detailLabel}>Connectivity</span>
-            <span style={m.detailValue}>{device.connectivity}</span>
-          </div>
-          <div style={m.detailRow}>
-            <span style={m.detailLabel}>Device State</span>
-            <span style={m.detailValue}>{device.status}</span>
-          </div>
-          <div style={m.detailRow}>
-            <span style={m.detailLabel}>Installed</span>
-            <span style={m.detailValue}>{device.installed_at || '—'}</span>
-          </div>
-          <div style={m.detailRowLast}>
-            <span style={m.detailLabel}>Last Seen</span>
-            <span style={m.detailValue}>{device.last_seen_at || 'Never'}</span>
-          </div>
+          <span className="device-details-badge" data-tone={device.connectivity === 'Online' ? 'green' : 'neutral'} aria-label={`Connectivity: ${device.connectivity}`}>
+            <span aria-hidden="true" />{device.connectivity}
+          </span>
+          <button id="device-details-close" type="button" aria-label="Close Device Details" onClick={onClose} className="device-details-close">&times;</button>
         </div>
 
-        <label style={m.label}>Device Key</label>
-        <DeviceKeyField deviceKey={device.device_key} />
-        <p style={m.hint}>
-          The key flashed into this unit&rsquo;s firmware. It never changes, not
-          even when the device moves to another farm. Treat it as a secret.
-        </p>
+        <dl className="device-details-grid">
+          <div>
+            <dt>Assigned Farm</dt>
+            <dd>{device.farm_name || 'Unassigned'}</dd>
+          </div>
+          <div>
+            <dt>Poultry House</dt><dd>{device.house_name || (device.farm_id ? 'House not selected (legacy)' : '—')}</dd>
+          </div><div>
+            <dt>Device State</dt>
+            <dd>{device.status}</dd>
+          </div>
+          <div>
+            <dt>Installed</dt>
+            <dd>{device.installed_at || '—'}</dd>
+          </div>
+          <div>
+            <dt>Last Seen</dt>
+            <dd>{device.last_seen_at || 'Never'}</dd>
+          </div>
+        </dl>
 
-        <div style={m.actions}>
-          <button type="button" onClick={onClose} style={m.submitBtn}>Close</button>
+        <div className="device-details-key-section">
+          <h4>Device Key</h4>
+          <DeviceKeyField deviceKey={device.device_key} label="" variant="details" />
+          <p className="device-details-hint"><FarmIcon name="info" size={15} /><span>Keep this key confidential. It is used to authenticate the device.</span></p>
         </div>
       </div>
     </div>
@@ -650,109 +668,6 @@ function RegisterDeviceModal({ onClose, onDone }) {
   )
 }
 
-function AssignModal({ device, farms, busy, onClose, onConfirm }) {
-  // One typeable field that shows matching farms underneath, mirroring the
-  // "Add Farm to Existing Owner" picker. It replaces a search box that only
-  // filtered a separate <select> — two controls for one choice, where the
-  // select kept showing its own value and the typing looked like it did
-  // nothing. Filtering is local: `farms` is already loaded, so no request is
-  // made while typing.
-  const [selectedFarm, setSelectedFarm] = useState(null)
-  const [search, setSearch] = useState('')
-
-  const options = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return farms
-    return farms.filter(f =>
-      (f.farm_name || '').toLowerCase().includes(q) ||
-      (f.owner_name || '').toLowerCase().includes(q)
-    )
-  }, [farms, search])
-
-  const farmId = selectedFarm ? String(selectedFarm.id) : ''
-
-  return (
-    <div style={m.overlay} onClick={onClose}>
-      <div style={m.modal} onClick={e => e.stopPropagation()}>
-        <h3 style={m.title}>Assign {device.device_name}</h3>
-        <p style={m.lead}>
-          Readings sent from this point on are recorded against the farm you pick. Earlier readings stay with the farm they were collected at.
-        </p>
-
-        <label style={m.label}>Find a farm *</label>
-
-        {selectedFarm ? (
-          <div className="agb-dropdown-value" style={m.pickedFarm}>
-            <div>
-              <div style={m.pickedFarmName}>{selectedFarm.farm_name}</div>
-              <div style={m.pickedFarmMeta}>
-                {selectedFarm.owner_name || 'No owner on record'}
-                {selectedFarm.barangay ? ` · ${selectedFarm.barangay}` : ''}
-              </div>
-            </div>
-            <span
-              style={m.changeFarmLink}
-              onClick={() => { setSelectedFarm(null); setSearch('') }}
-            >
-              Change
-            </span>
-          </div>
-        ) : (
-          <>
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Type a farm or owner name…"
-              style={m.input}
-              autoFocus
-            />
-
-            {options.length > 0 && (
-              <DropdownList role="group" aria-label="Farm choices" style={m.farmResultsList}>
-                {options.map(f => (
-                  <button className="agb-dropdown-option" type="button"
-                    key={f.id}
-                    style={m.farmResultItem}
-                    onClick={() => setSelectedFarm(f)}
-                  >
-                    <div className="agb-dropdown-label" style={m.farmResultName}>{f.farm_name}</div>
-                    <div className="agb-dropdown-meta" style={m.farmResultMeta}>
-                      {f.owner_name || 'No owner on record'}
-                      {f.barangay ? ` · ${f.barangay}` : ''}
-                    </div>
-                  </button>
-                ))}
-              </DropdownList>
-            )}
-
-            {options.length === 0 && (
-              <div style={m.farmEmptyResult}>
-                {farms.length === 0
-                  ? 'No farms are available to assign to.'
-                  : `No farm matches “${search.trim()}”.`}
-              </div>
-            )}
-          </>
-        )}
-
-        <p style={m.hint}>A farm can hold several devices &mdash; one per poultry house. Install only one unit per house so their readings stay separate.</p>
-
-        <div style={m.actions}>
-          <button type="button" onClick={onClose} style={m.cancelBtn}>Cancel</button>
-          <button
-            type="button"
-            disabled={!farmId || busy}
-            onClick={() => onConfirm(farmId)}
-            style={{ ...m.submitBtn, ...(!farmId || busy ? m.submitBtnOff : {}) }}
-          >
-            {busy ? 'Assigning…' : 'Assign Device'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 const SANS = "'Inter', sans-serif"
 
 const pill = {
@@ -766,8 +681,8 @@ const s = {
   title: { fontSize: '22px', fontWeight: 800, color: '#16311d', margin: 0, letterSpacing: '-0.01em' },
   titleMobile: { fontSize: '20px' },
   subtitle: { fontSize: '13px', color: '#8a968d', margin: '4px 0 0' },
-  primaryBtn: { flexShrink: 0, padding: '10px 17px', borderRadius: '10px', border: 'none', backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS },
-  bannerOk: { backgroundColor: '#eaf3ec', border: '1px solid #cfe0d3', color: '#1f5a34', borderRadius: '10px', padding: '11px 14px', fontSize: '13px', marginBottom: '14px', lineHeight: 1.5 },
+  primaryBtn: { flexShrink: 0, padding: '10px 17px', borderRadius: '10px', border: 'none', backgroundColor: GREEN.primary, color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS },
+  bannerOk: { backgroundColor: GREEN.soft, border: '1px solid #cfe0d3', color: GREEN.hover, borderRadius: '10px', padding: '11px 14px', fontSize: '13px', marginBottom: '14px', lineHeight: 1.5 },
   bannerError: { backgroundColor: '#fbeaea', border: '1px solid #f0c9c9', color: '#b91c1c', borderRadius: '10px', padding: '11px 14px', fontSize: '13px', marginBottom: '14px', lineHeight: 1.5 },
 
   toolbar: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' },
@@ -793,10 +708,10 @@ const s = {
     borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
     color: '#33413a', fontSize: '13.5px', fontWeight: 600, cursor: 'pointer', fontFamily: SANS, whiteSpace: 'nowrap',
   },
-  filterBtnActive: { borderColor: '#2c8047', color: '#2c8047' },
+  filterBtnActive: { borderColor: GREEN.primary, color: GREEN.primary },
   filterCount: {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: '#2c8047',
+    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: GREEN.primary,
     color: '#fff', fontSize: '11px', fontWeight: 700, padding: '0 4px',
   },
   filterPanel: {
@@ -821,7 +736,7 @@ const s = {
   },
   filterApplyBtn: {
     flex: 1, padding: '9px 0', borderRadius: '10px', border: 'none',
-    backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
+    backgroundColor: GREEN.primary, color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
   },
 
   countText: { fontSize: '12.5px', color: '#8a968d', margin: '0 0 12px', fontFamily: SANS },
@@ -865,14 +780,14 @@ const m = {
   pickedFarm: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', border: '1px solid #cfe0d3', backgroundColor: '#f6faf7', borderRadius: '10px', padding: '10px 14px' },
   pickedFarmName: { fontSize: '13.5px', fontWeight: 700, color: '#16311d' },
   pickedFarmMeta: { fontSize: '12px', color: '#6b7770', marginTop: '2px' },
-  changeFarmLink: { color: '#2c8047', fontWeight: 700, fontSize: '12.5px', cursor: 'pointer', textDecoration: 'underline', flexShrink: 0 },
+  changeFarmLink: { color: GREEN.primary, fontWeight: 700, fontSize: '12.5px', cursor: 'pointer', textDecoration: 'underline', flexShrink: 0 },
   error: { backgroundColor: '#fbeaea', border: '1px solid #f0c9c9', color: '#b91c1c', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginTop: '12px' },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '22px' },
   cancelBtn: { padding: '9px 16px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff', fontSize: '13.5px', fontWeight: 600, color: '#33413a', cursor: 'pointer', fontFamily: SANS },
-  submitBtn: { padding: '9px 16px', borderRadius: '10px', border: 'none', backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS },
+  submitBtn: { padding: '9px 16px', borderRadius: '10px', border: 'none', backgroundColor: GREEN.primary, color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS },
   submitBtnOff: { backgroundColor: '#cfe0d3', cursor: 'not-allowed' },
   successTop: { display: 'flex', alignItems: 'center', gap: '12px', margin: '4px 0 14px' },
-  successMark: { width: '34px', height: '34px', borderRadius: '50%', flexShrink: 0, backgroundColor: '#e7f2ea', color: '#2c8047', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '17px', fontWeight: 700 },
+  successMark: { width: '34px', height: '34px', borderRadius: '50%', flexShrink: 0, backgroundColor: '#e7f2ea', color: GREEN.primary, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '17px', fontWeight: 700 },
   successHeadline: { fontSize: '14.5px', fontWeight: 700, color: '#16311d' },
   successSubline: { fontSize: '12.5px', color: '#8a968d', marginTop: '2px' },
   successNote: { fontSize: '12px', color: '#8a968d', lineHeight: 1.55, margin: '12px 2px 0' },

@@ -1,3 +1,4 @@
+import { GREEN } from '../theme/green'
 import { useEffect, useState } from 'react'
 import { formatDateTime } from '../utils/formatDate'
 import { formatFileSize, fileTypeLabel, openAttachment, fetchAttachmentBlobUrl } from '../utils/attachment'
@@ -96,6 +97,6 @@ const s = {
   name: { fontSize: '13.5px', fontWeight: 600, color: '#16311d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   sub: { fontSize: '12px', color: '#8a968d', marginTop: '2px' },
   actions: { display: 'flex', gap: '8px' },
-  btn: { padding: '7px 14px', borderRadius: '8px', border: '1px solid #cfe3d5', backgroundColor: '#f2f8f4', color: '#256b3d', fontSize: '12.5px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' },
+  btn: { padding: '7px 14px', borderRadius: '8px', border: '1px solid #cfe3d5', backgroundColor: '#f2f8f4', color: GREEN.hover, fontSize: '12.5px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' },
   error: { fontSize: '12px', color: '#b91c1c', fontWeight: 600, marginTop: '4px' },
 }

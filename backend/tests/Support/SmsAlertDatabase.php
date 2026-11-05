@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Schema;
 /** Isolated fixtures; never migrate/reset the user's development database. */
 class SmsAlertDatabase
 {
-    public static function create(): void
+    public static function create(bool $withVoltage = true): void
     {
         Schema::create('users', function (Blueprint $table) {
             $table->id();
@@ -41,7 +41,7 @@ class SmsAlertDatabase
             $table->string('status')->default('Active');
             $table->timestamps();
         });
-        Schema::create('sensor_readings', function (Blueprint $table) {
+        Schema::create('sensor_readings', function (Blueprint $table) use ($withVoltage) {
             $table->id();
             $table->foreignId('farm_id')->constrained();
             $table->foreignId('sensor_id')->nullable()->constrained();
@@ -50,7 +50,9 @@ class SmsAlertDatabase
                 $table->string($field.'_status')->default('Safe');
             }
             $table->unsignedSmallInteger('ammonia_raw')->nullable();
-            $table->unsignedSmallInteger('ammonia_adc_mv')->nullable();
+            if ($withVoltage) {
+                $table->unsignedSmallInteger('ammonia_adc_mv')->nullable();
+            }
             $table->unsignedSmallInteger('soil_raw')->nullable();
             $table->boolean('is_mock')->default(false);
             $table->timestamps();
@@ -87,6 +89,7 @@ class SmsAlertDatabase
             }
             $table->timestamps();
         });
+        (require database_path('migrations/2026_10_30_000000_create_device_assignment_events_table.php'))->up();
         Schema::create('service_requests', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('farm_id');

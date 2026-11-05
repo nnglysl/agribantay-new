@@ -30,6 +30,9 @@ id_ed25519
 # Build output
 dist/
 build/
+/tmp/rendering-*/
+/tmp/rendering-*.png
+/tmp/rendering-*.json
 
 # Logs
 *.log
@@ -60,3 +63,73 @@ frontend-files/
 *.sqlite
 *.sqlite3
 *.db
+*.bak
+*.backup
+*.dump
+
+# Local Poultry House preparation, authorities, receipts, and temporary artifacts
+/backend/scripts/poultry-house-preparation/**
+/backend/scripts/poultry-house-installation/*AUTHORITY*.json
+/backend/scripts/poultry-house-installation/*RECEIPT*.json
+/backend/scripts/poultry-house-installation/NATIVE-*.json
+/tmp/agb-proto-*/
+/tmp/ph-*
+/tmp/sb-*
+/tmp/build-*
+/tmp/rendering-assets/
+/tmp/rendering-phase*/
+/tmp/rendering-baseline.png
+
+# Local-only audit, checkpoint, recovery, and installation evidence
+/PHASE*-REPORT.md
+/POULTRY-HOUSE-*.md
+/POULTRY-HOUSE-*.json
+/POULTRY-HOUSE-*.tap
+/CONTROL-DOCUMENT-*.json
+/*AUDIT*.md
+/*AUDIT*.json
+/*CHECKPOINT*.json
+/*RECOVERY*.json
+
+# These two root records are installation-manifest inputs and must remain eligible.
+!/POULTRY-HOUSE-CALIBRATION-RECHECK.json
+!/POULTRY-HOUSE-CALIBRATION-TOKEN-COMPARISON.json
+
+# Final pre-push local reports, audits, diagnostics, and private rehearsals
+/GITHUB-PRE-PUSH-FILE-LIST.md
+/DEVICE-ASSIGNMENT-PROTOCOL-PROPOSAL.md
+/FARM-MONITORING-REFINEMENTS-REPORT.md
+/FARM-READINGS-FILTERS-UI-REPORT.md
+/FRONTEND-GREEN-UI-REFINEMENT-REPORT.md
+/HOUSE-MONITORING-SIMPLIFICATION-REPORT.md
+/PHASE1-MONITORING-ISOLATION.md
+/PHASE10.2-SUPER-ADMIN-SAFEGUARD-DESIGN.md
+/RETIRED-SERVICE-CLEANUP-PROPOSAL.md
+/RETIRED-SERVICE-CLEANUP-PROPOSED-SCOPE.json
+/RETIRED-SERVICE-REFERENCE-PRESERVATION-CHECKS.json
+/RETIRED-SERVICE-UI-VISIBILITY-REPORT.md
+/SUPERADMIN-DASHBOARD-SUMMARY-CARDS-REPORT.md
+/VET-FARM-OVERVIEW-COMPLETENESS-REPORT.md
+/VET-FARM-OVERVIEW-UI-REPORT.md
+/backend/scripts/audit-control-document-preservation.php
+/backend/scripts/farmer-readings-availability-audit.php
+/backend/scripts/retired-service-cleanup-audit.php
+/backend/tests/Diagnostics/**
+/backend/tests/Support/Phase10/**
+/backend/tests/Support/DummyFarmTestCase.php
+/backend/tests/Support/RestoredHouseTestCase.php
+/backend/tests/Support/dummy-farm-initialization-worker.php
+/backend/tests/Support/phase10-drain-worker.php
+/backend/tests/Support/phase10-restored-application-worker.php
+/backend/tests/Feature/CompletePoultryHouseIntegrationTest.php
+/backend/tests/Feature/DummyFarmInitializationConcurrencyTest.php
+/backend/tests/Feature/DummyFarmInitializationTest.php
+/backend/tests/Feature/LegacyHouseSetupPreparationTest.php
+/backend/tests/Feature/Phase10InstallationRecoveryTest.php
+/backend/tests/Feature/Phase9ReadinessAndDeletionTest.php
+/backend/tests/Feature/PoultryHouseMySql3312RehearsalTest.php
+/backend/tests/Unit/B1*
+/backend/tests/Unit/MariaDbPoultryHousePrototypeTest.php
+/backend/tests/Unit/PoultryHouseInstallationRehearsalTest.php
+/backend/tests/Unit/PoultryHouseOperationalInstaller.test.mjs
+/backend/tests/Unit/PoultryHouseOperationalInstallerTest.php

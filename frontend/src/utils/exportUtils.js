@@ -1,5 +1,6 @@
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
+import { manilaDay } from './reportPeriod'
 
 /**
  * Exports an array of row objects to a CSV file and triggers a browser
@@ -13,9 +14,13 @@ import jsPDF from 'jspdf'
  */
 export function exportToCSV(rows, columns, filename) {
   const escapeCell = (value) => {
-    const str = value === null || value === undefined ? '' : String(value)
-    // Quote any field containing a comma, quote, or newline; double up internal quotes.
-    if (/[",\n]/.test(str)) {
+    let str = value === null || value === undefined ? '' : String(value)
+    // Spreadsheet-facing text must not become a formula. Keep actual numeric
+    // values numeric; neutralize text, including whitespace/full-width prefixes.
+    const unsafeText = typeof value === 'string' && (/^[\t\r\n]/.test(str) || /^\s*[=+\-@＝＋－＠]/u.test(str))
+    if (unsafeText) str = `\t${str}`
+    // Quote protected text and all CSV separators, including a lone CR.
+    if (unsafeText || /[",\r\n]/.test(str)) {
       return `"${str.replace(/"/g, '""')}"`
     }
     return str
@@ -81,7 +86,7 @@ export async function exportPrintRefToPDF(printRef, filename) {
   pdf.save(filename)
 }
 
-/** Standardized filename stamp used by every report export: YYYY-MM-DD. */
-export function todayStamp() {
-  return new Date().toISOString().slice(0, 10)
+/** Report filenames use the same Manila calendar date as their contents. */
+export function todayStamp(date = new Date()) {
+  return manilaDay(date)
 }

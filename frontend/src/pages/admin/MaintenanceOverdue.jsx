@@ -1,9 +1,11 @@
+import { GREEN } from '../../theme/green'
+import { useTableFetch } from '../../hooks/useTableFetch'
 import TableScroll from '../../components/TableScroll'
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
 import SharedPagination from '../../components/Pagination'
-import { useCachedFetch } from '../../hooks/useCachedFetch'
+
 import { LIVE_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
@@ -13,8 +15,8 @@ import { SkeletonTable } from '../../components/Loading'
 const PAGE_SIZE_OPTIONS = [10, 25, 50]
 const FARM_SIZES = ['Small', 'Medium', 'Large']
 
-const STATUS_COLOR = { Overdue: '#b45309', 'Non-Compliant': '#b91c1c' }
-const STATUS_BG = { Overdue: '#fbf1e2', 'Non-Compliant': '#fbeaea' }
+const STATUS_COLOR = { 'Non-Compliant': '#b91c1c' }
+const STATUS_BG = { 'Non-Compliant': '#fbeaea' }
 
 export default function MaintenanceOverdue() {
   const navigate = useNavigate()
@@ -39,19 +41,7 @@ export default function MaintenanceOverdue() {
   const debouncedSearch = useDebouncedValue(search)
   if (debouncedSearch) params.search = debouncedSearch
 
-  const { data: farms, loading, error } = useCachedFetch('/admin/maintenance/overdue', params, { pollMs: LIVE_POLL_MS })
-
-  const overdueFarms = farms || []
-
-  const filteredFarms = useMemo(() => {
-    return overdueFarms.filter(f => {
-      if (barangayFilter && f.barangay !== barangayFilter) return false
-      if (sizeFilter && f.farm_size !== sizeFilter) return false
-      return true
-    })
-  }, [overdueFarms, barangayFilter, sizeFilter])
-
-  useEffect(() => { setCurrentPage(1) }, [search, pageSize, barangayFilter, sizeFilter, filteredFarms.length])
+  const { data: farms, loading, error } = useTableFetch('/admin/maintenance/overdue', { ...params, barangay: barangayFilter, farm_size: sizeFilter }, currentPage, pageSize, setCurrentPage, { pollMs: LIVE_POLL_MS })
 
   useEffect(() => {
     if (!filterOpen) return
@@ -81,17 +71,10 @@ export default function MaintenanceOverdue() {
 
   const activeFilterCount = [barangayFilter, sizeFilter].filter(Boolean).length
 
-  const totalItems = filteredFarms.length
-  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
-
-  useEffect(() => {
-    if (currentPage > totalPages) setCurrentPage(totalPages)
-  }, [totalPages, currentPage])
-
-  const paginated = useMemo(() => {
-    const start = (currentPage - 1) * pageSize
-    return filteredFarms.slice(start, start + pageSize)
-  }, [filteredFarms, currentPage, pageSize])
+  const paginated = farms?.items || []
+  const filteredFarms = paginated
+  const totalItems = farms?.total || 0
+  const totalPages = farms?.last_page || 1
 
   const rangeStart = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1
   const rangeEnd = Math.min(currentPage * pageSize, totalItems)
@@ -189,7 +172,8 @@ export default function MaintenanceOverdue() {
                   <th style={styles.th}>Owner</th>
                   <th style={styles.th}>Barangay</th>
                   <th style={styles.th}>Farm Size</th>
-                  <th style={styles.th}>Last Clean-out</th>
+                  <th style={styles.th}>Last Full Clean-out</th>
+                  <th style={styles.th}>Next Due Date</th>
                   <th style={styles.th}>Days Overdue</th>
                   <th style={styles.th}>Maintenance Status</th>
                   <th className="agb-table-actions-cell" style={{ ...styles.th, textAlign: 'right' }}>Action</th>
@@ -202,7 +186,8 @@ export default function MaintenanceOverdue() {
                     <td style={styles.td}>{f.owner_name}</td>
                     <td style={styles.td}>{f.barangay}</td>
                     <td style={styles.td}>{f.farm_size}</td>
-                    <td style={styles.td}>{f.last_performed_at || 'Never logged'}</td>
+                    <td style={styles.td}>{f.last_performed_at || 'No recorded full clean-out'}</td>
+                    <td style={styles.td}>{f.due_date || 'Undetermined'}</td>
                     <td style={styles.td}>
                       <span style={styles.overdueBadge}>
                         {formatDaysOverdue(f.days_overdue)}
@@ -235,7 +220,7 @@ export default function MaintenanceOverdue() {
             <div style={styles.empty}>
               {search || barangayFilter || sizeFilter
                 ? 'No farms match your search or filter.'
-                : 'No farms are currently overdue or non-compliant for manure clean-out.'}
+                : 'No farms are currently Non-Compliant under the annual clean-out policy.'}
             </div>
           )}
 
@@ -314,10 +299,10 @@ const styles = {
     borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
     color: '#33413a', fontSize: '13.5px', fontWeight: 600, cursor: 'pointer', fontFamily: SANS, whiteSpace: 'nowrap',
   },
-  filterBtnActive: { borderColor: '#2c8047', color: '#2c8047' },
+  filterBtnActive: { borderColor: GREEN.primary, color: GREEN.primary },
   filterCount: {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: '#2c8047',
+    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: GREEN.primary,
     color: '#fff', fontSize: '11px', fontWeight: 700, padding: '0 4px',
   },
   filterPanel: {
@@ -342,7 +327,7 @@ const styles = {
   },
   filterApplyBtn: {
     flex: 1, padding: '9px 0', borderRadius: '10px', border: 'none',
-    backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
+    backgroundColor: GREEN.primary, color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
   },
 
   countText: { fontSize: '12.5px', color: '#8a968d', margin: '0 0 12px', fontFamily: SANS },
@@ -386,6 +371,6 @@ const paginationStyles = {
   navBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '13px', cursor: 'pointer' },
   navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
-  pageBtnActive: { backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff' },
+  pageBtnActive: { backgroundColor: GREEN.primary, borderColor: GREEN.primary, color: '#fff' },
   ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
 }

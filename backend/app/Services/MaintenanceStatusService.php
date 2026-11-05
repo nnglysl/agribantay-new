@@ -3,142 +3,103 @@
 namespace App\Services;
 
 use App\Models\Farm;
-use App\Models\MaintenanceLog;
 use Carbon\Carbon;
+use DateTimeInterface;
 
+/** Authoritative annual compliance, evaluated on Asia/Manila calendar dates. */
 class MaintenanceStatusService
 {
-    /**
-     * How long a farm of each size may go between full manure clean-outs.
-     *
-     * WHERE THESE NUMBERS COME FROM
-     * Field interviews conducted for this study with poultry farms in San
-     * Jose, Batangas. Both halves of the rule were taken from the same
-     * source: Small / Medium / Large is how the farms themselves describe
-     * their scale, and the intervals are the clean-out frequency reported
-     * for each. They are not a default, an industry constant, or a figure
-     * assumed by this codebase.
-     *
-     * The direction follows from how the farms operate: a larger house
-     * holds more birds, manure accumulates faster, and the clean-out comes
-     * round sooner. Hence Large is the SHORTEST interval, not the longest —
-     * which reads backwards until the reason is stated.
-     *
-     * This is the one definition of the rule in the system. Changing a
-     * number here moves every due date, every Overdue and Non-Compliant
-     * status, the Overdue Maintenance screen, the compliance figures in
-     * every report generated afterwards, and the SMS the daily compliance
-     * check sends — so it should not be edited without a source to cite for
-     * the new value.
-     */
-    private const INTERVAL_DAYS = [
-        'Small' => 365,
-        'Medium' => 270,
-        'Large' => 180,
-    ];
+    public const POLICY = 'annual_12_calendar_months_v1';
+    public const FULL_CLEANOUT = 'Full Manure Clean-out';
+    private const TIMEZONE = 'Asia/Manila';
 
-    /**
-     * The window between a clean-out falling due and the farm being counted
-     * as Non-Compliant.
-     *
-     * A farm past its due date is Overdue, not yet in breach: it is sent a
-     * reminder and given these days to comply. Only once they run out does
-     * it become Non-Compliant, which carries the escalated notice and
-     * reaches the Super Admin's system-wide view. The two stages exist so
-     * that being a few days late is not recorded as the same thing as
-     * ignoring the requirement.
-     */
-    private const GRACE_PERIOD_DAYS = 30;
-
-    /**
-     * @param  Carbon|null  $asOf  Evaluate the farm's status at this instant
-     *                             rather than right now, so a historical monthly report can state the
-     *                             compliance position at the end of its own period instead of today's.
-     *                             Passing it also restricts the clean-out lookup to logs on or before
-     *                             that cutoff: a clean-out performed in October must not make a farm
-     *                             look compliant in a September report. The interval and grace-period
-     *                             rules themselves are unchanged, and omitting the argument reproduces
-     *                             the previous behaviour exactly for all existing callers.
-     */
     public function getStatus(Farm $farm, ?Carbon $asOf = null): array
     {
-        if ($asOf === null) {
-            // Callers iterating many farms eager-load latestCleanout so this is
-            // one query in total rather than one per farm.
-            $lastLog = $farm->relationLoaded('latestCleanout')
-                ? $farm->latestCleanout
-                : MaintenanceLog::where('farm_id', $farm->id)
-                    ->where('maintenance_type', 'Full Manure Clean-out')
-                    ->latest('performed_at')
-                    ->first();
-        } else {
-            // The eager-loaded relation is deliberately not reused here: it holds
-            // the newest clean-out overall, which may post-date the cutoff.
-            $lastLog = MaintenanceLog::where('farm_id', $farm->id)
-                ->where('maintenance_type', 'Full Manure Clean-out')
-                ->where('performed_at', '<=', $asOf)
-                ->latest('performed_at')
-                ->first();
-        }
-
-        $anchorDate = $lastLog
-            ? Carbon::parse($lastLog->performed_at)
-            : Carbon::parse($farm->created_at);
-
-        $intervalDays = $this->intervalDaysFor($farm->farm_size);
-        $dueDate = $anchorDate->copy()->addDays($intervalDays);
-        $overdueDate = $dueDate->copy()->addDays(self::GRACE_PERIOD_DAYS);
-
-        $today = $asOf ? $asOf->copy() : Carbon::now();
-
-        if ($today->lessThan($dueDate)) {
-            $status = 'Compliant';
-        } elseif ($today->lessThan($overdueDate)) {
-            $status = 'Overdue';
-        } else {
-            $status = 'Non-Compliant';
-        }
-
-        // Fixed: previously only Non-Compliant ever got a real number here —
-        // Overdue farms always showed 0 regardless of how far into the grace
-        // period they actually were. Now both phases compute a real value:
-        // Overdue = days since the due date (0-29, inside the grace window),
-        // Non-Compliant = days since the grace period itself ended.
-        $daysOverdue = match ($status) {
-            'Overdue' => (int) round($dueDate->diffInDays($today)),
-            'Non-Compliant' => (int) round($overdueDate->diffInDays($today)),
-            default => 0,
-        };
-
-        return [
-            'status' => $status,
-            'last_performed_at' => $lastLog?->performed_at?->format('M d, Y'),
-            'days_since' => (int) round($anchorDate->diffInDays($today)),
-            'expected_interval_days' => $intervalDays,
-            'days_overdue' => $daysOverdue,
-            'anchor_date' => $anchorDate->toDateString(),
-            'due_date' => $dueDate->format('M d, Y'),
-            'grace_end_date' => $overdueDate->format('M d, Y'),
+        $today = ($asOf?->copy() ?? Carbon::now(self::TIMEZONE))->setTimezone(self::TIMEZONE)->startOfDay();
+        $registration = $this->registrationDate($farm->getRawOriginal('created_at'));
+        $result = [
+            'policy' => self::POLICY, 'status' => 'Undetermined',
+            'registration_date' => $registration?->format('M d, Y'),
+            'registration_date_raw' => $registration?->toDateString(),
+            'last_performed_at' => null, 'last_full_cleanout_date' => null,
+            'last_full_cleanout_date_raw' => null, 'latest_full_cleanout_id' => null,
+            'required_interval' => '12 Calendar Months', 'interval_months' => 12,
+            'days_since' => null, 'days_since_registration' => null,
+            'days_remaining' => null, 'days_overdue' => null,
+            'anchor_date' => null, 'due_date' => null, 'due_date_raw' => null,
+            'non_compliant_from' => null, 'compliance_basis' => null,
+            'undetermined_reason' => null, 'as_of_date' => $today->toDateString(),
         ];
+        if (!$registration || $registration->gt($today)) {
+            $result['undetermined_reason'] = 'A valid farm registration date is required.';
+            return $result;
+        }
+        $result['days_since_registration'] = (int) $registration->diffInDays($today);
+        $logs = $farm->relationLoaded('qualifyingCleanouts')
+            ? $farm->qualifyingCleanouts : $farm->qualifyingCleanouts()->get();
+        $last = null; $lastDate = null;
+        foreach ($logs as $log) {
+            $date = $this->calendarDate($log->getRawOriginal('performed_at'));
+            if (!$date || $date->lt($registration)) {
+                $result['undetermined_reason'] = 'A full clean-out has an invalid date or predates registration.';
+                return $result;
+            }
+            // A historical cutoff ignores later work. A future date must never
+            // reset a current cycle (the recording endpoint rejects it too).
+            if ($date->gt($today)) {
+                if ($asOf !== null) continue;
+                $result['undetermined_reason'] = 'A recorded full clean-out is future-dated.';
+                return $result;
+            }
+            if (!$lastDate || $date->gt($lastDate) || ($date->eq($lastDate) && $log->id > $last->id)) {
+                $last = $log; $lastDate = $date;
+            }
+        }
+        $anchor = $lastDate ?? $registration;
+        $due = $anchor->copy()->addMonthsNoOverflow(12);
+        $late = $today->gt($due);
+        return array_merge($result, [
+            'status' => $late ? 'Non-Compliant' : 'Compliant',
+            'last_performed_at' => $lastDate?->format('M d, Y'),
+            'last_full_cleanout_date' => $lastDate?->format('M d, Y'),
+            'last_full_cleanout_date_raw' => $lastDate?->toDateString(),
+            'latest_full_cleanout_id' => $last?->id,
+            'days_since' => $lastDate ? (int) $lastDate->diffInDays($today) : null,
+            'days_remaining' => $late ? 0 : (int) $today->diffInDays($due),
+            'days_overdue' => $late ? (int) $due->diffInDays($today) : 0,
+            'anchor_date' => $anchor->toDateString(),
+            'due_date' => $due->format('M d, Y'), 'due_date_raw' => $due->toDateString(),
+            'non_compliant_from' => $due->copy()->addDay()->toDateString(),
+            'compliance_basis' => $lastDate ? 'latest_full_cleanout' : 'farm_registration',
+        ]);
     }
 
-    /**
-     * The clean-out interval for a farm size, in days.
-     *
-     * Public because more than one caller needs it: the seeding commands have
-     * to work out what registration date puts a farm in a given phase, and
-     * they were each carrying their own copy of these three numbers. Three
-     * copies of a rule is three places to miss when it changes, so the rule
-     * lives here, next to the grace period and the comparison that uses it.
-     */
-    public function intervalDaysFor(?string $farmSize): int
+    public function summary(iterable $farms, ?Carbon $asOf = null): array
     {
-        return self::INTERVAL_DAYS[$farmSize] ?? self::INTERVAL_DAYS['Medium'];
+        $counts = ['policy' => self::POLICY, 'compliant' => 0, 'non_compliant' => 0, 'undetermined' => 0, 'total_farms' => 0];
+        foreach ($farms as $farm) {
+            $status = $this->getStatus($farm, $asOf)['status'];
+            $key = ['Compliant' => 'compliant', 'Non-Compliant' => 'non_compliant', 'Undetermined' => 'undetermined'][$status];
+            $counts[$key]++; $counts['total_farms']++;
+        }
+        return $counts;
     }
 
-    /** The grace period after the due date, in days. */
-    public function gracePeriodDays(): int
+    private function registrationDate(mixed $raw): ?Carbon
     {
-        return self::GRACE_PERIOD_DAYS;
+        if (!$raw) return null;
+        try {
+            if ($raw instanceof DateTimeInterface) return Carbon::instance($raw)->setTimezone(self::TIMEZONE)->startOfDay();
+            if (!is_string($raw) || !$this->calendarDate(substr($raw, 0, 10))) return null;
+            return Carbon::parse($raw, 'UTC')->setTimezone(self::TIMEZONE)->startOfDay();
+        } catch (\Throwable) { return null; }
+    }
+
+    private function calendarDate(mixed $raw): ?Carbon
+    {
+        if ($raw instanceof DateTimeInterface) $raw = $raw->format('Y-m-d');
+        if (!is_string($raw) || !preg_match('/\A(\d{4})-(\d{2})-(\d{2})\z/', $raw, $parts)
+            || !checkdate((int) $parts[2], (int) $parts[3], (int) $parts[1])) return null;
+        return Carbon::createFromFormat('!Y-m-d', $raw, self::TIMEZONE);
     }
 }

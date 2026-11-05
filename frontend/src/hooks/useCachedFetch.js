@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import api from '../api/axios'
 
 const cache = new Map()
+let cacheGeneration = 0
 
 // Every mounted useCachedFetch registers itself here as cacheKey -> Set of
 // "re-run your fetch" callbacks.
@@ -53,12 +54,14 @@ function currentRoleKey() {
 
 function fetchShared(cacheKey, url, params) {
   if (inflight.has(cacheKey)) return inflight.get(cacheKey)
+  const generation = cacheGeneration
   const p = api.get(url, { params })
     .then(res => {
-      cache.set(cacheKey, res.data.data)
+      // A request issued before logout/login belongs to that earlier session.
+      if (generation === cacheGeneration) cache.set(cacheKey, res.data.data)
       return res.data.data
     })
-    .finally(() => { inflight.delete(cacheKey) })
+    .finally(() => { if (inflight.get(cacheKey) === p) inflight.delete(cacheKey) })
   inflight.set(cacheKey, p)
   return p
 }
@@ -232,5 +235,7 @@ export function invalidateCache(prefix) {
 // same tab without a full page reload, a stale response cached under the
 // previous identity would otherwise keep being served.
 export function clearAllCache() {
+  cacheGeneration++
   cache.clear()
+  inflight.clear()
 }

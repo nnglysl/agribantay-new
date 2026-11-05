@@ -1,3 +1,4 @@
+import { GREEN } from '../theme/green'
 import { useRef } from 'react'
 
 const SANS = "'Inter', sans-serif"
@@ -52,7 +53,7 @@ export default function OtpInput({ value = '', onChange, disabled = false, tone 
     refs.current[Math.min(pasted.length, 5)]?.focus()
   }
 
-  const focusRing = tone === 'red' ? '#b91c1c' : '#2c8047'
+  const focusRing = tone === 'red' ? '#b91c1c' : GREEN.primary
 
   return (
     <div style={styles.row} onPaste={handlePaste}>

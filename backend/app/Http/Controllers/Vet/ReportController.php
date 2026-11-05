@@ -12,20 +12,11 @@ use Illuminate\Support\Facades\Auth;
 
 class ReportController extends Controller
 {
-    // Both service types the Vet actually handles — mirrors
-    // ServiceRequestController's VET_ONLY_TYPES on the admin side.
-    // Previously this only ever looked at Vaccine Request, silently
-    // dropping every Blood Test Request from every report.
     private const VET_SERVICE_TYPES = ServiceTypes::VET;
 
     public function index(Request $request)
     {
         $period = ReportPeriod::fromRequest($request);
-        // A regular Vet only ever sees their own assigned work —
-        // unchanged. Super Admin sees every vet's data combined, since
-        // they're not personally assigned anything themselves; filtering
-        // by their own Auth::id() would silently return zero rows
-        // instead of the "all vets" view they actually need.
         $isSuperAdmin = Auth::user()->role === 'super_admin';
 
         $baseQuery = function () use ($isSuperAdmin, $period) {
@@ -46,8 +37,9 @@ class ReportController extends Controller
         $completedServices = $baseQuery()
             ->with(['farm', 'acceptedBy'])
             ->where('status', 'Completed')
-            ->latest('completed_at')
+            ->latest('completed_at')->orderByDesc('id')
             ->get()
+            ->filter(fn ($r) => $r->farm !== null)
             ->map(fn ($r) => [
                 'id' => $r->request_number,
                 'service_type' => $r->service_type,
@@ -64,7 +56,8 @@ class ReportController extends Controller
                 'vet_name' => $isSuperAdmin
                     ? trim(($r->acceptedBy->first_name ?? '').' '.($r->acceptedBy->last_name ?? ''))
                     : null,
-            ]);
+            ])
+            ->values();
 
         // Completed + Scheduled rows for Super Admin Reports (the Vet page
         // keeps using completed_services). `date_raw` is the completion date
@@ -73,6 +66,7 @@ class ReportController extends Controller
             ->with(['farm', 'acceptedBy'])
             ->whereIn('status', ['Completed', 'Scheduled'])
             ->get()
+            ->filter(fn ($r) => $r->farm !== null)
             ->map(function ($r) use ($isSuperAdmin) {
                 $date = $r->status === 'Completed' ? $r->completed_at : $r->scheduled_at;
 

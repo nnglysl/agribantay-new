@@ -21,11 +21,14 @@ use Illuminate\Validation\ValidationException;
 /**
  * Builds and persists the frozen report snapshot used by the
  * admin Reports > Files archive. Shared by GeneratedReportController
- * (on-demand generation) and the reports:generate-monthly
- * scheduled command so both produce identical report content.
+ * (on-demand generation) and the retained reports:generate-monthly command.
+ * The command is not currently scheduled in routes/console.php.
  */
 class GeneratedReportService
 {
+    // Retired request types remain in the current frozen-report format until
+    // a separately reviewed policy for newly generated snapshots replaces it.
+    // This reporting compatibility does not enable their operational workflow.
     private const ADMIN_SERVICE_TYPES = ['Odor Control Request', 'Fly Control Request'];
 
     private const VET_SERVICE_TYPES = ServiceTypes::VET;
@@ -185,10 +188,10 @@ class GeneratedReportService
 
         $readingQuery = fn () => SensorReading::whereBetween('created_at', [$from, $to]);
         $totalAlerts = $readingQuery()->count();
-        $ammoniaBreaches = $readingQuery()->where('ammonia_status', 'Critical')->count();
+        $ammoniaBreaches = $readingQuery()->whereNotNull('ammonia')->where('ammonia_status', 'Critical')->count();
         $tempAnomalies = $readingQuery()->where('temperature_status', '!=', 'Safe')->count();
         $humidityAnomalies = $readingQuery()->where('humidity_status', '!=', 'Safe')->count();
-        $moistureBreaches = $readingQuery()->where('moisture_status', 'Critical')->count();
+        $moistureBreaches = $readingQuery()->whereNotNull('moisture')->where('moisture_status', 'Critical')->count();
 
         // Only the metrics the system actually alerts on
         // (config('sensors.alerting_metrics')). Two things were wrong before:
@@ -204,8 +207,8 @@ class GeneratedReportService
         //   lines above an alert table listing a handful of incidents, and the
         //   two contradicted each other on the same page.
         $criticalAlerts = $readingQuery()->where(function ($q) {
-            $q->where('ammonia_status', 'Critical')
-                ->orWhere('moisture_status', 'Critical');
+            $q->where(fn ($metric) => $metric->whereNotNull('ammonia')->where('ammonia_status', 'Critical'))
+                ->orWhere(fn ($metric) => $metric->whereNotNull('moisture')->where('moisture_status', 'Critical'));
         })->count();
 
         $completedInspectionsList = Inspection::with('farm')
@@ -253,8 +256,8 @@ class GeneratedReportService
         // cutoff through to the printed document so the date is stated on the page.
         $maintenanceService = app(MaintenanceStatusService::class);
         $activeFarms = Farm::where('status', 'Active')
-            ->where('created_at', '<=', $to)
-            ->with('latestCleanout')
+            ->where(fn ($q) => $q->whereNull('created_at')->orWhere('created_at', '<=', $to))
+            ->with('qualifyingCleanouts')
             ->get();
 
         $maintenanceStatuses = $activeFarms->map(function ($farm) use ($maintenanceService, $to) {
@@ -267,13 +270,17 @@ class GeneratedReportService
             ]);
         });
 
+        // Annual policy has no intermediate overdue/grace status. A farm is
+        // either compliant through its due date or Non-Compliant the next
+        // calendar day, so reports use the same final status as the live UI.
         $maintenanceOverdueList = $maintenanceStatuses
-            ->whereIn('status', ['Overdue', 'Non-Compliant'])
+            ->where('status', 'Non-Compliant')
             ->map(fn ($f) => [
                 'farm_name' => $f['farm_name'],
                 'owner_name' => $f['owner_name'],
                 'barangay' => $f['barangay'],
                 'last_performed_at' => $f['last_performed_at'],
+                'due_date' => $f['due_date'],
                 'days_overdue' => $f['days_overdue'],
                 'status' => $f['status'],
             ])
@@ -288,9 +295,11 @@ class GeneratedReportService
         // The snapshot key stays completed_this_month so existing archived
         // reports and all three report views keep working unchanged.
         $completedMaintenanceThisMonth = MaintenanceLog::whereBetween('performed_at', [$start->toDateString(), $end->toDateString()])
+            ->where('maintenance_type', MaintenanceStatusService::FULL_CLEANOUT)
             ->count();
 
         $maintenanceCompletedList = MaintenanceLog::with('farm')
+            ->where('maintenance_type', MaintenanceStatusService::FULL_CLEANOUT)
             ->whereBetween('performed_at', [$start->toDateString(), $end->toDateString()])
             ->latest('performed_at')
             ->get()
@@ -423,10 +432,7 @@ class GeneratedReportService
                 'farm_name' => $f->farm_name,
                 'owner_name' => $f->owner_name,
                 'barangay' => $f->barangay,
-                // Size is not decoration here: it sets the clean-out interval
-                // (Small 365 days, Medium 270, Large 180), so it is what decides
-                // when each of these farms first falls due in the Compliance
-                // section further down the same report.
+                // Registration metadata; every size uses the same annual cycle.
                 'farm_size' => $f->farm_size,
                 'registered_at' => LocalTime::date($f->created_at),
             ])
@@ -520,8 +526,9 @@ class GeneratedReportService
         // $maintenanceStatuses the overdue table is built from — the existing
         // MaintenanceStatusService, not a second opinion about compliance.
         $compliancePeriod = [
+            'policy' => MaintenanceStatusService::POLICY,
+            'undetermined' => $maintenanceStatuses->where('status', 'Undetermined')->count(),
             'compliant' => $maintenanceStatuses->where('status', 'Compliant')->count(),
-            'overdue' => $maintenanceStatuses->where('status', 'Overdue')->count(),
             'non_compliant' => $maintenanceStatuses->where('status', 'Non-Compliant')->count(),
             'total_farms' => $maintenanceStatuses->count(),
         ];
@@ -532,6 +539,7 @@ class GeneratedReportService
                 'end' => $end->toDateTimeString(),
             ],
             'status_as_of' => $end->format('M d, Y'),
+            'reading_data_completeness' => app(MonitoringAssessmentService::class)->readingCounts($readingQuery()),
             'period_activity' => [
                 'inspections_completed' => $completedInspectionsList->count(),
                 'alerts_recorded' => $alertRecordsList->count(),
@@ -564,16 +572,16 @@ class GeneratedReportService
                 'pending' => $pendingServiceRequests,
             ],
             'maintenance_summary' => [
+                'policy' => MaintenanceStatusService::POLICY,
+                'compliant' => $maintenanceStatuses->where('status', 'Compliant')->count(),
+                'undetermined' => $maintenanceStatuses->where('status', 'Undetermined')->count(),
                 'completed_this_month' => $completedMaintenanceThisMonth,
-                'overdue' => $maintenanceStatuses->where('status', 'Overdue')->count(),
                 'non_compliant' => $maintenanceStatuses->where('status', 'Non-Compliant')->count(),
             ],
-            'farm_overview' => [
+            'farm_overview' => array_merge([
+                'monitoring_assessment_policy' => MonitoringAssessmentService::POLICY,
                 'total_farms' => $totalFarms,
-                'normal' => $farmStatusBreakdown['normal'],
-                'warning' => $farmStatusBreakdown['warning'],
-                'critical' => $farmStatusBreakdown['critical'],
-            ],
+            ], $farmStatusBreakdown),
             'vet_summary' => [
                 'total_completed' => $vetTotalCompleted,
                 'farms_covered' => $vetFarmsCovered,

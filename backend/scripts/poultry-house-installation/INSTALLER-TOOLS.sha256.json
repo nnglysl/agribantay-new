@@ -1,0 +1,502 @@
+{
+  "kind": "PH_INSTALLER_PREPARATION_TOOL_BINDING_NOT_EXECUTION_AUTHORITY",
+  "checkpoint_utc": "2026-11-04T05:19:14.399Z",
+  "status": "NON_MIGRATION_GUARDS_PASS_ENVIRONMENT_RECONCILIATION_AND_NATIVE_DDL_VALIDATION_REQUIRED",
+  "original_sb_manifest_sha256": "a4083f9d191cd310629b82fd3da38f69930b96a0f14687b7593460e467659d6a",
+  "restore_r1_manifest_sha256": "dda52e42f61721f5c513d6371bf0d73f71ab6662ee99d107756ef7845adb0219",
+  "installation_authorized": false,
+  "files": [
+    {
+      "path": "backend/app/Services/PoultryHouseFoundationReadiness.php",
+      "sha256": "367309b9d09ccf622d8c397a2c62ba66a13a188318bd0f6a1fe326274dbb726c"
+    },
+    {
+      "path": "backend/app/Services/SensorCalibrationService.php",
+      "sha256": "6aae56c44e0dee9baae28db7c1bb8ca6f83f7ec167755b770781282fe9eed85c"
+    },
+    {
+      "path": "backend/app/Support/poultry-house-foundation.php",
+      "sha256": "0159dfec562478d7074aeb18267c826a88404f1f093e00193fc75dd954f97079"
+    },
+    {
+      "path": "backend/app/Support/PoultryHouseFoundationException.php",
+      "sha256": "2b99ffb5f12e3bec1635dd696195ad190f384d1564b489a3e3901c78f0150b45"
+    },
+    {
+      "path": "backend/composer.lock",
+      "sha256": "783046ed461880cd3267be4e1a5aaade8a1e40c4fb5ad3036ed412af7da1b4e8"
+    },
+    {
+      "path": "backend/database/migrations/2026_11_01_000000_create_poultry_house_inventory_foundation.php",
+      "sha256": "376a648b4fafd6b29216a12fd676ac33226387ea1613854b5008cc9da1e33567"
+    },
+    {
+      "path": "backend/database/migrations/2026_11_01_000100_add_house_context_to_device_assignment_events.php",
+      "sha256": "40e9964b98d09939dc94e668ebf232c7daa4c52caeb0d63bf2808016cde5c97f"
+    },
+    {
+      "path": "backend/database/migrations/2026_11_01_000200_add_house_assignment_to_sensors.php",
+      "sha256": "a18f5094887ce7a6a48785aab8a24fa75ff09e0fa52ebedd42c013f8e87883a8"
+    },
+    {
+      "path": "backend/database/migrations/2026_11_01_000300_add_house_provenance_to_monitoring_history.php",
+      "sha256": "1a601bd0f1761f24b61ee62be7e74d39d4c5bdc52c5631f36f1f6a74b5422ccf"
+    },
+    {
+      "path": "backend/database/support/PoultryHouseSchema.php",
+      "sha256": "ecc3282dac8ec581245e141ae8f86a680607f9455f38927ebfadbea4c0aef42d"
+    },
+    {
+      "path": "backend/scripts/poultry-house-installation/CheckpointSource.php",
+      "sha256": "48fc618b69e6c16f9e8483d918d64a037325e667f0e6048f0870223a7957bfb2"
+    },
+    {
+      "path": "backend/scripts/poultry-house-installation/FoundationInstallChecks.php",
+      "sha256": "c37d0770fbe2fd59ab83d28bdc6ba559f877bc92bc5bd4d9e14c0e0ce95d04a4"
+    },
+    {
+      "path": "backend/scripts/poultry-house-installation/InstallationStorage.ps1",
+      "sha256": "d227dba24412fe9b5f27a9f31d5a6bf5e703dedd5389146a9df5573b681c3229"
+    },
+    {
+      "path": "backend/scripts/poultry-house-installation/InstallContract.php",
+      "sha256": "c899a3c39e27ad192f45562b9cf358090ec700a5f0864c8f3b8d12308681bb14"
+    },
+    {
+      "path": "backend/scripts/poultry-house-installation/InstallSequence.php",
+      "sha256": "0862b41052e3f1afc37226fa86e57dbad6a60ef0a8865904b1ad77500918fd89"
+    },
+    {
+      "path": "backend/scripts/poultry-house-installation/InstallUnit.php",
+      "sha256": "126227a617379241f82c64627f0c3c07abda9bf616bf62c58b1f00bb8c231048"
+    },
+    {
+      "path": "backend/scripts/poultry-house-installation/NATIVE-RECONCILED-MANIFEST.json",
+      "sha256": "d14b33ebcdf8be44e811023e730cd9cfa7eb38741dc4e55c6c307a757d773f84"
+    },
+    {
+      "path": "backend/scripts/poultry-house-installation/NATIVE-REHEARSED-MANIFEST.json",
+      "sha256": "243c3cd3d4a9a2e5e39669eb38738dabf0d46382147399ba8b967bb1d705cde7"
+    },
+    {
+      "path": "backend/scripts/poultry-house-installation/PHCheckpoint.mjs",
+      "sha256": "ee60d079f6ef5ead7a4f6fb31db6053683f5fbbed47e2542babf7414fb2b382a"
+    },
+    {
+      "path": "backend/scripts/poultry-house-installation/PHInstall.mjs",
+      "sha256": "f641810fc8808f83ce26cbe558c08dd9cb92f75e757c2c26bcb5e38fea54c56f"
+    },
+    {
+      "path": "backend/scripts/poultry-house-installation/PREPARATION-AUTHORITY-EXPIRED.json",
+      "sha256": "ce289ffeae71c6356e80aec1c1e8273780d7f4d37fc406a1f8b2e4756381fd99"
+    },
+    {
+      "path": "backend/scripts/poultry-house-installation/PREPARATION-AUTHORITY.json",
+      "sha256": "f39c0bae937b5e188d8553a8b6661c7bce928d2762bef9b4635031f94ec13386"
+    },
+    {
+      "path": "backend/scripts/poultry-house-installation/PRIVILEGE-PLAN.json",
+      "sha256": "efc64fd0096c4b81cf0d2eefb352a02e2dc89f92400db446dba8b41062bf4ba4"
+    },
+    {
+      "path": "backend/scripts/poultry-house-installation/README.md",
+      "sha256": "c31b6359a5c059de2ee3e4687261a6d03b3d40ef729e5079473f5a7f239310aa"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/approval-b1-e1-missing-files-proposal.json",
+      "sha256": "bbc318e7ab3df9dd50c817784472c52166e159671713f51bf242e97bb80fc62d"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/approval-b1-proposed-scope.json",
+      "sha256": "c5d6283aa6ca089d83637afaae78bad03a5bbfdca58bf9d1b3774b025d170ae2"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/B1-OPERATOR-RUNBOOK.md",
+      "sha256": "816e8c066f42b087f17836e6623164fecd088bdaa8d60f444b4ad678bfa9ed4e"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/B1Archive.mjs",
+      "sha256": "669fb9e00c119de1a6913f1191b2bfe066f75225c01940d49dec01b0aba5921c"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/B1Package.mjs",
+      "sha256": "f5d71179ac3651757c9a25c287f67781f55f1522d4f1cbec2d6b4b76a6b280e6"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/B1ReadOnlyReview.php",
+      "sha256": "4f6e48619b86d2c4f29d7083e5384992be0bd0a508e9cd0ecfc9321ce8174c70"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/B1RecordIntegrity.php",
+      "sha256": "2f08b4bad0878bd88b4c52426c33e37649ea034c069ebf7df4f35086f75f2614"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/B1RestoreTarget.mysql.ini",
+      "sha256": "9527a73e416b0f9e925c0a65dc79624cfd919138147a77cde2ffce25ea4f9164"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/B1StoragePreparation.ps1",
+      "sha256": "5703540b15d178ab6cfe4a38736ee3e55894d9477b8dcd212606adcb22c550f8"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/FoundationMaintenanceAudit.php",
+      "sha256": "fb14e9fb78323d7fd3ff33a558c502538ca506adce68737b5159573077cac717"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/manifest.php",
+      "sha256": "092ac8be9445096b00ebca3f97bfeb656ad4ff8118de740a99bf3bad51cc3704"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/prototype/BoundedArchive.mjs",
+      "sha256": "3ebae2ce7fc5b8289a7039c55b575255e57842f92d5c3aba5c1b1b8273376df0"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/prototype/Bundles.mjs",
+      "sha256": "cb9cf62de34cb24251fca426c78899397083e5da1b94269291627468d4154158"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/prototype/Capture.mjs",
+      "sha256": "c4732c6774e1fe29706a75ea450d636720884fa5ccfe224f88645c6b9528a692"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/prototype/Collect.mjs",
+      "sha256": "6e4fd4ca7a0f3aa438297904b21242c7050fc5bf09d38603604a6f83da30e98a"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/prototype/CryptoWorker.mjs",
+      "sha256": "4fef5a86f31eea785495235b2f0f9bfe751ed3deaa12274ae6301d00253a5ec5"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/prototype/Generate.mjs",
+      "sha256": "4616a204c52adecf5ee840fda0bd9338e373be30740e79c0d67b03030ab40089"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/prototype/New-PrototypeRoots.ps1",
+      "sha256": "f71215c5d9105a66a308d4e644e3efb1196284be0a1e1902e5690adae1cbe43a"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/prototype/PROTOTYPE-TOOLS.sha256.json",
+      "sha256": "359a9a085c381c68820db26053e5daf14fceec0f2f305011e123f5bed6418744"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/prototype/PrototypeDatabase.php",
+      "sha256": "2087268718392e11d39141c180f7b53ae5c54b23c4c26567615d60d7995563e6"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/prototype/PrototypeServer.mjs",
+      "sha256": "694341db94f28e53f9ad89c376a647c12e1b13cbd76ccbce3e400e7ed78c7d97"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/prototype/README.md",
+      "sha256": "fab193c8c5a7c887aca958667cb965150a2e0700e4013c6d212774d30f48900e"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/prototype/run.mjs",
+      "sha256": "2df6d3702cb611aecda61d1cd0e3f2d24b870cab5eab611db3245eae38090214"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/prototype/SyntheticContract.mjs",
+      "sha256": "f4c16430eb45181b90114ea0801d60a7411c7df3fbe246c1f8aea3f65b87218b"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/prototype/Teardown.ps1",
+      "sha256": "a5967207fe9214adcb63d3f60e070d072c90263e21df85a9d098208e4e7717de"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/r2/R2-OPERATOR-RUNBOOK.md",
+      "sha256": "6517a7e005e25ba678922a0c225858fe7e20d298acc1f5ba313d6e8404678332"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/r2/R2-SOURCE-PREFLIGHT.json",
+      "sha256": "35c310305fa4595dde129470269095bd2921a1302f890febee5af358be614b49"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/r2/R2-TOOLS.sha256.json",
+      "sha256": "bce4847b0b7d8eabb391a84053d00cd0e50ba064f186fe6e619e4cd8850b9851"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/r2/R2AppCheck.php",
+      "sha256": "07fbc9ce62af86985aaf1a669469e42da308d56ec70fba924f3d5209bb4c777b"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/r2/R2Capture.mjs",
+      "sha256": "fecfc67ebce240dadd6b2a5bfa6efd673e67fce409d5b72526727de985b59992"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/r2/R2Contract.mjs",
+      "sha256": "2d299b59126041c33351ddbf01f1ac65fe97e7068137c645b03d3e8729e9caa4"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/r2/R2Crypto.mjs",
+      "sha256": "f7178ad325ac598f631bbc5dd4e05c6283bc1595cbb02a28c2fce2cdc94653a2"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/r2/R2Files.mjs",
+      "sha256": "bfc5bd08626f4fae1e894072de0778ef46a4ded5a1c60d6a2e0940b2ed0e1608"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/r2/R2Host.ps1",
+      "sha256": "669ae6d4722114c57f2a642546939f8da9e3b50bc6dbb76c68f2c1a7ccf1b9c5"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/r2/R2Key.ps1",
+      "sha256": "aaf55069c6748793e0bcbf0c448d69508e21ef4d3ceb0c6fc9ad42c7cbb8d0f9"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/r2/R2Prepare.mjs",
+      "sha256": "72616248f6dbb898176b625465da5333963ca84ea39dd7413bcebe09a09ccb34"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/r2/R2Restore.mjs",
+      "sha256": "67fd47e9dc174249af8ce9a39e34232d161e1433057cc18812c745b46458730d"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/r2/R2RestoreDatabase.php",
+      "sha256": "6d9c409ca100699884af09726a589a8159893d117768c2b77e67edad005ad86b"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/r2/R2Source.php",
+      "sha256": "b5a74ba4a835ac7c140f7e639d5ae21d88b0f41f5bafd5a5aa971478527d741c"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/r2/R2Storage.ps1",
+      "sha256": "e184dcfb22215afe401c43184328fd67acaafe37b95366457df8b13274c54051"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/r2/R2Worker.mjs",
+      "sha256": "15a3a795d07715f0fc2033503784f8ecb496ff60e97b9bc3eb2e90c95aa07d1b"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/r2/README.md",
+      "sha256": "75083e085797c6d0e0e80201196bb25703f400d2da8955a6aedd2e54041fe9f3"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/rehearsal/B1CleanupWorker.mjs",
+      "sha256": "b5eaaded746aba437a48be19826c6ced57f9461f0f58b8e318d77c8ab29a763e"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/rehearsal/B1Native.mjs",
+      "sha256": "b6f46a27191e99366c90e49f927d4a98aeb7ac412866b8b5548cd4847e34c7c0"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/rehearsal/B1SealWorker.mjs",
+      "sha256": "b22581c444f54ea8268c9e8ec97cf46bc2d86e6ac4c447c63441fe517a3cb25c"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/rehearsal/B1SyntheticKey.mjs",
+      "sha256": "d6ba466a71e02d4e5af3c181dd79783b12c692b329cd83712fcc856c6dee6c0c"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/rehearsal/B1SyntheticKey.ps1",
+      "sha256": "6f0663ae94bf0b92738590c21559219ae0bb6b748ef45365b964cccf6e50e763"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/rehearsal/B1VerifyWorker.mjs",
+      "sha256": "7f7d1d29229dc5c58a3f629da5084427952c0aaa00e15a1235d37cc69231a38a"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/rehearsal/B1Workflow.mjs",
+      "sha256": "d9f86639272c881dd64a090417e0351990613acdf257192ba6713ca6f1c60bdf"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/rehearsal/inspect-failure.mjs",
+      "sha256": "5f5d67672dc5feaff994aff8229ffe2e584dfa936c8e0ca39fec9f2ccf7adbc5"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/rehearsal/New-SyntheticRoots.ps1",
+      "sha256": "edac15b8d12bc1f7d7af10e027e17b504119e8b2fd730dade4d2fccc05d2d7e1"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/rehearsal/prepare.mjs",
+      "sha256": "77ce6bced5f579c98c5ff80cd185c24152348db19e79dde15c569ebf544a1a7f"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/rehearsal/reproduce.mjs",
+      "sha256": "2d754f3ae4cdf4aabe898a21ec7a0bfca4d908d84f650d25b2cce5af69350652"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/rehearsal/retry-preparation-proposal-20261103.json",
+      "sha256": "19296c850035387b273f086b5e93e9997d9d85f456aaf88849b50156543be2a3"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/rehearsal/run.mjs",
+      "sha256": "08f5e7000150e7ce526177f0419c22be4998d5e7680a038509dabedbf8dbcc32"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/rehearsal/SyntheticDatabase.php",
+      "sha256": "f0b4c58fa983c2f72be84a9407c7b995246639a61c8f6ed04ef720e3053f3e0f"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/rehearsal/SyntheticServer.mjs",
+      "sha256": "f692558be1a102fe9a7083af6dd8b2ac80c21f08186ef41ce28295150b41e40d"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/README.md",
+      "sha256": "49ee7a1e95191d962d18b643483db287a83647433fae7c42c8253ce175767c14"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/RESTORE-R1-README.md",
+      "sha256": "af2d2b6cca37d6e54f608565811df8f72b6a6795c3de210ac0dca52ede7ad8b4"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/SB-METHOD-PROPOSAL.json",
+      "sha256": "1823161a1c5c803b216d038e64c63e7d9fa016fbcc7b50a6b594d690542eecea"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/SB-RESTORE-R1-TOOLS.sha256.json",
+      "sha256": "dda52e42f61721f5c513d6371bf0d73f71ab6662ee99d107756ef7845adb0219"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/SB-STATIC-ALLOWLIST.json",
+      "sha256": "e5929efe8f5fbe719c3c96a4147699c3f1916d19ef0fda206e3f93402927a454"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/SB-TOOLS.sha256.json",
+      "sha256": "a4083f9d191cd310629b82fd3da38f69930b96a0f14687b7593460e467659d6a"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/SBArchive.mjs",
+      "sha256": "329cb6d5ddbfe8cee1929c04a1af72aa3706242065a61701d0e1bcbde71d45e1"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/SBAuthority.php",
+      "sha256": "751f203ed86d77744612f3e1808490b538786ce49a349c4ca2b05b735b7c2cbc"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/SBBundles.mjs",
+      "sha256": "96a03b99fed84ef4f35b437528fb65b988694c283c9ced3c0cb17682a1e30a1b"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/SBCapture.mjs",
+      "sha256": "77d96b4e0f0326e039af59715be6fdfbdf617a4b93955383059941cbb0243ff4"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/SBCleanup.mjs",
+      "sha256": "457ae13e4ed69823c07ab3a2027de8d3bb4e480de1d3356453cf29341d7fa32b"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/SBContract.mjs",
+      "sha256": "1e14024ede3434ff5fb47099ac57c95c3401860f08b01411ae6302668ce14d01"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/SBCrypto.mjs",
+      "sha256": "ac6e336a4bb1b33c1df7754953e3a971bb6b8794436bc1ca8c4276ea22cf234d"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/SBFiles.mjs",
+      "sha256": "7611fef2c4598a2c5039df3a9a08d648d65d0f5461eebfa9570fee950a3b60cb"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/SBKey.ps1",
+      "sha256": "3c00bc04f6bb6cdcb5cbe3f261d5a43929821758b97316110e5a252eda1f5ec9"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/SBPreparationBaseline.php",
+      "sha256": "04f4203048953568a56376c751d86f77655d713bc73df1f58b558edc40c6a36d"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/SBPrepare.mjs",
+      "sha256": "62cccb88dd2b213b5841ab40319aebe950fe009b7db835ae08be4b2478e61851"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/SBPrivateOwnerR1.mjs",
+      "sha256": "542b8a7e793d94e40cb2a9ccb1be566758c649e5dfb4cc1e030b57e9fbd66bd3"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/SBPrivateOwnerR1.ps1",
+      "sha256": "8fdb63fac52dea931dc856b6701dd6c0f412d65317e543e9b0060be60a5ce87d"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/SBRestore.mjs",
+      "sha256": "7ca0e64b268d7c5e76cf606796ca81c3e16971d6900399f0f30574203c765d55"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/SBRestoreDatabase.php",
+      "sha256": "6133c816e75539a8472248bb22140ff79369bd041b4c1e9e13fe342c48398101"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/SBRestoreR1.mjs",
+      "sha256": "a5ffe7e552e7ea83d342b71f053f5812d6770aabb6678c30079f310e56317e4a"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/SBSource.php",
+      "sha256": "5577004bcc3a95a4a1380f9594e9d56b8ec441a9dd52dd09b7f08fde098562e3"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/SBStorage.ps1",
+      "sha256": "1a1fe414530056a14dd1a060c8bca10d2f6d08020b57c921722a1c31c52a4e52"
+    },
+    {
+      "path": "backend/scripts/poultry-house-preparation/sb/SBWorker.mjs",
+      "sha256": "17d48bc2bba447652afc530ab054b6ec3c12efd077b6812ab978145beffc3e37"
+    },
+    {
+      "path": "backend/tests/Diagnostics/sb-fresh-verifier.mjs",
+      "sha256": "64ad0067d3a452a12306d269e871a82774db02a0373de14667099364009903a6"
+    },
+    {
+      "path": "backend/tests/Diagnostics/sb-private-owner-r1-unit.ps1",
+      "sha256": "e5cbc2e8cf621fa1579a82e2c7d36bdcfa80e136aa9340be7b68bafd0bac25a0"
+    },
+    {
+      "path": "backend/tests/Unit/B1OrchestrationRehearsal.test.mjs",
+      "sha256": "46d07377bc0aca04029fe2e6f3ee38c32836f32a17e5afebc9068bb154645ad8"
+    },
+    {
+      "path": "backend/tests/Unit/B1PackagePreparation.test.mjs",
+      "sha256": "bdb1046ce0bfa0bf1d3226ee97e11f4cd02e3507333c4db6091028202b7be74c"
+    },
+    {
+      "path": "backend/tests/Unit/B1PreparationVolatility.test.mjs",
+      "sha256": "764d3d4070a480afd244624bebc40c6c79640e7de80dfa5656cc397bef4f5342"
+    },
+    {
+      "path": "backend/tests/Unit/B1R2Preparation.test.mjs",
+      "sha256": "a61cca89c6fd376505a85bc86a5ed291bff9ba619502ba0eae8ffd8f2c4ab381"
+    },
+    {
+      "path": "backend/tests/Unit/B1RecordIntegrityPreparationTest.php",
+      "sha256": "17d8a5baac5d3a55d3a4e97311f2145d190e2884d77dc1616a49d64af7a3efc5"
+    },
+    {
+      "path": "backend/tests/Unit/B1RestoreOwnershipR1.test.mjs",
+      "sha256": "dce2823dc3ce25774c5e24221312e12c1b74b13f1cbbbc8835f83aebfac8f9ab"
+    },
+    {
+      "path": "backend/tests/Unit/B1SBAdapter.test.mjs",
+      "sha256": "b02a37d64459dc7fe43cdf3d02f6b975d3f0066c173714c7f5c767d682a8bbd8"
+    },
+    {
+      "path": "backend/tests/Unit/B1StaticBundlePrototype.test.mjs",
+      "sha256": "f8e60c7fd58f5efe54bbf6e79dda11108bf8643e1c7fd7529eed365624ae69f9"
+    },
+    {
+      "path": "backend/tests/Unit/PoultryHouseOperationalInstaller.test.mjs",
+      "sha256": "7d5a81cc6a4bfef81983ff6ac2b02dfd6dc5d3aaaa0758b0cea7e413976d1b23"
+    },
+    {
+      "path": "backend/tests/Unit/PoultryHouseOperationalInstallerTest.php",
+      "sha256": "9d95171d9601f3b111e2caefd9f7e18860c0b531a6256becd4d11ae559141ae9"
+    },
+    {
+      "path": "backend/vendor/laravel/framework/src/Illuminate/Database/Migrations/DatabaseMigrationRepository.php",
+      "sha256": "daf3f79995d547d8fe72b2caa7b44213ba56cdc64c92ef9dc85a2d7c11c56769"
+    },
+    {
+      "path": "backend/vendor/laravel/framework/src/Illuminate/Database/Migrations/Migrator.php",
+      "sha256": "e78263368c5b12ffcbce2c0438ee08f8db192cf93c8213ca67c64ceb64cf65b1"
+    },
+    {
+      "path": "frontend/package-lock.json",
+      "sha256": "77a232119636b371029b893ae9e7661af87bf471f1d5eff650b77b8180699f39"
+    },
+    {
+      "path": "POULTRY-HOUSE-CALIBRATION-RECHECK.json",
+      "sha256": "5bf8d0849ea5b8fa81b05e3d622fddcef069e3a72db89444e5a1fce09f78ffe8"
+    },
+    {
+      "path": "POULTRY-HOUSE-CALIBRATION-TOKEN-COMPARISON.json",
+      "sha256": "6b8aeb9c52bbeec1771da4975797469102e52e0e537442cc9fb1fdfe289cb31c"
+    }
+  ]
+}

@@ -1,10 +1,12 @@
+import { GREEN } from '../../theme/green'
+import { useTableFetch } from '../../hooks/useTableFetch'
 import TableScroll from '../../components/TableScroll'
-import { useEffect, useRef, useState, useMemo } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../../api/axios'
 import AdminLayout from '../../components/AdminLayout'
 import SharedPagination from '../../components/Pagination'
-import { useCachedFetch, invalidateCache } from '../../hooks/useCachedFetch'
+import { invalidateCache } from '../../hooks/useCachedFetch'
 import { LIVE_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
@@ -86,17 +88,12 @@ export default function ManageAccounts() {
   const debouncedSearch = useDebouncedValue(current.search)
   if (debouncedSearch) params.search = debouncedSearch
 
-  const { data, loading, error, refetch } = useCachedFetch('/superadmin/accounts', params, { pollMs: LIVE_POLL_MS })
-  const accounts = data || []
-
-  const totalItems = accounts.length
-  const totalPages = Math.max(1, Math.ceil(totalItems / current.pageSize))
-  const safePage = Math.min(current.currentPage, totalPages)
-
-  const pagedAccounts = useMemo(() => {
-    const start = (safePage - 1) * current.pageSize
-    return accounts.slice(start, start + current.pageSize)
-  }, [accounts, safePage, current.pageSize])
+  const { data, loading, error, refetch } = useTableFetch('/superadmin/accounts', params, current.currentPage, current.pageSize, page => updateCurrent({ currentPage: page }), { pollMs: LIVE_POLL_MS })
+  const totalItems = data?.total || 0
+  const totalPages = data?.last_page || 1
+  const safePage = data?.page || current.currentPage
+  const pagedAccounts = data?.items || []
+  const accounts = pagedAccounts
 
   const rangeStart = totalItems === 0 ? 0 : (safePage - 1) * current.pageSize + 1
   const rangeEnd = Math.min(safePage * current.pageSize, totalItems)
@@ -310,7 +307,7 @@ export default function ManageAccounts() {
               <button
                 onClick={() => runAction(confirmAction.onConfirm)}
                 disabled={actionBusy}
-                style={{ ...modalStyles.submitBtn, backgroundColor: confirmAction.danger ? '#b91c1c' : '#2c8047' }}
+                style={{ ...modalStyles.submitBtn, backgroundColor: confirmAction.danger ? '#b91c1c' : GREEN.primary }}
               >
                 {actionBusy ? <BtnBusy label="Please wait…" /> : confirmAction.confirmLabel}
               </button>
@@ -497,7 +494,7 @@ const styles = {
   titleMobile: { fontSize: '20px' },
   subtitle: { fontFamily: SANS, fontSize: '13.5px', color: '#6b7770', marginTop: '5px' },
   newBtn: {
-    backgroundColor: '#2c8047', color: '#fff', border: 'none', borderRadius: '10px',
+    backgroundColor: GREEN.primary, color: '#fff', border: 'none', borderRadius: '10px',
     padding: '10px 18px', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
   },
   btnFull: { width: '100%', boxSizing: 'border-box' },
@@ -513,7 +510,7 @@ const styles = {
     padding: '10px 18px', fontSize: '14px', fontWeight: 700, color: '#6b7770',
     cursor: 'pointer', borderBottom: '2px solid transparent', fontFamily: SANS, whiteSpace: 'nowrap',
   },
-  statusTabActive: { color: '#2c8047', borderBottom: '2px solid #2c8047' },
+  statusTabActive: { color: GREEN.primary, borderBottom: '2px solid var(--agb-green)' },
 
   toolbarRight: { display: 'flex', alignItems: 'center', gap: '10px', paddingBottom: '10px' },
   toolbarRightMobile: { paddingBottom: '2px' },
@@ -539,10 +536,10 @@ const styles = {
     borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
     color: '#33413a', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: SANS, whiteSpace: 'nowrap',
   },
-  filterBtnActive: { borderColor: '#2c8047', color: '#2c8047' },
+  filterBtnActive: { borderColor: GREEN.primary, color: GREEN.primary },
   filterCount: {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: '#2c8047',
+    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: GREEN.primary,
     color: '#fff', fontSize: '11px', fontWeight: 700, padding: '0 4px',
   },
   filterPanel: {
@@ -567,7 +564,7 @@ const styles = {
   },
   filterApplyBtn: {
     flex: 1, padding: '9px 0', borderRadius: '10px', border: 'none',
-    backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
+    backgroundColor: GREEN.primary, color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
   },
 
   tableCard: { backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden' },
@@ -586,7 +583,7 @@ const styles = {
 
   tableAvatarImg: { width: '34px', height: '34px', borderRadius: '50%', objectFit: 'cover', display: 'block' },
   tableAvatarFallback: {
-    width: '34px', height: '34px', borderRadius: '50%', backgroundColor: '#eaf3ec', color: '#2c8047',
+    width: '34px', height: '34px', borderRadius: '50%', backgroundColor: GREEN.soft, color: GREEN.primary,
     display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700, textTransform: 'uppercase',
   },
 
@@ -596,7 +593,7 @@ const styles = {
   },
   viewBtn: { color: '#4b5a50' },
   deactivateBtn: { color: '#b91c1c' },
-  activateBtn: { color: '#2c8047' },
+  activateBtn: { color: GREEN.primary },
 
   empty: { padding: '32px', textAlign: 'center', color: '#9aa79d', fontSize: '14px', fontFamily: SANS },
 }
@@ -625,7 +622,7 @@ const paginationStyles = {
     border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50',
     fontSize: '12.5px', fontWeight: 600, cursor: 'pointer', fontFamily: SANS,
   },
-  pageBtnActive: { backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff' },
+  pageBtnActive: { backgroundColor: GREEN.primary, borderColor: GREEN.primary, color: '#fff' },
   ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
 }
 
@@ -637,7 +634,7 @@ const modalStyles = {
   title: { fontSize: '18px', fontWeight: 800, color: '#16311d', margin: 0 },
   close: { fontSize: '22px', cursor: 'pointer', color: '#8a968d' },
   errorBox: { backgroundColor: '#fbeaea', border: '1px solid #f0c9c9', color: '#b91c1c', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '14px' },
-  successBox: { backgroundColor: '#eaf3ec', border: '1px solid #cfe0d3', color: '#1f5a34', padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '14px' },
+  successBox: { backgroundColor: GREEN.soft, border: '1px solid #cfe0d3', color: GREEN.hover, padding: '10px 14px', borderRadius: '10px', fontSize: '13px', marginBottom: '14px' },
   label: { display: 'block', fontSize: '12.5px', fontWeight: 600, color: '#33413a', marginBottom: '5px', marginTop: '12px' },
   input: { padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', width: '100%' },
   inputFull: { width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1px solid #dcdfd6', fontSize: '14px', boxSizing: 'border-box', marginTop: '2px' },
@@ -650,7 +647,7 @@ const modalStyles = {
   actionsMobile: { flexDirection: 'column-reverse' },
   btnFull: { width: '100%', boxSizing: 'border-box' },
   cancelBtn: { padding: '10px 18px', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: 'white', fontSize: '14px', fontWeight: 600, color: '#33413a', cursor: 'pointer' },
-  submitBtn: { padding: '10px 18px', borderRadius: '10px', border: 'none', backgroundColor: '#2c8047', color: 'white', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
+  submitBtn: { padding: '10px 18px', borderRadius: '10px', border: 'none', backgroundColor: GREEN.primary, color: 'white', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
 }
 
 const confirmStyles = {

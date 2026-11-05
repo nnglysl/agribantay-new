@@ -70,8 +70,8 @@ class SettingsController extends Controller
         }
 
         $request->validate([
-            'first_name'    => 'required|string',
-            'last_name'     => 'required|string',
+            'first_name'    => 'required|string|max:255',
+            'last_name'     => 'required|string|max:255',
             // A mobile number belongs to exactly one account system-wide;
             // ignore this user's own row so keeping the same number still saves.
             'mobile_number' => [
@@ -116,7 +116,7 @@ class SettingsController extends Controller
         $user = Auth::user();
 
         $request->validate([
-            'email' => 'required|email',
+            'email' => 'required|email|max:255',
         ]);
 
         $taken = User::where('email', $request->email)
@@ -173,7 +173,7 @@ class SettingsController extends Controller
         $user = Auth::user();
 
         $request->validate([
-            'email' => 'required|email',
+            'email' => 'required|email|max:255',
             'code'  => 'required|string|size:6',
         ]);
 

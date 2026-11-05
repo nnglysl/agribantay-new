@@ -1,0 +1,8 @@
+:root {
+  --agb-green: #234A35;
+  --agb-green-hover: #1c3c2b;
+  --agb-green-soft: #eaf3ec;
+  --agb-green-focus: var(--agb-green);
+  --agb-green-on-dark: #7cc795;
+  --agb-green-rgb: 35, 74, 53;
+}

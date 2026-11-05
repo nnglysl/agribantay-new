@@ -6,6 +6,11 @@ use Illuminate\Database\Eloquent\Model;
 
 class ServiceRequest extends Model
 {
+    public function scopeOperational($query)
+    {
+        return $query->whereNotIn('service_type', \App\Support\ServiceTypes::RETIRED);
+    }
+
     protected $fillable = [
         'request_number',
         'farm_id',

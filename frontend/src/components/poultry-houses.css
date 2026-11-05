@@ -1,0 +1,43 @@
+.ph-section { grid-column: 1 / -1; min-width: 0; margin-top: 18px; padding: 18px; border: 1px solid #dce5df; border-radius: 14px; background: #fff; color: #24382b; }
+.ph-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.ph-heading h2 { font-size: 16px; margin: 0; }
+.ph-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ph-section button { padding: 8px 12px; min-height: 36px; border: 1px solid #c7d6cd; border-radius: 8px; background: #f3f8f4; color: #234a35; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.ph-section button:hover { background: #e7f0e9; }
+.ph-section button.ph-primary { border:0; background:#234a35; color:#fff; }.ph-section button.ph-primary:hover { background:#1c3c2b; }
+.ph-section button:disabled { cursor: default; opacity: .55; }
+.ph-section button:focus-visible { outline: 2px solid #234a35; outline-offset: 2px; }
+.ph-scroll { overflow-x: auto; }
+.ph-section table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13px; }
+.ph-section th, .ph-section td { padding: 10px 8px; border-bottom: 1px solid #e8eee9; vertical-align: middle; }
+.ph-section th { font-size: 12px; color: #54665a; }
+.ph-section tbody td:first-child { white-space: nowrap; }
+.ph-note, .ph-notice, .ph-error { font-size: 13px; line-height: 1.5; margin: 10px 0; }
+.ph-count { display:inline-flex; align-items:baseline; gap:5px; margin:0 0 10px; padding:4px 9px; border:1px solid #dce5df; border-radius:999px; color:#617268; font-size:12px; }
+.ph-count strong { color:#234a35; font-size:14px; }
+.ph-details { margin:0 0 10px; color:#617268; font-size:12px; }.ph-details summary { cursor:pointer; font-weight:600; }
+.ph-note, .ph-device-status { color: #617268; }
+.ph-error { color: #a62626; }
+.ph-notice { color: #234a35; }
+.ph-status { display: inline-block; padding: 4px 8px; border-radius: 20px; font-size: 12px; background: #edf3ef; color: #234a35; }
+.ph-status--inactive { background: #f0f1f0; color: #626b65; }
+.ph-confirmation { padding: 12px; margin-top: 12px; border: 1px solid #dce5df; border-radius: 10px; font-size: 13px; }
+.ph-confirmation p { margin: 0 0 12px; line-height: 1.5; }
+.ph-modal-backdrop { position:fixed; inset:0; z-index:1000; display:grid; place-items:center; padding:16px; background:rgba(17,38,27,.28); }
+.ph-modal { width:min(100%, 440px); padding:20px; border:1px solid #dce5df; border-radius:14px; background:#fff; box-shadow:0 18px 50px rgba(21,49,30,.18); }
+.ph-modal h3 { margin:0 0 8px; font-size:17px; }.ph-modal>p { margin:0 0 16px; color:#617268; font-size:13px; line-height:1.5; }
+.ph-modal label { display:grid; gap:6px; margin-bottom:16px; font-size:12px; font-weight:600; color:#405747; }.ph-modal input { width:100%; box-sizing:border-box; padding:9px; border:1px solid #c7d6cd; border-radius:8px; font:inherit; outline:none; }.ph-modal input:focus { border-color:#234a35; box-shadow:0 0 0 2px #eaf3ec; }.ph-modal .ph-actions{justify-content:flex-start}
+@media (max-width: 540px) { .ph-section { padding: 12px; } .ph-section th, .ph-section td { padding: 8px 6px; } .ph-section td button { max-width: 110px; } }
+@media (max-width: 540px) {
+  .ph-section table,.ph-section tbody,.ph-section tbody tr{display:block;width:100%;box-sizing:border-box}
+  .ph-section thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+  .ph-section tbody tr{border:1px solid #e8eee9;border-radius:9px;padding:4px 8px;margin-bottom:10px}
+  .ph-section tbody td{display:grid;grid-template-columns:90px minmax(0,1fr);gap:10px;overflow-wrap:anywhere;white-space:normal!important}
+  .ph-section tbody td::before{content:attr(data-label);color:#617268;font-size:11px;font-weight:600}
+  .ph-section tbody td:last-child{border-bottom:0}.ph-section td .ph-status{justify-self:start}
+}
+@media (max-width: 400px) {
+  .ph-section th, .ph-section td { padding: 8px 4px; }
+  .ph-section td button { font-size: 11px; padding: 6px; max-width: 88px; }
+  .ph-status { padding: 3px 5px; font-size: 11px; }
+}

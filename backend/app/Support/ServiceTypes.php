@@ -24,11 +24,18 @@ final class ServiceTypes
     /** Handled by the Veterinarian (includes the legacy value for history). */
     public const VET = [self::FARM_BIOSECURITY, self::BLOOD_TEST, self::VACCINE_LEGACY];
 
-    /** Handled by LGU Staff. */
+    /** Historical LGU Staff types; no longer operational. */
     public const STAFF = [self::ODOR_CONTROL, self::FLY_CONTROL];
 
     /** What a farmer may submit today. */
-    public const REQUESTABLE = [self::FARM_BIOSECURITY, self::BLOOD_TEST, self::ODOR_CONTROL, self::FLY_CONTROL];
+    public const REQUESTABLE = [self::FARM_BIOSECURITY, self::BLOOD_TEST];
+
+    public const RETIRED = [self::ODOR_CONTROL, self::FLY_CONTROL];
+
+    public static function isRetired(string $type): bool
+    {
+        return in_array($type, self::RETIRED, true);
+    }
 
     public static function isVet(string $type): bool
     {

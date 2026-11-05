@@ -1,3 +1,4 @@
+import { GREEN } from '../theme/green'
 import { useRef, useState } from 'react'
 import { ATTACHMENT_ACCEPT, ATTACHMENT_MAX_FILES } from '../constants/serviceTypes'
 import { formatFileSize, fileTypeLabel, validateAttachment } from '../utils/attachment'
@@ -210,20 +211,20 @@ const s = {
   wrap: { marginTop: '16px' },
   labelRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginBottom: '4px', flexWrap: 'wrap' },
   label: { display: 'inline-flex', alignItems: 'center', gap: '7px', fontSize: '13.5px', fontWeight: 700, color: '#16311d' },
-  labelIcon: { color: '#2c8047', display: 'inline-flex' },
+  labelIcon: { color: GREEN.primary, display: 'inline-flex' },
   required: { color: '#b91c1c', fontWeight: 700 },
-  count: { fontSize: '12px', fontWeight: 700, color: '#256b3d', backgroundColor: '#eaf3ec', padding: '2px 9px', borderRadius: '999px' },
+  count: { fontSize: '12px', fontWeight: 700, color: GREEN.hover, backgroundColor: GREEN.soft, padding: '2px 9px', borderRadius: '999px' },
   countFull: { color: '#b45309', backgroundColor: '#fbf1e2' },
   hint: { fontSize: '12px', color: '#6b7770', marginTop: 0, marginBottom: '10px', lineHeight: 1.45 },
   hidden: { position: 'absolute', width: '1px', height: '1px', opacity: 0, overflow: 'hidden', pointerEvents: 'none' },
   dropZone: { display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '8px', padding: '22px 16px', borderRadius: '12px', borderWidth: '1.5px', borderStyle: 'dashed', borderColor: '#c9d3cc', backgroundColor: '#fff', transition: 'border-color 0.15s, background-color 0.15s' },
-  dropZoneActive: { borderColor: '#2c8047', backgroundColor: '#eaf3ec' },
+  dropZoneActive: { borderColor: GREEN.primary, backgroundColor: GREEN.soft },
   dropZoneDisabled: { backgroundColor: '#fafbf8' },
   dropIcon: { color: '#33413a', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   dropTitle: { fontSize: '13px', fontWeight: 600, color: '#33413a' },
   pickRow: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', flexWrap: 'wrap' },
   pickBtn: { display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '9px 16px', borderRadius: '9px', borderWidth: '1px', borderStyle: 'solid', borderColor: '#cfd6d0', backgroundColor: '#fff', color: '#33413a', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' },
-  pickBtnPrimary: { backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff' },
+  pickBtnPrimary: { backgroundColor: GREEN.primary, borderColor: GREEN.primary, color: '#fff' },
   btnDisabled: { opacity: 0.55, cursor: 'not-allowed' },
   formats: { fontSize: '11.5px', color: '#8a968d' },
   panel: { marginTop: '12px', border: '1px solid #e7e8e0', borderRadius: '12px', padding: '12px', backgroundColor: '#fff' },
@@ -237,7 +238,7 @@ const s = {
   fileMeta: { flex: 1, minWidth: 0 },
   fileName: { fontSize: '13px', fontWeight: 700, color: '#16311d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   fileSub: { fontSize: '12px', color: '#8a968d', marginTop: '2px' },
-  statusOk: { display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '5px', fontSize: '11.5px', fontWeight: 700, color: '#256b3d', backgroundColor: '#eaf3ec', padding: '2px 8px', borderRadius: '999px' },
+  statusOk: { display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '5px', fontSize: '11.5px', fontWeight: 700, color: GREEN.hover, backgroundColor: GREEN.soft, padding: '2px 8px', borderRadius: '999px' },
   statusReady: { display: 'inline-flex', marginTop: '5px', fontSize: '11.5px', fontWeight: 700, color: '#6b7770', backgroundColor: '#eef1ea', padding: '2px 8px', borderRadius: '999px' },
   statusUploading: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' },
   statusUploadingText: { fontSize: '11.5px', fontWeight: 600, color: '#2f5fa0', whiteSpace: 'nowrap' },

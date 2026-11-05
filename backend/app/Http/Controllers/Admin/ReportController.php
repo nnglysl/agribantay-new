@@ -8,7 +8,6 @@ use App\Models\Farm;
 use App\Models\Inspection;
 use App\Models\MaintenanceLog;
 use App\Models\SensorReading;
-use App\Models\ServiceRequest;
 use App\Services\FarmStatusService;
 use App\Services\MaintenanceStatusService;
 use App\Services\ReportAlertSeries;
@@ -18,8 +17,6 @@ use Illuminate\Http\Request;
 
 class ReportController extends Controller
 {
-    private const ADMIN_SERVICE_TYPES = ['Odor Control Request', 'Fly Control Request'];
-
     /**
      * Complete period-scoped records and counts for LGU reports. Timestamp
      * filters use Manila calendar boundaries converted to UTC; maintenance
@@ -42,7 +39,7 @@ class ReportController extends Controller
 
         $readings = fn () => $scope(SensorReading::query(), 'created_at');
         $totalAlerts = $readings()->count();
-        $ammoniaBreaches = $readings()->where('ammonia_status', 'Critical')->count();
+        $ammoniaBreaches = $readings()->whereNotNull('ammonia')->where('ammonia_status', 'Critical')->count();
         $tempAnomalies = $readings()->where('temperature_status', '!=', 'Safe')->count();
         $humidityAnomalies = $readings()->where('humidity_status', '!=', 'Safe')->count();
         // Raw READING count — how many individual readings carried a Critical
@@ -51,8 +48,8 @@ class ReportController extends Controller
         // moisture_status was missing here, which under-reported every farm
         // whose only Critical metric was manure moisture.
         $criticalAlerts = $readings()->where(function ($q) {
-            $q->where('ammonia_status', 'Critical')
-                ->orWhere('moisture_status', 'Critical');
+            $q->where(fn ($metric) => $metric->whereNotNull('ammonia')->where('ammonia_status', 'Critical'))
+                ->orWhere(fn ($metric) => $metric->whereNotNull('moisture')->where('moisture_status', 'Critical'));
         })->count();
 
         // INCIDENT count — what the Overview "Critical Alerts" stat card is
@@ -86,7 +83,7 @@ class ReportController extends Controller
 
         $completedInspectionsList = $scope(Inspection::with('farm'), 'completed_at')
             ->where('status', 'Completed')
-            ->latest()
+            ->latest()->orderByDesc('id')
             ->get()
             ->map(fn ($i) => [
                 'id' => $i->id,
@@ -128,58 +125,13 @@ class ReportController extends Controller
             ->sortByDesc('date_raw')
             ->values();
 
-        $serviceQuery = fn () => $scope(ServiceRequest::whereIn('service_type', self::ADMIN_SERVICE_TYPES), ReportPeriod::SERVICE_DATE);
-
-        $totalServiceRequests = $serviceQuery()->count();
-        $completedServiceRequests = $serviceQuery()->where('status', 'Completed')->count();
-        $pendingServiceRequests = $serviceQuery()->where('status', 'Pending')->count();
-
-        $completedServicesList = $serviceQuery()
-            ->with('farm')
-            ->where('status', 'Completed')
-            ->latest('completed_at')
-            ->get()
-            ->map(fn ($r) => [
-                'id' => $r->request_number,
-                'service_type' => $r->service_type,
-                'farm_name' => $r->farm->farm_name,
-                'owner_name' => $r->farm->owner_name,
-                'barangay' => $r->farm->barangay,
-                'completed_at' => LocalTime::date($r->completed_at),
-                'completed_at_raw' => $r->completed_at?->toIso8601String(), // NEW, same reasoning as above
-                'notes' => $r->notes,
-                'status' => $r->status,
-            ]);
-
-        // Completed + Scheduled admin-handled requests for Super Admin
-        // Reports (same shape/date rule as $inspectionRecordsList).
-        $serviceRecordsList = $serviceQuery()
-            ->with('farm')
-            ->whereIn('status', ['Completed', 'Scheduled'])
-            ->get()
-            ->map(function ($r) {
-                $date = $r->status === 'Completed' ? $r->completed_at : $r->scheduled_at;
-
-                return [
-                    'id' => $r->request_number,
-                    'service_type' => $r->service_type,
-                    'farm_name' => $r->farm->farm_name,
-                    'owner_name' => $r->farm->owner_name,
-                    'barangay' => $r->farm->barangay,
-                    'date' => LocalTime::date($date),
-                    'date_raw' => $date?->toIso8601String(),
-                    'status' => $r->status,
-                ];
-            })
-            ->sortByDesc('date_raw')
-            ->values();
-
         // ------------------------------------------------------------- NEW
         // Maintenance tab — reuses the same MaintenanceStatusService the
-        // Overdue Maintenance page already relies on, so "Overdue" /
-        // "Non-Compliant" here mean exactly the same thing they do there.
+        // Overdue Maintenance page already relies on. There is no interim
+        // overdue/grace state: a farm becomes Non-Compliant the day after
+        // its annual due date.
         $maintenanceService = app(MaintenanceStatusService::class);
-        $activeFarms = Farm::where('status', 'Active')->where('created_at', '<=', $asOf)->with('latestCleanout')->get();
+        $activeFarms = Farm::where('status', 'Active')->where(fn ($q) => $q->whereNull('created_at')->orWhere('created_at', '<=', $asOf))->with('qualifyingCleanouts')->get();
 
         $maintenanceStatuses = $activeFarms->map(function ($farm) use ($maintenanceService, $asOf) {
             $status = $maintenanceService->getStatus($farm, $asOf->copy()->setTimezone(LocalTime::timezone()));
@@ -193,13 +145,12 @@ class ReportController extends Controller
             ]);
         });
 
-        $overdueFarmsList = $maintenanceStatuses->where('status', 'Overdue')->values();
         $nonCompliantFarmsList = $maintenanceStatuses->where('status', 'Non-Compliant')->values();
 
-        $completedMaintenanceThisMonth = $period->scope(MaintenanceLog::query(), 'performed_at', true)->count();
+        $completedMaintenanceThisMonth = $period->scope(MaintenanceLog::where('maintenance_type', MaintenanceStatusService::FULL_CLEANOUT), 'performed_at', true)->count();
 
-        $maintenanceLogsList = $period->scope(MaintenanceLog::with('farm'), 'performed_at', true)
-            ->latest('performed_at')
+        $maintenanceLogsList = $period->scope(MaintenanceLog::with('farm')->where('maintenance_type', MaintenanceStatusService::FULL_CLEANOUT), 'performed_at', true)
+            ->latest('performed_at')->orderByDesc('id')
             ->get()
             ->map(fn ($log) => [
                 'id' => $log->id,
@@ -216,7 +167,7 @@ class ReportController extends Controller
         // Incident details, counters and bars share this same date-scoped source.
         $alertQuery = fn () => $scope(AlertHistory::query(), 'triggered_at');
         $alertRecords = $alertQuery()->with(['farm', 'sensor'])
-            ->latest('triggered_at')
+            ->latest('triggered_at')->orderByDesc('id')
             ->get()
             ->map(fn ($a) => [
                 'id' => $a->id,
@@ -246,16 +197,12 @@ class ReportController extends Controller
         // device with an actual reading" rule used everywhere else a farm's
         // monitoring status is shown, so a farm with no device is never
         // counted as "Safe" here either.
-        $farmStatusBreakdown = ['normal' => 0, 'warning' => 0, 'critical' => 0, 'pending_setup' => 0];
-        $statuses = ['Safe' => 'normal', 'Warning' => 'warning', 'Critical' => 'critical'];
-        foreach ($selectedFarms as $farm) {
-            $status = app(FarmStatusService::class)->displayStatus($farm);
-            $farmStatusBreakdown[$statuses[$status] ?? 'pending_setup']++;
-        }
+        $farmStatusBreakdown = app(\App\Services\MonitoringAssessmentService::class)->breakdown($selectedFarms);
 
         return response()->json([
             'success' => true,
             'data' => [
+                'reading_data_completeness' => app(\App\Services\MonitoringAssessmentService::class)->readingCounts($readings()),
                 'inspection_summary' => [
                     'total' => $totalInspections,
                     'completed' => $completedInspections,
@@ -281,16 +228,8 @@ class ReportController extends Controller
                     'ongoing_incidents' => $ongoingIncidents,
                     'resolved_incidents' => $resolvedIncidents,
                 ],
-                'service_summary' => [
-                    'total' => $totalServiceRequests,
-                    'completed' => $completedServiceRequests,
-                    'pending' => $pendingServiceRequests,
-                ],
                 'completed_inspections' => $completedInspectionsList,
-                'completed_services' => $completedServicesList,
-                // Super Admin Reports (Completed + Scheduled)
                 'inspection_records' => $inspectionRecordsList,
-                'service_records' => $serviceRecordsList,
 
                 // NEW — Overview tab
                 'overview_summary' => [
@@ -298,17 +237,17 @@ class ReportController extends Controller
                     'total_inspections' => $totalInspections,
                     'total_alerts' => $totalIncidents,
                     'critical_alerts' => $criticalIncidents,
-                    'pending_service_requests' => $pendingServiceRequests,
                     'farm_status_breakdown' => $farmStatusBreakdown,
                 ],
 
                 // NEW — Maintenance tab
                 'maintenance_summary' => [
+                    'policy' => MaintenanceStatusService::POLICY,
+                    'compliant' => $maintenanceStatuses->where('status', 'Compliant')->count(),
+                    'undetermined' => $maintenanceStatuses->where('status', 'Undetermined')->count(),
                     'completed_this_month' => $completedMaintenanceThisMonth,
-                    'overdue' => $overdueFarmsList->count(),
                     'non_compliant' => $nonCompliantFarmsList->count(),
                 ],
-                'maintenance_overdue_list' => $overdueFarmsList,
                 'maintenance_non_compliant_list' => $nonCompliantFarmsList,
                 'maintenance_completed_list' => $maintenanceLogsList,
 

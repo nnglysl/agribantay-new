@@ -1,3 +1,4 @@
+import { GREEN } from '../theme/green'
 import DropdownList from './DropdownList'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useState, useEffect, useRef } from 'react'
@@ -126,7 +127,7 @@ function groupNotificationsByDate(items) {
 }
 
 function NotificationIcon({ type }) {
-  const common = { width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: '#2c8047', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round' }
+  const common = { width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none', stroke: GREEN.primary, strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round' }
   switch (type) {
     case 'Sensor Alert':
       return <svg {...common}><path d="M12 3s6 7 6 11a6 6 0 1 1-12 0c0-4 6-11 6-11z" /></svg>
@@ -138,7 +139,7 @@ function NotificationIcon({ type }) {
     case 'Inspection Completed':
       return <svg {...common}><rect x="5" y="4" width="14" height="17" rx="1.5" /><path d="M9 9l1.7 1.7L14 7.5" /></svg>
     case 'maintenance_overdue':
-      return <svg {...common}><path d="M12 3 2 20h20L12 3z" /><path d="M12 10v4" /><circle cx="12" cy="17" r="0.6" fill="#2c8047" stroke="none" /></svg>
+      return <svg {...common}><path d="M12 3 2 20h20L12 3z" /><path d="M12 10v4" /><circle cx="12" cy="17" r="0.6" fill={GREEN.primary} stroke="none" /></svg>
     default:
       return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M19.4 13a7.7 7.7 0 0 0 0-2l1.9-1.5-2-3.4-2.3.9a7.6 7.6 0 0 0-1.7-1l-.4-2.4h-4l-.4 2.4a7.6 7.6 0 0 0-1.7 1l-2.3-.9-2 3.4L6.6 11a7.7 7.7 0 0 0 0 2l-1.9 1.5 2 3.4 2.3-.9a7.6 7.6 0 0 0 1.7 1l.4 2.4h4l.4-2.4a7.6 7.6 0 0 0 1.7-1l2.3.9 2-3.4z" /></svg>
   }
@@ -600,11 +601,11 @@ const styles = {
   nav: { display: 'flex', flexDirection: 'column', gap: '2px', flex: 1, minHeight: 0, marginTop: '18px', overflowY: 'auto', WebkitOverflowScrolling: 'touch' },
   navSection: { fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#5f7867', padding: '0 12px', margin: '14px 0 7px' },
   navItem: { display: 'flex', alignItems: 'center', gap: '11px', padding: '10px 12px', borderRadius: '9px', fontSize: '13.5px', color: '#b8ccbd', cursor: 'pointer' },
-  navItemActive: { backgroundColor: '#7cc795', color: '#14301c', fontWeight: 600 },
+  navItemActive: { backgroundColor: GREEN.onDark, color: '#14301c', fontWeight: 600 },
 
   sidebarFooter: { borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '12px', marginTop: '10px', flexShrink: 0 },
   userMini: { display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 8px 12px' },
-  userAvatar: { width: '34px', height: '34px', borderRadius: '50%', background: '#2c8047', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 700, color: '#fff', flexShrink: 0, textTransform: 'uppercase' },
+  userAvatar: { width: '34px', height: '34px', borderRadius: '50%', background: GREEN.primary, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 700, color: '#fff', flexShrink: 0, textTransform: 'uppercase' },
   userMiniName: { fontSize: '13px', fontWeight: 700, color: '#eef4ef', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   userMiniRole: { fontSize: '11px', color: '#7d9585' },
   logout: { display: 'flex', alignItems: 'center', gap: '11px', padding: '10px 12px', borderRadius: '9px', fontSize: '13.5px', fontWeight: 600, color: '#e6b455', cursor: 'pointer' },
@@ -633,7 +634,7 @@ const bellStyles = {
     background: 'none', border: 'none', cursor: 'pointer', padding: '6px',
     display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative',
   },
-  icon: { fontSize: '24px', color: '#2c8047' },
+  icon: { fontSize: '24px', color: GREEN.primary },
   badge: {
     position: 'absolute', top: '2px', right: '2px', minWidth: '16px', height: '16px',
     borderRadius: '999px', backgroundColor: '#dc2626', color: '#fff', fontSize: '9.5px',
@@ -674,7 +675,7 @@ const bellStyles = {
   },
   dropdownHeaderRight: { display: 'flex', alignItems: 'center', gap: '10px' },
   dropdownTitle: { fontSize: '14px', fontWeight: 800, color: '#16311d', fontFamily: SANS },
-  markAllBtn: { fontSize: '11.5px', fontWeight: 700, color: '#2c8047', cursor: 'pointer', fontFamily: SANS, whiteSpace: 'nowrap' },
+  markAllBtn: { fontSize: '11.5px', fontWeight: 700, color: GREEN.primary, cursor: 'pointer', fontFamily: SANS, whiteSpace: 'nowrap' },
   mobileCloseBtn: {
     background: 'none', border: 'none', cursor: 'pointer', padding: '2px',
     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
@@ -688,7 +689,7 @@ const bellStyles = {
     fontSize: '13px', fontWeight: 700, color: '#9aa79d', cursor: 'pointer',
     padding: '0 0 4px', fontFamily: SANS, whiteSpace: 'nowrap', borderBottom: '2px solid transparent',
   },
-  tabActive: { color: '#2c8047', borderBottom: '2px solid #2c8047' },
+  tabActive: { color: GREEN.primary, borderBottom: '2px solid var(--agb-green)' },
 
   dropdownList: { maxHeight: '360px', overflowY: 'auto' },
   dropdownListMobile: { maxHeight: 'none', flex: 1 },
@@ -699,11 +700,11 @@ const bellStyles = {
   },
   itemUnread: { backgroundColor: '#f4faf6' },
   itemIconWrap: {
-    width: '30px', height: '30px', borderRadius: '9px', backgroundColor: '#eaf3ec',
+    width: '30px', height: '30px', borderRadius: '9px', backgroundColor: GREEN.soft,
     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '1px',
   },
   itemTitleRow: { display: 'flex', alignItems: 'center', gap: '6px' },
-  itemDot: { width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#2c8047', flexShrink: 0 },
+  itemDot: { width: '6px', height: '6px', borderRadius: '50%', backgroundColor: GREEN.primary, flexShrink: 0 },
   itemTitle: { fontSize: '12.5px', fontWeight: 700, color: '#16311d', fontFamily: SANS },
   itemMessage: { fontSize: '11.5px', color: '#4b5a50', marginTop: '3px', lineHeight: 1.4, fontFamily: SANS },
   itemTime: { fontSize: '10.5px', color: '#9aa79d', marginTop: '5px', fontFamily: SANS },
@@ -716,7 +717,7 @@ const bellStyles = {
 
   seeMoreBtn: {
     display: 'block', width: '100%', padding: '11px 14px', border: 'none',
-    borderTop: '1px solid #eceee7', backgroundColor: '#fff', color: '#2c8047',
+    borderTop: '1px solid #eceee7', backgroundColor: '#fff', color: GREEN.primary,
     fontSize: '12.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
   },
 }
@@ -728,5 +729,5 @@ const confirmStyles = {
   message: { fontSize: '14px', color: '#647065', lineHeight: '1.5', marginBottom: '20px' },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: '10px' },
   cancelBtn: { padding: '10px 18px', borderRadius: '10px', border: '1px solid #d9dcd4', backgroundColor: 'white', fontSize: '14px', fontWeight: 600, color: '#33413a', cursor: 'pointer' },
-  confirmBtn: { padding: '10px 18px', borderRadius: '10px', border: 'none', backgroundColor: '#2c8047', color: 'white', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
+  confirmBtn: { padding: '10px 18px', borderRadius: '10px', border: 'none', backgroundColor: GREEN.primary, color: 'white', fontSize: '14px', fontWeight: 700, cursor: 'pointer' },
 }

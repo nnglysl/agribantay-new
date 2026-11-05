@@ -250,9 +250,9 @@ class ServiceRequestHandledByFilterTest extends TestCase
     public function test_super_admin_mine_uses_their_own_id(): void
     {
         $superAdmin = User::where('role', 'super_admin')->firstOrFail();
-        $rows = $this->staffList($superAdmin, ['handled_by' => 'mine']);
+        $rows = $this->staffList($superAdmin, ['handled_by' => 'mine', 'tab' => 'legacy']);
         $this->assertSame([], $this->keys('staff', $rows), 'the super admin accepted none of the fixtures');
-        $rows = $this->staffList($superAdmin, ['handled_by' => 'others']);
+        $rows = $this->staffList($superAdmin, ['handled_by' => 'others', 'tab' => 'legacy']);
         $this->assertSame(['mine_completed', 'mine_overdue', 'mine_scheduled', 'other_completed', 'other_scheduled'], $this->keys('staff', $rows));
     }
 }

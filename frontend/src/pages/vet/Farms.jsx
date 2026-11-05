@@ -1,9 +1,11 @@
+import { GREEN } from '../../theme/green'
+import { useTableFetch } from '../../hooks/useTableFetch'
 import TableScroll from '../../components/TableScroll'
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import VetLayout from '../../components/VetLayout'
 import SharedPagination from '../../components/Pagination'
-import { useCachedFetch } from '../../hooks/useCachedFetch'
+
 import { BACKGROUND_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
@@ -41,10 +43,9 @@ export default function VetFarms() {
   if (sizeFilter) params.farm_size = sizeFilter
   // Server-side pagination: only the current page comes back, with totals
   // computed over the complete (filtered) dataset.
-  params.per_page = pageSize
-  params.page = currentPage
 
-  const { data: farms, loading, error } = useCachedFetch('/vet/farms', params, { pollMs: BACKGROUND_POLL_MS })
+
+  const { data: farms, loading, error } = useTableFetch('/vet/farms', params, currentPage, pageSize, setCurrentPage, { pollMs: BACKGROUND_POLL_MS })
   const pageData = farms && !Array.isArray(farms)
     ? farms
     : { items: farms || [], total: (farms || []).length, page: 1, last_page: 1 }
@@ -83,9 +84,6 @@ export default function VetFarms() {
   const totalItems = pageData.total
   const totalPages = Math.max(1, pageData.last_page || 1)
 
-  useEffect(() => {
-    if (currentPage > totalPages) setCurrentPage(totalPages)
-  }, [totalPages, currentPage])
 
   const paginatedFarms = allFarms
 
@@ -286,10 +284,10 @@ const styles = {
     borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
     color: '#33413a', fontSize: '13.5px', fontWeight: 600, cursor: 'pointer', fontFamily: SANS, whiteSpace: 'nowrap',
   },
-  filterBtnActive: { border: '1px solid #2c8047', color: '#2c8047' },
+  filterBtnActive: { border: '1px solid var(--agb-green)', color: GREEN.primary },
   filterCount: {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: '#2c8047',
+    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: GREEN.primary,
     color: '#fff', fontSize: '11px', fontWeight: 700, padding: '0 4px',
   },
   filterPanel: {
@@ -314,7 +312,7 @@ const styles = {
   },
   filterApplyBtn: {
     flex: 1, padding: '9px 0', borderRadius: '10px', border: 'none',
-    backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
+    backgroundColor: GREEN.primary, color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
   },
 
   tableCard: { backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden' },
@@ -331,7 +329,7 @@ const styles = {
   td: { padding: '13px 20px', fontSize: '12px', color: '#4b5a50', borderBottom: '1px solid #f2f3ed', verticalAlign: 'middle' },
 
   avatar: {
-    width: '38px', height: '38px', borderRadius: '10px', backgroundColor: '#eaf3ec', color: '#2c8047',
+    width: '38px', height: '38px', borderRadius: '10px', backgroundColor: GREEN.soft, color: GREEN.primary,
     display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 700,
     flexShrink: 0, textTransform: 'uppercase',
   },
@@ -360,6 +358,6 @@ const paginationStyles = {
   navBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '13px', cursor: 'pointer' },
   navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
-  pageBtnActive: { backgroundColor: '#2c8047', border: '1px solid #2c8047', color: '#fff' },
+  pageBtnActive: { backgroundColor: GREEN.primary, border: '1px solid var(--agb-green)', color: '#fff' },
   ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
 }

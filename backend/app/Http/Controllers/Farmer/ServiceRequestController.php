@@ -24,16 +24,20 @@ class ServiceRequestController extends Controller
 
     public function index(Request $request)
     {
+        \App\Support\TableQuery::validate($request);
         $farm = $this->resolveFarmOrFail($request);
 
-        $requests = ServiceRequest::with(['acceptedBy', 'attachments.uploader'])
+        $query = ServiceRequest::with(['acceptedBy', 'attachments.uploader'])
             ->where('farm_id', $farm->id)
-            ->latest()
-            ->get()
-            ->map(fn($r) => [
+            // Apply before tab/filter counts: even a crafted legacy tab cannot
+            // reveal retired requests through the Farmer endpoint.
+            ->whereIn('service_type', ServiceTypes::VET);
+        \App\Support\TableFilters::requests($query, $request, 'desc');
+        $requests = \App\Support\TableQuery::rows($query, $request)->map(fn($r) => [
                 'id'             => $r->id,
                 'request_number' => $r->request_number,
                 'service_type'   => $r->service_type,
+                'is_retired'     => ServiceTypes::isRetired($r->service_type),
                 'notes'          => $r->notes,
                 'completion_notes' => $r->completion_notes,
                 ...VaccinationRequestController::attachmentPayload($r),
@@ -46,11 +50,13 @@ class ServiceRequestController extends Controller
                 'created_at'     => $r->created_at,
             ]);
 
+        if ($request->filled('per_page')) return response()->json(['success' => true, 'data' => \App\Support\TableQuery::payload($request, $requests)]);
+
         return response()->json([
             'success' => true,
             'data' => [
-                'active' => $requests->whereIn('status', ['Pending', 'Scheduled'])->values(),
-                'past'   => $requests->whereIn('status', ['Completed', 'Cancelled'])->values(),
+                'active' => $requests->where('is_retired', false)->whereIn('status', ['Pending', 'Scheduled'])->values(),
+                'past'   => $requests->where('is_retired', false)->whereIn('status', ['Completed', 'Cancelled'])->values(),
             ],
         ]);
     }
@@ -59,9 +65,12 @@ class ServiceRequestController extends Controller
     {
         $farm = $this->resolveFarmOrFail($request);
 
-        // Matches the four options actually offered in the farmer's
-        // "Request a Service" dropdown — Blood Test and Fly Control were
-        // missing here, which is why selecting either failed validation.
+        if (is_string($request->service_type) && ServiceTypes::isRetired($request->service_type)) {
+            return response()->json(['success' => false, 'message' => 'Odor/Fly service requests are retired. Submit a farm Control Document instead.',
+                'errors' => ['service_type' => ['This service request type is retired.']]], 422);
+        }
+
+        // Only the current Farmer-requestable Vet services are accepted.
         $request->validate([
             'service_type' => ['required', Rule::in(ServiceTypes::REQUESTABLE)],
             'notes'        => 'nullable|string',
@@ -79,13 +88,6 @@ class ServiceRequestController extends Controller
             ], 422);
         }
 
-        // Wrapped in a transaction with a locking read on the MAX numeric
-        // suffix across ALL rows (not just the most recent by id) so two
-        // near-simultaneous submissions can't both compute the same "next
-        // number" and collide. Using MAX(...) rather than the latest row's
-        // id is what fixes the SR-1008 duplicate — the previous version
-        // assumed the highest id always had the highest number, which broke
-        // if any row (e.g. seeded/test data) was inserted out of order.
         $serviceRequest = DB::transaction(function () use ($request, $farm) {
             $maxSeq = DB::table('service_requests')
                 ->lockForUpdate()
@@ -115,7 +117,6 @@ class ServiceRequestController extends Controller
         ]);
 
         // Vaccine/Blood Test requests are handled exclusively by Vets;
-        // Odor/Fly Control by (regular) Admins — matches who can actually
         // accept each type, so nobody gets notified about a request they
         // have no way to act on.
         $isVetOnly = in_array($request->service_type, self::VET_ONLY_TYPES, true);

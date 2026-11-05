@@ -1,3 +1,4 @@
+import { GREEN } from '../theme/green'
 import DropdownList from '../components/DropdownList'
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -53,7 +54,7 @@ const FEATURES = [
   },
 ]
 
-const FEATURE_SHADES = ['#1f5a34', '#256b3d', '#2c8047', '#1b4332']
+const FEATURE_SHADES = [GREEN.hover, GREEN.hover, GREEN.primary, GREEN.primary]
 
 const QUICK_LINKS = [
   { label: 'Home', href: '#home' },
@@ -157,7 +158,7 @@ export default function LandingPage() {
         .agb-navlink { position: relative; transition: color .15s ease; }
         .agb-navlink::after {
           content: ""; position: absolute; left: 0; right: 100%; bottom: -6px;
-          height: 2px; background: #256b3d; transition: right .22s ease;
+          height: 2px; background: var(--agb-green-hover); transition: right .22s ease;
         }
         .agb-navlink:hover::after { right: 0; }
         .agb-feature-card {
@@ -169,7 +170,7 @@ export default function LandingPage() {
         }
         .agb-btn { transition: transform .12s ease, background-color .15s ease, box-shadow .15s ease; }
         .agb-btn:active { transform: translateY(1px); }
-        .agb-primary:hover { background-color: #1f5a34; box-shadow: 0 8px 20px -8px rgba(31,90,52,0.7); }
+        .agb-primary:hover { background-color: var(--agb-green-hover); box-shadow: 0 8px 20px -8px rgba(31,90,52,0.7); }
         .agb-ghost:hover { background-color: rgba(255,255,255,0.16); }
         .agb-play-btn { transition: transform .18s ease, background-color .15s ease; }
         .agb-video-frame:hover .agb-play-btn { transform: scale(1.08); background-color: #fff; }
@@ -329,7 +330,7 @@ export default function LandingPage() {
                 >
                   <span style={styles.videoOverlay} />
                   <span className="agb-play-btn" style={styles.playBtn}>
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="#1f5a34"><path d="M8 5v14l11-7z" /></svg>
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill={GREEN.hover}><path d="M8 5v14l11-7z" /></svg>
                   </span>
                   <span style={styles.videoCaption}>See how AgriBantay works — 0:24</span>
                 </button>
@@ -520,7 +521,7 @@ const styles = {
   navLinksDesktop: { display: 'flex', alignItems: 'center', gap: '28px' },
   navLink: { fontSize: '14px', fontWeight: 600, color: '#33413a', textDecoration: 'none' },
   navLoginBtn: {
-    padding: '9px 20px', borderRadius: '999px', border: 'none', backgroundColor: '#256b3d',
+    padding: '9px 20px', borderRadius: '999px', border: 'none', backgroundColor: GREEN.hover,
     color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS, letterSpacing: '0.01em',
   },
   navMenuBtn: {
@@ -567,7 +568,7 @@ const styles = {
   btnFullMobile: { width: '100%', boxSizing: 'border-box', justifyContent: 'center' },
   ctaPrimary: {
     display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '14px 28px', borderRadius: '10px',
-    border: 'none', backgroundColor: '#2c8047', color: '#fff', fontSize: '15px', fontWeight: 700,
+    border: 'none', backgroundColor: GREEN.primary, color: '#fff', fontSize: '15px', fontWeight: 700,
     cursor: 'pointer', fontFamily: SANS,
   },
   ctaSecondary: {
@@ -624,7 +625,7 @@ const styles = {
   sectionInner: { maxWidth: '1120px', margin: '0 auto', padding: '0 28px' },
   sectionEyebrow: {
     display: 'block', fontFamily: MONO, fontSize: '10.5px', fontWeight: 500, letterSpacing: '0.16em',
-    textTransform: 'uppercase', color: '#2c8047', marginBottom: '16px',
+    textTransform: 'uppercase', color: GREEN.primary, marginBottom: '16px',
   },
   sectionTitle: {
     fontFamily: SERIF, fontWeight: 500, fontSize: 'clamp(26px, 3.2vw, 37px)',
@@ -691,7 +692,7 @@ const styles = {
   },
 
   // ------------------------------------------------------------------ Contact
-  contact: { padding: '88px 0', backgroundImage: 'linear-gradient(160deg, #1f5a34 0%, #14301c 100%)' },
+  contact: { padding: '88px 0', backgroundImage: 'linear-gradient(160deg, var(--agb-green-hover) 0%, #14301c 100%)' },
   contactHead: { maxWidth: '620px' },
 
   // ------------------------------------------ Footer-style contact columns
@@ -706,7 +707,7 @@ const styles = {
   footerContactList: { display: 'flex', flexDirection: 'column', gap: '18px' },
   footerContactItem: { display: 'flex', alignItems: 'flex-start', gap: '13px', minWidth: 0 },
   footerContactIcon: {
-    width: '34px', height: '34px', borderRadius: '50%', backgroundColor: '#2c8047', color: '#fff',
+    width: '34px', height: '34px', borderRadius: '50%', backgroundColor: GREEN.primary, color: '#fff',
     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
   footerContactLabel: {

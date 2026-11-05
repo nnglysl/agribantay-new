@@ -1,3 +1,4 @@
+import { GREEN } from '../theme/green'
 import { manilaDay } from '../utils/reportPeriod'
 import { useMemo, useState } from 'react'
 import api from '../api/axios'
@@ -332,5 +333,5 @@ const local = {
   errorBody: { fontSize: 12.5, color: '#8c4b4b', lineHeight: 1.5 },
   infoTitle: { fontSize: 12.5, fontWeight: 700, color: '#16311d', marginBottom: 3 },
   infoBody: { fontSize: 12.5, color: '#5a6960', lineHeight: 1.5 },
-  notice: { fontFamily: SANS, fontSize: 12.5, color: '#1f5a34', marginTop: 10 },
+  notice: { fontFamily: SANS, fontSize: 12.5, color: GREEN.hover, marginTop: 10 },
 }

@@ -1,0 +1,24 @@
+.vm { display:grid; gap:16px; }
+.vm-summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; margin-bottom:18px; }
+.vm-summary>div { min-width:0; }
+.vm-summary-label { display:block; font-size:12px; color:#728077; margin-bottom:8px; }
+.vm-summary strong { font-size:13px; line-height:1.6; overflow-wrap:anywhere; }
+.vm-select { display:flex; flex-direction:column; gap:7px; max-width:440px; margin:12px 0 16px; font-size:12px; font-weight:600; color:#526b5a; }
+.vm .vm-select select { min-width:0; width:100%; padding:9px 11px; border:1px solid #dce4dc; border-radius:8px; background:#fff; color:#24402e; font:inherit; box-sizing:border-box; }
+.vm-sensors { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; }
+.vm-sensor { min-width:0; padding:20px; border:1px solid #e4eae3; border-radius:12px; background:#fff; }
+.vm-sensor h3 { display:flex; gap:8px; align-items:center; margin:0 0 16px; font-size:13px; color:#355540; }
+.vm-sensor h3 svg { flex:0 0 auto; color:var(--agb-green); }
+.vm-value { display:block; margin-bottom:12px; color:#193c28; font-size:27px; line-height:1.3; overflow-wrap:anywhere; }
+.vm-sensor p,.vm-caption { color:#728077; font-size:11px; line-height:1.6; }
+.vm-sensor p { margin:12px 0 0; }
+.vm-description,.vm-message,.vm-disclosure { font-size:12px; color:#637568; line-height:1.7; margin:0 0 14px; overflow-wrap:anywhere; }
+.vm-message[role=alert] { color:#a52d2d; }
+.vm-disclosure { margin:0; }
+.vm-highlights { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; padding:0; margin:0 0 16px; list-style:none; }
+.vm-highlights li { display:flex; flex-direction:column; min-width:0; gap:8px; border:1px solid #e6ebe4; border-radius:9px; padding:14px; font-size:13px; overflow-wrap:anywhere; }
+.vm-highlights small { color:#728077; font-size:11px; }
+.vm select:focus-visible,.vm button:focus-visible { outline:2px solid var(--agb-green); outline-offset:2px; }
+@media(max-width:1100px) { .vm-sensors,.vm-highlights { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:600px) { .vm-summary { grid-template-columns:1fr; gap:14px; } .vm-sensors { gap:10px; } .vm-sensor { padding:14px; } .vm-sensor h3 { min-height:37px; line-height:1.4; } .vm-value { font-size:23px; } .vm-highlights { grid-template-columns:1fr; } }
+@media(max-width:360px) { .vm-sensors { grid-template-columns:1fr; } }

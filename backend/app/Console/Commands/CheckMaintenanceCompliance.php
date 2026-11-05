@@ -10,111 +10,68 @@ use App\Models\User;
 use App\Services\MaintenanceStatusService;
 use App\Services\SmsService;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 
-/**
- * Objective 5.1/5.2 — manure clean-out compliance SMS + notifications.
- * Runs daily (see routes/console.php). Each farm gets AT MOST one SMS
- * per event per clean-out cycle, enforced by the unique constraint on
- * maintenance_notifications(farm_id, event, anchor_date) — running this
- * command multiple times a day, or every day a farm remains overdue,
- * will not re-send.
- */
+/** One reserved notice per farm / annual cycle; delivery transition is opt-in. */
 class CheckMaintenanceCompliance extends Command
 {
     protected $signature = 'compliance:check-maintenance';
-    protected $description = 'Send once-per-cycle SMS/notifications for overdue and non-compliant manure clean-outs';
+    protected $description = 'Send approved annual full clean-out non-compliance notices once per cycle';
 
-    public function handle(MaintenanceStatusService $statusService, SmsService $sms)
+    public function handle(MaintenanceStatusService $service, SmsService $sms): int
     {
-        $farms  = Farm::where('status', 'Active')->with('latestCleanout')->get();
-        // 'overdue_reminder' is a routine operational nudge — Admin's own
-        // day-to-day queue, not something Super Admin needs to see for
-        // every farm. 'non_compliant_notice' is the escalated case (past
-        // the grace period), which does belong in Super Admin's system-wide
-        // view too.
-        $admins      = User::where('role', 'admin')->where('status', 'active')->get();
-        $superAdmins = User::where('role', 'super_admin')->where('status', 'active')->get();
+        if (!config('maintenance_compliance.notifications_enabled')) {
+            $this->info('Annual clean-out notifications are disabled pending operational transition approval.');
+            return self::SUCCESS;
+        }
+        $start = config('maintenance_compliance.notification_start_date');
+        if (!is_string($start) || !preg_match('/\A(\d{4})-(\d{2})-(\d{2})\z/', $start, $date)
+            || !checkdate((int) $date[2], (int) $date[3], (int) $date[1])) {
+            $this->error('An explicitly approved notification start date (YYYY-MM-DD) is required. No notices sent.');
+            return self::FAILURE;
+        }
+        if ($start > Carbon::now('Asia/Manila')->toDateString()) {
+            $this->info('The approved notification transition has not started.');
+            return self::SUCCESS;
+        }
+        $recipients = User::whereIn('role', ['admin', 'super_admin'])->where('status', 'active')->get();
+        $count = 0;
+        foreach (Farm::where('status', 'Active')->orderBy('id')->pluck('id') as $id) {
 
-        $sentCount = 0;
-
-        foreach ($farms as $farm) {
-            $status = $statusService->getStatus($farm);
-
-            $event = match ($status['status']) {
-                'Overdue'       => 'overdue_reminder',
-                'Non-Compliant' => 'non_compliant_notice',
-                default         => null,
-            };
-
-            if (!$event) {
-                continue; // 'Compliant' — nothing to notify about
-            }
-
-            $alreadySent = MaintenanceNotification::where('farm_id', $farm->id)
-                ->where('event', $event)
-                ->where('anchor_date', $status['anchor_date'])
-                ->exists();
-
-            if ($alreadySent) {
-                continue;
-            }
-
-            $message = $event === 'overdue_reminder'
-                ? 'Your manure clean-out is overdue. Please clean and properly dispose of accumulated manure and update your manure record.'
-                : 'Your manure clean-out is still overdue and has exceeded the 30-day grace period. Please complete the required clean-out and update your manure record.';
-
-            $smsLogId = null;
+            $claim = DB::transaction(function () use ($id, $start, $service) {
+                $farm = Farm::whereKey($id)->where('status', 'Active')->lockForUpdate()->first();
+                if (!$farm) return null;
+                $status = $service->getStatus($farm);
+                if ($status['status'] !== 'Non-Compliant' || $status['non_compliant_from'] < $start) return null;
+                if (MaintenanceNotification::where('farm_id', $id)->where('event', 'non_compliant_notice')->where('anchor_date', $status['anchor_date'])->exists()) return null;
+                $notice = MaintenanceNotification::create(['farm_id' => $id, 'event' => 'non_compliant_notice',
+                    'anchor_date' => $status['anchor_date'], 'sent_at' => now()]);
+                return [$farm, $status, $notice];
+            }, 3);
+            if (!$claim) continue;
+            [$farm, $status, $notice] = $claim;
+            $message = 'Your annual full manure clean-out was due on '.$status['due_date'].'. Your farm is Non-Compliant. Please complete a full clean-out and update your clean-out record.';
 
             if ($farm->mobile_number) {
-                $sms->send($farm->mobile_number, $message, 'Maintenance Compliance', $farm->user_id, $farm->id);
-
-                // send() logs internally but doesn't return the row —
-                // fetch the one it just created so we can link it below.
-                $smsLogId = SmsLog::where('farm_id', $farm->id)
-                    ->where('type', 'Maintenance Compliance')
-                    ->latest('id')
-                    ->value('id');
+                $token = (string) \Illuminate\Support\Str::uuid();
+                $sms->sendWithOutcome($farm->mobile_number, $message, 'Maintenance Compliance', $farm->user_id, $farm->id, null, $token);
+                $notice->update(['sms_log_id' => SmsLog::where('sms_alert_token', $token)->value('id')]);
             }
-
-            if ($farm->user_id) {
-                Notification::create([
-                    'user_id' => $farm->user_id,
-                    'title'   => $event === 'overdue_reminder' ? 'Manure Clean-out Overdue' : 'Manure Clean-out Non-Compliant',
-                    'message' => $message,
-                    'type'    => 'maintenance_overdue',
-                    'link'    => '/farmowner/manure-records',
-                    'is_read' => false,
-                ]);
-            }
-
-            $recipients = $event === 'non_compliant_notice'
-                ? $admins->merge($superAdmins)
-                : $admins;
-
-            foreach ($recipients as $recipient) {
-                Notification::create([
-                    'user_id' => $recipient->id,
-                    'title'   => $event === 'overdue_reminder'
-                        ? 'Farm Overdue: Manure Clean-out'
-                        : 'Farm Non-Compliant: Manure Clean-out',
-                    'message' => "\"{$farm->farm_name}\" ({$farm->owner_name}) — {$status['status']}, {$status['days_overdue']} day(s) past the grace period.",
-                    'type'    => 'maintenance_overdue',
-                    'link'    => '/admin/maintenance/overdue',
-                    'is_read' => false,
-                ]);
-            }
-
-            MaintenanceNotification::create([
-                'farm_id'     => $farm->id,
-                'event'       => $event,
-                'anchor_date' => $status['anchor_date'],
-                'sms_log_id'  => $smsLogId,
-                'sent_at'     => now(),
-            ]);
-
-            $sentCount++;
+            DB::transaction(function () use ($farm, $message, $status, $recipients) {
+                if ($farm->user_id) Notification::create(['user_id' => $farm->user_id,
+                    'title' => 'Annual Manure Clean-out Non-Compliant', 'message' => $message,
+                    'type' => 'maintenance_overdue', 'link' => '/farmowner/manure-records', 'is_read' => false]);
+                foreach ($recipients as $recipient) Notification::create(['user_id' => $recipient->id,
+                    'title' => 'Farm Non-Compliant: Annual Manure Clean-out',
+                    'message' => '"'.$farm->farm_name.'" - Non-Compliant, '.$status['days_overdue'].' day(s) past the full clean-out due date ('.$status['due_date'].').',
+                    'type' => 'maintenance_overdue',
+                    'link' => ($recipient->role === 'super_admin' ? '/superadmin/farms/' : '/admin/farms/').$farm->id,
+                    'is_read' => false]);
+            });
+            $count++;
         }
-
-        $this->info("Compliance check complete. {$sentCount} notification(s) sent.");
+        $this->info('Annual compliance check complete. '.$count.' event(s) reserved; delivery outcomes remain in SMS history.');
+        return self::SUCCESS;
     }
 }

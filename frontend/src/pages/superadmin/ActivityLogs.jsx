@@ -1,9 +1,11 @@
+import { GREEN } from '../../theme/green'
+import { useTableFetch } from '../../hooks/useTableFetch'
 import TableScroll from '../../components/TableScroll'
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import AdminLayout from '../../components/AdminLayout'
 import SharedPagination from '../../components/Pagination'
 import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
-import { useCachedFetch } from '../../hooks/useCachedFetch'
+
 import { BACKGROUND_POLL_MS } from '../../constants/polling'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { roleBadgeStyle } from '../../utils/roleBadgeStyle'
@@ -112,36 +114,12 @@ export default function ActivityLogs() {
   if (roleFilter) params.role = roleFilter
   if (typeFilter) params.type = typeFilter
 
-  const { data: logs, loading, error } = useCachedFetch('/superadmin/activity-logs', params, { pollMs: BACKGROUND_POLL_MS })
+  const { data: logs, loading, error } = useTableFetch('/superadmin/activity-logs', { ...params, search, from: dateFrom, to: dateTo }, currentPage, pageSize, setCurrentPage, { pollMs: BACKGROUND_POLL_MS })
 
-  const allLogs = useMemo(() => logs || [], [logs])
-
-  const filteredLogs = useMemo(() => {
-    return allLogs.filter(log => {
-      if (dateFrom && new Date(log.created_at_raw) < new Date(dateFrom)) return false
-      if (dateTo && new Date(log.created_at_raw) > new Date(`${dateTo}T23:59:59`)) return false
-      if (search) {
-        const q = search.toLowerCase()
-        const haystack = [log.user, log.action, log.details].filter(Boolean).join(' ').toLowerCase()
-        if (!haystack.includes(q)) return false
-      }
-      return true
-    })
-  }, [allLogs, dateFrom, dateTo, search])
-
-  useEffect(() => { setCurrentPage(1) }, [roleFilter, typeFilter, dateFrom, dateTo, search, pageSize])
-
-  const totalItems = filteredLogs.length
-  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
-
-  useEffect(() => {
-    if (currentPage > totalPages) setCurrentPage(totalPages)
-  }, [totalPages, currentPage])
-
-  const paginatedLogs = useMemo(() => {
-    const start = (currentPage - 1) * pageSize
-    return filteredLogs.slice(start, start + pageSize)
-  }, [filteredLogs, currentPage, pageSize])
+  const paginatedLogs = logs?.items || []
+  const filteredLogs = paginatedLogs
+  const totalItems = logs?.total || 0
+  const totalPages = logs?.last_page || 1
 
   const rangeStart = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1
   const rangeEnd = Math.min(currentPage * pageSize, totalItems)
@@ -372,10 +350,10 @@ const styles = {
     borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
     color: '#33413a', fontSize: '13.5px', fontWeight: 600, cursor: 'pointer', fontFamily: SANS, whiteSpace: 'nowrap',
   },
-  filterBtnActive: { borderColor: '#2c8047', color: '#2c8047' },
+  filterBtnActive: { borderColor: GREEN.primary, color: GREEN.primary },
   filterCount: {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: '#2c8047',
+    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: GREEN.primary,
     color: '#fff', fontSize: '11px', fontWeight: 700, padding: '0 4px',
   },
   filterPanel: {
@@ -401,7 +379,7 @@ const styles = {
   },
   filterApplyBtn: {
     flex: 1, padding: '9px 0', borderRadius: '10px', border: 'none',
-    backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
+    backgroundColor: GREEN.primary, color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
   },
   dateRangeStack: { display: 'flex', flexDirection: 'column', gap: '6px' },
   dateRangeSep: { fontSize: '11.5px', color: '#8a968d', textAlign: 'center' },
@@ -455,6 +433,6 @@ const paginationStyles = {
   navBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '13px', cursor: 'pointer' },
   navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
-  pageBtnActive: { backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff' },
+  pageBtnActive: { backgroundColor: GREEN.primary, borderColor: GREEN.primary, color: '#fff' },
   ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
 }

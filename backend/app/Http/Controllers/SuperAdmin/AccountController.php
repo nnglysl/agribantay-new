@@ -33,6 +33,7 @@ class AccountController extends Controller
 
     public function index(Request $request)
     {
+        \App\Support\TableQuery::validate($request);
         if ($blocked = $this->guardSuperAdmin()) return $blocked;
 
         $query = User::whereIn('role', self::MANAGEABLE_ROLES);
@@ -46,6 +47,7 @@ class AccountController extends Controller
             $query->where(function ($q) use ($s) {
                 $q->where('first_name', 'like', "%{$s}%")
                   ->orWhere('last_name', 'like', "%{$s}%")
+                  ->orWhereRaw(\App\Support\TableFilters::fullName($q).' LIKE ?', ["%{$s}%"])
                   ->orWhere('email', 'like', "%{$s}%")
                   ->orWhere('mobile_number', 'like', "%{$s}%");
             });
@@ -55,7 +57,8 @@ class AccountController extends Controller
             $query->where('status', strtolower($request->status));
         }
 
-        $accounts = $query->orderBy('role')->orderBy('first_name')->get()->map(fn($u) => [
+        $query->orderBy('role')->orderBy('first_name')->orderBy('id');
+        $accounts = \App\Support\TableQuery::rows($query, $request)->map(fn($u) => [
             'id'                => $u->id,
             'first_name'        => $u->first_name,
             'last_name'         => $u->last_name,
@@ -66,7 +69,7 @@ class AccountController extends Controller
             'profile_photo_url' => $u->profile_photo_path ? asset('storage/' . $u->profile_photo_path) : null,
         ]);
 
-        return response()->json(['success' => true, 'data' => $accounts]);
+        return response()->json(['success' => true, 'data' => \App\Support\TableQuery::payload($request, $accounts)]);
     }
 
     public function show(int $id)
@@ -91,20 +94,6 @@ class AccountController extends Controller
         ]);
     }
 
-    /**
-     * Takes 'email' and/or 'contact_number' — the two fields the Register
-     * Account form shows — and keeps BOTH on the account when both are given,
-     * which is what the form's own hint promises ("Enter at least one email or
-     * mobile number. If both are provided, the temporary password will be sent
-     * to the email address"). Email is only the delivery preference; it was
-     * never meant to discard the number the Super Admin typed.
-     *
-     * The older single 'contact' field is still accepted so any caller using
-     * that shape keeps working; it is sorted into the right field below.
-     *
-     * Super Admin never types a password. A temporary one is generated and
-     * delivered by email when there is an address, otherwise by SMS.
-     */
     public function store(Request $request)
     {
         if ($blocked = $this->guardSuperAdmin()) return $blocked;

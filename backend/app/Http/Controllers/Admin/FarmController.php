@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Mail\OtpCodeMail;
-use App\Mail\TempPasswordMail;
 use App\Models\ActivityLog;
 use App\Models\EmailVerificationOtp;
 use App\Models\Farm;
@@ -44,15 +43,13 @@ use Illuminate\Validation\ValidationException;
 
 class FarmController extends Controller
 {
-    // Farms list: columns the table may sort by, the page sizes its pager
-    // offers, and the timezone its registration-date filter is expressed
-    // in (created_at is stored in UTC) — see AppSupportLocalTime.
     private const SORTABLE_COLUMNS = ['farm_name', 'owner_name', 'barangay', 'farm_size', 'created_at'];
 
     private const PAGE_SIZES = [10, 25, 50, 100];
 
     public function index(Request $request)
     {
+        \App\Support\TableQuery::validate($request);
         $query = Farm::with(['user', 'sensors', 'latestReading', 'sensorReadings' => function ($q) {
             $q->latest()->limit(1)->with('sensor');
         }]);
@@ -73,32 +70,23 @@ class FarmController extends Controller
             });
         }
 
-        // Every filter runs in SQL so a paginated page is cut from the
-        // complete, already-filtered dataset (counts stay exact).
+        // Apply filters before pagination so counts cover the entire result.
         if ($request->farm_size) {
             $query->where('farm_size', $request->farm_size);
         }
 
-        // Monitoring status is derived (FarmStatusService::displayStatus):
-        // "Pending Setup" = no Active device OR no reading yet; otherwise the
-        // farm's current_status. Expressed here as the equivalent SQL so the
-        // filter can apply before pagination instead of after fetching all rows.
         if ($request->monitoring_status) {
-            $hasActiveDevice = fn ($q) => $q->whereHas('sensors', fn ($s) => $s->where('status', 'Active'));
             if ($request->monitoring_status === 'Pending Setup') {
-                $query->where(function ($q) {
-                    $q->whereDoesntHave('sensors', fn ($s) => $s->where('status', 'Active'))
-                        ->orWhereDoesntHave('sensorReadings');
-                });
+                $query->whereDoesntHave('sensors', fn ($s) => $s->where('status', 'Active'));
             } else {
-                $query->where(function ($q) use ($hasActiveDevice, $request) {
-                    $hasActiveDevice($q)->whereHas('sensorReadings')->where('current_status', $request->monitoring_status);
-                });
+                $statusService = app(FarmStatusService::class);
+                $matchingIds = (clone $query)->whereHas('sensors', fn ($s) => $s->where('status', 'Active'))
+                    ->get()->filter(fn ($farm) => $statusService->displayStatus($farm) === $request->monitoring_status)
+                    ->pluck('id');
+                $query->whereIn('id', $matchingIds);
             }
         }
 
-        // Registration-date range, inclusive, as calendar days in the LGU's
-        // local timezone (the app stores UTC). Matches what the table shows.
         if ($request->from || $request->to) {
             $tz = LocalTime::timezone();
             if ($request->from) {
@@ -109,24 +97,20 @@ class FarmController extends Controller
             }
         }
 
-        // Sorting: whitelisted columns only; anything else falls back to the
-        // original newest-first order.
         $sort = $request->input('sort');
         $dir = strtolower((string) $request->input('dir', 'asc')) === 'desc' ? 'desc' : 'asc';
         if (in_array($sort, self::SORTABLE_COLUMNS, true)) {
             $query->orderBy($sort, $dir)->orderBy('id', 'desc');
         } else {
-            $query->latest();
+            $query->latest()->orderByDesc('id');
         }
 
-        // Server-side pagination when the caller asks for it (Farms pages).
-        // Callers that omit per_page (farm dropdowns, device assignment)
-        // still get the complete list exactly as before.
+
         $paginator = null;
         if ($request->filled('per_page')) {
             $perPage = (int) $request->per_page;
             $perPage = in_array($perPage, self::PAGE_SIZES, true) ? $perPage : 10;
-            $paginator = $query->paginate($perPage, ['*'], 'page', max(1, (int) $request->input('page', 1)));
+            $paginator = \App\Support\TableQuery::paginate($query, $request);
             $farms = $paginator->getCollection();
         } else {
             $farms = $query->get();
@@ -134,35 +118,26 @@ class FarmController extends Controller
 
         $statusService = app(FarmStatusService::class);
 
-        // Ingest already keeps current_status in step with each new reading;
-        // this read-side sync is the same safety net as before, now only
-        // for the rows being returned.
         foreach ($farms as $farm) {
             $statusService->syncStatus($farm);
         }
 
-        // How many farms each listed owner holds in total. Counted in one
-        // grouped query rather than per row, and used by the Delete Farm
-        // dialog to say whether this is the owner's last farm — which now
-        // decides whether their account goes with it.
         $ownerFarmCounts = Farm::whereIn('user_id', $farms->pluck('user_id')->filter()->unique())
             ->groupBy('user_id')
             ->selectRaw('user_id, COUNT(*) AS total')
             ->pluck('total', 'user_id');
 
         $farms = $farms->map(function ($farm) use ($statusService, $ownerFarmCounts) {
-            $latestReading = $farm->sensorReadings->first();
-            // A farm runs one device per poultry house, so the column lists
-            // every one of them. It used to show whichever single device had
-            // sent the newest reading, which on a multi-house farm changed
-            // from minute to minute and hid the rest.
+            $latestReading = app(\App\Services\CurrentMonitoringService::class)->forFarm($farm)->orderByDesc('created_at')->orderByDesc('id')->first();
+
             $deviceNames = $farm->sensors
                 ->sortBy('label')
                 ->map(fn ($s) => $s->device_name)
                 ->filter()
                 ->values();
 
-            $displayStatus = $statusService->displayStatus($farm);
+            $assessment = app(\App\Services\MonitoringAssessmentService::class)->farm($farm);
+            $displayStatus = $assessment['condition'];
 
             return [
                 'id' => $farm->id,
@@ -182,6 +157,7 @@ class FarmController extends Controller
                 'farm_area_unit' => $farm->farm_area_unit,
                 'status' => $farm->status,
                 'current_status' => $displayStatus,
+                'monitoring_assessment' => $assessment,
                 'device_name' => $deviceNames->first(),
                 'device_names' => $deviceNames->all(),
                 'device_count' => $deviceNames->count(),
@@ -199,6 +175,7 @@ class FarmController extends Controller
             return response()->json([
                 'success' => true,
                 'data' => [
+                    'query_key' => $request->input('query_key'),
                     'items' => $farms->values(),
                     'total' => $paginator->total(),
                     'page' => $paginator->currentPage(),
@@ -234,6 +211,7 @@ class FarmController extends Controller
             'latitude' => $f->latitude,
             'longitude' => $f->longitude,
             'current_status' => $statusService->displayStatus($f),
+            'monitoring_assessment' => app(\App\Services\MonitoringAssessmentService::class)->farm($f),
         ]);
 
         return response()->json([
@@ -272,176 +250,26 @@ class FarmController extends Controller
         return $coordinates;
     }
 
-    /**
-     * Temp password delivery: email if the new owner has one (Laravel
-     * Mail via TempPasswordMail), SMS otherwise (existing SmsService) —
-     * never both. Same rule as FarmOwnerController::store(). This branch
-     * currently has no live frontend caller (RegisterModal/AddFarmModal
-     * both always pass farm_owner_id for an owner created via the
-     * dedicated registration step), but is kept consistent in case that
-     * ever changes.
-     */
+    /** Single-farm clients and the multi-farm form share one transaction. */
     public function store(Request $request)
     {
-        // Spaces/dashes are cosmetic (e.g. "0917 123 4567", "0917-123-4567") —
-        // normalize to digits before the regex and uniqueness checks so
-        // formatting can never disguise an already-registered number.
-        if ($request->filled('mobile_number')) {
-            $request->merge(['mobile_number' => User::normalizeMobileNumber($request->mobile_number)]);
-        }
-
-        $location = app(FarmLocationService::class);
-
-        $request->validate([
-            'farm_owner_id' => 'nullable|exists:users,id',
-
-            'first_name' => 'required_without:farm_owner_id|string',
-            'last_name' => 'required_without:farm_owner_id|string',
-            'mobile_number' => ['required_without:farm_owner_id', 'string', 'regex:/^09\d{9}$/', 'unique:users,mobile_number'],
-            'email' => 'nullable|email|unique:users,email',
-
-            'farm_name' => 'required|string',
-            'farm_type' => 'nullable|string',
-            'farm_area' => 'nullable|numeric',
-            'farm_area_unit' => 'nullable|in:sqm,hectare',
-            // Only the 33 official barangays (config/geography.php) — a
-            // hand-crafted request can't smuggle in a made-up one.
-            'barangay' => ['required', 'string', Rule::in($location->officialBarangays())],
-            'lot_number' => 'nullable|string',
-            'street' => 'nullable|string',
-            'landmark' => 'nullable|string',
-            'address' => 'nullable|string',
-            'latitude' => 'nullable|numeric|between:-90,90|required_with:longitude',
-            'longitude' => 'nullable|numeric|between:-180,180|required_with:latitude',
-            'farm_size' => 'required|in:Small,Medium,Large',
-        ], [
-            'barangay.in' => FarmLocationService::INVALID_BARANGAY_MESSAGE,
-        ]);
-
-        // Resolve the pin BEFORE creating anything: a location conflict must
-        // reject the whole request without leaving a stray owner account.
-        // Same composition as update(), so a farm's address reads identically
-        // whether it was just registered or later edited. A free-text
-        // `address` is only honoured when no structured parts were given.
-        $addressParts = array_filter([
-            $request->lot_number,
-            $request->street,
-            $request->barangay,
-            'San Jose',
-            'Batangas',
-            'Philippines',
-        ]);
-        $fullAddress = (! $request->lot_number && ! $request->street && $request->address)
-            ? $request->address
-            : implode(', ', $addressParts);
-
-        if ($request->filled('latitude') && $request->filled('longitude')) {
-            $latitude = $request->latitude;
-            $longitude = $request->longitude;
-        } else {
-            $coordinates = $this->geocodeWithFallback(
-                $request->lot_number,
-                $request->street,
-                $request->barangay
-            );
-            $latitude = $coordinates['latitude'] ?? null;
-            $longitude = $coordinates['longitude'] ?? null;
-        }
-
-        // A farm can't be saved without a pin: the frontend always sends
-        // one, and the geocode fallback above covers direct API callers.
-        if ($latitude === null || $longitude === null) {
-            throw ValidationException::withMessages([
-                'location' => ['A pinned location is required before this farm can be saved.'],
-            ]);
-        }
-
-        // Ordered location rules — inside San Jose, official barangay,
-        // barangay <-> pin consistency, then the one-farm-per-area check.
-        // Any failure is a 422 before an owner account or farm is written.
-        $locationCheck = $location->assertValidLocation((float) $latitude, (float) $longitude, $request->barangay);
-
-        $smsSent = null;
-        $delivered = null;
-        $contactMethod = null;
-
-        if ($request->farm_owner_id) {
-            $user = User::where('id', $request->farm_owner_id)
-                ->where('role', 'farm_owner')
-                ->firstOrFail();
-        } else {
-            $tempPassword = Str::random(10);
-
-            $user = User::create([
-                'first_name' => $request->first_name,
-                'last_name' => $request->last_name,
-                'mobile_number' => $request->mobile_number,
-                'email' => $request->email,
-                'password' => bcrypt($tempPassword),
-                'role' => 'farm_owner',
-                'status' => 'active',
-                'must_change_password' => true,
-            ]);
-
-            if ($user->email) {
-                try {
-                    Mail::to($user->email)->send(new TempPasswordMail($user, $tempPassword, 'welcome'));
-                    $delivered = true;
-                } catch (\Throwable $e) {
-                    report($e);
-                    $delivered = false;
-                }
-                $contactMethod = 'email';
-            } else {
-                $smsMessage = "Welcome to AgriBantay, {$request->first_name}! Your account is ready. Temporary password: {$tempPassword}. You will be asked to set a new password on your first visit to the AgriBantay portal.";
-
-                $smsSent = app(SmsService::class)->send(
-                    $request->mobile_number,
-                    $smsMessage,
-                    'Account Creation',
-                    $user->id
-                );
-                $delivered = $smsSent;
-                $contactMethod = 'sms';
+        $flat = ! $request->has('farms');
+        try {
+            $result = app(\App\Services\FarmRegistrationService::class)->register($request, false, $flat);
+        } catch (ValidationException $error) {
+            if (! $flat) throw $error;
+            $messages = [];
+            foreach ($error->errors() as $key => $values) {
+                $messages[preg_replace('/^farms\\.0\\./', '', $key)] = $values;
             }
+            throw ValidationException::withMessages($messages);
         }
-
-        $farm = Farm::create([
-            'user_id' => $user->id,
-            'farm_name' => $request->farm_name,
-            'owner_name' => $user->first_name.' '.$user->last_name,
-            'mobile_number' => $user->mobile_number,
-            'barangay' => $request->barangay,
-            'address' => $fullAddress.($request->landmark ? " (near {$request->landmark})" : ''),
-            'lot_number' => $request->lot_number,
-            'street' => $request->street,
-            'landmark' => $request->landmark,
-            'farm_size' => $request->farm_size,
-            'farm_type' => $request->farm_type,
-            'farm_area' => $request->farm_area,
-            'farm_area_unit' => $request->farm_area_unit ?? 'sqm',
-            'status' => 'Active',
-            'latitude' => $latitude,
-            'longitude' => $longitude,
-        ]);
-
-        ActivityLog::create([
-            'user_id' => Auth::id(),
-            'role' => Auth::user()->role,
-            'action' => $request->farm_owner_id ? 'Added Farm to Existing Owner' : 'Created Farm Owner Account',
-            'details' => "{$farm->farm_name} — {$user->first_name} {$user->last_name}"
-                .($contactMethod ? " — temp password sent via {$contactMethod}" : ''),
-            'type' => 'Farm',
-        ]);
-
         return response()->json([
-            'success' => true,
-            'message' => 'Farm registered successfully.',
-            'sms_sent' => $smsSent,
-            'delivered' => $delivered,
-            'contact_method' => $contactMethod,
-            'location' => $locationCheck,
-            'data' => ['user' => $user, 'farm' => $farm],
+            'success' => true, 'message' => 'Farm registration completed.',
+            'sms_sent' => $result['sms_sent'], 'delivered' => $result['delivered'],
+            'contact_method' => $result['contact_method'], 'delivery_pending' => $result['delivery_pending'],
+            'location' => $result['locations'][0],
+            'data' => ['user' => $result['user'], 'farm' => $result['farms'][0], 'farms' => $result['farms']],
         ]);
     }
 
@@ -469,23 +297,14 @@ class FarmController extends Controller
             'type' => 'Account',
         ]);
 
-        // The password has already been changed at this point — the owner's
-        // old one stopped working the moment we saved above. If the SMS did
-        // not go out they would be locked out with no way back, so the new
-        // password is returned for the Admin to pass on by hand (phone call,
-        // in person). Mirrors what SuperAdmin\AccountController@resetPassword
-        // already does for admin and vet accounts.
-        //
-        // It is deliberately NOT returned when the SMS succeeded: the owner
-        // has it, and there is no reason to put a live credential on a screen
-        // that may be shared or photographed.
+        // Delivery failure must never reveal the new credential to the
+        // operator. Match account reset's registered-contact delivery rule.
         return response()->json([
             'success' => $smsSent,
             'message' => $smsSent
                 ? 'SMS resent successfully.'
-                : 'SMS failed to send. Give the temporary password below to the owner directly.',
-            'temp_password' => $smsSent ? null : $newPassword,
-        ]);
+                : 'The temporary password could not be delivered. The previous password no longer works. Check delivery status before retrying or use the verified password reset flow.',
+        ], $smsSent ? 200 : 502);
     }
 
     public function show(int $id)
@@ -499,13 +318,16 @@ class FarmController extends Controller
                 // for farms with a single sensor.
                 $q->orderByDesc('installed_at');
             },
-            'sensorReadings' => function ($q) {
-                $q->latest()->limit(1)->with('sensor');
-            },
         ])->findOrFail($id);
+
+        // Older farm-profile modals still consume this compatibility relation.
+        // Keep it subject to the same visit boundaries as device_list below.
+        $farm->setRelation('sensorReadings', app(\App\Services\CurrentMonitoringService::class)->forFarm($farm)
+            ->with('sensor')->orderByDesc('created_at')->orderByDesc('id')->limit(1)->get());
 
         $statusService = app(FarmStatusService::class);
         $farm->display_status = $statusService->displayStatus($farm);
+        $farm->monitoring_assessment = app(\App\Services\MonitoringAssessmentService::class)->farm($farm);
         // Device communication state (Pending Setup / Online / Offline) —
         // derived from sensors.last_seen_at, not from whether a reading exists.
         $farm->connectivity = $statusService->connectivity($farm);
@@ -546,7 +368,7 @@ class FarmController extends Controller
         // attribute, so it never reaches the client unless spelled out here.
         $monitoring = app(MonitoringDeploymentService::class);
         $periods = $monitoring->forFarm($farm->id);
-        $farm->device_list = $farm->sensors->map(function ($sensor) use ($farm, $periods, $statusService) {
+        $farm->device_list = $farm->sensors->map(function ($sensor) use ($farm, $statusService) {
             // Each house's OWN latest reading. The farm-level `sensor_readings`
             // relation returns whichever house reported most recently, so on a
             // multi-house farm the monitoring panel was showing one house's
@@ -554,17 +376,7 @@ class FarmController extends Controller
             // houses minute to minute as they took turns reporting.
             // id DESC as the tiebreaker: two readings can share a second, and
             // created_at alone then picks between them arbitrarily.
-            $reading = SensorReading::where('sensor_id', $sensor->id)
-                ->where('farm_id', $farm->id)
-                ->where('created_at', '<=', now());
-            $period = collect($periods)->first(fn ($period) => $period['sensor_id'] === $sensor->id && $period['is_current']);
-            if ($period && $period['range_start']) {
-                $reading->where('created_at', '>=', Carbon::parse($period['range_start']));
-            }
-            $reading = $reading
-                ->orderByDesc('created_at')
-                ->orderByDesc('id')
-                ->first();
+            $reading = app(\App\Services\CurrentMonitoringService::class)->latest($sensor, $farm->id);
 
             return [
                 'id' => $sensor->id,
@@ -576,6 +388,7 @@ class FarmController extends Controller
                 'has_reading' => (bool) $reading,
                 'last_reading_at' => $reading?->created_at?->toIso8601String(),
                 'last_recorded_condition' => $reading ? $statusService->computeStatus($reading) : null,
+                'primary_assessment' => app(\App\Services\MonitoringAssessmentService::class)->device($sensor, $reading),
                 'ammonia' => $reading?->ammonia,
                 'ammonia_status' => $reading?->ammonia_status,
                 'temperature' => $reading?->temperature,
@@ -609,21 +422,21 @@ class FarmController extends Controller
     {
         Farm::findOrFail($id);
 
-        $perPage = min((int) $request->input('per_page', 10), 50);
-
-        $logs = MaintenanceLog::where('farm_id', $id)
-            ->orderByDesc('performed_at')
-            ->paginate($perPage);
+        $query = MaintenanceLog::where('farm_id', $id);
+        \App\Support\TableFilters::history($query, $request, 'cleanout');
+        $logs = \App\Support\TableQuery::paginate($query, $request);
 
         return response()->json([
             'success' => true,
             'data' => [
                 'logs' => $logs->getCollection()->map(fn ($log) => [
                     'id' => $log->id,
+                    'maintenance_type' => $log->maintenance_type,
                     'performed_at' => $log->performed_at->format('M d, Y'),
                     'notes' => $log->notes,
                     'photo_url' => asset('storage/'.$log->photo_path),
                 ]),
+                'query_key' => $request->input('query_key'),
                 'current_page' => $logs->currentPage(),
                 'last_page' => $logs->lastPage(),
                 'total' => $logs->total(),
@@ -638,11 +451,9 @@ class FarmController extends Controller
     {
         Farm::findOrFail($id);
 
-        $perPage = min((int) $request->input('per_page', 10), 50);
-
-        $records = ManureDisposalRecord::where('farm_id', $id)
-            ->orderByDesc('disposal_date')
-            ->paginate($perPage);
+        $query = ManureDisposalRecord::where('farm_id', $id);
+        \App\Support\TableFilters::history($query, $request, 'disposal');
+        $records = \App\Support\TableQuery::paginate($query, $request);
 
         // Built from the canonical list plus any value this farm has actually
         // stored, NOT from the page above — a page holding only "Sold" rows
@@ -667,6 +478,7 @@ class FarmController extends Controller
                     'notes' => $r->notes,
                 ]),
                 'disposal_methods' => $methods,
+                'query_key' => $request->input('query_key'),
                 'current_page' => $records->currentPage(),
                 'last_page' => $records->lastPage(),
                 'total' => $records->total(),
@@ -678,14 +490,11 @@ class FarmController extends Controller
     {
         Farm::findOrFail($id);
 
-        $perPage = min((int) $request->input('per_page', 10), 50);
-
         // scheduledBy is eager-loaded so the Scheduled By column does not fire
         // one query per row.
-        $inspections = Inspection::where('farm_id', $id)
-            ->with('scheduledBy:id,first_name,last_name')
-            ->orderByDesc('scheduled_at')
-            ->paginate($perPage);
+        $query = Inspection::where('farm_id', $id)->with('scheduledBy:id,first_name,last_name');
+        \App\Support\TableFilters::history($query, $request, 'inspection');
+        $inspections = \App\Support\TableQuery::paginate($query, $request);
 
         return response()->json([
             'success' => true,
@@ -706,6 +515,7 @@ class FarmController extends Controller
                     'completed_at' => LocalTime::date($i->completed_at),
                     'completed_at_raw' => $i->completed_at?->toIso8601String(),
                 ]),
+                'query_key' => $request->input('query_key'),
                 'current_page' => $inspections->currentPage(),
                 'last_page' => $inspections->lastPage(),
                 'total' => $inspections->total(),
@@ -727,20 +537,18 @@ class FarmController extends Controller
     {
         Farm::findOrFail($id);
 
-        $perPage = min((int) $request->input('per_page', 10), 50);
-
         $query = ServiceRequest::where('farm_id', $id)->with('acceptedBy');
 
         if (Auth::user()?->role === 'super_admin') {
-            // Super Admin's per-farm view is a completed-service history,
-            // not a working queue — Pending/Scheduled requests are still
-            // actionable and belong in the main Service Requests module.
-            $query->where('status', 'Completed');
+            // Completed Vet history plus all retired Odor/Fly statuses.
+            // A retired Scheduled row is evidence, never an appointment.
+            $query->where(fn ($q) => $q->where('status', 'Completed')->orWhereIn('service_type', \App\Support\ServiceTypes::RETIRED));
         } else {
             $query->whereNotIn('service_type', self::VET_ONLY_TYPES);
         }
 
-        $requests = $query->orderByDesc('created_at')->paginate($perPage);
+        \App\Support\TableFilters::history($query, $request, 'service');
+        $requests = \App\Support\TableQuery::paginate($query, $request);
 
         return response()->json([
             'success' => true,
@@ -748,6 +556,7 @@ class FarmController extends Controller
                 'requests' => $requests->getCollection()->map(fn ($r) => [
                     'id' => $r->id,
                     'request_type' => $r->service_type,
+                    'is_retired' => \App\Support\ServiceTypes::isRetired($r->service_type),
                     'request_date' => LocalTime::date($r->created_at),
                     'request_date_raw' => $r->created_at?->toIso8601String(),
                     'status' => $r->status,
@@ -755,6 +564,7 @@ class FarmController extends Controller
                     'completed_at' => LocalTime::date($r->completed_at),
                     'completed_at_raw' => $r->completed_at?->toIso8601String(),
                 ]),
+                'query_key' => $request->input('query_key'),
                 'current_page' => $requests->currentPage(),
                 'last_page' => $requests->lastPage(),
                 'total' => $requests->total(),
@@ -765,7 +575,7 @@ class FarmController extends Controller
     public function trend(int $id)
     {
         Farm::findOrFail($id);
-        $trend = app(TrendAnalysisService::class)->analyzeFarm($id);
+        $trend = app(TrendAnalysisService::class)->analyzeFarm($id, true);
 
         return response()->json(['success' => true, 'data' => $trend]);
     }
@@ -819,16 +629,25 @@ class FarmController extends Controller
             $q->latest()->limit(1);
         }])->findOrFail($id);
 
-        $latestReading = $farm->sensorReadings->first();
+        $monitoring = app(\App\Services\CurrentMonitoringService::class);
+        $snapshot = $monitoring->capture($farm, function ($locked) use ($monitoring) {
+            return [
+                'reading' => $monitoring->latestPerDevice($locked, true)
+                    ->sortByDesc(fn ($reading) => array_search(app(FarmStatusService::class)->computeStatus($reading), ['Safe', 'Warning', 'Critical']))->first(),
+                'trend' => app(TrendAnalysisService::class)->analyzeFarm($locked->id, true),
+            ];
+        });
+        $latestReading = $snapshot['data']['reading'] ?? null;
 
         if (! $latestReading) {
             return response()->json([
-                'success' => false,
+                'success' => true,
+                'data' => null,
                 'message' => 'No sensor readings available for this farm yet.',
-            ], 422);
+            ]);
         }
 
-        $trend = app(TrendAnalysisService::class)->analyzeFarm($id);
+        $trend = $snapshot['data']['trend'];
 
         $diagnosis = app(RootCauseService::class)->diagnose([
             'ammonia' => $latestReading->ammonia,
@@ -850,10 +669,20 @@ class FarmController extends Controller
         $explanation = app(RecommendationExplanationService::class)->explain([
             'farm_id' => $farm->id,
             'farm_name' => $farm->farm_name,
+            'monitoring_context' => $snapshot['context'],
+            'monitoring_revision' => $snapshot['revision'],
             'root_cause' => $diagnosis['root_cause'],
             'trend' => $trend,
             'recommended_action' => $preventiveActions['overall_action'],
         ]);
+
+        if (! $monitoring->snapshotIsCurrent($farm->id, $snapshot)) {
+            // A successful empty response also clears existing client caches;
+            // useCachedFetch deliberately retains its prior data on errors.
+            return response()->json(['success' => true, 'data' => null,
+                'message' => 'Monitoring changed while recommendations were prepared. Please refresh.',
+            ]);
+        }
 
         return response()->json([
             'success' => true,

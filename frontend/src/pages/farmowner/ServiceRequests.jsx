@@ -1,20 +1,23 @@
-import { useState, useEffect, useMemo } from 'react'
+import { GREEN } from '../../theme/green'
+import { useTableFetch } from '../../hooks/useTableFetch'
+import { useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import api from '../../api/axios'
 import FarmerLayout from '../../components/FarmerLayout'
 import TableScroll from '../../components/TableScroll'
+import ScrollableTabs from '../../components/ScrollableTabs'
 import SharedPagination from '../../components/Pagination'
-import { useCachedFetch } from '../../hooks/useCachedFetch'
+
 import { LIVE_POLL_MS } from '../../constants/polling'
 import { useSelectedFarm } from '../../hooks/useSelectedFarm'
 import { useIsMobile } from '../../hooks/useIsMobile'
-import { formatDate as formatDateFull, isWithinLocalDateRange } from '../../utils/formatDate'
+import { formatDate as formatDateFull } from '../../utils/formatDate'
 import { viewModalStyles as v } from '../../styles/viewModalStyles'
 import FilterPopover from '../../components/FilterPopover'
 import { filterStyles } from '../../styles/filterStyles'
 import ClearDateButton, { DateRangeHeader } from '../../components/ClearDateButton'
 import { BADGE_SHAPE, serviceTypeBadgeStyle, serviceTypeLabel, requestStatusBadgeStyle } from '../../utils/serviceBadgeStyle'
-import { ALL_TYPES as ALL_SERVICE_TYPES, REQUESTABLE_TYPES } from '../../constants/serviceTypes'
+import { VET_TYPES, REQUESTABLE_TYPES } from '../../constants/serviceTypes'
 import AttachmentSummary from '../../components/AttachmentSummary'
 import { SkeletonTable, BtnBusy } from '../../components/Loading'
 
@@ -28,11 +31,18 @@ function formatDate(value, fallback = '—') {
 }
 
 export default function ServiceRequests() {
+  const { selectedFarmId } = useSelectedFarm()
+  return <FarmServiceRequests key={selectedFarmId || 'no-farm'} />
+}
+
+function FarmServiceRequests() {
+  const location = useLocation()
   const [tab, setTab] = useState('active')
+  const changeTab = next => { setTab(next); setTypeFilter(''); setStatusFilter(''); setCurrentPage(1) }
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
-  const [showModal, setShowModal] = useState(false)
-  const [prefillType, setPrefillType] = useState('')
+  const [showModal, setShowModal] = useState(() => REQUESTABLE_TYPES.includes(location.state?.prefillService))
+  const [prefillType, setPrefillType] = useState(() => REQUESTABLE_TYPES.includes(location.state?.prefillService) ? location.state.prefillService : '')
   const [viewRequest, setViewRequest] = useState(null)
 
   // From/To (request date, inclusive local calendar dates) + Request Type +
@@ -55,54 +65,29 @@ export default function ServiceRequests() {
   const hasDate = !!(draftFrom || draftTo || fromDate || toDate)
   const activeFilterCount = (fromDate || toDate ? 1 : 0) + (typeFilter ? 1 : 0) + (statusFilter ? 1 : 0)
   const isMobile = useIsMobile()
-  const location = useLocation()
   const { selectedFarmId, farmsLoading } = useSelectedFarm()
 
-  // Arriving here from the dashboard's Critical-ammonia prompt pre-selects
-  // Odor Control Request and opens the modal immediately, instead of
-  // making the farmer navigate + pick it manually.
-  useEffect(() => {
-    if (location.state?.prefillService) {
-      setPrefillType(location.state.prefillService)
-      setShowModal(true)
-    }
-  }, [location.state])
+  const [previousLocation, setPreviousLocation] = useState(location)
+  if (previousLocation !== location) {
+    setPreviousLocation(location)
+    const allowed = REQUESTABLE_TYPES.includes(location.state?.prefillService)
+    setPrefillType(allowed ? location.state.prefillService : '')
+    setShowModal(allowed)
+  }
 
-  // Reset to page 1 whenever the tab or page size changes so the farmer
-  // isn't stuck on a page number that doesn't exist for the new list.
-  useEffect(() => { setCurrentPage(1) }, [tab, pageSize, fromDate, toDate, typeFilter, statusFilter])
-
-  const { data, loading, error, refetch } = useCachedFetch(
+  const { data, loading, error, refetch } = useTableFetch(
     selectedFarmId ? '/farmer/service-requests' : null,
-    { farm_id: selectedFarmId },
-    { pollMs: LIVE_POLL_MS }
+    { farm_id: selectedFarmId, tab, service_type: typeFilter, status: statusFilter, from: fromDate, to: toDate },
+    currentPage, pageSize, setCurrentPage, { pollMs: LIVE_POLL_MS }
   )
-  const requestData = data || { active: [], past: [] }
-
-  const baseList = tab === 'active' ? requestData.active : requestData.past
-  const list = useMemo(
-    () => baseList.filter(r =>
-      isWithinLocalDateRange(r.created_at, fromDate, toDate) &&
-      (!typeFilter || r.service_type === typeFilter) &&
-      (!statusFilter || r.status === statusFilter)
-    ),
-    [baseList, fromDate, toDate, typeFilter, statusFilter]
-  )
+  const list = (data?.items || []).filter(request => VET_TYPES.includes(request.service_type))
   // Status options follow the tab: active work vs. finished records.
   const statusOptions = tab === 'active' ? ['Pending', 'Scheduled'] : ['Completed', 'Cancelled']
   const isFiltered = activeFilterCount > 0
 
-  const totalItems = list.length
-  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
-
-  useEffect(() => {
-    if (currentPage > totalPages) setCurrentPage(totalPages)
-  }, [totalPages, currentPage])
-
-  const pagedList = useMemo(() => {
-    const start = (currentPage - 1) * pageSize
-    return list.slice(start, start + pageSize)
-  }, [list, currentPage, pageSize])
+  const totalItems = data?.total || 0
+  const totalPages = data?.last_page || 1
+  const pagedList = list
 
   const rangeStart = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1
   const rangeEnd = Math.min(currentPage * pageSize, totalItems)
@@ -122,20 +107,20 @@ export default function ServiceRequests() {
       </div>
 
       <div style={styles.tabsRow}>
-        <div style={{ ...styles.tabs, marginBottom: 0, borderBottom: 'none' }}>
+        <ScrollableTabs style={{ ...styles.tabs, marginBottom: 0, borderBottom: 'none' }} isMobile={isMobile} label="Farmer service request tabs">
           <div className="agb-ui-tab"
             style={{ ...styles.tab, ...(tab === 'active' ? styles.tabActive : {}) }}
-            onClick={() => setTab('active')}
+            onClick={() => changeTab('active')}
           >
             My Requests
           </div>
           <div className="agb-ui-tab"
             style={{ ...styles.tab, ...(tab === 'past' ? styles.tabActive : {}) }}
-            onClick={() => setTab('past')}
+            onClick={() => changeTab('past')}
           >
             Past Records
           </div>
-        </div>
+        </ScrollableTabs>
 
         <FilterPopover activeCount={activeFilterCount} onOpen={openFilter} onReset={resetFilter} onApply={applyFilter} isMobile={isMobile}>
           <DateRangeHeader>
@@ -150,7 +135,7 @@ export default function ServiceRequests() {
           <label style={filterStyles.filterLabel}>Request Type</label>
           <select value={draftType} onChange={e => setDraftType(e.target.value)} style={filterStyles.filterSelect}>
             <option value="">All Types</option>
-            {ALL_SERVICE_TYPES.map(t => (
+            {VET_TYPES.map(t => (
               <option key={t} value={t}>{serviceTypeLabel(t)}</option>
             ))}
           </select>
@@ -378,7 +363,7 @@ function Pagination({
 }
 
 function RequestModal({ onClose, onSuccess, isMobile, initialServiceType, farmId }) {
-  const [serviceType, setServiceType] = useState(initialServiceType || '')
+  const [serviceType, setServiceType] = useState(REQUESTABLE_TYPES.includes(initialServiceType) ? initialServiceType : '')
   const [notes, setNotes] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -387,7 +372,7 @@ function RequestModal({ onClose, onSuccess, isMobile, initialServiceType, farmId
     e.preventDefault()
     setError('')
 
-    if (!serviceType) {
+    if (!REQUESTABLE_TYPES.includes(serviceType)) {
       setError('Please select a service type.')
       return
     }
@@ -433,7 +418,7 @@ function RequestModal({ onClose, onSuccess, isMobile, initialServiceType, farmId
           />
 
           <p style={modalStyles.hint}>
-            Farm biosecurity and blood test requests will be forwarded to the Municipal Veterinarian. Odor control and fly control requests will be reviewed by LGU Staff.
+            Farm biosecurity and blood test requests will be forwarded to the Municipal Veterinarian. Submit odor and fly control documents through Manure Management.
           </p>
 
           <div style={{ ...modalStyles.actions, ...(isMobile ? modalStyles.actionsMobile : {}) }}>
@@ -469,7 +454,7 @@ const styles = {
   titleMobile: { fontSize: '21px' },
   subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px' },
   newBtn: {
-    backgroundColor: '#2c8047', color: 'white', border: 'none', borderRadius: '10px',
+    backgroundColor: GREEN.primary, color: 'white', border: 'none', borderRadius: '10px',
     padding: '0 18px', height: '40px', fontSize: '14px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
   },
   newBtnMobile: { width: '100%', boxSizing: 'border-box' },
@@ -480,7 +465,7 @@ const styles = {
   // sideways instead of scrolling inside itself.
   tabs: { display: 'flex', gap: '4px', marginBottom: '18px', borderBottom: '1px solid #e7e8e0', overflowX: 'auto', minWidth: 0, flexWrap: 'nowrap', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', },
   tab: { padding: '10px 16px', fontSize: '14px', fontWeight: 600, color: '#6b7770', cursor: 'pointer', borderBottom: '2px solid transparent', whiteSpace: 'nowrap', flexShrink: 0, },
-  tabActive: { color: '#2c8047', fontWeight: 700, borderBottom: '2px solid #2c8047' },
+  tabActive: { color: GREEN.primary, fontWeight: 700, borderBottom: '2px solid var(--agb-green)' },
 
   empty: { padding: '40px', textAlign: 'center', color: '#9aa79d', fontSize: '14px' },
   listCard: { backgroundColor: 'white', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden' },
@@ -547,7 +532,7 @@ const paginationStyles = {
     fontSize: '12.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
   },
   pageBtnActive: {
-    backgroundColor: '#2c8047', borderColor: '#2c8047', color: 'white',
+    backgroundColor: GREEN.primary, borderColor: GREEN.primary, color: 'white',
   },
   ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
 }
@@ -581,7 +566,7 @@ const modalStyles = {
   },
   submitBtn: {
     padding: '11px 18px', borderRadius: '10px', border: 'none',
-    backgroundColor: '#2c8047', color: 'white', fontSize: '14px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
+    backgroundColor: GREEN.primary, color: 'white', fontSize: '14px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
   },
   btnDisabled: { opacity: 0.6, cursor: 'not-allowed' },
 }

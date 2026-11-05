@@ -168,9 +168,10 @@ const FarmLocationMap = forwardRef(function FarmLocationMap(
 
     if (hasInitial) addOrMoveMarker(initialPosition.lat, initialPosition.lng)
 
-    setTimeout(() => map.invalidateSize(), 200)
+    const sizeTimer = setTimeout(() => map.invalidateSize(), 200)
 
     return () => {
+      clearTimeout(sizeTimer)
       map.remove()
       mapRef.current = null
       markerRef.current = null

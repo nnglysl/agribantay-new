@@ -172,6 +172,10 @@ class GeneratedReportPeriodScopeTest extends TestCase
             'farm_id' => $farm->id,
             'service_type' => 'Odor Control Request',
             'status' => $status,
+            // The existing report period rule uses the visit date for
+            // Scheduled requests. Give that fixture its intended in-period
+            // schedule instead of leaving it null and outside every period.
+            'scheduled_at' => $status === 'Scheduled' ? $createdAt : null,
             'completed_at' => $status === 'Completed' ? $createdAt : null,
         ]);
 

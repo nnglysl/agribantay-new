@@ -1,10 +1,11 @@
+import { GREEN } from '../theme/green'
 import DropdownList from './DropdownList'
 import { useRef, useState, useEffect } from 'react'
 import { useSelectedFarm } from '../hooks/useSelectedFarm'
 
-const STATUS_COLOR = { Safe: '#2c8047', Warning: '#b45309', Critical: '#b91c1c', 'Pending Setup': '#6b7280' }
+const STATUS_COLOR = { Safe: GREEN.primary, Warning: '#b45309', Critical: '#b91c1c', 'Pending Setup': '#6b7280' }
 
-function FarmIcon({ color = '#2c8047', size = 15 }) {
+function FarmIcon({ color = GREEN.primary, size = 15 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
       <path d="M3 21V9l9-6 9 6v12h-6v-7H9v7H3z" />
@@ -32,6 +33,8 @@ function ChevronIcon({ color = '#9aa79d' }) {
 export default function FarmSelector({ inline = false, align = 'left' }) {
   const { farms, selectedFarm, selectedFarmId, setSelectedFarmId } = useSelectedFarm()
   const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [activeIndex, setActiveIndex] = useState(-1)
   const wrapRef = useRef(null)
 
   useEffect(() => {
@@ -46,33 +49,38 @@ export default function FarmSelector({ inline = false, align = 'left' }) {
   if (farms.length === 0 || !selectedFarm) return null
 
   const isSingleFarm = farms.length === 1
+  const matches = farms.filter(farm => !query.trim() || [farm.farm_name, farm.barangay, farm.address].some(value => String(value || '').toLowerCase().includes(query.trim().toLowerCase())))
+  const selectFarm = farm => { setSelectedFarmId(farm.id); setQuery(''); setOpen(false); setActiveIndex(-1) }
+  const keyDown = event => {
+    if (event.key === 'Escape') { setOpen(false); return }
+    if (event.key === 'ArrowDown') { event.preventDefault(); setOpen(true); setActiveIndex(index => Math.min(index + 1, matches.length - 1)); return }
+    if (event.key === 'ArrowUp') { event.preventDefault(); setActiveIndex(index => Math.max(0, index - 1)); return }
+    if (event.key === 'Enter' && open && matches[activeIndex]) { event.preventDefault(); selectFarm(matches[activeIndex]) }
+  }
 
   return (
     <div className="agb-farm-selector" ref={wrapRef} style={{ ...styles.wrap, ...(inline ? styles.wrapInline : {}) }}>
-      <button className="agb-dropdown-trigger" aria-expanded={open && !isSingleFarm} aria-disabled={isSingleFarm} title={selectedFarm.farm_name}
-        type="button"
-        style={{ ...styles.trigger, ...(isSingleFarm ? styles.triggerStatic : {}) }}
-        onClick={() => !isSingleFarm && setOpen(v => !v)}
-      >
+      <div className="agb-dropdown-trigger" style={{ ...styles.trigger, ...(isSingleFarm ? styles.triggerStatic : {}) }}>
         <span style={styles.iconChip}><FarmIcon /></span>
-        <span className="agb-dropdown-current-name" style={styles.label}>{selectedFarm.farm_name}</span>
+        <input aria-label="Select a farm" role="combobox" aria-expanded={open && !isSingleFarm} aria-controls="farm-selector-list" aria-autocomplete="list" value={open ? query : selectedFarm.farm_name} readOnly={isSingleFarm} onFocus={() => !isSingleFarm && (setQuery(''), setOpen(true))} onChange={event => { setQuery(event.target.value); setOpen(true); setActiveIndex(-1) }} onKeyDown={keyDown} style={styles.input} />
         {!isSingleFarm && (
           <span style={{ ...styles.chevronWrap, transform: open ? 'rotate(180deg)' : 'none' }}>
             <ChevronIcon />
           </span>
         )}
-      </button>
+      </div>
 
       {open && !isSingleFarm && (
-        <DropdownList role="group" aria-label="Farm choices" className="agb-farm-selector-list" style={{ ...styles.dropdown, ...(align === 'right' ? styles.dropdownRight : {}) }}>
-          {farms.map(f => {
+        <DropdownList id="farm-selector-list" role="listbox" aria-label="Farm choices" className="agb-farm-selector-list" style={{ ...styles.dropdown, ...(align === 'right' ? styles.dropdownRight : {}) }}>
+          {matches.length ? matches.map((f, index) => {
             const active = f.id === selectedFarmId
             const color = STATUS_COLOR[f.status] || '#9aa79d'
             return (
-              <button className="agb-dropdown-option" type="button" aria-current={active ? 'true' : undefined}
+              <button className="agb-dropdown-option" type="button" role="option" aria-selected={active} aria-current={active ? 'true' : undefined}
                 key={f.id}
-                style={{ ...styles.option, ...(active ? styles.optionActive : {}) }}
-                onClick={() => { setSelectedFarmId(f.id); setOpen(false) }}
+                style={{ ...styles.option, ...(active || index === activeIndex ? styles.optionActive : {}) }}
+                onMouseDown={event => event.preventDefault()}
+                onClick={() => selectFarm(f)}
               >
                 <span style={styles.iconChip}><FarmIcon /></span>
                 <div style={{ minWidth: 0, flex: 1 }}>
@@ -83,7 +91,7 @@ export default function FarmSelector({ inline = false, align = 'left' }) {
                 {active && <span style={styles.check}>✓</span>}
               </button>
             )
-          })}
+          }) : <p style={styles.empty}>No matching farms found</p>}
         </DropdownList>
       )}
     </div>
@@ -104,10 +112,10 @@ const styles = {
   triggerStatic: { cursor: 'default' },
 
   iconChip: {
-    width: '28px', height: '28px', borderRadius: '9px', backgroundColor: '#eaf3ec',
+    width: '28px', height: '28px', borderRadius: '9px', backgroundColor: GREEN.soft,
     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
-  label: { fontSize: '13.5px', fontWeight: 700, color: '#16311d', whiteSpace: 'nowrap' },
+  input: { minWidth: 0, width: '175px', border: 0, outline: 0, background: 'transparent', font: "700 13.5px 'Inter', sans-serif", color: '#16311d' },
   chevronWrap: { display: 'flex', alignItems: 'center', marginLeft: '2px', transition: 'transform .15s ease' },
 
   dropdown: {
@@ -123,5 +131,6 @@ const styles = {
   optionName: { fontSize: '13px', fontWeight: 700, color: '#16311d', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   optionBarangay: { fontSize: '11.5px', color: '#8a968d', marginTop: '1px' },
   statusDot: { width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0 },
-  check: { fontSize: '12px', fontWeight: 700, color: '#2c8047', flexShrink: 0 },
+  check: { fontSize: '12px', fontWeight: 700, color: GREEN.primary, flexShrink: 0 },
+  empty: { padding: '10px 9px', margin: 0, fontSize: '13px', color: '#718075' },
 }

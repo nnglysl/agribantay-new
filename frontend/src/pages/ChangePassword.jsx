@@ -1,3 +1,4 @@
+import { GREEN } from '../theme/green'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api/axios'
@@ -223,7 +224,7 @@ const styles = {
     marginTop: '2px',
   },
   submitBtn: {
-    backgroundColor: '#2E7D32',
+    backgroundColor: GREEN.primary,
     color: 'white',
     border: 'none',
     borderRadius: '8px',

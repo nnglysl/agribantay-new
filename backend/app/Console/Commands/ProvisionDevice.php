@@ -4,27 +4,6 @@ namespace App\Console\Commands;
 
 use App\Models\Sensor;
 use Illuminate\Console\Command;
-
-/**
- * Mints a Device Key for a physical IoT unit BEFORE it is registered in
- * AgriBantay and turned over to the LGU.
- *
- *   php artisan agribantay:provision-device "AGB-D01" --imei=863110088686244 --sim=09204273382
- *
- * Why a command and not an HTTP endpoint: provisioning happens a handful of
- * times, by the developer, before any device exists in the system. Requiring
- * shell access makes it inherently developer-only — no route to authorize, no
- * web surface to get wrong.
- *
- * The key is printed, NOT saved. Nothing is written to the database here. The
- * sensors row is created later, when the Super Admin registers the device with
- * this key. Until then the only copies are the developer's inventory record
- * and the Arduino firmware — losing both means re-provisioning and re-flashing.
- *
- * --imei and --sim are printed for the inventory record only. There are no
- * columns for them, nothing is stored, and the backend never verifies them
- * against the hardware.
- */
 class ProvisionDevice extends Command
 {
     protected $signature = 'agribantay:provision-device

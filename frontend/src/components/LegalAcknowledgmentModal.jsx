@@ -1,3 +1,4 @@
+import { GREEN } from '../theme/green'
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 
@@ -114,8 +115,8 @@ export default function LegalAcknowledgmentModal({ onAgree, onCancel, loading })
             <span
               style={{
                 ...styles.checkbox,
-                background: checked ? '#1f5a34' : '#fff',
-                borderColor: checked ? '#1f5a34' : '#c4cabd',
+                background: checked ? GREEN.hover : '#fff',
+                borderColor: checked ? GREEN.hover : '#c4cabd',
               }}
             >
               {checked && <CheckIcon />}
@@ -167,7 +168,7 @@ function Spinner() {
     <svg width="15" height="15" viewBox="0 0 24 24" style={{ animation: 'agb-legal-spin 0.7s linear infinite' }}>
       <style>{`@keyframes agb-legal-spin { to { transform: rotate(360deg); } }`}</style>
       <circle cx="12" cy="12" r="9" fill="none" stroke="rgba(31,90,52,0.25)" strokeWidth="3" />
-      <path d="M21 12a9 9 0 0 0-9-9" fill="none" stroke="#1f5a34" strokeWidth="3" strokeLinecap="round" />
+      <path d="M21 12a9 9 0 0 0-9-9" fill="none" stroke={GREEN.hover} strokeWidth="3" strokeLinecap="round" />
     </svg>
   )
 }
@@ -194,7 +195,7 @@ const styles = {
     color: '#8a968d', cursor: 'pointer', fontFamily: SANS,
     textDecoration: 'none', borderBottom: '1px solid transparent',
   },
-  tabActive: { color: '#1f5a34', textDecoration: 'underline', textUnderlineOffset: '4px', borderBottomColor: 'transparent' },
+  tabActive: { color: GREEN.hover, textDecoration: 'underline', textUnderlineOffset: '4px', borderBottomColor: 'transparent' },
 
   docArea: {
     flex: 1, overflowY: 'auto', padding: '20px 28px', minHeight: '220px',
@@ -227,7 +228,7 @@ const styles = {
     fontFamily: SANS, transition: 'border-color .15s ease, color .15s ease',
   },
   primaryBtnActive: {
-    borderColor: '#1f5a34', color: '#1f5a34',
+    borderColor: GREEN.hover, color: GREEN.hover,
   },
   loadingRow: { display: 'inline-flex', alignItems: 'center', gap: '9px', justifyContent: 'center' },
 }

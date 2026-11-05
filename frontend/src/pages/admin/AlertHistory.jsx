@@ -1,3 +1,5 @@
+import { GREEN } from '../../theme/green'
+import { useTableFetch } from '../../hooks/useTableFetch'
 import DropdownList from '../../components/DropdownList'
 import TableScroll from '../../components/TableScroll'
 import { useState, useEffect, useMemo, useRef } from 'react'
@@ -108,7 +110,7 @@ export default function AlertHistory() {
   const debouncedSearch = useDebouncedValue(search)
   if (debouncedSearch) params.search = debouncedSearch
 
-  const { data: history, loading, error } = useCachedFetch('/admin/alert-history', params, { pollMs: LIVE_POLL_MS })
+  const { data: history, loading, error } = useTableFetch('/admin/alert-history', { ...params, sort: sortMode }, currentPage, pageSize, setCurrentPage, { pollMs: LIVE_POLL_MS })
 
   // Populates the House filter. Every registered unit, not just the ones that
   // happen to appear in the current page of results — filtering to a quiet
@@ -156,37 +158,10 @@ export default function AlertHistory() {
   const severityColor = { Warning: '#b45309', Critical: '#b91c1c' }
   const severityBg = { Warning: '#fbf1e2', Critical: '#fbeaea' }
 
-  const rawHistory = history || []
-
-  // Sorted on triggered_at_raw, the ISO instant the API now sends alongside
-  // the display string. The display string ("Jul 21, 2026 8:23 AM") must
-  // never be parsed for this: `new Date()` handles that shape
-  // inconsistently across browsers and can yield NaN, which turns a sort
-  // into a silent no-op. Reversing the list used to stand in for sorting;
-  // that only held while the backend order was the single source of
-  // truth, and broke as soon as anything else reordered the rows.
-  const allHistory = useMemo(() => {
-    const at = row => {
-      const ms = Date.parse(row.triggered_at_raw)
-      return Number.isNaN(ms) ? 0 : ms
-    }
-    const dir = sortMode === 'oldest' ? 1 : -1
-    return [...rawHistory].sort((a, b) => (at(a) - at(b)) * dir)
-  }, [rawHistory, sortMode])
-
-  useEffect(() => { setCurrentPage(1) }, [severityFilter, sensorFilter, houseFilter, farmFilter, barangayFilter, statusFilter, sortMode, search, pageSize])
-
-  const totalItems = allHistory.length
-  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
-
-  useEffect(() => {
-    if (currentPage > totalPages) setCurrentPage(totalPages)
-  }, [totalPages, currentPage])
-
-  const paginatedHistory = useMemo(() => {
-    const start = (currentPage - 1) * pageSize
-    return allHistory.slice(start, start + pageSize)
-  }, [allHistory, currentPage, pageSize])
+  const paginatedHistory = history?.items || []
+  const allHistory = paginatedHistory
+  const totalItems = history?.total || 0
+  const totalPages = history?.last_page || 1
 
   const rangeStart = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1
   const rangeEnd = Math.min(currentPage * pageSize, totalItems)
@@ -387,7 +362,7 @@ export default function AlertHistory() {
                         {h.is_ongoing ? (
                           <span style={{ ...styles.badge, color: '#b91c1c', backgroundColor: '#fbeaea' }}>Ongoing</span>
                         ) : (
-                          <span style={{ ...styles.badge, color: '#256b3d', backgroundColor: '#eaf3ec' }}>Resolved</span>
+                          <span style={{ ...styles.badge, color: GREEN.hover, backgroundColor: GREEN.soft }}>Resolved</span>
                         )}
                       </td>
                     </tr>
@@ -478,10 +453,10 @@ const styles = {
     borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff',
     color: '#33413a', fontSize: '13.5px', fontWeight: 600, cursor: 'pointer', fontFamily: SANS, whiteSpace: 'nowrap',
   },
-  filterBtnActive: { borderColor: '#2c8047', color: '#2c8047' },
+  filterBtnActive: { borderColor: GREEN.primary, color: GREEN.primary },
   filterCount: {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: '#2c8047',
+    minWidth: '18px', height: '18px', borderRadius: '999px', backgroundColor: GREEN.primary,
     color: '#fff', fontSize: '11px', fontWeight: 700, padding: '0 4px',
   },
   filterPanel: {
@@ -511,7 +486,7 @@ const styles = {
     border: '1px solid #cfe0d3', backgroundColor: '#f6faf7', borderRadius: '10px', padding: '9px 12px',
   },
   pickedFarmName: { fontSize: '13px', fontWeight: 700, color: '#16311d', fontFamily: SANS },
-  clearFarmLink: { color: '#2c8047', fontWeight: 700, fontSize: '12px', cursor: 'pointer', textDecoration: 'underline', flexShrink: 0, fontFamily: SANS },
+  clearFarmLink: { color: GREEN.primary, fontWeight: 700, fontSize: '12px', cursor: 'pointer', textDecoration: 'underline', flexShrink: 0, fontFamily: SANS },
 
   filterActions: { display: 'flex', gap: '10px', marginTop: '20px' },
   filterResetBtn: {
@@ -520,7 +495,7 @@ const styles = {
   },
   filterApplyBtn: {
     flex: 1, padding: '9px 0', borderRadius: '10px', border: 'none',
-    backgroundColor: '#2c8047', color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
+    backgroundColor: GREEN.primary, color: '#fff', fontSize: '13.5px', fontWeight: 700, cursor: 'pointer', fontFamily: SANS,
   },
 
   tableCard: { backgroundColor: '#fff', borderRadius: '14px', border: '1px solid #e7e8e0', overflow: 'hidden' },
@@ -555,6 +530,6 @@ const paginationStyles = {
   navBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '13px', cursor: 'pointer' },
   navBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
   pageBtn: { minWidth: '30px', height: '30px', padding: '0 6px', borderRadius: '8px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#4b5a50', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' },
-  pageBtnActive: { backgroundColor: '#2c8047', borderColor: '#2c8047', color: '#fff' },
+  pageBtnActive: { backgroundColor: GREEN.primary, borderColor: GREEN.primary, color: '#fff' },
   ellipsis: { padding: '0 4px', color: '#9aa79d', fontSize: '13px' },
 }

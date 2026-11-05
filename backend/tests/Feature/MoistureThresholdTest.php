@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\ActivityLog;
 use App\Models\Farm;
 use App\Models\Sensor;
 use App\Models\SensorReading;
@@ -282,12 +283,22 @@ class MoistureThresholdTest extends TestCase
     {
         $n = Str::upper(Str::random(5));
 
-        return Sensor::create([
+        $device = Sensor::create([
             'farm_id'    => $farm->id,
             'device_key' => "AGB-M{$n}-" . Str::upper(Str::random(5)),
             'label'      => "AGB-M{$n}",
             'status'     => 'Active',
         ]);
+        // A bare farm_id is deliberately insufficient after Phase 1. Supply
+        // a verified legacy visit before these synthetic ingestion samples.
+        ActivityLog::forceCreate([
+            'user_id' => User::where('role', 'admin')->firstOrFail()->id,
+            'role' => 'admin', 'type' => 'Farm', 'action' => 'Assigned Sensor',
+            'details' => "Assigned device {$device->device_name} to {$farm->farm_name}",
+            'created_at' => now()->subSecond(), 'updated_at' => now()->subSecond(),
+        ]);
+
+        return $device;
     }
 
     /**

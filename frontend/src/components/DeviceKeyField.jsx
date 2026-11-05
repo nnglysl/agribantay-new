@@ -12,10 +12,11 @@ const PRIVILEGED_ROLES = ['admin', 'super_admin']
 
 const MASK = '•'.repeat(16)
 
-export default function DeviceKeyField({ deviceKey, label = 'Device Key', style }) {
+export default function DeviceKeyField({ deviceKey, label = 'Device Key', style, variant = 'inline' }) {
   const [revealed, setRevealed] = useState(false)
   const [copied, setCopied] = useState(false)
   const canReveal = PRIVILEGED_ROLES.includes(getRole())
+  const details = variant === 'details'
 
   if (!deviceKey) return null
 
@@ -33,31 +34,41 @@ export default function DeviceKeyField({ deviceKey, label = 'Device Key', style 
   }
 
   return (
-    <div style={{ ...styles.wrap, ...style }}>
+    <div className={details ? 'device-key-details' : undefined} style={{ ...(!details ? styles.wrap : {}), ...style }} role={details ? 'group' : undefined} aria-label={details ? 'Device Key' : undefined}>
       {label && <span style={styles.label}>{label}:</span>}
-      <span style={styles.value}>{revealed ? deviceKey : MASK}</span>
+      <span className={details ? 'device-key-details-value' : undefined} style={details ? undefined : styles.value}>{revealed ? deviceKey : MASK}</span>
       {canReveal && (
         <>
           <button
             type="button"
-            style={styles.btn}
+            className={details ? 'device-key-details-control' : undefined}
+            style={details ? undefined : styles.btn}
             onClick={() => setRevealed(v => !v)}
             aria-label={revealed ? 'Hide Device Key' : 'Show Device Key'}
           >
+            {details && <KeyControlIcon name={revealed ? 'hide' : 'show'} />}
             {revealed ? 'Hide' : 'Show'}
           </button>
           <button
             type="button"
-            style={styles.btn}
+            className={details ? 'device-key-details-control' : undefined}
+            style={details ? undefined : styles.btn}
             onClick={handleCopy}
             aria-label="Copy Device Key"
           >
+            {details && <KeyControlIcon name="copy" />}
             {copied ? 'Copied' : 'Copy'}
           </button>
         </>
       )}
     </div>
   )
+}
+
+function KeyControlIcon({ name }) {
+  return <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+    {name === 'copy' ? <><rect x="8" y="8" width="12" height="13" rx="1.5" /><path d="M16 8V3H4v14h4" /></> : <><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" />{name === 'hide' && <path d="m3 3 18 18" />}</>}
+  </svg>
 }
 
 const SANS = "'Inter', sans-serif"

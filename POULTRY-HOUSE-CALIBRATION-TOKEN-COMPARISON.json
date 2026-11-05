@@ -1,0 +1,8 @@
+{
+    "kind": "CALIBRATION_EXECUTABLE_TOKEN_COMPARISON",
+    "equal_excluding_only_comments_and_whitespace": true,
+    "captured_token_sha256": "5235bc6d32841d3ff712c5ec320aa5d7f83b971f04e0aac45a0d7763766c3b12",
+    "current_token_sha256": "5235bc6d32841d3ff712c5ec320aa5d7f83b971f04e0aac45a0d7763766c3b12",
+    "tokens": 1207,
+    "source_modified": false
+}

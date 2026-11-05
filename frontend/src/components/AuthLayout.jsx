@@ -1,3 +1,4 @@
+import { GREEN } from '../theme/green'
 import { useNavigate } from 'react-router-dom'
 import { useIsMobile } from '../hooks/useIsMobile'
 import loginImg from '../assets/poultry.jpg'
@@ -32,8 +33,8 @@ export default function AuthLayout({ children, onBack, backLabel = 'Home' }) {
         }
         .agb-input:hover:not(:focus):not(:disabled) { border-color: #b7bdae; }
         .agb-input:focus {
-          border-color: #2c8047;
-          box-shadow: 0 0 0 3px rgba(44,128,71,0.14);
+          border-color: var(--agb-green);
+          box-shadow: 0 0 0 3px rgba(var(--agb-green-rgb), 0.14);
           background: #ffffff;
         }
         .agb-input:disabled { background: #f1f1ec; color: #9aa79d; cursor: not-allowed; }
@@ -41,12 +42,12 @@ export default function AuthLayout({ children, onBack, backLabel = 'Home' }) {
 
         .agb-btn { transition: transform .12s ease, background-color .15s ease, box-shadow .15s ease, opacity .15s ease; }
         .agb-btn:active:not(:disabled) { transform: translateY(1px); }
-        .agb-primary:hover:not(:disabled) { background-color: #17472a; box-shadow: 0 10px 24px -10px rgba(20,48,28,0.7); }
+        .agb-primary:hover:not(:disabled) { background-color: var(--agb-green-hover); box-shadow: 0 10px 24px -10px rgba(20,48,28,0.7); }
         .agb-primary:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; }
-        .agb-primary:focus-visible { outline: 2px solid #2c8047; outline-offset: 2px; }
+        .agb-primary:focus-visible { outline: 2px solid var(--agb-green); outline-offset: 2px; }
 
         .agb-icon-btn { transition: color .15s ease, background-color .15s ease; }
-        .agb-icon-btn:hover { color: #2c8047; background-color: #f0f4ef; }
+        .agb-icon-btn:hover { color: var(--agb-green); background-color: #f0f4ef; }
 
         .agb-link:hover { text-decoration: underline; }
       `}</style>
@@ -102,11 +103,11 @@ export const authFormStyles = {
     fontSize: '14.5px', fontFamily: SANS, color: '#1c2a20', outline: 'none', boxSizing: 'border-box',
   },
   primaryBtn: {
-    marginTop: '6px', background: '#2c8047', color: '#fff', border: 'none', borderRadius: '11px', padding: '14px',
+    marginTop: '6px', background: GREEN.primary, color: '#fff', border: 'none', borderRadius: '11px', padding: '14px',
     fontSize: '15px', fontWeight: 700, fontFamily: SANS, width: '100%', cursor: 'pointer',
   },
   linkBtn: {
-    display: 'block', textAlign: 'center', fontSize: '13.5px', fontWeight: 600, color: '#2c8047',
+    display: 'block', textAlign: 'center', fontSize: '13.5px', fontWeight: 600, color: GREEN.primary,
     background: 'none', border: 'none', cursor: 'pointer', fontFamily: SANS, marginTop: '20px', width: '100%',
   },
   methodBtn: {
@@ -117,7 +118,7 @@ export const authFormStyles = {
   },
   methodBtnSub: { fontSize: '12px', color: '#8a968d', fontWeight: 400, marginTop: '2px' },
   methodIcon: {
-    width: '40px', height: '40px', borderRadius: '10px', background: '#eaf3ec', color: '#2c8047',
+    width: '40px', height: '40px', borderRadius: '10px', background: GREEN.soft, color: GREEN.primary,
     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
 }
@@ -142,7 +143,7 @@ const styles = {
     background: '#fff', boxShadow: '0 44px 100px -44px rgba(15,38,22,0.6)',
   },
   imgCell: { position: 'relative', zIndex: 2, alignSelf: 'stretch' },
-  imgCurve: { position: 'absolute', top: 0, bottom: 0, left: 0, right: '-22px', background: 'linear-gradient(160deg, #35935a, #1f5a34)' },
+  imgCurve: { position: 'absolute', top: 0, bottom: 0, left: 0, right: '-22px', background: 'linear-gradient(160deg, var(--agb-green), var(--agb-green-hover))' },
   imgClip: { position: 'absolute', inset: 0, overflow: 'hidden', background: '#14301c' },
   artImg: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
   formCell: { position: 'relative', zIndex: 1, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' },

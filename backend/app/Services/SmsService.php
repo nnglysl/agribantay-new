@@ -95,7 +95,10 @@ class SmsService
                 'user_id' => $userId,
                 'farm_id' => $farmId,
                 'phone_number' => $phoneNumber,
-                'message' => $logMessage ?? $message,
+                // Credential deliveries must stay out of admin-visible logs,
+                // including older callers that omit the optional safe copy.
+                'message' => $logMessage ?? (in_array($type, ['Account Creation', 'Password Reset'], true)
+                    ? 'Account credential notification sent. [credential redacted]' : $message),
                 'type' => $type,
                 'status' => $outcome === self::ACCEPTED ? 'Sent' : 'Failed',
                 'message_id' => $referenceId,

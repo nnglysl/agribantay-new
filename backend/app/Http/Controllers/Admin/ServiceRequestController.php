@@ -18,10 +18,10 @@ use App\Support\HandledByFilter;
 
 class ServiceRequestController extends Controller
 {
-    // Vaccine and blood test requests are handled exclusively through
-    // the Vet's own module for regular Admins — excluded from their view
+    // Vet requests are handled exclusively through the Vet's own module
+    // for regular Admins — excluded from their view
     // so the same request can't be actioned from two different places.
-    // Super Admin is exempt from this restriction and sees every type.
+    // Super Admin is exempt and oversees operational service types.
     private const VET_ONLY_TYPES = ServiceTypes::VET;
 
     private function isSuperAdmin(): bool
@@ -29,15 +29,6 @@ class ServiceRequestController extends Controller
         return Auth::user()?->role === 'super_admin';
     }
 
-    /**
-     * Ownership rule: the Staff member who accepted a request is responsible
-     * for it, and only they may complete, reschedule, cancel or undo it.
-     *
-     * Super Admin override: the existing route guard already admits
-     * super_admin to every Staff endpoint and isSuperAdmin() already exempts
-     * them from the vet-only guard, so the same role is allowed past this
-     * check. The Super Admin UI stays view-only; the override is API-level.
-     */
     private function guardOwnership(ServiceRequest $sr): ?\Illuminate\Http\JsonResponse
     {
         if ($this->isSuperAdmin() || (int) $sr->accepted_by === (int) Auth::id()) {
@@ -52,12 +43,6 @@ class ServiceRequestController extends Controller
         ], 403);
     }
 
-    /**
-     * The modals submit a Philippine wall-clock time with no timezone. Parsed
-     * on the application clock (UTC) it was stored as-is, so "09:00" came back
-     * as 5:00 PM. Interpreted in the office timezone and stored as the UTC
-     * instant. Eloquent does not convert a zoned Carbon on save, hence ->utc().
-     */
     private function localToUtc(string $value): Carbon
     {
         return Carbon::parse($value, LocalTime::timezone())->utc();
@@ -65,7 +50,8 @@ class ServiceRequestController extends Controller
 
     public function index(Request $request)
     {
-        $query = ServiceRequest::with(['farm', 'requestedBy', 'acceptedBy', 'attachments.uploader']);
+        \App\Support\TableQuery::validate($request);
+        $query = ServiceRequest::operational()->with(['farm', 'requestedBy', 'acceptedBy', 'attachments.uploader']);
 
         if (!$this->isSuperAdmin()) {
             $query->whereNotIn('service_type', self::VET_ONLY_TYPES);
@@ -79,7 +65,6 @@ class ServiceRequestController extends Controller
             $query->where('service_type', $request->service_type);
         }
 
-        // handled_by=all|mine|unassigned|others — see HandledByFilter.
         HandledByFilter::apply($query, $request->handled_by, (int) Auth::id());
 
         // Oldest first (default) or newest first — the only two sort
@@ -90,7 +75,8 @@ class ServiceRequestController extends Controller
             $query->oldest();
         }
 
-        $requests = $query->get()->map(fn($r) => [
+        \App\Support\TableFilters::requests($query, $request);
+        $requests = \App\Support\TableQuery::rows($query, $request)->map(fn($r) => [
             'id'              => $r->id,
             'request_number'  => $r->request_number,
             'farm_name'       => $r->farm->farm_name,
@@ -99,6 +85,7 @@ class ServiceRequestController extends Controller
             'accepted_by'     => $r->acceptedBy ? $r->acceptedBy->first_name . ' ' . $r->acceptedBy->last_name : null,
             'accepted_by_id'  => $r->accepted_by,
             'service_type'    => $r->service_type,
+            'is_retired'      => ServiceTypes::isRetired($r->service_type),
             'barangay'        => $r->farm->barangay,
             'farm_size'       => $r->farm->farm_size,
             'notes'           => $r->notes,
@@ -114,7 +101,7 @@ class ServiceRequestController extends Controller
             'created_at'      => $r->created_at,
         ]);
 
-        return response()->json(['success' => true, 'data' => $requests]);
+        return response()->json(['success' => true, 'data' => \App\Support\TableQuery::payload($request, $requests)]);
     }
 
     private function notifyRequester(ServiceRequest $sr, string $title, string $message): void
@@ -138,6 +125,10 @@ class ServiceRequestController extends Controller
 
     private function guardAgainstVetOnly(ServiceRequest $sr): ?\Illuminate\Http\JsonResponse
     {
+        if (ServiceTypes::isRetired($sr->service_type)) {
+            return response()->json(['success' => false,
+                'message' => 'Odor/Fly service requests are retired historical records and cannot be changed. Use farm Control Documents.'], 409);
+        }
         if ($this->isSuperAdmin()) {
             return null;
         }
@@ -159,12 +150,6 @@ class ServiceRequestController extends Controller
         ]);
 
         $scheduledAtUtc = $this->localToUtc($request->scheduled_at);
-
-        // Acceptance is first-come, first-served and must be decided atomically.
-        // The row is read under an exclusive lock, so two Staff members pressing
-        // Accept at the same instant are serialised: the second one sees the
-        // status the first one just wrote. A locking read always returns the
-        // latest committed row, so this does not depend on isolation level.
         $result = DB::transaction(function () use ($id, $request, $scheduledAtUtc) {
             $sr = ServiceRequest::with('acceptedBy')->lockForUpdate()->findOrFail($id);
 

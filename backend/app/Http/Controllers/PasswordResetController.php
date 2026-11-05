@@ -2,12 +2,13 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\User;
-use App\Models\PasswordResetOtp;
-use App\Models\ActivityLog;
-use App\Services\SmsService;
 use App\Mail\OtpCodeMail;
+use App\Models\ActivityLog;
+use App\Models\PasswordResetOtp;
+use App\Models\User;
+use App\Services\SmsService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
@@ -15,7 +16,7 @@ use Illuminate\Support\Str;
 /**
  * OTP-based password reset — replaces the old single-step
  * AuthController::forgotPassword() flow (temp password sent directly).
- * That method is left untouched for now; this is a separate, newer flow.
+ * The old single-step endpoint is retired; it cannot change credentials.
  *
  * Three steps, three endpoints:
  *   1. requestOtp  — user picks a channel + enters matching contact info,
@@ -30,12 +31,13 @@ use Illuminate\Support\Str;
 class PasswordResetController extends Controller
 {
     private const OTP_TTL_MINUTES = 10;
+
     private const RESET_TOKEN_TTL_MINUTES = 15;
 
     public function requestOtp(Request $request)
     {
         $request->validate([
-            'login'   => 'required|string',
+            'login' => 'required|string',
             'channel' => 'required|in:email,sms',
         ]);
 
@@ -50,26 +52,31 @@ class PasswordResetController extends Controller
                 : 'If an account exists for that mobile number, a verification code has been sent.',
         ];
 
-        if (!$user || $user->status === 'inactive') {
+        if (! $user || $user->status !== 'active') {
             return response()->json($generic);
         }
 
         // Invalidate any earlier unconsumed codes for this user+channel so
         // only the most recent one is ever valid — supports "resend" by
         // simply calling this endpoint again.
-        PasswordResetOtp::where('user_id', $user->id)
-            ->where('channel', $request->channel)
-            ->whereNull('consumed_at')
-            ->update(['expires_at' => now()]);
-
         $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        $created = DB::transaction(function () use ($request, $user, $code) {
+            $current = User::whereKey($user->id)->lockForUpdate()->first();
+            if (! $current || $current->status !== 'active') {
+                return false;
+            }
+            PasswordResetOtp::where('user_id', $user->id)->where('channel', $request->channel)
+                ->whereNull('consumed_at')->update(['expires_at' => now()]);
+            PasswordResetOtp::create([
+                'user_id' => $user->id, 'channel' => $request->channel,
+                'code_hash' => Hash::make($code), 'expires_at' => now()->addMinutes(self::OTP_TTL_MINUTES),
+            ]);
 
-        PasswordResetOtp::create([
-            'user_id'    => $user->id,
-            'channel'    => $request->channel,
-            'code_hash'  => Hash::make($code),
-            'expires_at' => now()->addMinutes(self::OTP_TTL_MINUTES),
-        ]);
+            return true;
+        });
+        if (! $created) {
+            return response()->json($generic);
+        }
 
         if ($request->channel === 'email') {
             try {
@@ -79,15 +86,16 @@ class PasswordResetController extends Controller
             }
         } else {
             $smsMessage = "AgriBantay password reset code: {$code}. This code expires in 10 minutes. Do not share it with anyone.";
-            app(SmsService::class)->send($user->mobile_number, $smsMessage, 'Password Reset', $user->id);
+            app(SmsService::class)->send($user->mobile_number, $smsMessage, 'Password Reset', $user->id, null,
+                'Password reset verification code sent. [code redacted]');
         }
 
         ActivityLog::create([
             'user_id' => $user->id,
-            'role'    => $user->role,
-            'action'  => 'Password Reset Code Requested',
+            'role' => $user->role,
+            'action' => 'Password Reset Code Requested',
             'details' => "OTP requested via {$request->channel} ({$user->first_name} {$user->last_name})",
-            'type'    => 'Account',
+            'type' => 'Account',
         ]);
 
         return response()->json($generic);
@@ -96,9 +104,9 @@ class PasswordResetController extends Controller
     public function verifyOtp(Request $request)
     {
         $request->validate([
-            'login'   => 'required|string',
+            'login' => 'required|string',
             'channel' => 'required|in:email,sms',
-            'code'    => 'required|string|size:6',
+            'code' => 'required|string|size:6',
         ]);
 
         $user = $request->channel === 'email'
@@ -110,40 +118,48 @@ class PasswordResetController extends Controller
             'message' => 'Invalid or expired code. Please try again or request a new one.',
         ], 422);
 
-        if (!$user) {
+        if (! $user || $user->status !== 'active') {
             return $invalid;
         }
 
-        $otp = PasswordResetOtp::where('user_id', $user->id)
-            ->where('channel', $request->channel)
-            ->whereNull('consumed_at')
-            ->whereNull('verified_at')
-            ->where('expires_at', '>', now())
-            ->latest()
-            ->first();
+        return DB::transaction(function () use ($request, $user, $invalid) {
+            // All recovery operations take the account lock before OTP rows.
+            $current = User::whereKey($user->id)->lockForUpdate()->first();
+            if (! $current || $current->status !== 'active') {
+                return $invalid;
+            }
+            $otp = PasswordResetOtp::where('user_id', $user->id)
+                ->where('channel', $request->channel)
+                ->whereNull('consumed_at')
+                ->whereNull('verified_at')
+                ->where('expires_at', '>', now())
+                ->latest()
+                ->lockForUpdate()
+                ->first();
 
-        if (!$otp || !Hash::check($request->code, $otp->code_hash)) {
-            return $invalid;
-        }
+            if (! $otp || ! Hash::check($request->code, $otp->code_hash)) {
+                return $invalid;
+            }
 
-        $resetToken = Str::random(40);
+            $resetToken = Str::random(40);
 
-        $otp->update([
-            'verified_at'             => now(),
-            'reset_token'             => $resetToken,
-            'reset_token_expires_at'  => now()->addMinutes(self::RESET_TOKEN_TTL_MINUTES),
-        ]);
+            $otp->update([
+                'verified_at' => now(),
+                'reset_token' => hash('sha256', $resetToken),
+                'reset_token_expires_at' => now()->addMinutes(self::RESET_TOKEN_TTL_MINUTES),
+            ]);
 
-        return response()->json([
-            'success'     => true,
-            'reset_token' => $resetToken,
-        ]);
+            return response()->json([
+                'success' => true,
+                'reset_token' => $resetToken,
+            ]);
+        });
     }
 
     public function resetPassword(Request $request)
     {
         $request->validate([
-            'reset_token'  => 'required|string',
+            'reset_token' => 'required|string',
             'new_password' => [
                 'required',
                 'confirmed',
@@ -157,35 +173,44 @@ class PasswordResetController extends Controller
             'new_password.regex' => 'Password must include an uppercase letter, lowercase letter, number, and special character.',
         ]);
 
-        $otp = PasswordResetOtp::where('reset_token', $request->reset_token)
-            ->whereNotNull('verified_at')
-            ->whereNull('consumed_at')
-            ->where('reset_token_expires_at', '>', now())
-            ->first();
+        $userId = PasswordResetOtp::where('reset_token', hash('sha256', $request->reset_token))->value('user_id');
 
-        if (!$otp) {
-            return response()->json([
-                'success' => false,
-                'message' => 'This reset link has expired or already been used. Please start over.',
-            ], 422);
-        }
+        return DB::transaction(function () use ($request, $userId) {
+            $user = User::whereKey($userId)->lockForUpdate()->first();
+            $otp = PasswordResetOtp::where('reset_token', hash('sha256', $request->reset_token))
+                ->where('user_id', $userId)
+                ->whereNotNull('verified_at')
+                ->whereNull('consumed_at')
+                ->where('reset_token_expires_at', '>', now())
+                ->lockForUpdate()
+                ->first();
 
-        $user = $otp->user;
-        $user->update([
-            'password'             => Hash::make($request->new_password),
-            'must_change_password' => false,
-        ]);
+            if (! $otp || ! $user || $user->status !== 'active') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This reset link has expired or already been used. Please start over.',
+                ], 422);
+            }
 
-        $otp->update(['consumed_at' => now()]);
+            $user->update([
+                'password' => Hash::make($request->new_password),
+                'must_change_password' => false,
+            ]);
 
-        ActivityLog::create([
-            'user_id' => $user->id,
-            'role'    => $user->role,
-            'action'  => 'Password Reset Completed',
-            'details' => "Password reset completed via OTP ({$user->first_name} {$user->last_name})",
-            'type'    => 'Account',
-        ]);
+            // Recovery also invalidates other outstanding channel codes/tokens.
+            PasswordResetOtp::where('user_id', $userId)->whereNull('consumed_at')->update(['consumed_at' => now()]);
+            // A recovered account must not leave an old bearer session usable.
+            $user->tokens()->update(['expires_at' => now()]);
 
-        return response()->json(['success' => true, 'message' => 'Password reset successfully.']);
+            ActivityLog::create([
+                'user_id' => $user->id,
+                'role' => $user->role,
+                'action' => 'Password Reset Completed',
+                'details' => "Password reset completed via OTP ({$user->first_name} {$user->last_name})",
+                'type' => 'Account',
+            ]);
+
+            return response()->json(['success' => true, 'message' => 'Password reset successfully.']);
+        });
     }
 }

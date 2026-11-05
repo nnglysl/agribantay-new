@@ -1,4 +1,6 @@
+import { GREEN } from '../../theme/green'
 import { useEffect, useRef, useState } from 'react'
+import FarmIcon from '../../components/farm-details/FarmIcon'
 import { useNavigate } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
 import FarmMap from '../../components/FarmMap'
@@ -14,10 +16,8 @@ export default function SuperAdminDashboard() {
   const { data: mapFarms, refetch: refetchMap } = useCachedFetch('/admin/farms-map', {}, { pollMs: BACKGROUND_POLL_MS })
   const { data: inspectionsData, refetch: refetchInspections } = useCachedFetch('/admin/inspections', {}, { pollMs: BACKGROUND_POLL_MS })
 
-  const { data: accounts, refetch: refetchAccounts } = useCachedFetch('/superadmin/accounts', {}, { pollMs: BACKGROUND_POLL_MS })
-
   // Background sync. If the numbers came from the in-memory cache (revisiting
-  // the dashboard after e.g. reactivating a Vet elsewhere), refresh them right
+  // the dashboard after viewing a farm elsewhere), refresh them right
   // away; a first load is already fresh. Then re-sync every 60s while the
   // dashboard is open. refetch() only flips isRefetching once data exists, so
   // cards update in place without a loading flash. Notifications poll on
@@ -26,7 +26,6 @@ export default function SuperAdminDashboard() {
   useEffect(() => {
     const sync = () => {
       refetchDashboard(); refetchMap(); refetchInspections()
-      refetchAccounts()
     }
     if (servedFromCache.current) sync()
     const id = setInterval(sync, 60000)
@@ -46,28 +45,28 @@ export default function SuperAdminDashboard() {
     .filter(i => i.status === 'Scheduled')
     .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
 
-  const totalAdmins = (accounts || []).filter(a => a.role === 'admin' && a.status === 'active').length
-  const totalVets = (accounts || []).filter(a => a.role === 'vet' && a.status === 'active').length
-
-  if (loading) return <AdminLayout><SkeletonStatCards count={4} minWidth={180} /><SkeletonBlock height={320} /></AdminLayout>
+  if (loading) return <AdminLayout><SkeletonStatCards count={3} columns={`repeat(${isMobile ? 2 : 3}, minmax(0, 1fr))`} /><SkeletonBlock height={320} /></AdminLayout>
   if (error) return <AdminLayout><p style={{ color: '#dc2626' }}>{error}</p></AdminLayout>
 
   return (
     <AdminLayout>
       <h1 style={{ ...styles.title, ...(isMobile ? styles.titleMobile : {}) }}>Dashboard</h1>
       <p style={styles.subtitle}>Welcome back, Super Administrator</p>
-
-      <div style={{ ...styles.statsGrid, ...(isMobile ? styles.statsGridMobile : {}) }}>
-        {/* Order matters: Total Farms → Staff → Veterinarian. Each card is
-            bound to its own value (farm count from /admin/dashboard; active
-            staff/vet counts from /superadmin/accounts).
-
-            Named the way Manage Accounts names them — the role dropdown there
-            reads "Staff" and "Veterinarian", so "Admin Accounts" was a third
-            word for a role the rest of the system calls Staff. */}
-        <StatCard value={data.total_farms} label="Total Farms" isMobile={isMobile} />
-        <StatCard value={totalAdmins} label="Staff" isMobile={isMobile} />
-        <StatCard value={totalVets} label="Veterinarian" isMobile={isMobile} />
+      <div className="superadmin-dashboard-stats" style={{ ...styles.statsGrid, ...(isMobile ? styles.statsGridMobile : {}) }}>
+        <StatCard value={data?.total_farms ?? '—'} label="Total Farms" icon="farm" isMobile={isMobile} />
+        <StatCard value={data?.monitored_farms ?? '—'} label="Monitored Farms" icon="monitor" isMobile={isMobile} />
+        <StatCard label="Annual Clean-out Compliance" icon="check" isMobile={isMobile} wideOnMobile foot={data?.cleanout_compliance?.undetermined > 0 ? `Undetermined: ${data.cleanout_compliance.undetermined}` : null}>
+          <dl style={styles.complianceCounts}>
+            <div style={styles.complianceCount}>
+              <dt style={styles.complianceLabel}>Compliant</dt>
+              <dd style={{ ...styles.statValue, ...(isMobile ? styles.statValueMobile : {}) }}>{data?.cleanout_compliance?.compliant ?? '—'}</dd>
+            </div>
+            <div style={{ ...styles.complianceCount, ...styles.complianceDivider }}>
+              <dt style={styles.complianceLabel}>Non-Compliant</dt>
+              <dd style={{ ...styles.statValue, ...(isMobile ? styles.statValueMobile : {}) }}>{data?.cleanout_compliance?.non_compliant ?? '—'}</dd>
+            </div>
+          </dl>
+        </StatCard>
       </div>
 
       <h3 style={styles.mapTitle}>Farm monitoring map</h3>
@@ -101,6 +100,7 @@ export default function SuperAdminDashboard() {
                 <div style={styles.alertTopRow}>
                   <span style={styles.alertFarm}>{f.farm_name}</span>
                   <span style={styles.critBadge}>{f.critical_count} Critical</span>
+                  {f.monitoring_assessment?.incomplete_data && <span>Incomplete Data</span>}
                 </div>
                 <div style={styles.sensorTableRow}>
                   {(f.all_sensors || []).map(s => (
@@ -189,13 +189,13 @@ function ListModal({ title, onClose, children, isMobile }) {
   )
 }
 
-function StatCard({ value, label, foot, isMobile }) {
+function StatCard({ value, label, icon, foot, isMobile, wideOnMobile, children }) {
   return (
-    <div style={{ ...styles.statCard, ...(isMobile ? styles.statCardMobile : {}) }}>
-      <div style={{ ...styles.statValue, ...(isMobile ? styles.statValueMobile : {}) }}>{value}</div>
-      <div style={{ ...styles.statLabel, ...(isMobile ? styles.statLabelMobile : {}) }}>{label}</div>
+    <section className="superadmin-dashboard-stat" aria-label={label} style={{ ...styles.statCard, ...(isMobile ? styles.statCardMobile : {}), ...(isMobile && wideOnMobile ? { gridColumn: '1 / -1' } : {}) }}>
+      <h2 style={{ ...styles.statLabel, ...(isMobile && !wideOnMobile ? { minHeight: '36px' } : {}) }}><span style={styles.statIcon}><FarmIcon name={icon} size={16} /></span><span>{label}</span></h2>
+      {children || <div className="superadmin-dashboard-stat-value" style={{ ...styles.statValue, ...(isMobile ? styles.statValueMobile : {}) }}>{value}</div>}
       {foot && <div style={styles.statFoot}>{foot}</div>}
-    </div>
+    </section>
   )
 }
 
@@ -204,26 +204,27 @@ const styles = {
   titleMobile: { fontSize: '20px' },
   subtitle: { fontSize: '13.5px', color: '#6b7770', marginTop: '5px', marginBottom: '24px' },
 
-  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '28px' },
-  // Matches Admin dashboard: 3 cards across in a single row, even on mobile.
-  statsGridMobile: { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '8px', marginBottom: '20px' },
+  // Keep these card tokens aligned with the Staff Dashboard without changing it.
+  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '16px', marginBottom: '28px' },
+  statsGridMobile: { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px', marginBottom: '20px' },
 
-  statCard: {
-    background: '#234A35', border: '1px solid #1b3a29', borderRadius: '14px', padding: '20px 22px',
-  },
-  statCardMobile: { padding: '12px 10px', borderRadius: '12px' },
-
-  statValue: { fontSize: '30px', fontWeight: 800, letterSpacing: '-0.02em', color: '#ffffff', lineHeight: 1 },
-  statValueMobile: { fontSize: '22px' },
-  statLabel: { fontSize: '13px', fontWeight: 700, color: '#eaf3ec', marginTop: '8px' },
-  statLabelMobile: { fontSize: '10.5px', marginTop: '5px', lineHeight: 1.3 },
-  statFoot: { fontSize: '12px', color: '#a9c6b3', marginTop: '3px' },
+  statCard: { fontFamily: "'Inter', sans-serif", background: GREEN.primary, border: `1px solid ${GREEN.hover}`, borderRadius: '14px', padding: '16px 20px', minWidth: 0, minHeight: '108px', display: 'flex', flexDirection: 'column', gap: '8px' },
+  statCardMobile: { padding: '14px 16px', minHeight: '104px' },
+  statValue: { fontSize: '30px', fontWeight: 800, letterSpacing: '-0.02em', color: '#ffffff', lineHeight: 1.1, margin: 0 },
+  statValueMobile: { fontSize: '24px' },
+  statLabel: { fontSize: '13px', fontWeight: 600, color: GREEN.soft, margin: 0, lineHeight: 1.4, minHeight: '20px', display: 'flex', alignItems: 'center', gap: '8px' },
+  statIcon: { display: 'inline-flex', flexShrink: 0 },
+  statFoot: { fontSize: '12px', color: GREEN.soft, lineHeight: 1.4 },
+  complianceCounts: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', margin: 0 },
+  complianceCount: { minWidth: 0, display: 'flex', flexDirection: 'column' },
+  complianceDivider: { borderLeft: '1px solid #ffffff40', paddingLeft: '16px', marginLeft: '8px' },
+  complianceLabel: { fontSize: '12px', color: GREEN.soft, marginTop: '6px', lineHeight: 1.4, order: 1 },
 
   mapTitle: { fontSize: '15px', fontWeight: 700, color: '#16311d', marginTop: '4px', marginBottom: '12px' },
   mapWrap: { border: '1px solid #e7e8e0', borderRadius: '14px', overflow: 'hidden' },
 
   emptyText: { fontSize: '13px', color: '#9aa79d' },
-  modalFooterLink: { display: 'block', width: '100%', marginTop: '14px', padding: '10px 0', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: '#2c8047', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: "'Inter', sans-serif" },
+  modalFooterLink: { display: 'block', width: '100%', marginTop: '14px', padding: '10px 0', borderRadius: '10px', border: '1px solid #dcdfd6', backgroundColor: '#fff', color: GREEN.primary, fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: "'Inter', sans-serif" },
   alertRow: {
     display: 'flex', alignItems: 'flex-start', gap: '12px',
     padding: '13px 0', borderBottom: '1px solid #f0efe8',

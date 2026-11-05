@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { manilaDay } from '../utils/reportPeriod'
 
 const STORAGE_KEY = 'agribantay_selected_month'
 
@@ -29,8 +30,7 @@ export function useMonthFilter() {
     if (fromUrl) return fromUrl
     const fromStorage = parseMonthParam(localStorage.getItem(STORAGE_KEY))
     if (fromStorage) return fromStorage
-    const now = new Date()
-    return new Date(now.getFullYear(), now.getMonth(), 1)
+    return parseMonthParam(manilaDay().slice(0, 7))
   }
 
   const [month, setMonthState] = useState(resolveInitial)

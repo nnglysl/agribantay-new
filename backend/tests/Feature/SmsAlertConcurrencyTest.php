@@ -67,10 +67,9 @@ class SmsAlertConcurrencyTest extends TestCase
             unlink($this->barrier);
         }
         DB::purge('sms_concurrency');
-        // Never drop the configured app DB, only the exact temporary database
-        // that this setup created and whose fixed prefix is verified again.
+        // Phase 10 retains synthetic fixtures for review; no record cleanup.
         if ($this->server && $this->testDatabase && preg_match('/\Aagribantay_sms_test_[a-f0-9]{12}\z/', $this->testDatabase)) {
-            $this->server->exec('DROP DATABASE `'.$this->testDatabase.'`');
+            fwrite(STDOUT, "\nRetained isolated SMS fixture: {$this->testDatabase}\n");
         }
         $this->travelBack();
         parent::tearDown();
@@ -80,7 +79,9 @@ class SmsAlertConcurrencyTest extends TestCase
     {
         $owner = User::create(['first_name' => 'Test', 'last_name' => 'Farmer', 'mobile_number' => '09123456789']);
         $farm = Farm::create(['user_id' => $owner->id, 'farm_name' => 'Concurrent test', 'mobile_number' => $owner->mobile_number]);
-        Sensor::create(['farm_id' => $farm->id, 'device_key' => (string) Str::uuid(), 'status' => 'Active']);
+        $sensor = Sensor::create(['device_key' => (string) Str::uuid(), 'status' => 'Active']);
+        // Exercise the completed assignment contract, including its ledger.
+        app(\App\Services\DeviceAssignmentService::class)->change($sensor->id, $farm->id);
         $this->criticalReading($farm);
 
         return $farm;
@@ -89,7 +90,9 @@ class SmsAlertConcurrencyTest extends TestCase
     private function criticalReading(Farm $farm): void
     {
         $sensor = $farm->sensors()->firstOrFail();
-        SensorReading::create(['farm_id' => $farm->id, 'sensor_id' => $sensor->id, 'ammonia_status' => 'Critical']);
+        $sensor->update(['last_seen_at' => now()]);
+        SensorReading::create(['farm_id' => $farm->id, 'sensor_id' => $sensor->id,
+            'ammonia' => 40, 'ammonia_status' => 'Critical', 'moisture' => 10, 'moisture_status' => 'Safe']);
         app(AlertHistoryService::class)->recordReading($farm->id, 'ammonia', 'Critical', 40, null, $sensor->id);
     }
 

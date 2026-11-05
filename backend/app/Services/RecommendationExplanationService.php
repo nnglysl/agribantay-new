@@ -6,21 +6,16 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use App\Models\AiRecommendation;
+use Illuminate\Support\Facades\DB;
 
 /**
  * AI-Assisted Insight Layer, step 4: Recommendation Explanation.
  *
- * Generation is now once-per-calendar-day per farm, persisted in
- * ai_recommendations — NOT a rolling cache with a TTL. A farm gets at
- * most one Gemini call per day, regardless of how many times its
- * sensors report or how many times the dashboard is loaded, UNLESS
- * FarmStatusService flags it via markForRefresh() when the farm
- * transitions into Critical — that bypasses the daily gate exactly
- * once, for that one urgent regeneration.
- *
- * $facts MUST include 'farm_id' now — added by InsightController
- * alongside the existing keys (farm_name, root_cause, trend,
- * recommended_action, tips) it already builds before calling explain().
+ * Current endpoints capture a monitoring context and revision with their
+ * inputs. Their daily cache is segregated by that identity and revalidated
+ * before use and after generation. Saved legacy recommendation rows remain
+ * intact. Unscoped legacy callers retain their existing persisted-cache path.
+ * Both paths retain the existing per-farm retry cooldown.
  */
 class RecommendationExplanationService
 {
@@ -42,6 +37,10 @@ class RecommendationExplanationService
 
     public function explain(array $facts): ?array
     {
+        if (isset($facts['farm_id'], $facts['monitoring_context'])) {
+            return $this->explainForAssignment($facts);
+        }
+
         $farmId = $facts['farm_id'] ?? null;
 
         if (!$farmId) {
@@ -123,6 +122,48 @@ class RecommendationExplanationService
         return null;
     }
 
+    private function explainForAssignment(array $facts): ?array
+    {
+        $farmId = (int) $facts['farm_id'];
+        $monitoring = app(CurrentMonitoringService::class);
+        $snapshot = [
+            'context' => $facts['monitoring_context'],
+            'revision' => $facts['monitoring_revision'] ?? $monitoring->revision($farmId),
+        ];
+        $key = 'gemini-assignment-'.$farmId.'-'.hash('sha256', json_encode($snapshot));
+        $cached = $monitoring->withSnapshot($farmId, $snapshot, fn () => [
+            'valid' => true, 'entry' => Cache::get($key),
+        ]);
+        if ($cached === null) {
+            return null;
+        }
+        $entry = $cached['entry'];
+        if ($entry && $entry['date'] === now()->toDateString()) {
+            return $monitoring->withSnapshot($farmId, $snapshot, fn () => $entry['result']);
+        }
+
+        // Retain the existing per-farm retry limit. Never substitute a cache
+        // from another assignment while waiting for its next allowed attempt.
+        if (! Cache::add("gemini-attempt-{$farmId}", true, self::RETRY_COOLDOWN)) {
+            return $monitoring->withSnapshot($farmId, $snapshot, fn () => $entry['result'] ?? null);
+        }
+
+        // No device/farm lock is held across this external request.
+        $result = $this->callGemini($facts);
+        if (! $result) {
+            return $monitoring->withSnapshot($farmId, $snapshot, fn () => $entry['result'] ?? null);
+        }
+
+        return $monitoring->withSnapshot($farmId, $snapshot, function () use ($key, $result) {
+            $result['generated_at'] = now()->toIso8601String();
+            Cache::put($key, ['date' => now()->toDateString(), 'result' => $result], now()->addDays(2));
+
+            // Scoped live explanations never overwrite the legacy persisted
+            // recommendation row or any archived recommendation/report.
+            return $result;
+        });
+    }
+
     /**
      * Called by FarmStatusService the instant a farm's status transitions
      * INTO Critical. Doesn't call Gemini itself — just flags the row so
@@ -136,6 +177,11 @@ class RecommendationExplanationService
             ['farm_id' => $farmId],
             ['force_refresh' => true]
         );
+        if (DB::transactionLevel() > 0) {
+            DB::afterCommit(fn () => app(CurrentMonitoringService::class)->invalidateInsights($farmId));
+        } else {
+            app(CurrentMonitoringService::class)->invalidateInsights($farmId);
+        }
     }
 
     private function callGemini(array $facts): ?array

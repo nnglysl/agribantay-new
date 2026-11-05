@@ -1,0 +1,44 @@
+.annual-compliance { padding: 18px; border: 1px solid #e2e8e0; border-radius: 12px; background: #fff; color: #193b29; font-family: 'Inter', sans-serif; margin-bottom: 18px; min-width: 0; }
+.annual-compliance-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.annual-compliance-badge { padding: 5px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+.annual-compliance-badge.safe { color: var(--agb-green-hover); background: #e8f5eb; }
+.annual-compliance-badge.late { color: #b91c1c; background: #fbeaea; }
+.annual-compliance-badge.unknown { color: #5d6661; background: #f0f2f1; }
+.annual-compliance dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 185px), 1fr)); gap: 20px; margin: 20px 0 0; }
+.annual-compliance dt { font-size: 12px; color: #64716a; margin-bottom: 6px; }
+.annual-compliance dd { margin: 0; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.annual-compliance p { color: #64716a; font-size: 13px; line-height: 1.5; }
+.annual-compliance-counts { display: flex; flex-wrap: wrap; gap: 14px 24px; margin-top: 12px; font-size: 13px; }
+.annual-compliance--detail { padding: 24px; border-color: #e5e9e5; border-radius: 14px; box-shadow: 0 2px 5px #193b2906; }
+.annual-compliance--detail .annual-compliance-heading { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; column-gap: 12px; row-gap: 5px; align-items: start; }
+.annual-compliance-icon { grid-column: 1; grid-row: 1 / span 2; width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; border-radius: 9px; background: #edf3ec; color: #254b32; }
+.annual-compliance-heading h2 { grid-column: 2; grid-row: 1; margin: 0; font-size: 18px; font-weight: 700; line-height: 1.4; min-width: 0; color: #1c3024; }
+.annual-compliance--detail .annual-compliance-description { grid-column: 2; grid-row: 2; margin: 0; font-size: 12px; color: #64716a; line-height: 1.6; }
+.annual-compliance--detail .annual-compliance-badge { grid-column: 3; grid-row: 1 / span 2; display: inline-flex; align-items: center; gap: 7px; min-height: 32px; box-sizing: border-box; padding: 6px 12px; border-radius: 20px; white-space: nowrap; }
+.annual-compliance--detail dl { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin-top: 24px; }
+.annual-compliance--detail dl > div { display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 10px; align-content: start; padding: 0 18px; border-left: 1px solid #e5e9e5; }
+.annual-compliance--detail dl > div:first-child { padding-left: 0; border-left: 0; }
+.annual-compliance--detail dl > div:last-child { padding-right: 0; }
+.annual-compliance-field-icon { grid-column: 1; grid-row: 1 / span 2; display: inline-flex; color: #536158; padding-top: 1px; }
+.annual-compliance--detail dt, .annual-compliance--detail dd { grid-column: 2; }
+.annual-compliance--detail dt { line-height: 1.5; margin-bottom: 5px; }
+.annual-compliance--detail dd { font-size: 15px; font-weight: 600; line-height: 1.5; }
+.annual-compliance--detail dd small { display: block; color: #8b5b30; font-size: 11px; font-weight: 400; margin-top: 3px; }
+.annual-compliance-actions { display: flex; justify-content: flex-end; border-top: 1px solid #e5e9e5; padding-top: 16px; margin-top: 24px; }
+.annual-compliance-actions button { min-height: 36px; }
+.fd-compliance > .annual-compliance { margin-bottom: 0; }
+@media (max-width: 1200px) {
+  .annual-compliance--detail dl { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 24px; }
+  .annual-compliance--detail dl > div { padding: 0; border-left: 0; }
+  .annual-compliance--detail dl > div:nth-child(even) { padding-left: 20px; border-left: 1px solid #e5e9e5; }
+}
+@media (max-width: 600px) {
+  .annual-compliance--detail { padding: 17px; }
+  .annual-compliance--detail .annual-compliance-heading { grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; row-gap: 8px; }
+  .annual-compliance-icon { display: none; }
+  .annual-compliance-heading h2 { grid-column: 1; font-size: 16px; }
+  .annual-compliance--detail .annual-compliance-badge { grid-column: 2; grid-row: 1; padding: 5px 9px; font-size: 11px; }
+  .annual-compliance--detail .annual-compliance-description { grid-column: 1 / -1; }
+  .annual-compliance--detail dl { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .annual-compliance--detail dl > div:nth-child(n) { padding: 0; border-left: 0; }
+}

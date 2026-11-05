@@ -1,3 +1,4 @@
+import { GREEN } from '../theme/green'
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import api from '../api/axios'
@@ -117,5 +118,5 @@ const otpStyles = {
   expiry: { textAlign: 'center', fontSize: '12.5px', color: '#9aa79d', margin: '10px 0 0' },
   resendRow: { textAlign: 'center', marginTop: '18px' },
   resendMuted: { fontSize: '13px', color: '#8a968d' },
-  resendLink: { fontSize: '13px', fontWeight: 700, color: '#2c8047', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: "'Public Sans', system-ui, sans-serif" },
+  resendLink: { fontSize: '13px', fontWeight: 700, color: GREEN.primary, background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: "'Public Sans', system-ui, sans-serif" },
 }
