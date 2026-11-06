@@ -1,6 +1,7 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { lazy, Suspense } from 'react'
-import { isAuthenticated, getRole, dashboardPathForRole } from '../utils/auth'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { lazy, Suspense, useEffect, useState, useSyncExternalStore } from 'react'
+import { isAuthenticated, getRole, getUser, getToken, getAuthRevision, subscribeAuth, getAuthSnapshot, isCurrentAuth, dashboardPathForRole } from '../utils/auth'
+import { refreshSession } from '../api/axios'
 import FarmProvider from '../context/FarmProvider'
 import { PageLoader } from '../components/Loading'
 
@@ -59,11 +60,39 @@ const VetSettings = lazy(() => import('../pages/vet/Settings'))
 // reports and analytics" / "View all system data across every module"
 // from the spec, without duplicating any of those pages. Only genuinely
 // Super-Admin-exclusive pages use role="super_admin" directly.
-function ProtectedRoute({ children, role }) {
+function ProtectedRoute({ children, role, passwordChange = false }) {
+  const revision = useSyncExternalStore(subscribeAuth, getAuthRevision, getAuthRevision)
+  const { pathname } = useLocation()
+  const token = getToken()
+  const key = `${token}:${revision}:${pathname}`
+  const [checked, setChecked] = useState(null)
+  useEffect(() => {
+    if (!token || checked?.key === key) return
+    let active = true
+    const snapshot = getAuthSnapshot()
+    refreshSession(snapshot).then(result => {
+      if (active && result && isCurrentAuth(result.snapshot)) {
+        setChecked({ key: `${token}:${result.snapshot.revision}:${pathname}`, error: '' })
+      }
+    }).catch(() => {
+      if (active && isCurrentAuth(snapshot)) {
+        setChecked({ key, error: 'Unable to verify your session. Refresh the page to retry.' })
+      }
+    })
+    return () => { active = false }
+  }, [token, key, checked, pathname])
   // Every redirect below replaces the current history entry instead of
   // pushing a new one, so a bounce never becomes an extra Back step that
   // leads back to the login page.
   if (!isAuthenticated()) return <Navigate to="/login" replace />
+
+  if (getUser().must_change_password && !passwordChange) return <Navigate to="/change-password" replace />
+  if (checked?.key !== key || checked.error) {
+    return <PageLoader label={checked?.key === key && checked.error ? checked.error : 'Checking your session…'} minHeight="100vh" />
+  }
+  if (passwordChange && !getUser().must_change_password) {
+    return <Navigate to={dashboardPathForRole(getRole())} replace />
+  }
 
   const userRole = getRole()
   if (role === 'admin' && userRole === 'super_admin') return children
@@ -95,7 +124,7 @@ export default function AppRouter() {
           <Route path="/privacy" element={<PrivacyPolicy />} />
           
           <Route path="/change-password" element={
-            <ProtectedRoute>
+            <ProtectedRoute passwordChange>
               <ChangePassword />
             </ProtectedRoute>
           } />

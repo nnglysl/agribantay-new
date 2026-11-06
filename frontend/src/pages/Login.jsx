@@ -2,7 +2,7 @@ import { GREEN } from '../theme/green'
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api/axios'
-import { setAuth, clearAuth, isAuthenticated, getRole, getUser, getToken, isRemembered, dashboardPathForRole } from '../utils/auth'
+import { setAuth, clearAuth, isAuthenticated, getRole, getUser, getToken, isRemembered, getLoginRememberPreference, dashboardPathForRole } from '../utils/auth'
 import AuthLayout, { authFormStyles as styles } from '../components/AuthLayout'
 import LegalAcknowledgmentModal from '../components/LegalAcknowledgmentModal'
 
@@ -37,13 +37,15 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   // Persistent login is opt-in on each visit to the login form.
-  const [remember, setRemember] = useState(false)
+  const [remember, setRemember] = useState(getLoginRememberPreference)
   // ?expired=1 is set by the axios 401 handler when it drops a token the
   // server no longer accepts. Saying so up front explains why the person
   // was thrown back here, instead of leaving them to wonder whether they
   // clicked something wrong.
   const [error, setError] = useState(() => {
     const params = new URLSearchParams(window.location.search)
+
+    if (params.get('reauth') === 'password') return 'Please sign in again using your current temporary password.'
 
     if (!params.has('expired')) return ''
 

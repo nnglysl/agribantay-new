@@ -10,7 +10,9 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class SettingsController extends Controller
 {
@@ -241,18 +243,33 @@ class SettingsController extends Controller
             'new_password.regex' => 'Password must include an uppercase letter, lowercase letter, number, and special character.',
         ]);
 
-        if (!Hash::check($request->current_password, $user->password)) {
+        return DB::transaction(function () use ($request, $user) {
+            $token = $user->currentAccessToken();
+            $user = User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+            abort_unless($user->status === 'active', 401, 'Unauthenticated.');
+            if ($token instanceof PersonalAccessToken) {
+                $token = $user->tokens()->whereKey($token->id)->lockForUpdate()->first();
+                $expiration = config('sanctum.expiration');
+                abort_unless($token && (! $token->expires_at || ! $token->expires_at->isPast())
+                    && (! $expiration || $token->created_at->gt(now()->subMinutes($expiration))), 401, 'Unauthenticated.');
+            }
+            if ($user->must_change_password) {
+                return response()->json(['success' => false, 'code' => 'PASSWORD_CHANGE_REQUIRED',
+                    'message' => 'You must change your temporary password before continuing.', 'must_change_password' => true], 403);
+            }
+            if (!Hash::check($request->current_password, $user->password)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Current password is incorrect.',
+                ], 422);
+            }
+
+            $user->update(['password' => Hash::make($request->new_password)]);
+
             return response()->json([
-                'success' => false,
-                'message' => 'Current password is incorrect.',
-            ], 422);
-        }
-
-        $user->update(['password' => Hash::make($request->new_password)]);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Password updated successfully.',
-        ]);
+                'success' => true,
+                'message' => 'Password updated successfully.',
+            ]);
+        }, 3);
     }
 }

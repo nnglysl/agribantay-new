@@ -485,27 +485,28 @@ class AccountController extends Controller
     {
         if ($blocked = $this->guardSuperAdmin()) return $blocked;
 
-        $account = User::whereIn('role', self::MANAGEABLE_ROLES)->findOrFail($id);
+        $newPassword = Str::random(10);
+        $reset = DB::transaction(function () use ($id, $newPassword) {
+            $account = User::whereIn('role', self::MANAGEABLE_ROLES)->lockForUpdate()->findOrFail($id);
+            $email = trim((string) $account->email);
+            $mobile = trim((string) $account->mobile_number);
+            $useEmail = $email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL);
+            $useSms = ! $useEmail && preg_match('/^09\d{9}$/', $mobile) === 1;
+            if (! $useEmail && ! $useSms) return null;
 
-        $email  = trim((string) $account->email);
-        $mobile = trim((string) $account->mobile_number);
+            $account->update(['password' => bcrypt($newPassword), 'must_change_password' => true]);
+            $account->tokens()->delete();
 
-        $useEmail = $email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL);
-        $useSms   = ! $useEmail && preg_match('/^09\d{9}$/', $mobile) === 1;
-
-        if (! $useEmail && ! $useSms) {
+            return compact('account', 'email', 'mobile', 'useEmail');
+        }, 3);
+        if ($reset === null) {
             return response()->json([
                 'success' => false,
                 'message' => 'No valid contact information is available for this account. Add an email address or mobile number before resetting the password.',
             ], 422);
         }
 
-        $newPassword = Str::random(10);
-
-        $account->update([
-            'password'             => bcrypt($newPassword),
-            'must_change_password' => true,
-        ]);
+        ['account' => $account, 'email' => $email, 'mobile' => $mobile, 'useEmail' => $useEmail] = $reset;
 
         $delivered = false;
 

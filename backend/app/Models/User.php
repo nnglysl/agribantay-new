@@ -7,6 +7,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\HasApiTokens;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class User extends Authenticatable
 {
@@ -33,8 +34,24 @@ class User extends Authenticatable
     ];
 
     protected $casts = [
+        'must_change_password' => 'boolean',
         'legal_acknowledged_at' => 'datetime',
     ];
+
+    // Issued only after password verification, never from request-supplied
+    // token metadata. Binding to the hash prevents reuse after another reset.
+    public function passwordChangeTokenName(): string
+    {
+        return 'password_change:'.hash('sha256', $this->password);
+    }
+
+    public function hasPasswordChangeToken(): bool
+    {
+        $token = $this->currentAccessToken();
+
+        return $token instanceof PersonalAccessToken
+            && hash_equals($this->passwordChangeTokenName(), $token->name);
+    }
 
     protected static function booted(): void
     {

@@ -1,8 +1,8 @@
 import { GREEN } from '../theme/green'
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../api/axios'
-import { getUser, setAuth, getToken, isRemembered, dashboardPathForRole } from '../utils/auth'
+import { setAuth, getAuthSnapshot, isCurrentAuth, dashboardPathForRole } from '../utils/auth'
 import { validatePassword } from '../utils/passwordValidation'
 import PasswordStrengthIndicator from '../components/PasswordStrengthIndicator'
 import { BtnBusy } from '../components/Loading'
@@ -15,6 +15,7 @@ export default function ChangePassword() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const saving = useRef(false)
 
   const { allValid } = validatePassword(newPassword)
   const passwordsMatch = newPassword && newPassword === confirmPassword
@@ -22,6 +23,7 @@ export default function ChangePassword() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (saving.current) return
     setError('')
 
     if (!allValid) {
@@ -34,17 +36,24 @@ export default function ChangePassword() {
       return
     }
 
+    const snapshot = getAuthSnapshot()
+    if (!snapshot.token) return
+    saving.current = true
     setLoading(true)
 
     try {
-      await api.post('/change-password', {
+      const { data } = await api.post('/change-password', {
         new_password: newPassword,
         new_password_confirmation: confirmPassword,
-      })
+      }, { authSnapshot: snapshot })
 
-      const user = getUser()
-      const updatedUser = { ...user, must_change_password: false }
-      setAuth(getToken(), updatedUser, isRemembered())
+      if (!isCurrentAuth(snapshot)) return
+      const user = data.user
+      if (user.id !== snapshot.id || user.role !== snapshot.role || user.must_change_password !== false) {
+        setError('Unable to confirm the password change. Please refresh the page.')
+        return
+      }
+      setAuth(snapshot.token, user, snapshot.remember)
 
       // A super_admin matched none of the three branches this replaces, so
       // the page simply sat there after a successful change. One shared
@@ -52,8 +61,9 @@ export default function ChangePassword() {
       // forced-change screen that no longer applies.
       navigate(dashboardPathForRole(user.role), { replace: true })
     } catch (err) {
-      setError(err.response?.data?.message || 'Something went wrong.')
+      if (isCurrentAuth(snapshot)) setError(err.response?.data?.message || 'Something went wrong.')
     } finally {
+      saving.current = false
       setLoading(false)
     }
   }

@@ -275,10 +275,14 @@ class FarmController extends Controller
 
     public function resendSms(int $userId)
     {
-        $user = User::where('id', $userId)->where('role', 'farm_owner')->firstOrFail();
-
         $newPassword = Str::random(10);
-        $user->update(['password' => bcrypt($newPassword), 'must_change_password' => true]);
+        $user = DB::transaction(function () use ($userId, $newPassword) {
+            $user = User::where('id', $userId)->where('role', 'farm_owner')->lockForUpdate()->firstOrFail();
+            $user->update(['password' => bcrypt($newPassword), 'must_change_password' => true]);
+            $user->tokens()->delete();
+
+            return $user;
+        }, 3);
 
         $smsMessage = "Your new AgriBantay temporary password: {$newPassword}. You will be asked to set a new password on your next visit to the AgriBantay portal.";
 

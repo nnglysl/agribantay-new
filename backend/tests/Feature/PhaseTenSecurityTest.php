@@ -200,6 +200,12 @@ class PhaseTenSecurityTest extends TestCase
         $this->postJson('/api/change-password', $payload + ['current_password' => 'wrong'])->assertUnprocessable();
         $this->postJson('/api/change-password', $payload + ['current_password' => 'Old!pass123'])->assertOk();
         $this->user->update(['must_change_password' => true]);
+        $this->postJson('/api/change-password', $payload)->assertUnauthorized()->assertJsonPath('code', 'PASSWORD_REAUTHENTICATION_REQUIRED');
+        $this->app['auth']->forgetGuards();
+        $this->flushHeaders();
+        $token = $this->postJson('/api/login', ['login' => $this->user->email, 'password' => 'New!pass123'])->assertOk()->json('token');
+        $this->app['auth']->forgetGuards();
+        $this->withToken($token);
         $this->postJson('/api/change-password', $payload)->assertOk();
     }
 

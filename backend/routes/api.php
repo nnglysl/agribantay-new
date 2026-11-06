@@ -48,10 +48,10 @@ Route::post('/password/reset', [PasswordResetController::class, 'resetPassword']
 // 'active' re-reads users.status from the database on every authenticated
 // request, so an account deactivated mid-session loses access immediately
 // instead of staying usable until its token expires.
-Route::middleware(['auth:sanctum', 'active'])->group(function () {
-    Route::post('/logout', [AuthController::class, 'logout']);
-    Route::get('/me', [AuthController::class, 'me']);
-    Route::post('/change-password', [AuthController::class, 'changePassword'])->middleware('throttle:auth-sensitive');
+Route::middleware(['auth:sanctum', 'active', 'password.changed'])->group(function () {
+    Route::post('/logout', [AuthController::class, 'logout'])->name('auth.logout');
+    Route::get('/me', [AuthController::class, 'me'])->name('auth.me');
+    Route::post('/change-password', [AuthController::class, 'changePassword'])->middleware('throttle:auth-sensitive')->name('auth.change-password');
     Route::post('/acknowledge-legal', [AuthController::class, 'acknowledgeLegal']);
 
     Route::get('/settings', [SettingsController::class, 'show']);
