@@ -1,9 +1,8 @@
 import { GREEN } from '../../theme/green'
-import PoultryHouses from '../../components/PoultryHouses'
 import { useEffect, useState, useRef } from 'react'
 import api from '../../api/axios'
 import FarmerLayout from '../../components/FarmerLayout'
-import { getUser, setAuth, getToken } from '../../utils/auth'
+import { getUser, setAuth, getToken, isRemembered } from '../../utils/auth'
 import { validatePassword } from '../../utils/passwordValidation'
 import { isValidPhoneNumber, sanitizePhoneInput, PHONE_VALIDATION_MESSAGE } from '../../utils/phoneValidation'
 import PasswordStrengthIndicator from '../../components/PasswordStrengthIndicator'
@@ -51,8 +50,9 @@ export default function Settings() {
   const passwordsMatch = newPassword && newPassword === confirmPassword
   const canSubmitPassword = newPasswordValid && passwordsMatch
 
-  const loadProfile = () => {
+  const loadProfile = (isCurrent = () => true) => {
     return api.get('/settings').then(res => {
+      if (!isCurrent()) return null
       const data = res.data.data
       setProfile(data)
       setFirstName(data.first_name)
@@ -75,6 +75,17 @@ export default function Settings() {
       return
     }
 
+    const token = getToken()
+    const user = getUser()
+    const remembered = isRemembered()
+    // Responses belong only to the session that started this save.
+    const isCurrentSession = () => {
+      const currentUser = getUser()
+      return !!token && getToken() === token && currentUser.id === user.id
+        && currentUser.role === user.role && isRemembered() === remembered
+    }
+    if (!isCurrentSession()) return
+
     const currentEmail = profile.email || ''
     const newEmail = email.trim()
     const emailChanged = newEmail !== currentEmail && newEmail !== ''
@@ -88,6 +99,7 @@ export default function Settings() {
       if (emailChanged) {
         await api.post('/settings/email/otp/request', { email: newEmail })
       }
+      if (!isCurrentSession()) return
 
       const formData = new FormData()
       formData.append('first_name', firstName)
@@ -102,11 +114,12 @@ export default function Settings() {
       await api.post('/settings/profile', formData, {
         params: { _method: 'PUT' },
       })
+      if (!isCurrentSession()) return
 
-      const updated = await loadProfile()
+      const updated = await loadProfile(isCurrentSession)
+      if (!updated || !isCurrentSession()) return
 
-      const user = getUser()
-      setAuth(getToken(), { ...user, first_name: updated.first_name, last_name: updated.last_name })
+      setAuth(token, { ...getUser(), first_name: updated.first_name, last_name: updated.last_name }, remembered)
 
       setIsEditing(false)
 
@@ -116,7 +129,7 @@ export default function Settings() {
         setProfileSuccess('Profile updated successfully.')
       }
     } catch (err) {
-      setProfileError(err.response?.data?.message || 'Failed to update profile.')
+      if (isCurrentSession()) setProfileError(err.response?.data?.message || 'Failed to update profile.')
     } finally {
       setProfileLoading(false)
     }
@@ -290,8 +303,6 @@ export default function Settings() {
           </div>
         )}
       </div>
-
-      {farm && <PoultryHouses key={farm.id} farmId={farm.id} readOnly />}
 
       <div style={{ ...styles.card, ...(isMobile ? styles.cardMobile : {}) }}>
         <div style={styles.sectionHeader}>
