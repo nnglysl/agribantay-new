@@ -93,6 +93,42 @@ class MonitoringAssessmentService
             'offline_devices' => $total - $online, 'missing_primary_metrics' => array_values(array_unique($missing))];
     }
 
+    /** Roll up the current house states produced by HouseMonitoringService. */
+    public function houses(iterable $rows): array
+    {
+        $active = 0;
+        $reporting = 0;
+        $notMonitored = 0;
+        $severity = null;
+        $fallback = null;
+        foreach ($rows as $row) {
+            if ($row['poultry_house_id'] === null || $row['house_status'] !== 'Active') {
+                continue;
+            }
+            $active++;
+            $state = $row['state'];
+            if (isset(self::RANK[$state])) {
+                $reporting++;
+                if ($severity === null || self::RANK[$state] > self::RANK[$severity]) {
+                    $severity = $state;
+                }
+            } elseif ($state === 'Not Monitored') {
+                $notMonitored++;
+            } elseif ($state === 'Incomplete Data') {
+                $fallback = 'Incomplete Data';
+            } elseif ($fallback !== 'Incomplete Data' && $state === 'Offline') {
+                $fallback = 'Offline';
+            } elseif ($fallback === null && $state === 'No Readings Yet') {
+                $fallback = 'No Readings Yet';
+            }
+        }
+
+        return ['policy' => self::POLICY, 'condition' => $severity ?? $fallback ?? 'Pending Setup',
+            'severity' => $severity, 'active_houses' => $active, 'reporting_houses' => $reporting,
+            'not_monitored_houses' => $notMonitored, 'coverage_incomplete' => $active > $reporting,
+            'incomplete_data' => $fallback !== null];
+    }
+
     public function breakdown(iterable $farms): array
     {
         $counts = array_fill_keys(['normal', 'warning', 'critical', 'pending_setup', 'incomplete_data', 'offline', 'no_readings_yet', 'incomplete_coverage'], 0);

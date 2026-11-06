@@ -24,7 +24,7 @@ export function dashboardSummary(data) {
   const houses = rows.filter(row => row.poultry_house_id != null)
   const active = houses.filter(row => row.house_status === 'Active')
   const known = !!matching && Array.isArray(snapshot.rows) && snapshot.inventory_status !== 'unavailable'
-  const assessment = data?.monitoring_assessment || (matching ? snapshot.farm_assessment : null)
+  const assessment = (matching ? snapshot.house_assessment : null) || data?.monitoring_assessment || (matching ? snapshot.farm_assessment : null)
   const condition = assessment?.condition || 'Unavailable'
   const gaps = active.filter(row => row.device_status === 'Active' && row.assignment_verified === true && (!['Safe', 'Critical', 'Warning'].includes(houseDisplayCondition(row)) || row.primary_assessment?.incomplete_data === true))
   const offline = active.filter(row => houseDisplayCondition(row) === 'Offline')
@@ -37,5 +37,5 @@ export function dashboardSummary(data) {
     inventoryKnown: matching && snapshot.coverage?.known === true, inactive: houses.length - active.length, legacy: rows.filter(row => row.poultry_house_id == null),
     counts: { total: known ? houses.length : null, Critical: known ? active.filter(row => houseDisplayCondition(row) === 'Critical').length : null,
       Warning: known ? active.filter(row => houseDisplayCondition(row) === 'Warning').length : null,
-      unmonitored: known ? active.filter(row => row.device_status !== 'Active' || row.assignment_verified !== true).length : null } }
+      unmonitored: known ? active.filter(row => houseDisplayCondition(row) === 'Not Monitored').length : null } }
 }

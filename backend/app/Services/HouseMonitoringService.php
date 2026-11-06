@@ -47,14 +47,14 @@ class HouseMonitoringService
         return $result;
     }
 
-    private function row(?object $house, ?Sensor $sensor, ?object $event, bool $verified): array
+    private function row(?object $house, ?Sensor $sensor, ?object $event, bool $verified, int $assignmentVersion = 0): array
     {
         $name = $house ? 'House '.$house->house_number : 'House not recorded';
         $query = SensorReading::where('farm_id', $sensor?->farm_id)->where('sensor_id', $sensor?->id)->where('created_at', '<=', now());
         if ($house) {
             $valid = $verified && $event && (int) $event->sensor_id === (int) $sensor?->id
                 && (int) $event->to_farm_id === (int) $house->farm_id && (int) $event->to_house_id === (int) $house->id
-                && (int) $event->id === app(DeviceAssignmentService::class)->version($sensor->id);
+                && (int) $event->id === $assignmentVersion;
             $query->where('poultry_house_id', $house->id)->where('assignment_event_id', $event?->id)
                 ->where('id', '>', $event?->reading_floor_id ?? PHP_INT_MAX);
             $last = $valid ? $query->latest('created_at')->latest('id')->first() : null;
@@ -64,7 +64,7 @@ class HouseMonitoringService
         $active = $sensor?->isActive() && (! $house || ($verified && $valid && $house->status === 'Active'));
         $fresh = $active && $last && $last->created_at->gt(now()->subMinutes(config('sensors.offline_after_minutes', 3)));
         $assessment = app(MonitoringAssessmentService::class)->reading($fresh ? $last : null);
-        $state = $house?->status === 'Inactive' || ($sensor && ! $sensor->isActive()) ? 'Inactive'
+        $state = $house?->status === 'Inactive' || (! $house && $sensor && ! $sensor->isActive()) ? 'Inactive'
             : (! $active ? 'Not Monitored' : (! $last ? 'No Readings Yet' : (! $fresh ? 'Offline' : $assessment['condition'])));
 
         return ['key' => $house ? 'house:'.$house->id : 'legacy:'.$sensor->id,
@@ -84,13 +84,24 @@ class HouseMonitoringService
             $verified = in_array($inventory['inventory_status'], ['verified', 'dummy_approved'], true);
             $installed = $inventory['available'];
             $sensors = Sensor::where('farm_id', $farmId)->orderBy('id')->get();
+            $hasAssignments = Schema::hasTable('device_assignment_events');
+            $events = $hasAssignments ? DB::table('device_assignment_events')->whereIn('id', $sensors->pluck('current_assignment_event_id')->filter())->get()->keyBy('id') : collect();
+            $versions = $hasAssignments ? DB::table('device_assignment_events')->whereIn('sensor_id', $sensors->pluck('id'))
+                ->selectRaw('sensor_id, MAX(id) as version')->groupBy('sensor_id')->pluck('version', 'sensor_id') : collect();
+            $sensorsByHouse = $sensors->groupBy('poultry_house_id');
             $rows = [];
             if ($installed) {
                 foreach (DB::table('poultry_houses')->where('farm_id', $farmId)->orderBy('house_number')->get() as $house) {
-                    $associated = $sensors->filter(fn ($sensor) => (int) $sensor->poultry_house_id === (int) $house->id);
-                    $sensor = $associated->firstWhere('status', 'Active') ?? $associated->first();
-                    $event = $sensor ? DB::table('device_assignment_events')->where('id', $sensor->current_assignment_event_id)->first() : null;
-                    $row = $this->row($house, $sensor, $event, $verified);
+                    $associated = $sensorsByHouse->get($house->id, collect());
+                    $eligible = $associated->where('status', 'Active');
+                    $rank = ['Critical' => 7, 'Warning' => 6, 'Safe' => 5, 'Incomplete Data' => 4,
+                        'No Readings Yet' => 3, 'Offline' => 2, 'Not Monitored' => 1];
+                    $candidates = ($eligible->isNotEmpty() ? $eligible : collect([$associated->first()]))->map(function ($sensor) use ($house, $events, $versions, $verified) {
+                        $event = $sensor ? $events->get($sensor->current_assignment_event_id) : null;
+
+                        return $this->row($house, $sensor, $event, $verified, $sensor ? (int) $versions->get($sensor->id, 0) : 0);
+                    });
+                    $row = $candidates->sortByDesc(fn ($candidate) => $rank[$candidate['state']] ?? 0)->first();
                     $row['associated_devices'] = $associated->map(fn ($s) => ['id' => $s->id, 'device_name' => $s->device_name, 'status' => $s->status])->values()->all();
                     $rows[] = $row;
                 }
@@ -104,6 +115,7 @@ class HouseMonitoringService
             return ['farm_id' => $farmId, 'farm_name' => $farm->farm_name, 'inventory_status' => $inventory['inventory_status'],
                 'observed_at' => now()->toISOString(), 'rows' => array_merge($rows, $legacy->all()),
                 'farm_assessment' => app(MonitoringAssessmentService::class)->farm($farm),
+                'house_assessment' => app(MonitoringAssessmentService::class)->houses($rows),
                 'coverage' => ['known' => $verified, 'active_houses' => $verified ? $activeHouses->count() : null,
                     'monitored_houses' => $verified ? $monitored->count() : null,
                     'unmonitored_houses' => $verified ? $activeHouses->count() - $monitored->count() : null,

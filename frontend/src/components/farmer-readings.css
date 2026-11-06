@@ -47,6 +47,25 @@
 .fr .fr-results { margin: 0; padding: 14px 20px; border-top: 1px solid #eceee7; color: #718076; font-size: 12px; }
 .fr .agb-table-footer select { width: auto; height: 34px; }
 .fr .agb-table-footer { gap: 12px; }
+.fr-history-panel .fr-panel-heading { margin-bottom: 18px; }
+.fr-history-filters {
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 9px;
+  background: #f5f8f5;
+}
+.fr-history-filters label { flex: 1 1 170px; gap: 6px; color: #304838; }
+.fr-history-filters label:nth-child(3) { flex-basis: 200px; }
+.fr-history-filters .fr-apply, .fr-history-filters .fr-reset { white-space: nowrap; }
+.fr-history-filters .fr-reset:hover { background: #eef3ee; }
+.fr-history-panel .fr-table-scroll { margin: 0 20px; border: 1px solid #e7ece7; border-radius: 9px; }
+.fr-history-panel .fr-table-scroll table { font-size: 13px; }
+.fr-history-panel .fr-table-scroll th { padding: 11px 14px; background: #f2f6f1; color: #304b38; white-space: nowrap; }
+.fr-history-panel .fr-table-scroll td { padding: 10px 14px; color: #2d3d32; }
+.fr-history-panel .fr-table-scroll tbody tr:hover { background: #f8faf8; }
+.fr-history-panel .fr-table-scroll td strong { color: #263b2c; font-size: 13px; }
+.fr-history-panel .fr-table-scroll td small { margin-top: 2px; }
+.fr-history-panel .fr-table-scroll .fr-primary { color: #254c32; }
 @media (max-width: 768px) {
   .fr-panel { padding-top: 17px; }
   .fr-panel-heading { margin: 0 17px 16px; }
@@ -56,6 +75,8 @@
   .fr-empty { margin-left: 17px; margin-right: 17px; }
   .fr-table-scroll table { min-width: 900px; }
   .fr .fr-scroll-hint { display: block; position: sticky; left: 0; box-sizing: border-box; width: 100%; margin: 0; padding: 8px 17px; border-top: 1px solid #edf0ed; font-size: 12px; background: #f8faf7; }
+  .fr-history-filters label:nth-child(3) { flex-basis: 180px; }
+  .fr-history-panel .fr-table-scroll { margin: 0 17px; }
 }
 @media (max-width: 400px) {
   .fr-tabs { gap: 0; }
@@ -66,4 +87,6 @@
   .fr-filters label { flex-basis: 100%; }
   .fr-history-filters label:first-child, .fr-history-filters label:nth-child(2) { flex-basis: 100%; }
   .fr-apply { flex: 1 1 auto; }
+  .fr-history-filters { gap: 10px; padding: 12px; }
+  .fr-history-filters .fr-apply, .fr-history-filters .fr-reset { flex: 1 1 100%; }
 }

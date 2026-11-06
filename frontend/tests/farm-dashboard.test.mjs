@@ -49,6 +49,27 @@ test('counts include registered Inactive houses but exclude them from current se
   assert.deepEqual(dashboardSummary(payload).counts, { total: 2, Critical: 0, Warning: 0, unmonitored: 0 })
   assert.ok(render(payload).includes('Total registered · 1 Inactive'))
 })
+
+test('house assessment controls the farm badge even when legacy device assessment disagrees', () => {
+  const payload = data([row(1, 'Safe'), row(2, 'Not Monitored', { device_id: null, device_status: null, assignment_verified: false })], 'Critical')
+  payload.house_monitoring.house_assessment = { condition: 'Safe', reporting_houses: 1, not_monitored_houses: 1, coverage_incomplete: true }
+  const summary = dashboardSummary(payload)
+  assert.equal(summary.condition, 'Safe')
+  assert.deepEqual(summary.counts, { total: 2, Critical: 0, Warning: 0, unmonitored: 1 })
+  const html = render(payload)
+  assert.ok(html.includes('fdb-badge--safe') && html.includes('Monitoring is incomplete for 1 house.'))
+  assert.ok(!html.includes('fdb-badge--critical'))
+})
+
+test('overview displays every registered house as the inventory grows', () => {
+  const rows = Array.from({ length: 50 }, (_, index) => row(index + 1, index === 40 ? 'Warning' : 'Safe'))
+  const payload = data(rows, 'Warning')
+  payload.house_monitoring.house_assessment = { condition: 'Warning', reporting_houses: 50 }
+  const html = render(payload)
+  assert.equal((html.match(/<th scope="row">House \d+/g) || []).length, 50)
+  assert.ok(html.includes('House 50'))
+  assert.deepEqual(dashboardSummary(payload).counts, { total: 50, Critical: 0, Warning: 1, unmonitored: 0 })
+})
 test('Offline remains distinct from Not Monitored, never counted as current Critical or given current values', () => {
   const stale = row(1, 'Offline', { current_reading: row(1, 'Critical').current_reading })
   const payload = data([stale, row(2, 'Not Monitored', { device_status: 'Inactive', assignment_verified: false })], 'Offline')

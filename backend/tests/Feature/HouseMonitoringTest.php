@@ -46,7 +46,7 @@ class HouseMonitoringTest extends PoultryHouseManagementTestCase
         $this->assign($inactive, $farm->id, $houses[1]);
         app(PoultryHouseService::class)->transition($this->admin, $farm->id, $houses[3], 'Inactive');
         $before = app(HouseMonitoringService::class)->snapshot($this->admin, $farm->id);
-        $this->assertSame(['No Readings Yet', 'Inactive', 'Not Monitored', 'Inactive'], array_column($before['rows'], 'state'));
+        $this->assertSame(['No Readings Yet', 'Not Monitored', 'Not Monitored', 'Inactive'], array_column($before['rows'], 'state'));
         $this->assertSame(3, $before['coverage']['active_houses']);
         $this->assertSame(1, $before['coverage']['monitored_houses']);
         $this->assertSame(0, $before['connectivity']['online']);

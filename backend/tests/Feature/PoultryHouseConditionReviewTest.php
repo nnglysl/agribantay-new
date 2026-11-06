@@ -251,6 +251,80 @@ class PoultryHouseConditionReviewTest extends TestCase
         $this->assertNull($history['items'][0]['poultry_house_id']);
     }
 
+    public function test_house_rollup_excludes_unassigned_devices_and_follows_registered_houses(): void
+    {
+        $this->house('Safe');
+        $this->house('Not Monitored');
+        $this->device('Critical', 1, null);
+        $snapshot = app(HouseMonitoringService::class)->snapshot($this->owner, 1);
+        $this->assertSame('Critical', $snapshot['farm_assessment']['condition']); // Existing device-level API stays compatible.
+        $this->assertSame('Safe', $snapshot['house_assessment']['condition']);
+        $this->assertSame(2, $snapshot['house_assessment']['active_houses']);
+        $this->assertSame(1, $snapshot['house_assessment']['not_monitored_houses']);
+        $this->assertTrue($snapshot['house_assessment']['coverage_incomplete']);
+
+        $this->house('Warning');
+        $this->assertSame('Warning', app(HouseMonitoringService::class)->snapshot($this->owner, 1)['house_assessment']['condition']);
+        $this->house('Critical');
+        $this->assertSame('Critical', app(HouseMonitoringService::class)->snapshot($this->owner, 1)['house_assessment']['condition']);
+    }
+
+    public function test_house_rollup_scales_and_ignores_inactive_and_unmonitored_rows(): void
+    {
+        $rows = [];
+        foreach (range(1, 50) as $id) {
+            $rows[] = ['poultry_house_id' => $id, 'house_status' => 'Active', 'state' => $id === 41 ? 'Warning' : 'Safe'];
+        }
+        $rows[] = ['poultry_house_id' => 51, 'house_status' => 'Active', 'state' => 'Not Monitored'];
+        $rows[] = ['poultry_house_id' => 52, 'house_status' => 'Inactive', 'state' => 'Critical'];
+        $rows[] = ['poultry_house_id' => null, 'house_status' => null, 'state' => 'Critical'];
+        $assessment = app(MonitoringAssessmentService::class)->houses($rows);
+        $this->assertSame('Warning', $assessment['condition']);
+        $this->assertSame(51, $assessment['active_houses']);
+        $this->assertSame(50, $assessment['reporting_houses']);
+        $this->assertSame(1, $assessment['not_monitored_houses']);
+        $rows[0]['state'] = 'Critical';
+        $this->assertSame('Critical', app(MonitoringAssessmentService::class)->houses($rows)['condition']);
+        $this->assertSame('Pending Setup', app(MonitoringAssessmentService::class)->houses([])['condition']);
+    }
+
+    public function test_active_house_with_inactive_device_is_not_monitored(): void
+    {
+        $house = $this->house('Safe');
+        DB::table('sensors')->where('poultry_house_id', $house)->update(['status' => 'Inactive']);
+        $snapshot = app(HouseMonitoringService::class)->snapshot($this->owner, 1);
+        $this->assertSame('Not Monitored', $snapshot['rows'][0]['state']);
+        $this->assertSame('Pending Setup', $snapshot['house_assessment']['condition']);
+        $this->assertSame(1, $snapshot['house_assessment']['not_monitored_houses']);
+    }
+
+    public function test_house_rollup_updates_when_houses_are_added_or_deactivated(): void
+    {
+        $safe = $this->house('Safe');
+        $this->assertSame('Safe', app(HouseMonitoringService::class)->snapshot($this->owner, 1)['house_assessment']['condition']);
+        $critical = $this->house('Critical');
+        $this->assertSame('Critical', app(HouseMonitoringService::class)->snapshot($this->owner, 1)['house_assessment']['condition']);
+        DB::table('poultry_houses')->where('id', $critical)->update(['status' => 'Inactive']);
+        $snapshot = app(HouseMonitoringService::class)->snapshot($this->owner, 1);
+        $this->assertSame(['Safe', 'Inactive'], array_column($snapshot['rows'], 'state'));
+        $this->assertSame('Safe', $snapshot['house_assessment']['condition']);
+        $this->assertSame(1, $snapshot['house_assessment']['active_houses']);
+        DB::table('poultry_houses')->where('id', $safe)->update(['status' => 'Inactive']);
+        $this->assertSame('Pending Setup', app(HouseMonitoringService::class)->snapshot($this->owner, 1)['house_assessment']['condition']);
+    }
+
+    public function test_multiple_active_devices_in_one_house_use_worst_valid_condition_once(): void
+    {
+        $house = $this->house('Safe');
+        $this->device('Critical', 1, $house);
+        $snapshot = app(HouseMonitoringService::class)->snapshot($this->owner, 1);
+        $this->assertCount(1, $snapshot['rows']);
+        $this->assertCount(2, $snapshot['rows'][0]['associated_devices']);
+        $this->assertSame('Critical', $snapshot['rows'][0]['state']);
+        $this->assertSame('Critical', $snapshot['house_assessment']['condition']);
+        $this->assertSame(1, $snapshot['house_assessment']['reporting_houses']);
+    }
+
     public function test_dashboard_actual_snapshot_counts_include_inactive_but_no_severity_from_it(): void
     {
         $this->house('Critical');

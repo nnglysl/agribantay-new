@@ -79,7 +79,7 @@ function ReadingsFooter({ page, pages, size, total, onPage, onSize }) {
 function HistoryReadings({ farmId, rows, state, setState }) {
   const setPage = useCallback(page => setState(previous => ({ ...previous, page })), [setState])
   const { placement, from, to } = state.filters
-  const filters = { from, to, view: state.view }
+  const filters = { from, to, view: 'daily' }
   if (placement.startsWith('house:')) filters.poultry_house_id = placement.slice(6)
   if (placement.startsWith('device:')) filters.sensor_id = placement.slice(7)
   const result = useTableFetch(`/farms/${farmId}/house-readings`, filters, state.page, state.size, setPage, { pollMs: BACKGROUND_POLL_MS })
@@ -95,7 +95,6 @@ function HistoryReadings({ farmId, rows, state, setState }) {
   }
   return <>
     <div className="fr-panel-heading"><div><h2>Reading History</h2><p>Ammonia and manure-moisture records, including historical farm-level readings.</p></div></div>
-    <div className="fr-tabs fr-history-views" role="tablist" aria-label="History aggregation"><button type="button" aria-selected={state.view === 'daily'} onClick={() => setState(previous => ({ ...previous, page: 1, view: 'daily' }))}>Daily Summary</button><button type="button" aria-selected={state.view === 'hourly'} onClick={() => setState(previous => ({ ...previous, page: 1, view: 'hourly' }))}>Hourly Summary</button><button type="button" aria-selected={state.view === 'individual'} onClick={() => setState(previous => ({ ...previous, page: 1, view: 'individual' }))}>Individual Readings</button></div>
     <form className="fr-filters fr-history-filters" onSubmit={apply} aria-label="Reading history filters">
       <label>From date<input type="date" aria-label="From date" value={state.draft.from} max={state.draft.to || undefined} onChange={event => update('from', event.target.value)} /></label>
       <label>To date<input type="date" aria-label="To date" value={state.draft.to} min={state.draft.from || undefined} onChange={event => update('to', event.target.value)} /></label>
@@ -117,7 +116,7 @@ export default function FarmerReadingsPanel({ farmId }) {
   const isMobile = useIsMobile()
   const [tab, setTab] = useState(0)
   const [current, setCurrent] = useState({ page: 1, size: 10, placement: '' })
-  const [history, setHistory] = useState({ page: 1, size: 10, view: 'daily', draft: EMPTY_FILTERS, filters: EMPTY_FILTERS })
+  const [history, setHistory] = useState({ page: 1, size: 10, draft: EMPTY_FILTERS, filters: EMPTY_FILTERS })
   const monitoring = useCachedFetch(`/farms/${farmId}/house-monitoring`, {}, { pollMs: BACKGROUND_POLL_MS })
   const data = String(monitoring.data?.farm_id) === String(farmId) ? monitoring.data : null
   const rows = data?.rows || []
@@ -155,7 +154,7 @@ export default function FarmerReadingsPanel({ farmId }) {
           <ReadingsFooter page={page} pages={pages} size={current.size} total={filtered.length} onPage={value => setCurrent(previous => ({ ...previous, page: value }))} onSize={size => setCurrent(previous => ({ ...previous, size, page: 1 }))} />
         </>}
     </section>
-    <section className="fr-panel" id={`${id}-panel-1`} role="tabpanel" aria-labelledby={`${id}-tab-1`} hidden={tab !== 1}>
+    <section className="fr-panel fr-history-panel" id={`${id}-panel-1`} role="tabpanel" aria-labelledby={`${id}-tab-1`} hidden={tab !== 1}>
       {tab === 1 && <HistoryReadings farmId={farmId} rows={rows} state={history} setState={setHistory} />}
     </section>
   </div>

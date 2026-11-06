@@ -26,10 +26,12 @@ function conditionMessage(summary) {
   if (summary.counts.unmonitored === summary.active.length) return 'No poultry houses are currently being monitored.'
   const attention = (summary.counts.Critical || 0) + (summary.counts.Warning || 0)
   const parts = []
+  if (summary.condition === 'Safe' && (summary.counts.unmonitored || summary.offline.length || summary.gaps.length)) parts.push('Monitored poultry houses are within safe conditions.')
   if (['Incomplete Data', 'No Readings Yet', 'Unavailable'].includes(summary.condition)) parts.push(explanation(summary.condition))
   if (attention) parts.push(`${attention} poultry ${attention === 1 ? 'house needs' : 'houses need'} attention.`)
   if (summary.counts.unmonitored) parts.push(`Monitoring is incomplete for ${summary.counts.unmonitored} ${summary.counts.unmonitored === 1 ? 'house' : 'houses'}.`)
   if (summary.offline.length) parts.push(`${summary.offline.length} ${summary.offline.length === 1 ? 'house is' : 'houses are'} offline.`)
+  if (summary.gaps.length && !summary.counts.unmonitored && !summary.offline.length) parts.push('Some houses do not have complete current readings.')
   return parts.join(' ') || explanation(summary.condition)
 }
 export default function FarmerDashboard() {
@@ -51,7 +53,7 @@ function DashboardForFarm() {
   const affected = summary.counts.total === null ? [] : summary.affected
   const monitoringHelp = houses.filter(row => row.house_status === 'Active' && (houseDisplayCondition(row) === 'Offline' || row.device_status !== 'Active' || row.assignment_verified !== true))
   const insight = insights.error || insights.loading ? null : insights.data
-  const hasCurrent = (summary.assessment?.reporting_devices ?? 0) > 0 && [...summary.active, ...summary.legacy].some(row => row.connectivity === 'Online' && row.current_reading && ['Safe', 'Warning', 'Critical', 'Incomplete Data'].includes(houseDisplayCondition(row)))
+  const hasCurrent = summary.active.some(row => row.connectivity === 'Online' && row.current_reading && ['Safe', 'Warning', 'Critical', 'Incomplete Data'].includes(houseDisplayCondition(row)))
   const tips = insight?.available !== false && hasCurrent ? [...new Set((insight?.tips || []).filter(tip => typeof tip === 'string' && tip.trim()))] : []
   const translations = Array.isArray(insight?.tips_fil) && insight.tips_fil.length === insight.tips?.length ? insight.tips_fil : null
   const cards = [
@@ -71,7 +73,7 @@ function DashboardForFarm() {
       <section className="fdb-summary" aria-label="House summary counts" aria-describedby={summary.counts.total === null ? 'fdb-inventory-message' : undefined}>{cards.map(([label, value, note, icon, tone]) => <article className="fdb-card fdb-stat" data-tone={tone} key={label}><span className="fdb-stat-icon"><FarmIcon name={icon} size={28} /></span><div><h2>{label}</h2><strong aria-label={value == null ? `${label}: unavailable` : undefined}>{value ?? '—'}</strong>{value != null && <p>{note}</p>}</div></article>)}</section>
       <div className="fdb-columns">
         <section className="fdb-card fdb-overview" aria-label="Poultry House Overview"><div className="fdb-section-heading"><h2>Poultry House Overview <small>{summary.counts.total ?? 0} registered</small></h2><button type="button" className="fdb-link" onClick={() => navigate('/farmowner/readings')}>View All</button></div>
-          {houses.length ? <div className="fdb-table-wrap"><table><thead><tr><th scope="col">Poultry House</th><th scope="col">Current Condition</th><th scope="col">Main Issue</th></tr></thead><tbody>{houses.slice(0, 5).map(row => <tr key={row.poultry_house_id}><th scope="row">{row.house_name}{row.house_status === 'Inactive' && <small>Inactive</small>}</th><td><Badge condition={houseDisplayCondition(row)} /></td><td>{houseMainIssue(row)}</td></tr>)}</tbody></table></div>
+          {houses.length ? <div className="fdb-table-wrap"><table><thead><tr><th scope="col">Poultry House</th><th scope="col">Current Condition</th><th scope="col">Main Issue</th></tr></thead><tbody>{houses.map(row => <tr key={row.poultry_house_id}><th scope="row">{row.house_name}{row.house_status === 'Inactive' && <small>Inactive</small>}</th><td><Badge condition={houseDisplayCondition(row)} /></td><td>{houseMainIssue(row)}</td></tr>)}</tbody></table></div>
             : <div className="fdb-empty" id="fdb-inventory-message"><h3>{summary.counts.total === null ? 'Poultry house inventory unavailable' : 'No poultry houses registered'}</h3><p>House counts and conditions will appear when registered house records are available. Historical farm-level readings remain in Farm Readings in the sidebar.</p></div>}
           {summary.legacy.length > 0 && houses.length > 0 && <p className="fdb-footnote">{summary.legacy.length} farm-only {summary.legacy.length === 1 ? 'device has' : 'devices have'} no recorded house. Their readings remain available in Farm Readings.</p>}
           {summary.active.length === 0 && houses.length > 0 && <p>No Active poultry houses are registered.</p>}
