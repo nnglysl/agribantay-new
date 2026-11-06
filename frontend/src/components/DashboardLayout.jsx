@@ -2,11 +2,11 @@ import { GREEN } from '../theme/green'
 import DropdownList from './DropdownList'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useState, useEffect, useRef } from 'react'
-import { getUser, clearAuth } from '../utils/auth'
+import { getUser, getToken } from '../utils/auth'
 import { DISPLAY_TIME_ZONE } from '../utils/formatDate'
 import { NOTIFICATION_CATEGORIES, notificationCategory, notificationDestination } from '../utils/notifications'
 import { useIsMobile, LAYOUT_BREAKPOINT } from '../hooks/useIsMobile'
-import api from '../api/axios'
+import api, { logoutSession } from '../api/axios'
 import agribantayLogo from '../assets/agribantay_logo.png'
 import agribantayName from '../assets/agribantay_name.png'
 import agriLogoName from '../assets/agri_logo_name.png'
@@ -412,6 +412,8 @@ export default function DashboardLayout({ children, navItems = [], roleLabel = '
   const user = getUser()
   const isMobile = useIsMobile(LAYOUT_BREAKPOINT)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
+  const logoutInFlight = useRef(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   // The drawer sits over the page, so the page must not scroll underneath
@@ -429,9 +431,25 @@ export default function DashboardLayout({ children, navItems = [], roleLabel = '
     if (!isMobile) setSidebarOpen(false)
   }, [isMobile])
 
-  const handleLogout = () => {
-    clearAuth()
-    navigate(logoutRedirect)
+  const handleLogout = async () => {
+    if (logoutInFlight.current) return
+    logoutInFlight.current = true
+    setLoggingOut(true)
+    const token = getToken()
+    try {
+      const { wasCurrent, unconfirmed } = await logoutSession(token)
+      // Another login can happen even between cleanup and this continuation.
+      if (wasCurrent && !getToken()) {
+        setShowLogoutConfirm(false)
+        navigate(logoutRedirect, { replace: true })
+        if (unconfirmed) {
+          window.alert('You are logged out on this browser. Server-side token revocation could not be confirmed.')
+        }
+      }
+    } finally {
+      logoutInFlight.current = false
+      setLoggingOut(false)
+    }
   }
 
   const handleNavigate = (path) => {
@@ -565,7 +583,7 @@ export default function DashboardLayout({ children, navItems = [], roleLabel = '
             <p style={confirmStyles.message}>Are you sure you want to log out?</p>
             <div style={confirmStyles.actions}>
               <button onClick={() => setShowLogoutConfirm(false)} style={confirmStyles.cancelBtn}>Cancel</button>
-              <button onClick={handleLogout} style={confirmStyles.confirmBtn}>Log out</button>
+              <button onClick={handleLogout} disabled={loggingOut} style={confirmStyles.confirmBtn}>Log out</button>
             </div>
           </div>
         </div>

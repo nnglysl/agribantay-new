@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { getToken, clearAuth } from '../utils/auth'
+import { getToken, clearAuth, clearAuthForToken } from '../utils/auth'
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
@@ -8,9 +8,37 @@ const api = axios.create({
   },
 })
 
+const isLogoutRequest = config => config?.method?.toLowerCase() === 'post' && config?.url === '/logout'
+const pendingLogouts = new Map()
+
+// Keep logout in charge of cleanup until revocation settles. Concurrent 401s
+// from polling must not redirect away from the chosen logout destination.
+export const logoutSession = token => {
+  if (!token) {
+    const wasCurrent = !getToken()
+    if (wasCurrent) clearAuth()
+    return Promise.resolve({ wasCurrent, unconfirmed: false })
+  }
+  if (pendingLogouts.has(token)) return pendingLogouts.get(token)
+
+  const request = api.post('/logout', null, {
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: 5000,
+  })
+    // A 401 means the token is already unusable; it does not prove deletion.
+    .then(() => false, error => error.response?.status !== 401)
+    .then(unconfirmed => ({ wasCurrent: clearAuthForToken(token), unconfirmed }))
+    .finally(() => pendingLogouts.delete(token))
+  pendingLogouts.set(token, request)
+  return request
+}
+
 api.interceptors.request.use((config) => {
   const token = getToken()
-  if (token) {
+  // Logout must keep the captured token even if another login happens before
+  // this interceptor runs. Other requests retain their existing auth behavior.
+  const pinnedLogout = isLogoutRequest(config) && config.headers.get('Authorization')
+  if (token && !pinnedLogout) {
     config.headers.Authorization = `Bearer ${token}`
   }
 
@@ -48,8 +76,13 @@ api.interceptors.response.use(
     const status = error.response?.status
     const url = error.config?.url || ''
     const isAuthCall = AUTH_ENDPOINTS.some(path => url.includes(path))
+    const token = getToken()
+    const authorization = error.config?.headers?.get?.('Authorization') ?? error.config?.headers?.Authorization
 
-    if (status === 401 && !isAuthCall && getToken()) {
+    // Explicit logout owns its cleanup/destination. A late 401 from an older
+    // request must also never clear a newer login.
+    if (status === 401 && !isAuthCall && !isLogoutRequest(error.config) && !pendingLogouts.has(token)
+      && token && authorization === `Bearer ${token}`) {
       clearAuth()
 
       // A 401 now has two distinct causes, and they need different wording on

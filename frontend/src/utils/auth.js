@@ -58,6 +58,21 @@ export const clearAuth = () => {
   clearAllCache()
 }
 
+// A delayed logout may finish after another login. Remove only its token's
+// storage entries, and leave a newer session's cache and navigation alone.
+export const clearAuthForToken = token => {
+  if (!token) return false
+  const wasCurrent = getToken() === token
+  for (const store of [localStorage, sessionStorage]) {
+    if (store.getItem(TOKEN_KEY) !== token) continue
+    store.removeItem(TOKEN_KEY)
+    store.removeItem(USER_KEY)
+    store.removeItem(ROLE_KEY)
+  }
+  if (wasCurrent) clearAllCache()
+  return wasCurrent
+}
+
 export const isAuthenticated = () => !!getToken()
 
 // Where each role's signed-in session belongs. Lives here rather than in
